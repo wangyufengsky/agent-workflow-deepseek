@@ -52,8 +52,8 @@ AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integrati
 AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/execution-live.test.ts
 ```
 
-结果（PASS，42s）：确认计划 + 准备 worktree 后开始执行；模型通过 `workspace.file.*` 修改
-`README.md`，调用 `workflow.result.submit` 提交结果；节点 succeeded、attempt 有结果；
+结果（PASS，52s）：使用单写节点的确定性计划（确认 → 准备真实 worktree → 开始执行）；模型通过
+`workspace.file.*` 修改 `README.md`，调用 `workflow.result.submit` 提交结果；节点 succeeded、attempt 有结果；
 `GET /changes` 返回 `README.md`；随后取消执行。
 
 ### 3.3 模型冒烟

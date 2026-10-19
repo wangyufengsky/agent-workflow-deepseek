@@ -229,6 +229,13 @@ function execute(args: readonly string[], options: GitRunOptions): Promise<GitRu
     timer = setTimeout(() => {
       timedOut = true;
       kill();
+      // Grandchildren (e.g. a shell script's `sleep`) can keep the stdio pipes
+      // open after the direct child dies. A timeout must settle immediately,
+      // not wait for those pipes to drain.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      child.stdin?.destroy();
+      settleReject(new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, 'git 命令执行超时', { details: { timeoutMs, signal: 'SIGKILL' } }));
     }, timeoutMs);
     timer.unref?.();
 
