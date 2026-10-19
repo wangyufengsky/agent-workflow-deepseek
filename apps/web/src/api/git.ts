@@ -16,11 +16,13 @@ import {
   createRequestKey,
   type ActionAvailability,
   type CommandResponse,
+  type DeliveryApplyRequest,
   type DeliveryCommitRequest,
   type DeliveryMergeRequest,
   type DeliveryMergeRequestRequest,
   type DeliveryPushRequest,
   type DeliveryResponse,
+  type DirectoryApplyPreview,
   type DeliverySelectRequest,
   type DiffPage,
   type FileChange,
@@ -457,6 +459,36 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetailRespons
 export async function fetchTaskChanges(taskId: string): Promise<TaskChanges> {
   const response = await apiGet<{ changes: TaskChanges }>(ROUTES.changes(taskId));
   return response.data.changes;
+}
+
+export interface DirectoryApplyPreviewInput {
+  readonly fileIds?: readonly string[];
+  readonly resolutions?: readonly { readonly fileId: string; readonly resolution: 'keep_original' | 'take_task' | 'manual_then_recheck' | 'exclude' }[];
+}
+
+export async function previewDirectoryApply(taskId: string, input: DirectoryApplyPreviewInput = {}): Promise<DirectoryApplyPreview> {
+  const response = await apiPost<{ preview: DirectoryApplyPreview }>(ROUTES.deliveryApplyPreview(taskId), input);
+  return response.data.preview;
+}
+
+export interface DirectoryApplyResult {
+  readonly receipt: CommandResponse<unknown>['receipt'];
+  readonly resource: {
+    readonly delivery: DeliveryResponse['delivery'];
+    readonly preview?: DirectoryApplyPreview;
+    readonly result?: {
+      readonly applied: number;
+      readonly blocked: number;
+      readonly unknown: number;
+      readonly notExecuted: number;
+      readonly items: readonly { readonly fileId: string; readonly path: string; readonly result: string; readonly message?: string }[];
+    };
+  };
+}
+
+export async function applyDirectoryApply(taskId: string, input: DeliveryApplyRequest): Promise<DirectoryApplyResult> {
+  const response = await apiPost<DirectoryApplyResult>(ROUTES.deliveryApply(taskId), input);
+  return response.data;
 }
 
 export async function fetchTaskDelivery(taskId: string): Promise<DeliveryResponse> {

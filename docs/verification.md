@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**266 tests / 54 suites / 258 pass / 8 skipped / 0 fail**，约 24s。
+结果（本轮）：**287 tests / 54 suites / 279 pass / 8 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -37,6 +37,9 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/concurrency | 两个任务并发准备独立 worktree，分支/目录不同；互不污染、main 不变；清理后无残留分支 |
 | server/review | review/fix 服务与 15 条 HTTP 路由、findings 校验丢弃、CAS、worktree 隔离、revert/commit/discard |
 | server/remote | GitHub token 加密/连接/MR 读取/令牌不泄漏；fetch 更新本地远端引用；非 Git 目录副本 |
+| server/apply | 非 Git 三方预览 → 冻结 → 逐项应用：真实 prepare baseline、无冲突写入、冲突处理、备份、漂移拒绝、路径逃逸 |
+| server/push-mr | 本地 bare 远端 push 创建/非快进拒绝；GitHub REST 创建 MR（stub）→ delivered/lifecycle completed |
+| server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
@@ -112,7 +115,17 @@ AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integrati
 结果（PASS，30s）：flash 模型经网关 4 次请求、4 次归一化（去掉 tool_choice）→ MCP `workflow.plan.submit`
 候选通过。默认规划/开发/修复模型为 flash，审查可配置为 v4-pro。
 
-### 3.8 模型冒烟
+### 3.8 非 Git 目录应用（离线 PASS）
+
+```sh
+node --import tsx --test --test-force-exit tests/integration/directory-apply-e2e.test.ts
+```
+
+结果（PASS）：真实 `workspace/prepare` 生成独立目录副本与 baseline 快照 → 修改副本 → preview（只读、2 项可应用）
+→ apply → 原目录写入、delivery=delivered、task lifecycle=completed；UI 证据
+[task-delivery-apply-preview.png](evidence/task-delivery-apply-preview.png)。
+
+### 3.9 模型冒烟
 
 ```sh
 npm run test:model
@@ -171,6 +184,6 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
   未执行（避免修改真实仓库），GitLab 未联调。
 - AI 审查/修复的服务端结果已验证；模型自报的校验命令未由服务独立执行；`fix.merge` 未实现。
 - FixRun 的 start/stop requestKey 只存在内存，进程重启后的恢复仍需补（ReviewRun 可从 receipt 恢复）。
-- 非 Git 目录副本已实现；三方应用预览/逐项应用未实现。工作区清理确认仅基础实现。
+- 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理确认仅基础实现。
 - Electron 打包分发（签名、跨平台）未验证；`desktop` 构建脚本与主进程已可启动。
 - 页面视觉与设计稿的最终对照（截图）与浏览器自动化回归待补（见 `docs/remaining-work.md`）。

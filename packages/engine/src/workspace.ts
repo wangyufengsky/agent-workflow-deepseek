@@ -172,7 +172,7 @@ export class WorkspaceService {
         readAt: nowIso(),
         stats: { added: 0, modified: 0, deleted: 0 },
         files: [],
-        excluded: [{ path: workspace.displayRoot ?? '', reason: '非 Git 目录对比尚未接通' }],
+        excluded: [{ path: workspace.displayRoot ?? '', reason: '非 Git 目录不生成 Git 变更集；请在“应用到原目录”的三方预览中查看逐项差异。' }],
       };
     }
     const { files, changesRevision } = await this.#git.worktreeChangedFiles({ worktreePath: workspace.displayRoot, baseSha: workspace.baseSha });

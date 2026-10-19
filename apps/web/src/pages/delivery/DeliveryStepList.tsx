@@ -181,16 +181,16 @@ export function DeliveryStepList({
         <StepCard
           ordinal="应用"
           title="应用到原目录"
-          desc="非 Git 项目没有提交 / 推送 / MR。应用是逐项三方检查后的写入，不是文件系统事务；本面板只显示只读预览。"
+          desc="非 Git 项目没有提交 / 推送 / MR。应用由「应用到原目录」预览确认后逐项写入；写入前自动备份，不是文件系统事务。"
           state={applyStep}
           current={false}
-          fallbackReason="非 Git 应用确认接口尚未接通；这里只显示只读预览，不写入原目录。"
+          fallbackReason="请在「应用到原目录」预览中逐项确认；写入动作由该预览驱动。"
           action={serverAction(actions, 'apply', 'delivery.apply')}
           busy={false}
           pendingLabel="应用中…"
           buttonLabel="确认应用"
           buttonIcon="folder"
-          onAction={() => { /* 应用确认接口未接通，按钮禁用并显示原因。 */ }}
+          onAction={() => undefined}
           onVerify={onVerify}
         />
       </section>

@@ -11,3 +11,4 @@ export * from './delivery.ts';
 export * from './review.ts';
 export * from './fix.ts';
 export * from './engine.ts';
+export * from './directory-apply.ts';

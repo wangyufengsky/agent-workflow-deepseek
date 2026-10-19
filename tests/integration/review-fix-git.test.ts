@@ -234,6 +234,7 @@ test('real Git: fix worktree isolation, revert via git restore, commit, and disc
         message: 'fix: 判空',
         fileIds: [file.fileId],
         expectedFixRevision: readySecond.fixRevision,
+        confirmVerifyFailed: true,
       },
     });
     assert.equal(commit.statusCode, 200, commit.body);
