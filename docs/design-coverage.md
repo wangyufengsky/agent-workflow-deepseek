@@ -24,7 +24,7 @@
 | workflows.html / workflow-editor.html | `/workflows` | catalog.methods | 🟡 | 目录只读；编辑未接通 |
 | settings.html | `/settings` | `/api/settings`、opencode | ✅/🟡 | 外观/服务/模型启停/轮询间隔/Git 账号与令牌/数据库概览已接线；监控阈值未接 |
 | tools.html | `/tools` | MCP 目录 + opencode status + `/api/settings` + `/api/skills` | ✅/🟡 | 工具集启停（重启生效）、本机 Skill 只读目录已接线；单工具开关/正文查看未开放 |
-| knowledge.html / knowledge-history.html | `/knowledge` | — | ⛔ | 页面结构与禁用原因；对话/资料/引用未接通 |
+| knowledge.html / knowledge-history.html | `/knowledge` | `/api/knowledge/sources` | 🟡 | 项目文档来源只读清单已接通；问答/检索/引用/历史仍未接通 |
 | ppt*.html | `/ppt` | — | ⛔ | 页面结构；制作/导入/作品未接通 |
 | recovery.html | `/recovery`、`/tasks/:id/recovery` | `/recovery` API、`/execution/retry` | ✅/🟡 | 派生草稿创建/历史、执行继续/重试失败步骤/停止已接线；单节点放弃未开放 |
 | insights.html | `/insights` | bootstrap + `/api/insights` | ✅/🟡 | 任务/规划/执行/审查/修复/交付真实计数；规划成本累计（tokens 仍未采集） |

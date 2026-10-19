@@ -1,5 +1,8 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { KnowledgeSourcesResponse } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
+import { apiGet } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
@@ -7,10 +10,8 @@ import { Icon } from '../../components/Icon.tsx';
 import { PendingBackendNotice, ServiceNotice } from '../../components/ServiceNotice.tsx';
 
 const ASK_BLOCKED_REASON = '知识库问答接口尚未接通：服务端没有检索 / 对话 / 引用读取接口，问题不会发送，也没有模拟回答。';
-const SOURCE_BLOCKED_REASON = '资料来源接口尚未接通：服务端没有返回可授权的代码、文档与数据库来源。';
 
 const PLANNED_ENTRYPOINTS = [
-  { method: 'GET', path: '/api/knowledge/sources', purpose: '返回项目下已授权的资料来源与可读状态' },
   { method: 'POST', path: '/api/knowledge/conversations', purpose: '创建对话并固定项目与来源选择' },
   { method: 'POST', path: '/api/knowledge/conversations/:id/messages', purpose: '发送问题；回答与引用由服务端记录' },
 ] as const;
@@ -18,15 +19,24 @@ const PLANNED_ENTRYPOINTS = [
 export function KnowledgePage() {
   const bootstrap = useBootstrap();
   const [question, setQuestion] = useState('');
+  const projects = bootstrap.data?.projects ?? [];
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const projectId = selectedProjectId !== '' ? selectedProjectId : (projects[0]?.id ?? '');
+  const sourcesQuery = useQuery({
+    queryKey: ['knowledge', 'sources', projectId],
+    queryFn: async () => (await apiGet<KnowledgeSourcesResponse>(`/api/knowledge/sources?projectId=${encodeURIComponent(projectId)}`)).data,
+    enabled: projectId !== '',
+    retry: false,
+  });
 
   return (
     <div className="page">
       <PageHeader
         title="知识库"
-        lede="从代码、文档和数据库中查找依据，每个结论都能回到原文。当前只支持界面浏览；问答与来源接口尚未接通。"
+        lede="从代码、文档和数据库中查找依据，每个结论都能回到原文。资料来源已可读取；问答与引用接口尚未接通。"
         actions={
-          <Badge tone="unknown" icon="help">
-            尚未接通
+          <Badge tone="wait" icon="eye">
+            资料来源已接通
           </Badge>
         }
       />
@@ -82,7 +92,7 @@ export function KnowledgePage() {
             aria-describedby="kb-disabled-note"
           />
           <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-            <Button variant="secondary" size="sm" icon="book" disabled disabledReason={SOURCE_BLOCKED_REASON}>
+            <Button variant="secondary" size="sm" icon="book" disabled disabledReason="资料来源在下方「资料来源」卡片中读取；问答与引用仍未接通。">
               资料来源
             </Button>
             <span className="chip" title="问答模型由服务端在创建对话时固定">
@@ -135,16 +145,33 @@ export function KnowledgePage() {
           <div className="row" style={{ gap: 8 }}>
             <Icon name="book" size="sm" />
             <span className="section-title">资料来源</span>
-            <Badge tone="unknown" icon="help">
-              未接通
-            </Badge>
+            <Badge tone="ok" icon="check">只读清单</Badge>
           </div>
           <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
-            服务端还没有返回可授权的来源清单，因此这里不列出示例代码库、文档或数据库。接入后，来源选择应保存为本轮问答的输入，并在读取时重新核对许可。
+            服务端只读扫描项目目录中的文档（md/mdx/txt/rst/json/yaml），不返回文件正文；问答与引用仍未接通。
           </p>
-          <Button variant="secondary" size="sm" icon="refresh" disabled disabledReason={SOURCE_BLOCKED_REASON} style={{ marginTop: 12 }}>
-            读取来源
-          </Button>
+          <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+            <select className="select" style={{ width: 'auto', height: 30 }} value={projectId} onChange={(event) => { setSelectedProjectId(event.target.value); }} aria-label="选择项目">
+              {projects.length === 0 ? <option value="">没有项目</option> : projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+            <Button variant="secondary" size="sm" icon="refresh" disabled={projectId === '' || sourcesQuery.isFetching} onClick={() => { void sourcesQuery.refetch(); }}>
+              {sourcesQuery.isFetching ? '读取中…' : '读取来源'}
+            </Button>
+          </div>
+          {sourcesQuery.isError ? <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>读取失败：{String((sourcesQuery.error as Error).message)}</p> : null}
+          {sourcesQuery.data === undefined ? null : sourcesQuery.data.sources.length === 0 ? (
+            <p className="hint" style={{ marginTop: 10 }}>项目目录里没有找到支持的文档来源。</p>
+          ) : (
+            <div className="list" style={{ marginTop: 10, maxHeight: 280, overflow: 'auto' }}>
+              {sourcesQuery.data.sources.map((source) => (
+                <div key={source.path} className="list-row" style={{ cursor: 'default' }}>
+                  <span className="tile"><Icon name="doc" size="sm" /></span>
+                  <span className="grow mono" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>{source.path}</span>
+                  <span className="hint">{Math.max(1, Math.round(source.bytes / 1024))} KB</span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="card pad">
@@ -183,7 +210,7 @@ export function KnowledgePage() {
         </div>
       </div>
 
-      <PendingBackendNotice message="知识库对话、检索、引用与历史会话都尚未接通。本页不展示示例回答、引用编号或工具调用记录；接入契约与接口后再启用输入。" />
+      <PendingBackendNotice message="资料来源清单已接通（只读、无正文）；问答、检索、引用与历史会话仍未接通，本页不展示示例回答或引用编号。" />
     </div>
   );
 }

@@ -195,6 +195,17 @@ export interface NodeSkipRequest extends CommandRequest {
   readonly confirmSkip: true;
 }
 
+export interface KnowledgeSource {
+  readonly path: string;
+  readonly bytes: number;
+  readonly modifiedAt: IsoDateTime;
+}
+
+export interface KnowledgeSourcesResponse {
+  readonly projectId: string;
+  readonly sources: readonly KnowledgeSource[];
+}
+
 export interface SkillInfo {
   readonly id: string;
   readonly name: string;
@@ -901,6 +912,7 @@ export const ROUTES = {
   opencodeDetect: '/api/opencode/detect',
   insights: '/api/insights',
   skills: '/api/skills',
+  knowledgeSources: '/api/knowledge/sources',
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;
