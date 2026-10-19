@@ -42,11 +42,11 @@ export interface ExecutionPatch {
 
 export interface ExecutionNodePatch {
   readonly status?: NodeStatusValue;
-  readonly currentAttemptId?: string;
+  readonly currentAttemptId?: string | null;
   readonly attemptCount?: number;
-  readonly startedAt?: string;
-  readonly endedAt?: string;
-  readonly error?: { readonly code: string; readonly message: string };
+  readonly startedAt?: string | null;
+  readonly endedAt?: string | null;
+  readonly error?: { readonly code: string; readonly message: string } | null;
 }
 
 export class ExecutionRepository {
@@ -167,11 +167,11 @@ export class ExecutionRepository {
       )
       .run(
         patch.status ?? String(current.status),
-        patch.currentAttemptId ?? (current.current_attempt_id as string | null),
+        patch.currentAttemptId === undefined ? (current.current_attempt_id as string | null) : patch.currentAttemptId,
         patch.attemptCount ?? Number(current.attempt_count),
-        patch.startedAt ?? (current.started_at as string | null),
-        patch.endedAt ?? (current.ended_at as string | null),
-        patch.error === undefined ? (current.error_json as string | null) : jsonStringify(patch.error),
+        patch.startedAt === undefined ? (current.started_at as string | null) : patch.startedAt,
+        patch.endedAt === undefined ? (current.ended_at as string | null) : patch.endedAt,
+        patch.error === undefined ? (current.error_json as string | null) : patch.error === null ? null : jsonStringify(patch.error),
         executionId,
         nodeId,
       );

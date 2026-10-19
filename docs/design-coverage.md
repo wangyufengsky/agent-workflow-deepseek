@@ -26,7 +26,7 @@
 | tools.html | `/tools` | MCP 目录 + opencode status | 🟡 | 工具目录/状态只读；Skill 源文/开关未接通 |
 | knowledge.html / knowledge-history.html | `/knowledge` | — | ⛔ | 页面结构与禁用原因；对话/资料/引用未接通 |
 | ppt*.html | `/ppt` | — | ⛔ | 页面结构；制作/导入/作品未接通 |
-| recovery.html | `/recovery`、`/tasks/:id/recovery` | `/recovery` API | ✅/🟡 | 派生草稿创建/历史已接线；节点级重试/放弃等命令未开放 |
+| recovery.html | `/recovery`、`/tasks/:id/recovery` | `/recovery` API、`/execution/retry` | ✅/🟡 | 派生草稿创建/历史、执行继续/重试失败步骤/停止已接线；单节点放弃未开放 |
 | insights.html | `/insights` | bootstrap 统计 | 🟡 | 任务统计真实；用量/质量接口未接通（显示未知） |
 | runtime.html | `/runtime` | opencode status/data | ✅/🟡 | 受管服务状态/重启/数据路径；历史与启动控制未接通 |
 | run.html / index.html | — | — | ⛔ | 未被菜单引用（设计留档） |
@@ -74,7 +74,7 @@
 
 | 项 | 状态 |
 | --- | --- |
-| B-01 恢复工作台 | ✅ 派生草稿创建/历史；节点级恢复命令未开放 |
+| B-01 恢复工作台 | ✅ 派生草稿创建/历史、执行继续与失败重试；单节点放弃未开放 |
 | B-02/B-03 职业版本/权限预估 | ⛔ 目录只读 |
 | B-04 历史角色配置 | ⛔ |
 | B-05 需求高级澄清与规划 | ✅ 合并为需求画布按阶段页签（见 PE01–PE32） |

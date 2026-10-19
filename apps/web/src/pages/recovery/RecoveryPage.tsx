@@ -11,6 +11,8 @@ import {
   type TaskSummary,
 } from '@agent-workflow/shared';
 import { apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { cancelExecution, resumeExecution, retryExecution } from '../../api/workflow.ts';
+import type { TaskDetailResponse } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
 import { deriveTaskStatus, taskHref, taskProgressText } from '../../app/taskStatus.ts';
@@ -121,6 +123,33 @@ export function RecoveryPage() {
     queryFn: async () => (await apiGet<RecoveryHistoryResponse>(`/api/tasks/${encodeURIComponent(taskId)}/recoveries`)).data,
     enabled: taskId.length > 0,
     retry: false,
+  });
+  const detail = useQuery({
+    queryKey: ['recovery', 'detail', taskId],
+    queryFn: async () => (await apiGet<TaskDetailResponse>(`/api/tasks/${encodeURIComponent(taskId)}/detail`)).data,
+    enabled: taskId.length > 0,
+    retry: false,
+  });
+  const executionNode = detail.data?.execution;
+  const failedNodes = executionNode?.nodes.filter((node) => node.status === 'failed') ?? [];
+  const executionRecovery = useMutation({
+    mutationFn: async (action: 'resume' | 'retry' | 'cancel') => {
+      if (action === 'resume') return resumeExecution(taskId, executionNode?.status);
+      if (action === 'retry') return retryExecution(taskId, executionNode?.status);
+      return cancelExecution(taskId, executionNode?.status);
+    },
+    onSuccess: async (response) => {
+      setFailure(undefined);
+      setNotice(`执行命令回执：${response.receipt.status}`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['recovery', 'detail', taskId] }),
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+      ]);
+    },
+    onError: (error) => {
+      setNotice(undefined);
+      setFailure(isServiceUnavailable(error) ? '服务未连接，命令未提交。' : errorMessage(error));
+    },
   });
   const createRecovery = useMutation({
     mutationFn: async () => {
@@ -302,6 +331,58 @@ export function RecoveryPage() {
             </div>
           </section>
         </div>
+
+        <section className="card solid" aria-label="执行恢复">
+          <div className="card-head">
+            <span className="tile"><Icon name="play" /></span>
+            <div className="grow">
+              <span className="section-title">执行恢复</span>
+              <div className="hint" style={{ marginTop: 2 }}>
+                {executionNode === undefined
+                  ? '这个任务还没有执行记录；恢复草稿创建后重新规划即可。'
+                  : `执行状态 ${executionNode.status} · 失败步骤 ${String(failedNodes.length)} 个`}
+              </div>
+            </div>
+            {executionNode === undefined ? null : <Badge tone={executionNode.status === 'failed' ? 'fail' : executionNode.status === 'running' ? 'ok' : 'idle'}>{executionNode.status}</Badge>}
+          </div>
+          <div className="card-body">
+            {executionNode === undefined ? (
+              <p className="hint">没有可执行的恢复动作。</p>
+            ) : (
+              <>
+                {failedNodes.length === 0 ? null : (
+                  <ul className="hint" style={{ margin: '0 0 12px 18px', lineHeight: 1.7 }}>
+                    {failedNodes.slice(0, 5).map((node) => (
+                      <li key={node.nodeId}>{node.nodeId}{node.error === undefined ? '' : `：${node.error.message}`}</li>
+                    ))}
+                  </ul>
+                )}
+                <div className="row wrap" style={{ gap: 8 }}>
+                  {executionNode.status === 'paused' ? (
+                    <Button variant="secondary" size="sm" icon="play" disabled={executionRecovery.isPending} onClick={() => executionRecovery.mutate('resume')}>
+                      继续执行
+                    </Button>
+                  ) : null}
+                  {failedNodes.length > 0 && ['failed', 'stopped', 'paused'].includes(executionNode.status) ? (
+                    <Button variant="primary" size="sm" icon="refresh" disabled={executionRecovery.isPending} onClick={() => executionRecovery.mutate('retry')}>
+                      {executionRecovery.isPending ? '正在提交…' : `按原配置重试 ${String(failedNodes.length)} 个失败步骤`}
+                    </Button>
+                  ) : null}
+                  {['running', 'paused'].includes(executionNode.status) ? (
+                    <Button variant="secondary" size="sm" icon="stop" disabled={executionRecovery.isPending} onClick={() => executionRecovery.mutate('cancel')}>
+                      停止执行（保留工作区）
+                    </Button>
+                  ) : null}
+                </div>
+                {failure === undefined ? null : <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>{failure}</p>}
+                {notice === undefined ? null : <p className="hint" style={{ marginTop: 8 }}>{notice}</p>}
+                <p className="hint" style={{ marginTop: 10 }}>
+                  重试会为失败步骤创建新的 attempt，按原计划与配置重新运行；不会改动已成功的步骤。
+                </p>
+              </>
+            )}
+          </div>
+        </section>
 
         <section className="card solid" aria-label="派生草稿记录">
           <div className="card-head">

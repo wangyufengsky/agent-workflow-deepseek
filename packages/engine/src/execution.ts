@@ -118,6 +118,43 @@ export class ExecutionService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
   }
 
+  retry(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
+    const task = this.#requireTask(taskId);
+    const execution = this.get(taskId);
+    if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
+    const failedNodes = execution.nodes.filter((node) => node.status === NodeStatus.FAILED);
+    if (failedNodes.length === 0) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有失败的步骤可以重试');
+    if (!['failed', 'stopped', 'paused'].includes(execution.status)) {
+      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行仍在运行，先暂停/取消后再重试', { details: { status: execution.status } });
+    }
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'execution.retry',
+      body: { taskId, expectedStatus: input.expectedStatus, nodeIds: failedNodes.map((node) => node.nodeId), confirm: true },
+      target: { taskId, executionId: execution.id },
+    });
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    for (const node of failedNodes) {
+      this.#store.executions.updateNode(execution.id, node.nodeId, {
+        status: NodeStatus.PENDING,
+        error: null,
+        startedAt: null,
+        endedAt: null,
+        currentAttemptId: null,
+      });
+    }
+    this.#store.executions.update(execution.id, {
+      status: 'running',
+      endedAt: undefined,
+      notice: { kind: 'paused', message: `按原配置重试 ${String(failedNodes.length)} 个失败步骤` },
+    });
+    this.#store.tasks.update(taskId, { attention: TaskAttention.NONE });
+    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
+    this.#commands.settle(input.requestKey, { retried: failedNodes.length });
+    void this.#advance(execution.id);
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
+  }
+
   async cancel(taskId: string, input: ExecutionCommandRequest): Promise<CommandResponse<ExecutionResponse>> {
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);

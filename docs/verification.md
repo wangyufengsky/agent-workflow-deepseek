@@ -188,7 +188,9 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 仅对失败/受阻/已取消任务创建派生草稿；原任务、执行证据与交付记录不变。
 - `from_failed_stage / all_stages / verify_only` 三种方式，草稿为 `draft` 阶段，不自动规划/执行。
 - requestKey 幂等（重放返回同一草稿）、回执结算、操作表登记 `task.recovery.create`。
-- UI 恢复工作台已接线：真实任务摘要、方式选择、创建后跳转需求画布、派生草稿历史。
+- UI 恢复工作台已接线：真实任务摘要、方式选择、创建后跳转需求画布、派生草稿历史；失败执行可直接
+  「按原配置重试失败步骤」（新 attempt，保留成功步骤）/「继续执行」/「停止执行（保留工作区）」。
+- `POST /api/tasks/:id/execution/retry` 已实现并登记 `execution.retry`。
 测试：`tests/integration/recovery-api.test.ts` PASS。
 
 ## 8. 已知限制 / 未验证

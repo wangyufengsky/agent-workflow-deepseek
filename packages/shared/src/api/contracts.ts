@@ -764,6 +764,7 @@ export const ROUTES = {
   executionStart: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/start`,
   executionPause: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/pause`,
   executionResume: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/resume`,
+  executionRetry: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/retry`,
   executionAdvance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/advance`,
   executionCancel: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/cancel`,
   node: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}`,

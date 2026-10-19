@@ -318,6 +318,12 @@ export async function resumeExecution(taskId: string, expectedStatus?: string): 
   return response.data;
 }
 
+export async function retryExecution(taskId: string, expectedStatus?: string): Promise<CommandResponse<ExecutionResponse>> {
+  const body: ExecutionCommandRequest = { requestKey: createRequestKey(), expectedStatus, confirm: true };
+  const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionRetry(taskId), body);
+  return response.data;
+}
+
 export async function cancelExecution(taskId: string, expectedStatus?: string): Promise<CommandResponse<ExecutionResponse>> {
   const body: ExecutionCommandRequest = { requestKey: createRequestKey(), expectedStatus, confirm: true };
   const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionCancel(taskId), body);

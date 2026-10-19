@@ -81,6 +81,15 @@ test('recovery API creates an idempotent derived draft and lists its history', a
     });
     assert.equal(rejected.statusCode, 400, rejected.body);
     assert.equal(rejected.json().error.code, 'VALIDATION_FAILED');
+
+    // Retry is a recovery command, but requires an existing execution.
+    const retry = await app.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${healthyId}/execution/retry`,
+      payload: { requestKey: requestKey('retry'), confirm: true },
+    });
+    assert.equal(retry.statusCode, 404, retry.body);
+    assert.equal(retry.json().error.code, 'NOT_FOUND');
   } finally {
     await app.close();
   }
