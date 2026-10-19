@@ -35,7 +35,8 @@ export const PPT_STATUS_META: Record<PptWorkStatusValue, PptStatusMeta> = {
   failed: { label: '生成失败', tone: 'fail', icon: 'alert' },
 };
 
-export function pptStatusMeta(status: PptWorkStatusValue): PptStatusMeta {
+export function pptStatusMeta(status: PptWorkStatusValue, work?: PptWork): PptStatusMeta {
+  if(status==='ready' && (work?.generation?.pages??work?.productionPages)?.some(page=>page.status!=='completed'))return {label:'部分完成',tone:'idle',icon:'pause'};
   return PPT_STATUS_META[status] ?? PPT_STATUS_META.draft;
 }
 
@@ -49,12 +50,13 @@ export interface PptPageCount {
 }
 
 export function pptPageCount(work: PptWork): PptPageCount {
-  return { outline: work.outline.length, slides: work.slides.length };
+  return { outline: work.outline.length, slides: (work.generation?.pages??work.productionPages) ? (work.generation?.pages??work.productionPages)!.filter(page=>page.status==='completed').length : work.slides.length };
 }
 
 /** 作品列表里的页数口径：已生成逐页就报页数，否则报大纲条数。 */
 export function pptPageSummary(work: PptWork): string {
   const count = pptPageCount(work);
+  if(work.generation?.pages??work.productionPages)return `已有 ${count.slides}/${(work.generation?.pages??work.productionPages)!.length} 正文页完成制作`;
   if (count.slides > 0) return `已生成 ${String(count.slides)} 页`;
   if (count.outline > 0) return `大纲 ${String(count.outline)} 条 · 未生成逐页`;
   return '尚无大纲';
@@ -106,11 +108,13 @@ export interface PptProgress {
  */
 export function derivePptProgress(work: PptWork): PptProgress {
   const hasOutline = work.outline.length > 0;
-  const hasSlides = work.slides.length > 0;
-  const completed = (hasOutline ? 1 : 0) + (hasSlides ? 1 : 0);
-  const current: PptProgress['current'] = !hasOutline ? 'discuss' : !hasSlides ? 'design' : 'check';
+  const pageStates=work.generation?.pages??work.productionPages;
+  const made=pageStates?.filter(page=>page.status==='completed').length;
+  const hasSlides = pageStates ? (made??0)>0 : work.slides.length > 0;
+  const completed = (hasOutline ? 1 : 0) + ((pageStates ? made===pageStates.length : hasSlides) ? 1 : 0);
+  const current: PptProgress['current'] = pageStates ? 'check' : !hasOutline ? 'discuss' : !hasSlides ? 'design' : 'check';
   const stageLabel = PPT_STAGES.find((step) => step.key === current)?.label ?? '讨论需求';
-  const pageText = hasSlides
+  const pageText = pageStates ? `本次已制作 ${made}/${pageStates.length} 正文页` : hasSlides
     ? `已生成 ${String(work.slides.length)} 页`
     : hasOutline
       ? `大纲 ${String(work.outline.length)} 条 · 未生成逐页`
@@ -120,7 +124,9 @@ export function derivePptProgress(work: PptWork): PptProgress {
       ? '服务正在生成内容，等回执后再操作'
       : work.status === 'failed'
         ? '最近一次生成失败；到工作台按回执重试'
-        : !hasOutline
+        : pageStates?.some(page=>page.status!=='completed')
+          ? '还有页面未完成；继续制作或手动保存页面后再导出'
+          : !hasOutline
           ? '下一步：到工作台补全主题与大纲'
           : !hasSlides
             ? '下一步：生成逐页内容'

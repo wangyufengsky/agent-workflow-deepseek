@@ -834,6 +834,9 @@ export const PptTextColor = { PRIMARY: 'primary', ACCENT: 'accent', MUTED: 'mute
 export const PptTextAlign = { LEFT: 'left', CENTER: 'center', RIGHT: 'right' } as const;
 export const PptPlanModules = { BRIEF: 'brief', NARRATIVE: 'narrative', SLIDES: 'slides', VISUAL: 'visual', ASSETS: 'assets', NOTES: 'notes', DELIVERY: 'delivery' } as const;
 
+export const PptPageGenerationStatus = { PENDING:'pending', GENERATING:'generating', COMPLETED:'completed', FAILED:'failed', UNKNOWN:'unknown', STOPPED:'stopped' } as const;
+export type PptPageGenerationStatusValue = (typeof PptPageGenerationStatus)[keyof typeof PptPageGenerationStatus];
+export const PPT_PAGE_GENERATION_META = {pending:{label:'等待制作',icon:'clock'},generating:{label:'正在制作这一页',icon:'clock'},completed:{label:'已完成',icon:'check'},failed:{label:'制作失败',icon:'alert'},unknown:{label:'结果待核对',icon:'help'},stopped:{label:'已停止',icon:'pause'}} as const;
 export const PptGenerationStatus = { RUNNING:'running', STOPPING:'stopping', UNKNOWN:'unknown', STOPPED:'stopped', COMPLETED:'completed', FAILED:'failed' } as const;
 export type PptGenerationStatusValue = (typeof PptGenerationStatus)[keyof typeof PptGenerationStatus];
 export const PPT_GENERATION_TERMINAL = [PptGenerationStatus.COMPLETED,PptGenerationStatus.FAILED,PptGenerationStatus.STOPPED] as const;

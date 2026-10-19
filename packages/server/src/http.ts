@@ -271,6 +271,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/knowledge/runs/:key/stop',
   'POST /api/interactions/:id/resolve',
   'POST /api/runtime-interactions/:id/resolve',
+  'POST /api/ppt-generations/:key/stop',
   'POST /api/opencode/start',
   'POST /api/opencode/restart',
 ]);
@@ -980,8 +981,18 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     }
   });
   app.get<{Params:{id:string}}>('/api/ppt/works/:id/assistant', async(request)=>envelope(engine.ppt.assistant.view(request.params.id),requestId(request)));
-  app.post<{Params:{id:string}}>('/api/ppt/works/:id/assistant', async(request)=>envelope(await engine.ppt.assistant.ask(request.params.id,request.body as import('@agent-workflow/shared').PptAssistantRequest),requestId(request)));
+  app.post<{Params:{id:string}}>('/api/ppt/works/:id/assistant', async(request)=>{
+    const body=request.body as import('@agent-workflow/shared').PptAssistantRequest;
+    const existing=engine.commands.get(body.requestKey),pending=engine.ppt.assistant.ask(request.params.id,body),accepted=engine.commands.get(body.requestKey);
+    if(body.background===true && existing===undefined && accepted?.status==='accepted'){void pending.catch(()=>{});return envelope({receipt:engine.commands.toReceipt(accepted),resource:engine.ppt.assistant.view(request.params.id)},requestId(request));}
+    return envelope(await pending,requestId(request));
+  });
   app.post<{Params:{id:string}}>('/api/ppt/works/:id/assistant/decide', async(request)=>envelope(engine.ppt.assistant.decide(request.params.id,request.body as import('@agent-workflow/shared').PptAssistantDecideRequest),requestId(request)));
+  app.post<{Params:{key:string}}>('/api/ppt-generations/:key/stop',async(request)=>{
+    const original=engine.commands.get(request.params.key);
+    if(!original?.target.ref || !['ppt.work.generate','ppt.work.slides','ppt.assistant.ask'].includes(original.operation))throw new AppError(ErrorCode.NOT_FOUND,'原PPT生成请求不存在');
+    return envelope(await engine.ppt.stop(original.target.ref,{...(request.body as import('@agent-workflow/shared').PptWorkStopRequest),generationRequestKey:request.params.key}),requestId(request));
+  });
   app.post<{ Params: { id: string } }>('/api/ppt/works/:id/stop', async (request) => envelope(await engine.ppt.stop(request.params.id, request.body as import('@agent-workflow/shared').PptWorkStopRequest), requestId(request)));
   app.get<{ Params: { id: string }; Querystring: { page?: string; direction?: string } }>('/api/ppt/works/:id/thumbnail', async (request, reply) => reply.header('content-type', 'image/svg+xml; charset=utf-8').header('cache-control', 'no-store').send(engine.ppt.thumbnail(request.params.id, Number(request.query.page ?? 0), request.query.direction)));
   app.get<{ Params: { id: string } }>('/api/ppt/works/:id/check', async (request) => envelope(engine.ppt.check(request.params.id), requestId(request)));
@@ -1012,7 +1023,14 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.delete<{ Params: { id: string; name: string } }>('/api/ppt/works/:id/attachments/:name', async (request) => envelope(engine.ppt.detach(request.params.id, decodeURIComponent(request.params.name), (request.body as { requestKey: string } | undefined)?.requestKey ?? ''), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/ppt/works/:id/generate-slides', async (request) => {
     const body = request.body as PptWorkGenerateContentRequest;
-    return envelope(await engine.ppt.generateSlides(request.params.id, body), requestId(request));
+    const existing=engine.commands.get(body.requestKey);
+    const pending=engine.ppt.generateSlides(request.params.id,body);
+    const accepted=engine.commands.get(body.requestKey);
+    if(body.background===true && existing===undefined && accepted?.status==='accepted') {
+      void pending.catch(()=>{/* Persisted receipt and page states expose failure; never redispatch. */});
+      return envelope({receipt:engine.commands.toReceipt(accepted),resource:engine.ppt.list().works.find(work=>work.id===request.params.id)},requestId(request));
+    }
+    return envelope(await pending, requestId(request));
   });
   app.patch<{ Params: { id: string } }>('/api/ppt/works/:id', async (request) => {
     const body = request.body as PptWorkUpdateRequest;

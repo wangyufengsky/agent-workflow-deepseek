@@ -66,7 +66,7 @@ function WorkCard({
   readonly onCommand: (command: PptCommand) => void;
 }) {
   const progress = derivePptProgress(work);
-  const status = pptStatusMeta(work.status);
+  const status = pptStatusMeta(work.status, work);
   return (
     <article className="ppt-work-card" data-selected={selected}>
       <button type="button" className="ppt-work-main" onClick={onOpen} aria-label={`打开工作台：${work.title}`}>
@@ -117,7 +117,7 @@ function WorkListRow({
   readonly onCommand: (command: PptCommand) => void;
 }) {
   const progress = derivePptProgress(work);
-  const status = pptStatusMeta(work.status);
+  const status = pptStatusMeta(work.status, work);
   return (
     <article className="ppt-work-listitem" data-selected={selected}>
       <button type="button" className="ppt-work-rowmain" onClick={onOpen} aria-label={`打开工作台：${work.title}`}>

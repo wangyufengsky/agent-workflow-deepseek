@@ -898,6 +898,8 @@ export interface PptWorkExportResponse {
 }
 
 export interface PptWorkGenerateContentRequest extends CommandRequest {
+  /** Return accepted immediately; completion is read through the original request key. */
+  readonly background?: true;
   readonly expectedRevision?: number;
   readonly confirmGenerate: true;
 }
@@ -913,9 +915,11 @@ export interface PptAttachmentRequest extends CommandRequest {
 export interface PptDocumentResponse { readonly workId: string; readonly revision: number; readonly filename: string; readonly html: string; readonly sha256: string; readonly pages: number; }
 export interface PptNativeExportRequest { readonly workId: string; readonly revision: number; readonly format: 'pptx' | 'pdf'; readonly includeNotes?: boolean; }
 export type PptNativeExportResult = { readonly status: 'saved'; readonly filename: string; readonly size: number; readonly sha256: string } | { readonly status: 'cancelled' | 'unsupported' } | { readonly status: 'failed'; readonly message: string };
-export interface PptAssistantRequest extends CommandRequest { readonly expectedRevision: number; readonly message: string; readonly scope: 'brief' | 'page' | 'all'; readonly pageIndex?: number; readonly confirmSend: true; }
+export interface PptAssistantRequest extends CommandRequest { readonly background?:true; readonly expectedRevision: number; readonly message: string; readonly scope: 'brief' | 'page' | 'all'; readonly pageIndex?: number; readonly confirmSend: true; }
 export interface PptAssistantDecideRequest extends CommandRequest { readonly proposalId: string; readonly decision: 'apply' | 'discard'; readonly confirm: true; }
 export interface PptWorkUpdateRequest extends CommandRequest {
+  /** -1 is the cover; other indexes refer to body pages. Changes only one page. */
+  readonly pageEdit?: { readonly index: number; readonly page: import('../domain/models.ts').PptSlide };
   readonly cover?: import('../domain/models.ts').PptSlide;
   readonly plan?: import('../domain/models.ts').PptProductionPlan;
   readonly expectedRevision?: number;
@@ -930,6 +934,7 @@ export interface PptWorkUpdateRequest extends CommandRequest {
 }
 
 export interface PptWorkStopRequest extends CommandRequest {
+  readonly generationRequestKey?: string;
   readonly confirmStop: true;
 }
 
@@ -1987,6 +1992,7 @@ export const ROUTES = {
   pptAssistant: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/assistant`,
   pptAssistantDecide: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/assistant/decide`,
   pptDocument: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/document`,
+  pptGenerationStop: (key:string) => `/api/ppt-generations/${encodeURIComponent(key)}/stop`,
   pptWorkStop: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/stop`,
   pptWorkGenerate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate`,
   taskAcceptance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/acceptance`,

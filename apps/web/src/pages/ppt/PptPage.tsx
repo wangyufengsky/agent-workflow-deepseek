@@ -75,7 +75,7 @@ async function executePptCommand(command: PptCommand, requestKey: string): Promi
       return response.data.receipt;
     }
     case 'generateSlides': {
-      const response = await apiPost<CommandResponse<PptWork>>(ROUTES.pptWorkGenerateSlides(command.workId), command.body, {
+      const response = await apiPost<CommandResponse<PptWork>>(ROUTES.pptWorkGenerateSlides(command.workId), {...command.body,background:true}, {
         timeoutMs: 150_000,
       });
       return response.data.receipt;
@@ -215,7 +215,7 @@ export function PptPage() {
       const response = await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(requestKey));
       const record = response.data.operation;
       const lookup = toPptLookup(record);
-      setReceipt((prev) => (prev === null ? prev : { ...prev, lookupBusy: false, lookup }));
+      setReceipt((prev) => (prev === null ? prev : { ...prev, outcome: record.status, receipt: toPptReceipt(record), message: record.outcome?.stopped === true ? '原生成已停止，已有内容保留' : record.status==='succeeded' ? '原操作已结算' : prev.message, lookupBusy: false, lookup }));
       if (record.status === 'succeeded') {
         await refreshWorks();
         const workId = typeof record.outcome?.workId === 'string' ? record.outcome.workId : undefined;
@@ -230,6 +230,9 @@ export function PptPage() {
       setReceipt((prev) => (prev === null ? prev : { ...prev, lookupBusy: false, lookupError: errorMessage(error) }));
     }
   };
+
+  const checkedTerminal=useRef('');
+  useEffect(()=>{const run=selectedWork?.generation;if(run&&['completed','failed','stopped'].includes(run.status)&&receipt?.requestKey===run.requestKey&&['accepted','unknown'].includes(receipt.outcome)&&checkedTerminal.current!==`${run.requestKey}:${run.status}`){checkedTerminal.current=`${run.requestKey}:${run.status}`;void verifyReceipt(run.requestKey);}},[selectedWork?.generation?.requestKey,selectedWork?.generation?.status,receipt?.requestKey,receipt?.outcome]);
 
   return (
     <div className="page">

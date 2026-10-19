@@ -305,7 +305,7 @@ export function PptStepDesign({ work, busyKind, blocked, blockedReason, onComman
                 </div>
                 {slide.bullets.length === 0 ? (
                   <div className="hint" style={{ marginTop: 4 }}>
-                    模型没有返回要点
+                    这一页尚未填入要点
                   </div>
                 ) : (
                   <ul>
@@ -337,7 +337,7 @@ export interface PptStepCheckProps extends PptStepCommonProps {
 
 export function PptStepCheck({ attachmentsOnly=false, work, busyKind, blocked, blockedReason, lastResult, onCommand, onGoDesign }: PptStepCheckProps) {
   const anyBusy = busyKind !== null;
-  const status = pptStatusMeta(work.status);
+  const status = pptStatusMeta(work.status, work);
   const counts = pptPageCount(work);
   const [attachName, setAttachName] = useState('');
   const [attachKind, setAttachKind] = useState<'text' | 'image'>('text');

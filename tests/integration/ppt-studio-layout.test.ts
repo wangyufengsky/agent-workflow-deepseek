@@ -51,7 +51,7 @@ test('formal studio shows one current page, actual page rail and three side tabs
         const conflict = await app.app.inject({ method: 'PATCH', url: `/api/ppt/works/${id}`, payload: stale.body });
         assert.equal(conflict.statusCode, 409);
         assert.equal(app.store.pptWorks.get(id)?.slides[0]?.title, '人工修改标题');
-        assert.equal(stale.body.slides?.[0]?.title, '过期输入必须保留');
+        assert.equal(stale.body.pageEdit?.page.title, '过期输入必须保留');
         const cover = studioPageCommand(saved, 0, { revision: saved.revision!, page: { title: '封面修改', bullets: ['新副标题'], notes: '封面讲稿' } });
         if (cover.kind !== 'update')
             throw Error('wrong command');
@@ -59,7 +59,8 @@ test('formal studio shows one current page, actual page rail and three side tabs
         assert.equal(changed.title, '封面修改');
         assert.equal(changed.topic, '新副标题');
         assert.deepEqual(changed.slides, saved.slides);
-        const outlineId=app.engine.ppt.create({requestKey:createRequestKey(),title:'仅大纲演示',topic:'保留尚未生成的页面',confirmCreate:true}).resource![0]!.id;
+        const outlineResponse=app.engine.ppt.create({requestKey:createRequestKey(),title:'仅大纲演示',topic:'保留尚未生成的页面',confirmCreate:true});
+        const outlineId=String(outlineResponse.receipt.outcome?.workId);
         const outlineWork=app.engine.ppt.update(outlineId,{requestKey:createRequestKey(),confirmUpdate:true,outline:['待制作一','待制作二']}).resource!;
         const outlineCommand=studioPageCommand(outlineWork,1,{revision:outlineWork.revision!,page:{title:'已编辑的第一页',bullets:['手动正文']}});
         if(outlineCommand.kind!=='update')throw Error('wrong command');

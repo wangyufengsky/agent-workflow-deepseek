@@ -46,7 +46,8 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
   const [versionsOpen,setVersionsOpen] = useState(false);
   const [activeStep, setActiveStep] = useState<PptStageKey>(()=>{try{const saved=sessionStorage.getItem(`ppt.step.${work.id}`);return PPT_STAGES.some(stage=>stage.key===saved)?saved as PptStageKey:progress.current;}catch{return progress.current;}});
   useEffect(()=>{try{sessionStorage.setItem(`ppt.step.${work.id}`,activeStep);}catch{/* The current view remains in memory. */}},[work.id,activeStep]);
-  const status = pptStatusMeta(work.status);
+  useEffect(()=>{if(work.generation?.pages && work.generation.status==='running')setActiveStep('check');},[work.generation?.requestKey]);
+  const status = pptStatusMeta(work.status, work);
   const generating = work.status === 'generating';
   const anyBusy = busyKind !== null;
   const blocked = anyBusy || generating || work.archived === true || work.mutationBlock !== undefined;
@@ -60,7 +61,7 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
   return (
     <div className="ppt-workbench">
       <PptPlanDrawer {...{work,blocked,onCommand}} open={planOpen} onClose={()=>setPlanOpen(false)} />
-      <PptGenerationControls work={work} />
+      <PptGenerationControls work={work} /><PptGenerationControls work={work} assistant/>
       <section className="card pad ppt-wb-head" aria-label="工作台页头">
         <div className="row wrap" style={{ gap: 10, alignItems: 'flex-start' }}>
           <Button variant="ghost" size="sm" icon="arrowLeft" onClick={onBack}>
@@ -146,7 +147,7 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
       </section>
 
       <Drawer open={sourcesOpen} title="作品资料" size="lg" onClose={()=>setSourcesOpen(false)}><PptStepCheck attachmentsOnly {...{work,busyKind,blocked,blockedReason,lastResult,onCommand}} onGoDesign={()=>setActiveStep('design')}/></Drawer>
-      <div className="ppt-studio-shell" hidden={activeStep!=='check'}><PptStudio key={work.id} {...{work,blocked,blockedReason,onCommand}}/></div>
+      <div className="ppt-studio-shell" hidden={activeStep!=='check'}><PptStudio commandBusy={anyBusy} key={work.id} {...{work,blocked,blockedReason,onCommand}}/></div>
       <div className="ppt-work-area" hidden={activeStep==='check'}>
        <section className="card ppt-wb-step" aria-label={stepMeta.title}>
         <div className="card-head"><span className="eyebrow">{stepMeta.title}</span></div><div className="card-body">

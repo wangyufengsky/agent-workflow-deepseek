@@ -82,7 +82,7 @@ interface AssistantDeps {
     readonly context: EngineContext;
     readonly opencode: OpenCodePort;
     readonly generation: PptGenerationCoordinator;
-    readonly guard: (id: string, revision: number, key?: string) => PptWork;
+    readonly guard: (id: string, revision: number, key?: string, discussion?:boolean) => PptWork;
     readonly update: (id: string, input: PptWorkUpdateRequest) => CommandResponse<PptWork>;
     readonly documents: (work: PptWork) => readonly string[];
 }
@@ -114,7 +114,7 @@ export class PptAssistantService {
             return { receipt: this.#deps.commands.toReceipt(record), resource: this.view(id) };
         let started = false;
         try {
-            const work = this.#deps.guard(id, input.expectedRevision, input.requestKey);
+            const work = this.#deps.guard(id, input.expectedRevision, input.requestKey,true);
             if (input.confirmSend !== true || !['brief', 'page', 'all'].includes(input.scope) || !text(input.message, 4000).trim())
                 fail('请明确消息与修改范围');
             if (input.scope === 'page' && (!Number.isInteger(input.pageIndex) || input.pageIndex! < -1 || input.pageIndex! >= work.slides.length))

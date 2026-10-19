@@ -1258,6 +1258,7 @@ export interface PptAssistantProposal {
 export interface PptAssistantMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly createdAt: string; readonly proposalId?: string; }
 export interface PptAssistantView { readonly messages: readonly PptAssistantMessage[]; readonly proposals: readonly PptAssistantProposal[]; readonly activeRequestKey?: string; }
 export interface PptVersion {
+  readonly productionPages?: readonly PptPageGeneration[];
   readonly cover?: PptSlide;
   readonly plan?: PptProductionPlan;
   readonly revision: number;
@@ -1282,11 +1283,16 @@ export interface PptCheckReport {
   readonly unchecked: readonly string[];
 }
 
+export interface PptPageGeneration { readonly index: number; readonly title: string; readonly status: import('./enums.ts').PptPageGenerationStatusValue; readonly message?: string; readonly completedRevision?: number; readonly source?: 'model'|'manual' }
+
+export interface PptGenerationView { readonly requestKey:string; readonly stopRequestKey?:string; readonly status: import('./enums.ts').PptGenerationStatusValue; readonly startedAt:string; readonly pages?:readonly PptPageGeneration[] }
 export interface PptWork {
-  readonly actions?: { readonly generate: ActionAvailability; readonly generateSlides: ActionAvailability; readonly design: ActionAvailability };
+  readonly productionPages?: readonly PptPageGeneration[];
+  readonly actions?: { readonly generate: ActionAvailability; readonly generateSlides: ActionAvailability; readonly design: ActionAvailability; readonly export?:ActionAvailability };
   readonly cover?: PptSlide;
   readonly plan?: PptProductionPlan;
-  readonly generation?: { readonly requestKey: string; readonly stopRequestKey?: string; readonly status: 'running' | 'stopping' | 'unknown' | 'stopped'; readonly startedAt: string };
+  readonly generation?: PptGenerationView;
+  readonly assistantGeneration?: PptGenerationView;
   readonly mutationBlock?: { readonly requestKey: string; readonly reason: string };
   readonly revision?: number;
   readonly brief?: PptBrief;

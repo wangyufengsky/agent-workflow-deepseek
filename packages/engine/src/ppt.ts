@@ -25,6 +25,7 @@ export class PptService {
   readonly #context: EngineContext;
   readonly #opencode: OpenCodePort;
   readonly #generation: PptGenerationCoordinator;
+  readonly #assistantGeneration:PptGenerationCoordinator;
   readonly assistant: PptAssistantService;
 
   constructor(store: Store, commands: CommandService, context: EngineContext, opencode: OpenCodePort) {
@@ -33,7 +34,9 @@ export class PptService {
     this.#context = context;
     this.#opencode = opencode;
     this.#generation = new PptGenerationCoordinator(store, commands, opencode);
-    this.assistant = new PptAssistantService({store,commands,context,opencode,generation:this.#generation,guard:(id,revision,key)=>{const work=this.#requireWork(id);this.#assertEditable(work,revision,key);return work;},update:(id,input)=>this.update(id,input),documents:(work)=>[...(work.projectId?this.#documents(work.projectId):[]),...work.attachments.filter(item=>item.kind==='text').map(item=>`附件 ${item.name}（最多4000字符）：${item.content.slice(0,4000)}`)]});
+    this.#assistantGeneration=new PptGenerationCoordinator(store,commands,opencode,{prefix:'ppt.assistant.generation.',affectsWork:false});
+    for(const work of store.pptWorks.list()){const prior=this.#generation.state(work.id);if(prior && commands.get(prior.requestKey)?.operation==='ppt.assistant.ask'){store.settings.putJson(`ppt.assistant.generation.${work.id}`,prior);store.settings.removeJson(`ppt.generation.${work.id}`);}}
+    this.assistant = new PptAssistantService({store,commands,context,opencode,generation:this.#assistantGeneration,guard:(id,revision,key,discussion)=>this.#assistantGuard(id,revision,key,discussion),update:(id,input)=>this.update(id,input),documents:(work)=>[...(work.projectId?this.#documents(work.projectId):[]),...work.attachments.filter(item=>item.kind==='text').map(item=>`附件 ${item.name}（最多4000字符）：${item.content.slice(0,4000)}`)]});
   }
 
   /**
@@ -49,12 +52,14 @@ export class PptService {
    */
   recoverOnStartup(): { readonly recovered: number; readonly workIds: readonly string[] } {
     const workIds: string[] = [];
-    for (const record of this.#store.operations.listPending()) { if(record.operation==='ppt.assistant.ask'&&record.target.ref){this.#generation.fail(record.target.ref,true);this.#commands.fail(record.requestKey,new AppError(ErrorCode.RECEIPT_UNKNOWN,'服务重启，原助手调用结果待核对，不自动重发'),true);} }
-    const message = '进程重启，PPT 生成中断，结果未保存；可重新生成大纲或逐页内容。';
+    for (const record of this.#store.operations.listPending()) { if(record.operation==='ppt.assistant.ask'&&record.target.ref){this.#assistantGeneration.fail(record.target.ref,true);this.#commands.fail(record.requestKey,new AppError(ErrorCode.RECEIPT_UNKNOWN,'服务重启，原助手调用结果待核对，不自动重发'),true);} }
+    const message = '进程重启，PPT 生成中断；已保存页面保留，未完成页面需核对原请求。';
     const failure = new AppError(ErrorCode.INTERNAL_ERROR, message);
     for (const work of this.#store.pptWorks.list()) {
       if (work.status !== 'generating') continue;
-      this.#store.pptWorks.update({ ...work, status: 'failed' });
+      if(this.#generation.recoverUnsent(work.id)){workIds.push(work.id);continue;}
+      this.#generation.fail(work.id,true);
+      this.#store.pptWorks.update({ ...work, status: 'failed',productionPages:this.#generation.state(work.id)?.pages ??work.productionPages });
       this.#store.settings.putJson(`ppt.recovery.${work.id}`, {
         kind: 'startup_recovery',
         message,
@@ -80,10 +85,13 @@ export class PptService {
       const pending = this.#store.operations.listPending().find((record) => record.target.ref === work.id && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides' || record.operation === 'ppt.assistant.ask'));
       const missing=this.#missingBrief(work);
       const reason=missing.length ? `先补全并保存需求简报：${missing.join('、')}` : undefined;
-      const actions={ generate: reason ? {allowed:false,reason} : {allowed:true}, generateSlides: reason ? {allowed:false,reason} : work.plan && !work.plan.confirmed ? {allowed:false,reason:'先保存并确认制作方案'} : {allowed:true}, design: reason ? {allowed:false,reason} : {allowed:true} };
+      const exportReason=work.status==='generating'?'作品仍在制作，先等原调用停稳':pending?'原调用仍待核对，先核对原请求':this.#productionReason(work)??(!work.outline.length&&!work.slides.length?'作品还没有页面':undefined);
+      const actions={ export:exportReason?{allowed:false,reason:exportReason}:{allowed:true},generate: reason ? {allowed:false,reason} : {allowed:true}, generateSlides: reason ? {allowed:false,reason} : work.plan && !work.plan.confirmed ? {allowed:false,reason:'先保存并确认制作方案'} : {allowed:true}, design: reason ? {allowed:false,reason} : {allowed:true} };
       const generation = this.#generation.state(work.id);
-      const projected = generation && !['completed', 'failed'].includes(generation.status) ? { ...work, generation: { requestKey: generation.requestKey, stopRequestKey: generation.stopRequestKey, status: generation.status as 'running' | 'stopping' | 'unknown' | 'stopped', startedAt: generation.startedAt } } : work;
-      return pending === undefined ? {...projected,actions} : { ...projected,actions, mutationBlock: { requestKey: pending.requestKey, reason: '原生成尚未核对结束；只能按原请求号核对，不能重新派发' } };
+      const assistant=this.#assistantGeneration.state(work.id);
+      const assistantView=assistant&&!['completed','failed'].includes(assistant.status)?{assistantGeneration:{requestKey:assistant.requestKey,stopRequestKey:assistant.stopRequestKey,status:assistant.status,startedAt:assistant.startedAt}}:{};
+      const projected = generation && (!['completed','failed'].includes(generation.status) || generation.pages) ? { ...work, generation: { requestKey: generation.requestKey, stopRequestKey: generation.stopRequestKey, status: generation.status, startedAt: generation.startedAt, pages:generation.pages } } : work;
+      return pending === undefined ? {...projected,...assistantView,actions} : { ...projected,...assistantView,actions, mutationBlock: { requestKey: pending.requestKey, reason: '原生成尚未核对结束；只能按原请求号核对，不能重新派发' } };
     }) };
   }
 
@@ -107,11 +115,12 @@ export class PptService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.list().works };
   }
 
-  document(id: string, revision: number, includeNotes?: boolean) { const work=this.#requireWork(id); this.#assertSettled(work); if(revision!==(work.revision??1))throw new AppError(ErrorCode.STALE_TARGET,'作品修订已变化，请重新打开导出'); if(!work.slides.length&&!work.outline.length)throw new AppError(ErrorCode.VALIDATION_FAILED,'作品没有页面'); return pptDocument(work,includeNotes); }
+  document(id: string, revision: number, includeNotes?: boolean) { const work=this.#requireWork(id); this.#assertSettled(work);this.#assertProductionComplete(work); if(revision!==(work.revision??1))throw new AppError(ErrorCode.STALE_TARGET,'作品修订已变化，请重新打开导出'); if(!work.slides.length&&!work.outline.length)throw new AppError(ErrorCode.VALIDATION_FAILED,'作品没有页面'); return pptDocument(work,includeNotes); }
   exportFilename(id: string) { const work=this.#requireWork(id); return `${(work.plan?.delivery.filename || work.title).replace(/[\\/:*?"<>|]/g,'_').trim().slice(0,60) || '演示'}.pptx`; }
   async exportPptx(id: string, includeNotes?: boolean): Promise<Buffer> {
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    this.#assertSettled(work);this.#assertProductionComplete(work);
     const slides = work.slides.length > 0
       ? work.slides
       : work.outline.map((title) => ({ title, bullets: [] as string[] }));
@@ -142,6 +151,7 @@ export class PptService {
   exportMarkdown(id: string): { filename: string; content: string } {
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    this.#assertSettled(work);this.#assertProductionComplete(work);
     const safe = (work.plan?.delivery.filename || work.title).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60) || '演示';
     const outline = work.outline.length === 0 ? '（尚未生成大纲）' : work.outline.map((slide, index) => `## ${String(index + 1)}. ${slide}`).join('\n\n');
     return {
@@ -195,6 +205,7 @@ export class PptService {
     if (input?.confirmUpdate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '编辑 PPT 需要显式确认');
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    if(input.pageEdit!==undefined)return this.#editPage(work,input);
     this.#assertEditable(work, input.expectedRevision);
     const plan = input.plan === undefined ? work.plan : validatePlan(input.plan);
     if (work.plan?.confirmed && plan?.confirmed && (
@@ -219,9 +230,38 @@ export class PptService {
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
-    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline, theme, brief, direction, slides, plan, cover });
+    const productionPages=work.productionPages ? (input.slides ? slides.map((page,index)=>({index,title:page.title,status:'completed' as const,source:'manual' as const})) : outline.map((title,index)=>work.productionPages?.[index]?.title===title?work.productionPages![index]!:{index,title,status:'pending' as const})) : undefined;
+    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline, theme, brief, direction, slides, plan, cover,productionPages });
+    this.#generation.clear(id);
     this.#commands.settle(input.requestKey, { workId: id, slides: outline.length });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
+  }
+
+  #editPage(work:PptWork,input:PptWorkUpdateRequest):CommandResponse<PptWork> {
+    const edit=input.pageEdit!;
+    if(!Number.isInteger(edit.index)||edit.index< -1||edit.index>=work.outline.length || Object.keys(input).some(key=>!['pageEdit','requestKey','confirmUpdate','expectedRevision'].includes(key)))throw new AppError(ErrorCode.VALIDATION_FAILED,'逐页编辑只能修改所选页面');
+    if(input.expectedRevision===undefined)throw new AppError(ErrorCode.VALIDATION_FAILED,'逐页编辑需要明确当前修订');
+    const run=this.#generation.state(work.id);
+    if(work.status==='generating') {
+      if(!run?.pages || run.status!=='running' || (edit.index>=0 && run.pages.find(page=>page.index===edit.index)?.status!=='completed') || this.#commands.get(run.requestKey)?.status!=='accepted')throw new AppError(ErrorCode.OPERATION_IN_PROGRESS,'这一页尚未制作完成，或原生成结果仍待核对');
+      this.#assertSettled(work,run.requestKey,true);
+      if(work.archived)throw new AppError(ErrorCode.CONFLICT,'作品已归档');
+      if(input.expectedRevision!==(work.revision??1))throw new AppError(ErrorCode.STALE_TARGET,'作品已有新修订，本地修改保留，请重新读取并比对');
+    } else this.#assertEditable(work,input.expectedRevision);
+    const page=validateSlides([edit.page])[0]!;
+    if(edit.index===-1 && (page.title.length>120 || page.bullets.join('\n').length>2000))throw new AppError(ErrorCode.VALIDATION_FAILED,'封面标题或主题过长');
+    const {replayed}=this.#commands.begin({requestKey:input.requestKey,operation:'ppt.work.update',body:{workId:work.id,pageEdit:edit,expectedRevision:input.expectedRevision},target:{ref:work.id}});
+    if(replayed)throw new AppError(ErrorCode.OPERATION_IN_PROGRESS,'请核对原页面保存请求');
+    let saved:PptWork;
+    try { this.#store.transaction(()=>{
+      const slides=work.outline.map((title,index)=>index===edit.index?page:work.slides[index]??{title,bullets:[]});
+      const productionPages=(this.#generation.state(work.id)?.pages??work.productionPages)?.map(page=>page.index===edit.index?{...page,title:edit.page.title,status:'completed' as const,source:'manual' as const,completedRevision:(work.revision??1)+1}:page);
+      saved=this.#store.pptWorks.update(edit.index===-1?{...work,title:page.title,topic:page.bullets.join('\n'),cover:page,productionPages}:{...work,slides,productionPages,outline:work.outline.map((title,index)=>index===edit.index?page.title:title)});
+      if(edit.index>=0)this.#generation.pageEdited(work.id,edit.index,page.title,saved.revision??1);
+      this.#commands.settle(input.requestKey,{workId:work.id,pageIndex:edit.index});
+    });
+    } catch(error) { this.#commands.fail(input.requestKey,error instanceof Error?error:new Error('页面保存失败'));throw error; }
+    return {receipt:this.#commands.toReceipt(this.#commands.get(input.requestKey)!),resource:saved!};
   }
 
   async generateSlides(id: string, input: PptWorkGenerateContentRequest): Promise<CommandResponse<PptWork>> {
@@ -242,38 +282,53 @@ export class PptService {
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
-    this.#generation.begin(id, input.requestKey);
-    this.#store.pptWorks.update({ ...work, status: 'generating' });
+    const baseline=work.outline.map((title,index)=>work.slides[index] ?? {title,bullets:[]});
+    let began=false,dispatched=false;
+    let usage={input:0,output:0,reasoning:0,cache:0,total:0};
     try {
+      this.#generation.begin(id,input.requestKey,work.outline);began=true;
+      this.#store.pptWorks.update({...work,status:'generating',slides:baseline,productionPages:work.outline.map((title,index)=>({index,title,status:'pending'}))});
       const documents = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.filter((attachment) => attachment.kind === 'text').map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
-      const result = await this.#opencode.runSession({
-        kind: 'review',
-        metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.slides' },
-        cwd: this.#store.projects.get(work.projectId ?? '')?.rootPath ?? this.#store.dataDir,
-        prompt: `制作方案：${JSON.stringify(work.plan ?? {})}\n需求简报：${JSON.stringify(work.brief ?? {})}\n视觉方向：${work.direction ?? '未选择'}\n演示标题：${work.title}\n页面方案与逐页依据：${JSON.stringify(work.slides)}\n主题：${work.topic}\n大纲：\n${work.outline.map((slide, index) => `${String(index + 1)}. ${slide}`).join('\n')}\n\n项目资料：\n${documents.join('\n\n') || '（无）'}`,
-        system: '你是演示内容助手。只输出 JSON：{"slides":[{"title":"页标题","bullets":["要点1","要点2"]}]}，与给定大纲一一对应，每页 2–6 条要点，不要 Markdown。',
-        model,
-        permission: 'read_only',
-        onSessionId: this.#generation.bind(id, input.requestKey),
-        sink: { onIdle: () => this.#generation.onIdle(id, input.requestKey) },
-        timeoutMs: 120_000,
-      });
-      if (this.#generation.ignoreLate(id,input.requestKey)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
-      if (this.#generation.afterResult(id, result.outcome)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
-      if (!result.outcome.idle || result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '逐页内容生成超时');
-      if (result.outcome.error !== undefined && result.outcome.error !== '') throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `逐页生成失败：${result.outcome.error}`);
-      const slides = extractSlides(result.outcome.assistantText ?? '');
-      if (slides.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '模型输出没有可用逐页内容');
-      const updated = this.#store.pptWorks.update({ ...work, status: 'ready', slides, usage: usageFromMessages(result.outcome.messages) });
+      for(let index=0;index<work.outline.length;index++) {
+        if(!this.#generation.startPage(id,input.requestKey,index))return {receipt:this.#commands.toReceipt(this.#commands.get(input.requestKey)!),resource:this.#requireWork(id)};
+        dispatched=true;
+        const result = await this.#opencode.runSession({
+          kind: 'review',
+          metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.slides',pageIndex:String(index) },
+          cwd: this.#store.projects.get(work.projectId ?? '')?.rootPath ?? this.#store.dataDir,
+          prompt: `制作方案：${JSON.stringify(work.plan ?? {})}\n需求简报：${JSON.stringify(work.brief ?? {})}\n视觉方向：${work.direction ?? '未选择'}\n演示标题：${work.title}\n主题：${work.topic}\n全篇大纲：\n${work.outline.map((title,i)=>`${i+1}. ${title}`).join('\n')}\n本次只制作正文第 ${index+1} 页：${work.outline[index]}\n这一页现有方案（人工样式与备注会保留）：${JSON.stringify(baseline[index])}\n项目资料：\n${documents.join('\n\n') || '（无）'}`,
+          system: '你是演示内容助手。仅制作指定的一页，不输出其他页面。只输出 JSON：{"slides":[{"title":"指定页标题","bullets":["要点1","要点2"]}]}。本次 slides 必须恰好一页，2–6 条具体要点。不要 Markdown。',
+          model,
+          permission: 'read_only',
+          onSessionId: this.#generation.bind(id, input.requestKey),
+          sink: { onIdle: () => this.#generation.onIdle(id, input.requestKey) },
+          timeoutMs: 120_000,
+        });
+        if (this.#generation.ignoreLate(id,input.requestKey)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
+        if (this.#generation.afterResult(id, result.outcome)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
+        if (!result.outcome.idle || result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, `正文第 ${index+1} 页生成超时`);
+        if (result.outcome.error !== undefined && result.outcome.error !== '') throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `正文第 ${index+1} 页生成失败：${result.outcome.error}`);
+        const parsed=extractSlides(result.outcome.assistantText ?? '');
+        if(parsed.length!==1 || !parsed[0]?.bullets.length)throw new AppError(ErrorCode.VALIDATION_FAILED,`正文第 ${index+1} 页没有恰好一页可用内容`);
+        const tokens=usageFromMessages(result.outcome.messages);
+        usage={input:usage.input+tokens.input,output:usage.output+tokens.output,reasoning:usage.reasoning+tokens.reasoning,cache:usage.cache+tokens.cache,total:usage.total+tokens.total};
+        this.#store.transaction(()=>{
+          const current=this.#requireWork(id);
+          const slides=current.slides.map((page,i)=>i===index?{...page,title:work.outline[index]!,bullets:parsed[0]!.bullets,...(page.notes===undefined&&parsed[0]!.notes?{notes:parsed[0]!.notes}:{})}:page);
+          const saved=this.#store.pptWorks.update({...current,status:'generating',slides,usage,productionPages:current.productionPages?.map(page=>page.index===index?{...page,status:'completed',source:'model',completedRevision:(current.revision??1)+1}:page)});
+          this.#generation.pageCompleted(id,input.requestKey,index,saved.revision??1);
+        });
+      }
+      const updated=this.#store.pptWorks.update({...this.#requireWork(id),status:'ready',usage});
       this.#generation.complete(id);
-      this.#commands.settle(input.requestKey, { workId: id, slides: slides.length });
-      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
-    } catch (error) {
-      if (this.#generation.ignoreLate(id,input.requestKey) || this.#generation.stopped(id)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
-      const unknown = !(error instanceof AppError && (error.code === ErrorCode.VALIDATION_FAILED || error.code === ErrorCode.OPENCODE_PROVIDER_FAILED));
-      this.#generation.fail(id, unknown);
-      this.#store.pptWorks.update({ ...work, status: unknown ? 'generating' : 'failed' });
-      this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('逐页内容生成失败'), unknown);
+      this.#commands.settle(input.requestKey,{workId:id,slides:work.outline.length});
+      return {receipt:this.#commands.toReceipt(this.#commands.get(input.requestKey)!),resource:updated};
+    } catch(error) {
+      if(began && (this.#generation.ignoreLate(id,input.requestKey)||this.#generation.stopped(id)))return {receipt:this.#commands.toReceipt(this.#commands.get(input.requestKey)!),resource:this.#requireWork(id)};
+      const unknown=dispatched && !(error instanceof AppError && (error.code===ErrorCode.VALIDATION_FAILED||error.code===ErrorCode.OPENCODE_PROVIDER_FAILED));
+      if(began)this.#generation.fail(id,unknown);
+      this.#store.pptWorks.update({...this.#requireWork(id),status:unknown?'generating':'failed',productionPages:this.#generation.state(id)?.pages});
+      this.#commands.fail(input.requestKey,error instanceof Error?error:new Error('逐页内容生成失败'),unknown);
       throw error;
     }
   }
@@ -342,8 +397,8 @@ export class PptService {
     }).filter((text) => text !== '');
   }
 
-  stop(id: string, input: PptWorkStopRequest) { this.#requireWork(id); return this.#generation.stop(id, input); }
-  async reconcileOperation(key: string) { this.assistant.reconcile(key); return this.#generation.reconcile(key); }
+  stop(id: string, input: PptWorkStopRequest) { this.#requireWork(id); const main=this.#generation.state(id),assistant=this.#assistantGeneration.state(id);if(input.generationRequestKey){if(main?.requestKey===input.generationRequestKey)return this.#generation.stop(id,input);if(assistant?.requestKey===input.generationRequestKey)return this.#assistantGeneration.stop(id,input);throw new AppError(ErrorCode.STALE_TARGET,'原生成身份已变化，请核对原请求');}if(assistant&&!['completed','failed','stopped'].includes(assistant.status)){if(main&&!['completed','failed','stopped'].includes(main.status))throw new AppError(ErrorCode.VALIDATION_FAILED,'请选择页面制作或助手讨论的原请求号');return this.#assistantGeneration.stop(id,input);}return this.#generation.stop(id,input); }
+  async reconcileOperation(key: string) { this.assistant.reconcile(key);await this.#assistantGeneration.reconcile(key);return this.#generation.reconcile(key); }
   check(id: string) { return checkPpt(this.#requireWork(id)); }
   thumbnail(id: string, page = 0, direction?: unknown) { const saved = this.#requireWork(id); const work = direction === undefined ? saved : { ...saved, direction: validateDirection(direction) }; if (!Number.isInteger(page) || page < 0 || page >= pptPages(work).length) throw new AppError(ErrorCode.NOT_FOUND, '页面不存在'); return renderPptPage(work, page); }
   manage(id: string, action: 'copy' | 'archive' | 'restore', input: PptWorkManageRequest): CommandResponse<PptWork> {
@@ -357,7 +412,7 @@ export class PptService {
     try {
       if (action === 'copy') {
         const copy = this.#store.pptWorks.create({ title: `${work.title}（副本）`.slice(0, 120), topic: work.topic, theme: work.theme, ...(work.projectId === undefined ? {} : { projectId: work.projectId }) });
-        updated = this.#store.pptWorks.update({ ...work, id: copy.id, createdAt: copy.createdAt, archived: false, versions: [], status: work.slides.length > 0 ? 'ready' : 'draft' });
+        updated = this.#store.pptWorks.update({ ...work,productionPages:this.#generation.state(id)?.pages??work.productionPages, id: copy.id, createdAt: copy.createdAt, archived: false, versions: [], status: work.slides.length > 0 ? 'ready' : 'draft' });
       } else if (action === 'archive') {
         if (typeof input.archived !== 'boolean') throw new AppError(ErrorCode.VALIDATION_FAILED, '需要明确归档或恢复');
         updated = this.#store.pptWorks.update({ ...work, archived: input.archived });
@@ -365,18 +420,35 @@ export class PptService {
         this.#assertEditable(work);
         const version = work.versions?.find((item) => item.revision === input.revision);
         if (version === undefined) throw new AppError(ErrorCode.NOT_FOUND, '内容版本未保留');
-        updated = this.#store.pptWorks.update({ ...work, ...version, brief: version.brief, direction: version.direction, plan: version.plan, cover: version.cover, id: work.id, versions: work.versions, archived: work.archived });
+        this.#generation.clear(id);
+        updated = this.#store.pptWorks.update({ ...work, ...version, brief: version.brief, direction: version.direction, plan: version.plan, cover: version.cover,productionPages:version.productionPages, id: work.id, versions: work.versions, archived: work.archived });
       }
       this.#commands.settle(input.requestKey, { workId: updated.id, revision: updated.revision });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
     } catch (error) { this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('作品操作失败')); throw error; }
   }
+  #productionReason(work:PptWork):string|undefined {
+    const unfinished=(this.#generation.state(work.id)?.pages??work.productionPages)?.filter(page=>page.status!=='completed');
+    return unfinished?.length?`还有 ${unfinished.length} 页未完成制作；请完成或手动编辑保存这些页面后再导出`:undefined;
+  }
+  #assertProductionComplete(work:PptWork) {const reason=this.#productionReason(work);if(reason)throw new AppError(ErrorCode.VALIDATION_FAILED,reason);}
+  #assistantGuard(id:string,revision:number,key?:string,discussion=false):PptWork {
+    const work=this.#requireWork(id);const run=this.#generation.state(id);
+    if(discussion && work.status==='generating' && run?.pages && run.status==='running' && this.#commands.get(run.requestKey)?.status==='accepted') {
+      if(work.archived)throw new AppError(ErrorCode.CONFLICT,'作品已归档');
+      if(revision!==(work.revision??1))throw new AppError(ErrorCode.STALE_TARGET,'作品已有新修订，请按当前页面重新发起讨论');
+      const pending=this.#store.operations.listPending().find(item=>item.target.ref===id && item.requestKey!==key && item.requestKey!==run.requestKey && ['ppt.work.generate','ppt.work.slides','ppt.assistant.ask'].includes(item.operation));
+      if(pending)throw new AppError(ErrorCode.RECEIPT_UNKNOWN,`原请求待核对：${pending.requestKey}`);
+      return work;
+    }
+    this.#assertEditable(work,revision,key);return work;
+  }
   #requireWork(id: string): PptWork { const work = this.#store.pptWorks.get(id); if (!work) throw new AppError(ErrorCode.NOT_FOUND, '作品不存在'); return work; }
   #missingBrief(work: PptWork) { return ([['audience','给谁看'],['objective','想达到'],['length','篇幅'],['style','风格'],['sources','依据资料']] as const).filter(([field])=>!work.brief?.[field]?.trim()).map(([,label])=>label); }
   #assertBrief(work: PptWork) { const fields=this.#missingBrief(work); if(fields.length)throw new AppError(ErrorCode.VALIDATION_FAILED, `先补全并保存需求简报：${fields.join('、')}`,{details:{fields}}); }
-  #assertSettled(work: PptWork, ignoreKey?: string) {
-    if (work.status === 'generating') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '作品仍在生成，原进程尚未核对结束');
-    const unknown = this.#store.operations.listPending().find((record) => record.target.ref === work.id && record.requestKey !== ignoreKey && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides' || record.operation === 'ppt.assistant.ask'));
+  #assertSettled(work: PptWork, ignoreKey?: string, allowActiveGeneration=false) {
+    if (!allowActiveGeneration && work.status === 'generating') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '作品仍在生成，原进程尚未核对结束');
+    const unknown = this.#store.operations.listPending().find((record) => record.target.ref === work.id && record.requestKey !== ignoreKey && !(allowActiveGeneration && record.operation==='ppt.assistant.ask' && record.status==='accepted') && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides' || record.operation === 'ppt.assistant.ask'));
     if (unknown) throw new AppError(ErrorCode.RECEIPT_UNKNOWN, `原生成结果待核对：${unknown.requestKey}`, { httpStatus: 409, details: { requestKey: unknown.requestKey } });
   }
   #assertEditable(work: PptWork, revision?: number, ignoreKey?:string) {

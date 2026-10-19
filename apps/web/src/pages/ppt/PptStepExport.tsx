@@ -66,7 +66,8 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
   const [format,setFormat] = useState<'pptx'|'pdf'>('pptx');
   const [includeNotes,setIncludeNotes] = useState(work.plan?.delivery.includeNotes !== false);
   const [cancelled,setCancelled] = useState(false);
-  const exportBlocked=busyKind!==null||work.status==='generating'||work.mutationBlock!==undefined;
+  const exportBlocked=busyKind!==null||work.status==='generating'||work.mutationBlock!==undefined||work.actions?.export?.allowed===false;
+  const exportReason=work.actions?.export?.reason??blockedReason;
   const [pptx, setPptx] = useState<PptxState>({ phase: 'idle' });
   const [markdown, setMarkdown] = useState<MarkdownState>({ phase: 'idle' });
   const [markdownOpen, setMarkdownOpen] = useState(false);
@@ -74,7 +75,8 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
   const markdownData = markdown.phase === 'done' ? markdown.data : undefined;
   const anyBusy = busyKind !== null;
   const deleteFailure = lastResult?.kind === 'delete' && lastResult.outcome !== 'succeeded' ? lastResult.message : undefined;
-  const canExportPptx = work.outline.length > 0 || work.slides.length > 0;
+  const unfinished=(work.generation?.pages??work.productionPages)?.filter(page=>page.status!=='completed').length??0;
+  const canExportPptx = unfinished===0 && (work.outline.length > 0 || work.slides.length > 0);
 
   useEffect(() => {
     setPptx({phase:'idle'});setMarkdown({phase:'idle'});setMarkdownOpen(false);setCancelled(false);
@@ -126,7 +128,7 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
   };
 
   return (
-    <div className="col" style={{ gap: 18 }}>
+    <div className="col" style={{ gap: 18 }}>{unfinished>0?<div className="banner warn" role="status"><Icon name="alert"/>{exportReason}</div>:null}
       <div className="banner info">
         <Icon name="info" />
         <div className="grow">
@@ -156,11 +158,11 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
               icon="download"
               disabled={exportBlocked || pptx.phase === 'running' || !canExportPptx || format==='pdf'&&!window.workflowDesktop?.exportPpt}
               disabledReason={
-                (exportBlocked ? blockedReason : undefined) ?? (format==='pdf'&&!window.workflowDesktop?.exportPpt?'PDF需要桌面打印宿主':undefined) ??
+                (exportBlocked ? exportReason : undefined) ?? (format==='pdf'&&!window.workflowDesktop?.exportPpt?'PDF需要桌面打印宿主':undefined) ??
                 (pptx.phase === 'running'
                   ? '演示文件正在生成并保存，请等待当前操作结束。'
                   : !canExportPptx
-                    ? '先生成或编辑大纲；服务在没有大纲时会拒绝导出 PPTX。'
+                    ? exportReason??'先完成页面制作再导出。'
                     : undefined)
               }
               onClick={() => {
@@ -208,7 +210,7 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
             </span>
             <div className="grow">
               <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>Markdown（.md）</h4>
-              <div className="hint">返回标题、主题与大纲；即使没有大纲也能导出，内容由服务生成。</div>
+              <div className="hint">返回当前标题、主题、大纲与正文；逐页制作未完成时需先完成或明确手动保存，内容由服务生成。</div>
             </div>
           </div>
           <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
@@ -216,7 +218,7 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
               variant="secondary"
               icon="file"
               disabled={exportBlocked || markdown.phase === 'running'}
-              disabledReason={blockedReason ?? (markdown.phase === 'running' ? 'Markdown 正在导出，等响应返回再点。' : undefined)}
+              disabledReason={exportReason ?? (markdown.phase === 'running' ? 'Markdown 正在导出，等响应返回再点。' : undefined)}
               onClick={() => {
                 void exportMarkdown();
               }}

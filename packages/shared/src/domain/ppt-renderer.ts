@@ -12,7 +12,7 @@ export function pptPalette(work: PptWork) {
     const palette = work.direction === 'editorial' ? PALETTES.warm! : work.direction === 'contrast' ? { bg: '080808', text: 'FFFFFF', accent: 'BEFF50' } : PALETTES[work.theme]!;
     return work.plan?.visual.accent ? { ...palette, accent: work.plan.visual.accent.slice(1) } : palette;
 }
-export function pptPages(work: PptWork): readonly PptSlide[] { return [{ ...work.cover, title: work.title, bullets: work.topic ? [work.topic] : [] }, ...(work.slides.length > 0 ? work.slides : work.outline.map((title): PptSlide => ({ title, bullets: [] })))].map((page) => ({ ...page, bodyStyle: page.bodyStyle ?? { fontSize: work.plan?.visual.density === 'sparse' ? 20 : work.plan?.visual.density === 'detailed' ? 14 : 16, color: 'primary' as const, align: 'left' as const } })); }
+export function pptPages(work: PptWork): readonly PptSlide[] { return [{ ...work.cover, title: work.title, bullets: work.topic ? [work.topic] : [] }, ...(work.outline.length > work.slides.length ? work.outline.map((title,index): PptSlide => work.slides[index] ?? ({ title, bullets: [] })) : work.slides)].map((page) => ({ ...page, bodyStyle: page.bodyStyle ?? { fontSize: work.plan?.visual.density === 'sparse' ? 20 : work.plan?.visual.density === 'detailed' ? 14 : 16, color: 'primary' as const, align: 'left' as const } })); }
 /** Explicit lines/boxes are shared by SVG thumbnails, checks and native PPTX text. */
 export function pptLines(text: string, maxUnits: number): string[] {
     const lines: string[] = [];
