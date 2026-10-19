@@ -1,5 +1,5 @@
 import { captureTemplateVersion, readTemplateArchive, verifyArchiveRun } from './template-archive.ts';
-import { AppError, ErrorCode, nowIso, type CommandResponse, type TaskTemplate } from '@agent-workflow/shared';
+import { AppError, ErrorCode, NodeKind, SourceEvidenceStage, nowIso, type CommandResponse, type TaskTemplate } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { CommandService } from './operations.ts';
 
@@ -97,8 +97,13 @@ function validate(raw: TaskTemplate): TaskTemplate {
   if (!Number.isInteger(raw.version) || raw.version < 1) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板版本必须是正整数');
   if (!Array.isArray(raw.steps) || raw.steps.length < 1 || raw.steps.length > 30) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板步骤需要 1–30 个');
   if (!Array.isArray(raw.parameters)) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板参数必须是数组');
+  if (raw.sourceEvidenceVersion !== undefined && (raw.sourceEvidenceVersion !== 1 || raw.inputs?.source !== true || !raw.steps.some((step) => step.sourceStage === 'write') || !raw.steps.some((step) => step.sourceStage === 'review'))) throw new AppError(ErrorCode.VALIDATION_FAILED, '逐文件合同v1需要源码输入和明确的写作/独立复核步骤');
   return {
     id: raw.id,
+    ...(raw.sourceEvidenceVersion === 1 ? { sourceEvidenceVersion: 1 as const } : {}),
+    ...(typeof raw.description === 'string' ? { description: raw.description.slice(0, 8000) } : {}),
+    ...(['report', 'review', 'dev'].includes(raw.group ?? '') ? { group: raw.group } : {}),
+    ...(raw.inputs ? { inputs: Object.fromEntries(Object.entries(raw.inputs).filter(([key, value]) => ['dates', 'fullHistory', 'source', 'documents', 'output'].includes(key) && typeof value === 'boolean')) } : {}),
     ...(raw.kind === 'snapshot_review' ? { kind: 'snapshot_review' as const } : {}),
     name: raw.name.trim(),
     version: raw.version,
@@ -107,8 +112,9 @@ function validate(raw: TaskTemplate): TaskTemplate {
       if (step === null || typeof step !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} 不合法`);
       if (typeof step.key !== 'string' || step.key.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} 缺少 key`);
       if (typeof step.title !== 'string' || step.title.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} 缺少标题`);
-      if (step.kind !== 'implementation' && step.kind !== 'test' && step.kind !== 'delivery' && step.kind !== 'verify') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} kind 不合法`);
-      return { key: step.key.trim(), title: step.title.trim(), kind: step.kind, group: typeof step.group === 'string' && step.group.trim() !== '' ? step.group.trim() : '固定步骤' };
+      if (!(Object.values(NodeKind) as readonly string[]).includes(step.kind)) throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} kind 不合法`);
+      if (step.sourceStage !== undefined && !(Object.values(SourceEvidenceStage) as readonly string[]).includes(step.sourceStage)) throw new AppError(ErrorCode.VALIDATION_FAILED, '逐文件阶段不合法');
+      return { ...(step.sourceStage === undefined ? {} : { sourceStage: step.sourceStage }), ...(typeof step.roleId === 'string' ? { roleId: step.roleId } : {}), key: step.key.trim(), title: step.title.trim(), kind: step.kind, group: typeof step.group === 'string' && step.group.trim() !== '' ? step.group.trim() : '固定步骤' };
     }),
     parameters: raw.parameters.map((parameter, index) => {
       if (parameter === null || typeof parameter !== 'object' || typeof parameter.key !== 'string' || parameter.key.trim() === '' || typeof parameter.label !== 'string') {

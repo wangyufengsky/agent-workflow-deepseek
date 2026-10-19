@@ -84,14 +84,15 @@ export const UNIT_TEST_TEMPLATE = {
   name: '单元测试开发',
   description: '补齐指定源码路径下的单元测试，并运行测试与验收。',
   group: 'dev' as const, inputs: { source: true },
-  version: 7,
+  version: 8,
+  sourceEvidenceVersion: 1,
   lockedAfterCreate: true as const,
   steps: [
-    step('unit.read-target', '读取目标代码', 'implementation', '固定步骤'),
-    step('unit.plan-cases', '生成测试计划', 'test', '固定步骤'),
-    step('unit.write-tests', '编写单元测试', 'test', '固定步骤'),
-    step('unit.run-tests', '运行测试', 'test', '固定步骤'),
-    step('unit.summary', '汇总结果', 'delivery', '固定步骤'),
+    { ...step('unit.read-target', '读取目标代码', 'implementation', '固定步骤'), sourceStage: 'prepare' },
+    { ...step('unit.plan-cases', '生成测试计划', 'test', '固定步骤'), sourceStage: 'prepare' },
+    { ...step('unit.write-tests', '编写单元测试', 'test', '固定步骤'), sourceStage: 'write' },
+    { ...step('unit.run-tests', '运行测试', 'test', '固定步骤'), sourceStage: 'test' },
+    { ...step('unit.summary', '汇总结果', 'delivery', '固定步骤'), sourceStage: 'review', roleId: 'role.reviewer' },
   ],
   parameters: [
     { key: 'targetPath', label: '目标代码路径', required: true },
@@ -116,14 +117,14 @@ export const SNAPSHOT_REVIEW_TEMPLATE = {
 export const DESIGN_TASK_TEMPLATES: readonly import('../domain/models.ts').TaskTemplate[] = [
   { id: 'template.weekly-contribution', name: '项目人员贡献周报', description: '分析代码贡献，生成贡献排名、项目总报告和个人周报。', group: 'report', inputs: { dates: true, output: true }, version: 10, lockedAfterCreate: true, parameters: [], steps: [step('weekly.evidence', '采集 Git 证据', 'requirement', '固定步骤'), step('weekly.report', '分析与生成报告', 'delivery', '固定步骤')] },
   { id: 'template.history-review', name: '历史提交审查', description: '审查历史 Git 提交，追溯作者、提交者与共同作者；不判断问题在当前版本是否仍存在。', group: 'report', inputs: { dates: true }, version: 4, lockedAfterCreate: true, parameters: [], steps: [step('history.collect', '采集提交', 'requirement', '固定步骤'), step('history.review', '逐条审查', 'verify', '固定步骤'), step('history.summary', '汇总', 'delivery', '固定步骤')] },
-  { id: 'template.requirement-review', name: '需求代码评审', description: '核对分支代码的需求完整性、正确性和质量问题。', group: 'review', inputs: { documents: true, source: true }, version: 3, lockedAfterCreate: true, parameters: [], steps: [step('req.doc', '读取需求文档', 'requirement', '固定步骤'), step('req.code', '对照代码', 'verify', '固定步骤'), step('req.report', '出具评审', 'delivery', '固定步骤')] },
-  { id: 'template.detailed-design', name: '详细设计编写', description: '根据指定路径的现有代码编写详细设计、流程图和源码覆盖清单。', group: 'dev', inputs: { source: true, output: true }, version: 5, lockedAfterCreate: true, parameters: [], steps: [step('design.source', '读取源码', 'requirement', '固定步骤'), step('design.write', '编写设计', 'design', '固定步骤'), step('design.coverage', '覆盖核对', 'verify', '固定步骤')] },
+  { id: 'template.requirement-review', name: '需求代码评审', description: '核对分支代码的需求完整性、正确性和质量问题。', group: 'review', inputs: { documents: true, source: true }, version: 4, sourceEvidenceVersion: 1, lockedAfterCreate: true, parameters: [], steps: [{ ...step('req.doc', '读取需求文档', 'requirement', '固定步骤'), sourceStage: 'prepare' }, { ...step('req.code', '对照代码', 'verify', '固定步骤'), sourceStage: 'write' }, { ...step('req.report', '出具评审', 'delivery', '固定步骤'), sourceStage: 'review', roleId: 'role.reviewer' }] },
+  { id: 'template.detailed-design', name: '详细设计编写', description: '根据指定路径的现有代码编写详细设计、流程图和源码覆盖清单。', group: 'dev', inputs: { source: true, output: true }, version: 6, sourceEvidenceVersion: 1, lockedAfterCreate: true, parameters: [], steps: [{ ...step('design.source', '读取源码', 'requirement', '固定步骤'), sourceStage: 'prepare' }, { ...step('design.write', '编写设计', 'design', '固定步骤'), sourceStage: 'write' }, { ...step('design.coverage', '覆盖核对', 'verify', '固定步骤'), sourceStage: 'review', roleId: 'role.reviewer' }] },
 ];
 
 export const UNIT_TEST_METHOD: WorkflowMethod = {
   id: 'method.unit-test-development',
   name: '单元测试开发',
-  revision: 'template-v7',
+  revision: 'template-v8',
   support: 'skeleton_only',
   description: '固定模板任务：步骤由模板版本锁定，创建后不能修改。',
   requiredSteps: UNIT_TEST_TEMPLATE.steps.map((step) => ({ ...step })),

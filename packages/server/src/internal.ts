@@ -1,3 +1,6 @@
+import { sourceArtifact, sourceAncestors, sourceReadKey, recordArtifactRead } from '../../engine/src/template-file-evidence.ts';
+import { readArtifactBytes } from '../../engine/src/artifacts.ts';
+import { reportFingerprint, retainControlledTestRun, type TestReportRequest } from './controlled-tests.ts';
 import { assertDatabaseQueryAccess } from '@agent-workflow/database';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -154,12 +157,13 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   }));
 
   app.get('/internal/mcp/workspace/file', handler(async (request) => {
-    const query = request.query as { taskId?: string; path?: string; offset?: string; limit?: string };
+    const query = request.query as { taskId?: string; path?: string; artifactId?: string; offset?: string; limit?: string };
     if (query.taskId === undefined || query.path === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / path');
     assertRoleResource(request, 'read', query.path ?? '.');
     const snapshotTask = deps.store.tasks.get(query.taskId);
     const snapshot = snapshotTask?.fixedTemplate?.snapshot;
     if (snapshot !== undefined) {
+      if (query.artifactId) throw new AppError(ErrorCode.FORBIDDEN, '快照读取不接受产物身份');
       if (snapshotTask?.fixedTemplate?.scope?.sourcePaths.length && !snapshotTask.fixedTemplate.scope.sourceFiles?.some((file) => file.path === query.path?.replace(/^\.\//, ''))) throw new AppError(ErrorCode.FORBIDDEN, '文件不在模板冻结源码范围内');
       const unit = snapshot.units.find((item) => item.path === query.path?.replace(/^\.\//, ''));
       if (unit === undefined || unit.excludedReason !== undefined && unit.excludedReason !== '基线至目标未发生变更') throw new AppError(ErrorCode.FORBIDDEN, '文件不在当前快照的可分析范围内');
@@ -174,11 +178,29 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     }
     const templateScope = snapshotTask?.fixedTemplate?.scope;
     if (templateScope?.sourcePaths.length) {
-      const file = templateScope.sourceFiles?.find((item) => item.path === query.path?.replace(/^\.\//, ''));
-      if (!file) throw new AppError(ErrorCode.FORBIDDEN, '文件不在模板冻结源码范围内');
+      const file = query.artifactId ? undefined : templateScope.sourceFiles?.find((item) => item.path === query.path?.replace(/^\.\//, ''));
+      if (!file) {
+        const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
+        const attempt = dispatch.metadata.attemptId ? deps.store.executions.getAttempt(dispatch.metadata.attemptId) : undefined;
+        const ref = attempt && snapshotTask ? sourceArtifact(deps.store, snapshotTask, attempt, query.path.replace(/^\.\//, ''), query.artifactId) : undefined;
+        if (!ref) throw new AppError(ErrorCode.FORBIDDEN, '文件不在冻结源码或当前上游产物范围内');
+        const bytes = readArtifactBytes(deps.store.dataDir, ref); const text = bytes.toString('utf8');
+        if (text.includes('\0')) throw new AppError(ErrorCode.VALIDATION_FAILED, '二进制产物不能作为源码读取');
+        const lines = text.split('\n'); const offset = Number(query.offset ?? 0); const requested = Number(query.limit ?? 0);
+        if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(requested) || requested < 0 || requested > 10_000) throw new AppError(ErrorCode.VALIDATION_FAILED, '读取行范围无效');
+        const limit = requested || (bytes.length > 512 * 1024 ? 200 : lines.length);
+        const selected: string[] = []; let selectedBytes = 0;
+        for (const line of lines.slice(offset, offset + limit)) { const size = Buffer.byteLength(line) + 1; if (selectedBytes + size > 512 * 1024) break; selected.push(line); selectedBytes += size; }
+        if (!selected.length && offset < lines.length) throw new AppError(ErrorCode.VALIDATION_FAILED, '单行超过读取上限，不能作为文本证据读取');
+        recordArtifactRead(deps.store, attempt!.id, ref, lines.length, offset, selected.length);
+        return { path: query.path, artifactId: ref.id, sourceAttemptId: ref.sourceAttemptId, sha: ref.sha256, sizeBytes: bytes.length, totalLines: lines.length, offset, lines: selected, truncated: offset + selected.length < lines.length, readOnly: true };
+      }
       const lines = file.text.split('\n'); const offset = Math.max(0, Number(query.offset ?? 0)); const limit = Number(query.limit ?? 0); const selected = limit > 0 ? lines.slice(offset, offset + limit) : lines.slice(offset);
+      const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
+      if (offset === 0 && selected.length === lines.length && dispatch.metadata.attemptId) deps.store.settings.putJson(sourceReadKey(dispatch.metadata.attemptId, file.path), { blobSha: file.blobSha, readAt: nowIso() });
       return { path: file.path, blobSha: file.blobSha, targetSha: templateScope.targetSha, sourceSha: templateScope.targetSha, sha: sha256(file.text), sizeBytes: Buffer.byteLength(file.text), totalLines: lines.length, offset, lines: selected, truncated: offset + selected.length < lines.length, readOnly: true };
     }
+    if (query.artifactId) throw new AppError(ErrorCode.FORBIDDEN, '当前任务没有可读取的冻结上游产物');
     const root = resolveReadRoot(deps, query.taskId);
     const absolute = safePath(root, query.path);
     if (!existsSync(absolute)) throw new AppError(ErrorCode.NOT_FOUND, `文件不存在：${query.path}`);
@@ -251,13 +273,20 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   }));
 
   app.post('/internal/mcp/workspace/exec', handler(async (request) => {
-    const body = request.body as { taskId?: string; command?: string; timeoutMs?: number };
+    const body = request.body as { taskId?: string; command?: string; timeoutMs?: number; testReport?: TestReportRequest };
     if (body.taskId === undefined || body.command === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / command');
     assertRoleResource(request, 'command', body.command);
     const root = resolveWriteRoot(deps, body.taskId);
     const argv = tokenizeCommand(body.command);
     if (argv.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '命令为空');
-    const allowed = allowedCommands(deps.engine);
+    const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
+    const attemptId = dispatch.metadata.attemptId;
+    const attempt = attemptId ? deps.store.executions.getAttempt(attemptId) : undefined;
+    const execution = attempt ? deps.store.executions.get(attempt.executionId) : undefined;
+    const node = attempt?.definition?.node ?? (execution ? deps.store.plans.get(execution.planRevisionId)?.graph.nodes.find((item) => item.id === attempt?.nodeId) : undefined);
+    const taskForCommand = deps.store.tasks.get(body.taskId);
+    const configuredTestCommand = node?.sourceEvidence?.testCommand ?? ((taskForCommand ? deps.store.projects.get(taskForCommand.projectId)?.settings.testCommand : undefined) || deps.engine.settings.git.defaultTestCommand);
+    const allowed = [...allowedCommands(deps.engine), ...(configuredTestCommand ? [configuredTestCommand] : [])];
     const normalized = allowed.map((prefix) => prefix.split(/\s+/).filter(Boolean));
     const matched = normalized.some((prefix) => prefix.length > 0 && prefix.every((token, index) => argv[index] === token));
     if (!matched) {
@@ -268,8 +297,20 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     const frozen = task?.executionId === undefined ? undefined : deps.store.settings.getJson<{ verifyCommandTimeoutMs: number }>(`execution.settings.${task.executionId}`);
     const fix = deps.store.settings.getJson<{ verifyCommandTimeoutMs?: number }>(`fix.worktree.${body.taskId}`);
     const limit = frozen?.verifyCommandTimeoutMs ?? fix?.verifyCommandTimeoutMs ?? deps.engine.settings.execution.verifyCommandTimeoutMs;
+    const controlled = body.testReport !== undefined || node?.sourceEvidence?.stage === 'test';
+    if (controlled && (!attempt || !execution || dispatch.kind !== 'execution')) throw new AppError(ErrorCode.FORBIDDEN, '受控测试必须绑定当前执行尝试');
+    if (body.testReport !== undefined && (body.testReport === null || body.testReport.format !== 'junit' || body.testReport.path !== undefined && typeof body.testReport.path !== 'string')) throw new AppError(ErrorCode.VALIDATION_FAILED, '仅支持JUnit stdout或工作区相对报告路径');
+    if (controlled && JSON.stringify(argv) !== JSON.stringify(tokenizeCommand(configuredTestCommand))) throw new AppError(ErrorCode.COMMAND_NOT_ALLOWED, '受控测试只执行项目/全局配置的完整测试命令，不接受模型改写命令或参数');
+    const before = controlled ? reportFingerprint(root, body.testReport) : undefined;
+    if (body.testReport?.path) assertRoleResource(request, 'read', body.testReport.path);
+    const startedAt = nowIso();
     const result = await runCommand(argv, root, Math.min(body.timeoutMs ?? limit, limit));
-    return result;
+    if (!controlled) return result;
+    // A stopped/revoked session cannot register a late command result.
+    requireSessionScope(request.headers['x-agent-workflow-scope']);
+    if (deps.store.executions.getAttempt(attempt!.id)?.status !== 'running') throw new AppError(ErrorCode.STALE_TARGET, '测试命令结束时尝试已失效');
+    const testRun = retainControlledTestRun({ store: deps.store, taskId: body.taskId, executionId: execution!.id, nodeId: attempt!.nodeId, attemptId: attempt!.id, root, startedAt, argv, before, report: body.testReport, result, candidatePaths: sourceAncestors(deps.store, task!, attempt!).flatMap((item) => item.result?.artifacts.flatMap((ref) => ref.path ? [ref.path] : []) ?? []), allowed: (path) => dispatch.rolePolicy !== undefined && roleFileAllowed(dispatch.rolePolicy, path, 'read') });
+    return { ...result, testRun };
   }));
 }
 

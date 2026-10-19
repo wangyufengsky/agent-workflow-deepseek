@@ -125,6 +125,7 @@ export interface ProjectSummary extends Project {
 /* ------------------------------------------------------------------ */
 
 export interface MethodStepDefinition {
+  readonly sourceStage?: import('./enums.ts').SourceEvidenceStageValue;
   readonly key: string;
   readonly title: string;
   readonly kind: NodeKindValue;
@@ -259,6 +260,7 @@ export interface RoleImageHistoryEntry {
 }
 
 export interface TaskTemplate {
+  readonly sourceEvidenceVersion?: 1;
   readonly description?: string;
   readonly group?: 'report' | 'review' | 'dev';
   readonly inputs?: { readonly dates?: boolean; readonly fullHistory?: boolean; readonly source?: boolean; readonly documents?: boolean; readonly output?: boolean };
@@ -409,6 +411,7 @@ export interface ResourceRef {
 }
 
 export interface PlanNode {
+  readonly sourceEvidence?: { readonly version: 1; readonly testCommand?: string; readonly stage: import('./enums.ts').SourceEvidenceStageValue; readonly filePaths: readonly string[] };
   readonly id: PlanNodeId;
   readonly key: string;
   readonly title: string;
@@ -716,6 +719,8 @@ export interface ExecutionNodeState {
 }
 
 export interface AttemptResult {
+  readonly fileEvidence?: readonly import('./file-evidence.ts').SourceFileEvidence[];
+  readonly testRun?: import('./file-evidence.ts').ControlledTestRun;
   readonly resultRevision: string;
   readonly summary: string;
   readonly payload?: Record<string, unknown>;
@@ -736,6 +741,7 @@ export interface ArtifactSubmission {
 }
 
 export interface ArtifactRef {
+  readonly path?: string;
   readonly id: string;
   readonly revision: string;
   readonly sha256: string;

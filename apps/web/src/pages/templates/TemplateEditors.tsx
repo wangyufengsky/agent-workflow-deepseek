@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ROUTES,
+  ROUTES, NodeKind, SourceEvidenceStage, type SourceEvidenceStageValue,
   createRequestKey,
   type CommandResponse,
   type OperationReceipt,
@@ -12,20 +12,16 @@ import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { Modal } from '../../components/Modal.tsx';
 
-const STEP_KINDS = ['implementation', 'test', 'delivery'] as const;
+const STEP_KINDS = Object.values(NodeKind);
 type StepKind = (typeof STEP_KINDS)[number];
-
-const STEP_KIND_LABELS: Readonly<Record<StepKind, string>> = {
-  implementation: '实现（implementation）',
-  test: '测试（test）',
-  delivery: '交付（delivery）',
-};
+const STEP_KIND_LABELS: Readonly<Record<StepKind, string>> = { requirement: '需求', design: '设计', implementation: '实现', test: '测试', verify: '复核', delivery: '交付', system: '系统' };
 
 const DEFAULT_GROUP = '固定步骤';
 
 type MutationPhase = 'idle' | 'saving' | 'failed' | 'unknown';
 
 interface VisualStep {
+  readonly sourceStage?: SourceEvidenceStageValue;
   readonly key: string;
   readonly title: string;
   readonly kind: StepKind;
@@ -49,11 +45,11 @@ export interface TemplateArchiveResult {
 }
 
 function narrowKind(kind: string): StepKind {
-  return kind === 'test' || kind === 'delivery' ? kind : 'implementation';
+  return STEP_KINDS.includes(kind as StepKind) ? kind as StepKind : 'implementation';
 }
 
 function toVisualSteps(template: TaskTemplate): readonly VisualStep[] {
-  return template.steps.map((step) => ({ key: step.key, title: step.title, kind: narrowKind(step.kind), group: step.group }));
+  return template.steps.map((step) => ({ sourceStage: step.sourceStage, key: step.key, title: step.title, kind: narrowKind(step.kind), group: step.group }));
 }
 
 function buildTemplate(template: TaskTemplate, name: string, steps: readonly VisualStep[]): TaskTemplate {
@@ -64,6 +60,8 @@ function buildTemplate(template: TaskTemplate, name: string, steps: readonly Vis
     lockedAfterCreate: true,
     parameters: template.parameters,
     steps: steps.map((step) => ({
+      ...template.steps.find((original) => original.key === step.key),
+      ...(step.sourceStage ? { sourceStage: step.sourceStage } : {}),
       key: step.key.trim(),
       title: step.title.trim(),
       kind: step.kind,
@@ -402,6 +400,7 @@ export function VisualTemplateEditor({ template, onClose, onSaved }: {
                   </div>
                 </div>
 
+                {template.sourceEvidenceVersion === 1 ? <label className="field"><span className="label">逐文件证据阶段</span><select className="select" aria-label={`第 ${index + 1} 步证据阶段`} value={step.sourceStage ?? 'prepare'} disabled={busy} onChange={(event) => patchStep(index, { sourceStage: event.target.value as SourceEvidenceStageValue })}>{Object.values(SourceEvidenceStage).map((stage) => <option key={stage} value={stage}>{{ prepare: '准备 / 读取', write: '逐文件写作', review: '独立复核', test: '受控测试' }[stage]}</option>)}</select><span className="hint">写作与复核必须保留明确步骤；已有任务继续使用冻结合同。</span></label> : null}
                 <div className="row" style={{ gap: 6 }}>
                   <span className="hint mono grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {step.key}

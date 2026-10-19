@@ -124,7 +124,9 @@ export class PlanService {
       requiredSteps: template.steps.map((step) => ({ ...step })),
       refinableGroups: [],
     });
-    const graph = task.fixedTemplate?.snapshot === undefined ? templateGraph : snapshotPlanGraph(templateGraph, task.fixedTemplate.snapshot, template);
+    const testCommand = this.#store.projects.get(task.projectId)?.settings.testCommand || this.#context.settings().git.defaultTestCommand;
+    const evidenceGraph = template.sourceEvidenceVersion === 1 && task.fixedTemplate?.scope ? { ...templateGraph, nodes: templateGraph.nodes.map((node, index) => ({ ...node, sourceEvidence: { version: 1 as const, stage: template.steps[index]?.sourceStage ?? 'prepare' as const, testCommand, filePaths: (task.fixedTemplate!.scope!.sourceFiles ?? []).map((file) => file.path) } })) } : templateGraph;
+    const graph = task.fixedTemplate?.snapshot === undefined ? evidenceGraph : snapshotPlanGraph(templateGraph, task.fixedTemplate.snapshot, template);
     const plan = this.#store.plans.create({ taskId, source: 'template', graph, status: 'unconfirmed', baseRevisionId: base?.id });
     this.#store.tasks.update(taskId, { stage: TaskStage.CONFIRMING, attention: TaskAttention.NONE, currentPlanRevisionId: plan.id });
     this.#store.events.publish('plan.changed', { taskId, planRevisionId: plan.id, revisionNumber: plan.revisionNumber, status: 'unconfirmed' });

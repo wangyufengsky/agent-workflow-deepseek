@@ -3,10 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@agent-workflow/shared": "0.1.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@agent-workflow/shared": "0.1.0",
     "@agent-workflow/database": "0.1.0",
     "@agent-workflow/engine": "0.1.0",
     "@agent-workflow/storage": "0.1.0",
-    "@agent-workflow/opencode": "0.1.0" }
+    "@agent-workflow/opencode": "0.1.0",
+    "@xmldom/xmldom": "0.8.15"
+  }
 }

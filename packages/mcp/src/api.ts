@@ -108,6 +108,7 @@ export class InternalMcpApi {
       nodeId: input.nodeId,
       attemptId: input.attemptId,
       summary: input.summary,
+      ...(input.artifacts === undefined ? {} : { artifacts: input.artifacts }),
       ...(input.payload === undefined ? {} : { payload: input.payload }),
       ...(input.verification === undefined ? {} : { verification: input.verification }),
     });
@@ -149,10 +150,11 @@ export class InternalMcpApi {
     });
   }
 
-  readWorkspaceFile(input: { readonly taskId: string; readonly path: string; readonly offset?: number; readonly limit?: number }): Promise<unknown> {
+  readWorkspaceFile(input: { readonly taskId: string; readonly path: string; readonly artifactId?: string; readonly offset?: number; readonly limit?: number }): Promise<unknown> {
     return this.#client.get(INTERNAL_MCP_ROUTES.workspaceFile, {
       taskId: input.taskId,
       path: input.path,
+      ...(input.artifactId === undefined ? {} : { artifactId: input.artifactId }),
       ...(input.offset === undefined ? {} : { offset: input.offset }),
       ...(input.limit === undefined ? {} : { limit: input.limit }),
     });
@@ -179,10 +181,11 @@ export class InternalMcpApi {
     });
   }
 
-  execWorkspace(input: { readonly taskId: string; readonly command: string }): Promise<unknown> {
+  execWorkspace(input: { readonly taskId: string; readonly command: string; readonly testReport?: { readonly format: 'junit'; readonly path?: string } }): Promise<unknown> {
     return this.#client.post(INTERNAL_MCP_ROUTES.workspaceExec, {
       taskId: input.taskId,
       command: input.command,
+      ...(input.testReport === undefined ? {} : { testReport: input.testReport }),
     });
   }
 }

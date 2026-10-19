@@ -826,3 +826,8 @@ export const PPT_GENERATION_TERMINAL = [PptGenerationStatus.COMPLETED,PptGenerat
 
 export const RoleResponsibilitySlot = { EXECUTION: 'execution', READ_ONLY: 'execution_read_only' } as const;
 export type RoleResponsibilitySlotValue = (typeof RoleResponsibilitySlot)[keyof typeof RoleResponsibilitySlot];
+
+export const SourceEvidenceStage = { PREPARE: 'prepare', WRITE: 'write', REVIEW: 'review', TEST: 'test' } as const;
+export type SourceEvidenceStageValue = (typeof SourceEvidenceStage)[keyof typeof SourceEvidenceStage];
+export const TestCaseStatus = { PASSED: 'passed', FAILED: 'failed', SKIPPED: 'skipped' } as const;
+export type TestCaseStatusValue = (typeof TestCaseStatus)[keyof typeof TestCaseStatus];

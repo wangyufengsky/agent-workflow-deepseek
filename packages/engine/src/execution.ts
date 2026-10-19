@@ -1,3 +1,4 @@
+import { prepareSourceSubmission, sourceEvidencePrompt } from './template-file-evidence.ts';
 import { boundAttempt } from './node-read.ts';
 import { templateScopePrompt } from './template-scope.ts';
 import { toolEvidence } from './tool-evidence.ts';
@@ -823,13 +824,17 @@ export class ExecutionService {
     const role = this.#store.plans.get(execution.planRevisionId)?.graph.nodes.find((node) => node.id === input.nodeId)?.roleSnapshot;
     if ((input.artifacts?.length ?? 0) > 0 && (!workspace?.displayRoot || !role)) throw new AppError(ErrorCode.WORKSPACE_NOT_READY, '产物工作区或职业权限不可用');
     if (input.artifacts !== undefined && !Array.isArray(input.artifacts)) throw new AppError(ErrorCode.VALIDATION_FAILED, 'artifacts必须是数组');
+    const node = this.#store.plans.get(execution.planRevisionId)?.graph.nodes.find((item) => item.id === input.nodeId);
+    const source = prepareSourceSubmission(this.#store, task, node, attempt, input);
     const artifacts = input.artifacts === undefined || input.artifacts.length === 0 ? [] : captureArtifacts(this.#store.dataDir, workspace!.displayRoot!, attempt.id, input.artifacts, (path) => roleFileAllowed(role!, path, 'read'));
+    const { serviceArtifacts, ...materialized } = source.materialize(artifacts);
     const result: AttemptResult = {
+      ...materialized,
       resultRevision: createId('res'),
       summary: input.summary,
       payload: input.payload,
-      artifacts,
-      verification: input.verification,
+      artifacts: [...artifacts, ...(serviceArtifacts ?? [])],
+      verification: materialized.verification ?? input.verification,
       errors: [],
       warnings: [],
     };
@@ -1368,6 +1373,7 @@ ${task.title}
 # 需求原文
 ${task.requirement.text}
 ${templateScopePrompt(task.fixedTemplate?.scope)}
+${sourceEvidencePrompt(this.#store, task, node, attemptId)}
 
 # 已冻结职业
 ${node.roleSnapshot === undefined ? "历史计划未记录职业快照" : `${node.roleSnapshot.name} @ ${node.roleSnapshot.revision}\n${node.roleSnapshot.instructions ?? node.roleSnapshot.purpose}\n职责：${node.roleSnapshot.responsibilities.join("；")}`}

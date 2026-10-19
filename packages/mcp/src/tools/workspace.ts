@@ -31,6 +31,7 @@ export function createWorkspaceTools(deps: WorkspaceToolDeps): readonly ToolDefi
         {
           taskId: stringSchema('任务 id（服务端据此解析 workspace）', { minLength: 1 }),
           path: stringSchema('workspace 内相对路径', { minLength: 1 }),
+          artifactId: stringSchema('读取上游不可变产物的身份；同名源码不会替代该产物', { minLength: 1 }),
           offset: integerSchema('起始行号（0 起）', { minimum: 0 }),
           limit: integerSchema('最多读取行数（0 表示全部）', { minimum: 0, maximum: 10_000 }),
         },
@@ -42,11 +43,12 @@ export function createWorkspaceTools(deps: WorkspaceToolDeps): readonly ToolDefi
         const path = requiredString(args.path, 'path');
         const offset = optionalInteger(args.offset, 'offset');
         const limit = optionalInteger(args.limit, 'limit');
-        const input = { taskId, path, ...(offset === undefined ? {} : { offset }), ...(limit === undefined ? {} : { limit }) };
+        const artifactId = args.artifactId === undefined ? undefined : requiredString(args.artifactId, 'artifactId');
+        const input = { taskId, path, ...(artifactId === undefined ? {} : { artifactId }), ...(offset === undefined ? {} : { offset }), ...(limit === undefined ? {} : { limit }) };
         try {
           return await api.readWorkspaceFile(input);
         } catch (error) {
-          if (!canFallback(error, workspace !== undefined)) throw error;
+          if (artifactId !== undefined || !canFallback(error, workspace !== undefined)) throw error;
           return localWorkspace(workspace).read(path, { ...(offset === undefined ? {} : { offset }), ...(limit === undefined ? {} : { limit }) });
         }
       },
@@ -116,11 +118,12 @@ export function createWorkspaceTools(deps: WorkspaceToolDeps): readonly ToolDefi
       name: 'workspace.exec',
       title: '在 workspace 执行命令',
       description:
-        '在任务 workspace 内执行白名单命令（需要 taskId；服务端负责 root、命令白名单、超时与输出截断）。命令不经过 shell。',
+        '在任务workspace执行白名单命令，不经过shell。testReport可声明JUnit stdout或本次命令新生成的相对报告路径；受控测试命令必须与项目配置完全一致。只用返回的testRun.id引用真实服务报告，不能自报通过数。',
       inputSchema: objectSchema(
         {
           taskId: stringSchema('任务 id（服务端据此解析 workspace）', { minLength: 1 }),
           command: stringSchema('要执行的命令（不含 shell 重定向/管道）', { minLength: 1, maxLength: 16_384 }),
+          testReport: objectSchema({ format: stringSchema('报告格式', { enum: ['junit'] }), path: stringSchema('可选：由本次命令新建/更新的JUnit文件相对路径；省略解析stdout', { minLength: 1 }) }, ['format']),
         },
         ['taskId', 'command'],
       ),
@@ -129,9 +132,12 @@ export function createWorkspaceTools(deps: WorkspaceToolDeps): readonly ToolDefi
         const taskId = requiredString(args.taskId, 'taskId');
         const command = requiredString(args.command, 'command');
         try {
-          return await api.execWorkspace({ taskId, command });
+          if (args.testReport !== undefined && (args.testReport === null || typeof args.testReport !== 'object' || (args.testReport as Record<string, unknown>).format !== 'junit')) throw new AppError(ErrorCode.VALIDATION_FAILED, 'testReport.format必须是junit');
+          const report = args.testReport as { format: 'junit'; path?: unknown } | undefined;
+          const path = report === undefined ? undefined : optionalString(report.path, 'testReport.path');
+          return await api.execWorkspace({ taskId, command, ...(report === undefined ? {} : { testReport: { format: 'junit', ...(path === undefined ? {} : { path }) } }) });
         } catch (error) {
-          if (!canFallback(error, exec !== undefined)) throw error;
+          if (args.testReport !== undefined || !canFallback(error, exec !== undefined)) throw error;
           return localExec(exec).run(command);
         }
       },

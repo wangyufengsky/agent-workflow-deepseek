@@ -4,7 +4,7 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { AppError, ErrorCode, createId, type ArtifactRef, type ArtifactSubmission } from '@agent-workflow/shared';
 
 const MAX_BYTES = 8 * 1024 * 1024;
-const MIME: Readonly<Record<string, string>> = { '.md': 'text/markdown', '.txt': 'text/plain', '.json': 'application/json', '.csv': 'text/csv', '.log': 'text/plain', '.ts': 'text/plain', '.tsx': 'text/plain', '.js': 'text/plain', '.py': 'text/plain', '.java': 'text/plain', '.sql': 'text/plain', '.html': 'text/plain', '.svg': 'text/plain', '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.zip': 'application/zip', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
+const MIME: Readonly<Record<string, string>> = { '.xml': 'text/xml', '.md': 'text/markdown', '.txt': 'text/plain', '.json': 'application/json', '.csv': 'text/csv', '.log': 'text/plain', '.ts': 'text/plain', '.tsx': 'text/plain', '.js': 'text/plain', '.mjs': 'text/plain', '.cjs': 'text/plain', '.py': 'text/plain', '.java': 'text/plain', '.sql': 'text/plain', '.html': 'text/plain', '.svg': 'text/plain', '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.zip': 'application/zip', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation' };
 function fail(message: string): never { throw new AppError(ErrorCode.READ_FAILED, message); }
 function readBounded(fd: number): Buffer {
   const out = Buffer.alloc(MAX_BYTES + 1);
@@ -43,7 +43,7 @@ export function captureArtifacts(dataDir: string, workspaceRoot: string, attempt
       const after = fstatSync(fd);
       if (bytes.length > MAX_BYTES || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) fail('文件正在变化，请完成写入后再提交');
     } finally { closeSync(fd); }
-    const ref: ArtifactRef = { id: createId('art'), revision: createId('rev'), sha256: digest(bytes), mediaType: MIME[extname(path).toLowerCase()] ?? 'application/octet-stream', name: basename(path), sizeBytes: bytes.length, sourceAttemptId: attemptId };
+    const ref: ArtifactRef = { path: item.path, id: createId('art'), revision: createId('rev'), sha256: digest(bytes), mediaType: MIME[extname(path).toLowerCase()] ?? 'application/octet-stream', name: basename(path), sizeBytes: bytes.length, sourceAttemptId: attemptId };
     return { ref, bytes };
   });
   const dir = join(dataDir, 'artifacts');
@@ -65,4 +65,11 @@ export function readArtifactBytes(dataDir: string, ref: ArtifactRef): Buffer {
   } catch { fail('产物文件已缺失或不可读取'); }
   if (bytes.length !== ref.sizeBytes || digest(bytes) !== ref.sha256) fail('产物内容校验失败，请重新读取产物信息');
   return bytes;
+}
+
+/** Server-origin report bytes; never accepts a model-provided ArtifactRef. */
+export function captureServiceArtifact(dataDir: string, attemptId: string, name: string, bytes: Buffer, mediaType = 'text/plain'): ArtifactRef {
+  if (bytes.length > MAX_BYTES) fail('服务报告超过8 MiB');
+  const ref: ArtifactRef = { id: createId('art'), revision: createId('rev'), sha256: digest(bytes), name, mediaType, sizeBytes: bytes.length, sourceAttemptId: attemptId };
+  const dir = join(dataDir, 'artifacts'); mkdirSync(dir, { recursive: true, mode: 0o700 }); writeFileSync(join(dir, `${ref.id}.blob`), bytes, { flag: 'wx', mode: 0o600 }); return ref;
 }
