@@ -402,6 +402,24 @@ export interface KnowledgeAskRequest extends CommandRequest {
   readonly conversationId?: string;
   /** Inventory-relative paths selected for this round; omitted means all current sources. */
   readonly sourcePaths?: readonly string[];
+  readonly continueFromRequestKey?: string;
+}
+
+export interface KnowledgeStopRequest extends CommandRequest { readonly projectId: string }
+export interface KnowledgeRunProgress {
+  readonly requestKey: string;
+  readonly projectId: string;
+  readonly conversationId: string;
+  readonly question: string;
+  readonly model: string;
+  readonly status: import('../domain/enums.ts').KnowledgeRunStatusValue;
+  readonly startedAt: IsoDateTime;
+  readonly updatedAt: IsoDateTime;
+  readonly answer: string;
+  readonly sources: NonNullable<KnowledgeAskResponse['sources']>;
+  readonly sessionId?: string;
+  readonly stopRequestKey?: string;
+  readonly error?: string;
 }
 
 export interface KnowledgeCitation {
@@ -414,6 +432,8 @@ export interface KnowledgeAskResponse {
   readonly projectId: string;
   readonly question: string;
   readonly answer: string;
+  readonly status?: 'completed' | 'stopped';
+  readonly requestKey?: string;
   readonly citations: readonly KnowledgeCitation[];
   readonly model: string;
   readonly generatedAt: IsoDateTime;
@@ -433,6 +453,7 @@ export interface KnowledgeAskResponse {
 
 export interface KnowledgeHistoryEntry extends KnowledgeAskResponse {
   readonly id: string;
+  readonly runStatus?: import('../domain/enums.ts').KnowledgeRunStatusValue;
 }
 
 export interface KnowledgeHistoryResponse {
@@ -1897,6 +1918,8 @@ export const ROUTES = {
   knowledgeSourceContent: '/api/knowledge/source',
   knowledgeAsk: '/api/knowledge/ask',
   knowledgeHistory: '/api/knowledge/history',
+  knowledgeProgress: (key: string) => `/api/knowledge/runs/${encodeURIComponent(key)}`,
+  knowledgeStop: (key: string) => `/api/knowledge/runs/${encodeURIComponent(key)}/stop`,
   knowledgeResult: (requestKey: string) => `/api/knowledge/results/${encodeURIComponent(requestKey)}`,
 } as const;
 

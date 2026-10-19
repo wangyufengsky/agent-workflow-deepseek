@@ -247,6 +247,8 @@
 | 方法 | 路径 | 用途 | 回执 / 语义 |
 | --- | --- | --- | --- |
 | GET | `/api/knowledge/results/:requestKey` | （待补说明：knowledgeResult） | 读口；无写回执 |
+| GET | `/api/knowledge/runs/:key` | （待补说明：knowledgeProgress） | 读口；无写回执 |
+| POST | `/api/knowledge/runs/:key/stop` | （待补说明：knowledgeStop） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET / PATCH | `/api/projects/:id/charter` | （待补说明：projectCharter） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/confirm` | （待补说明：projectCharterConfirm） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/generate` | （待补说明：projectCharterGenerate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |

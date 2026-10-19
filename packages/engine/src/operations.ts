@@ -40,7 +40,7 @@ export class CommandService {
   }): { readonly record: OperationRecord; readonly replayed: boolean } {
     const definition = OPERATIONS[input.operation];
     if (definition === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, `未知操作 ${input.operation}`);
-    if (definition.requiresRequestKey && !input.requestKey.startsWith('req_')) {
+    if (definition.requiresRequestKey && (typeof input.requestKey !== 'string' || !input.requestKey.startsWith('req_'))) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, 'requestKey 不合法');
     }
     const bodyHash = stableHash(input.body);

@@ -255,6 +255,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'PATCH /api/settings',
   'POST /api/settings/databases',
   'POST /api/knowledge/ask',
+  'POST /api/knowledge/runs/:key/stop',
   'POST /api/interactions/:id/resolve',
   'POST /api/opencode/restart',
 ]);
@@ -958,6 +959,12 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = request.body as KnowledgeAskRequest;
     return envelope(await engine.knowledge.ask(body), requestId(request));
   });
+  app.get<{ Params: { key: string }; Querystring: { projectId?: string } }>('/api/knowledge/runs/:key', async (request) => {
+    return envelope(engine.knowledge.progress(request.params.key, request.query.projectId ?? ''), requestId(request));
+  });
+  app.post<{ Params: { key: string } }>('/api/knowledge/runs/:key/stop', async (request) => {
+    return envelope(await engine.knowledge.stop(request.params.key, request.body as import('@agent-workflow/shared').KnowledgeStopRequest), requestId(request));
+  });
   app.get<{ Params: { requestKey: string }; Querystring: { projectId?: string } }>('/api/knowledge/results/:requestKey', async (request) => {
     const projectId = request.query.projectId ?? '';
     if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
@@ -1132,6 +1139,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   // Operations
   app.get<{ Params: { key: string } }>('/api/operations/:key', async (request) => {
     await engine.executions.reconcileOperation(request.params.key);
+    await engine.knowledge.reconcileOperation(request.params.key);
     const operation = engine.commands.get(request.params.key);
     if (operation === undefined) throw new AppError(ErrorCode.NOT_FOUND, '操作记录不存在');
     return envelope({ operation, stillUnknown: operation.status === 'unknown' || operation.status === 'accepted' }, requestId(request));

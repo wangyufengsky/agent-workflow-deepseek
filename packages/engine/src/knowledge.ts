@@ -6,6 +6,8 @@ import {
   type CommandResponse,
   type KnowledgeAskRequest,
   type KnowledgeAskResponse,
+  type KnowledgeRunProgress,
+  type KnowledgeStopRequest,
   type KnowledgeHistoryEntry,
   type KnowledgeHistoryResponse,
   type KnowledgeStep,
@@ -18,6 +20,7 @@ import type { CommandService } from './operations.ts';
 import type { OpenCodePort } from './ports.ts';
 import type { OpenCodeMessage, OpenCodePart } from '@agent-workflow/opencode';
 import { listKnowledgeSources, readKnowledgeSource } from '../../server/src/knowledge.ts';
+import { partialKnowledgeAnswer } from './knowledge-stream.ts';
 import { usageFromMessages } from './token-usage.ts';
 
 const MAX_SOURCES = 200;
@@ -37,6 +40,7 @@ export class KnowledgeService {
   readonly #commands: CommandService;
   readonly #context: EngineContext;
   readonly #opencode: OpenCodePort;
+  readonly #active = new Set<string>();
 
   constructor(options: KnowledgeServiceOptions) {
     this.#store = options.store;
@@ -63,7 +67,7 @@ export class KnowledgeService {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'knowledge.ask',
-      body: { projectId: input.projectId, question, conversationId: requestedConversationId, sourcePaths },
+      body: { projectId: input.projectId, question, conversationId: requestedConversationId, sourcePaths, continueFromRequestKey: input.continueFromRequestKey },
       target: { projectId: input.projectId },
     });
     if (replayed) {
@@ -71,13 +75,25 @@ export class KnowledgeService {
       return { receipt: this.#commands.toReceipt(record), ...(resource === undefined ? {} : { resource }) };
     }
     try {
-      const model = this.#model();
+      const previous = input.continueFromRequestKey === undefined ? undefined : this.result(input.continueFromRequestKey, input.projectId);
+      if (previous !== undefined && (previous.status !== 'stopped' || previous.conversationId !== requestedConversationId)) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '只能继续当前对话中已确认停止的回答');
+      }
+      if (requestedConversationId !== undefined) {
+        const owner = this.#store.settings.getJson<string>(`knowledge.project.${requestedConversationId}`);
+        if (owner !== undefined && owner !== input.projectId) throw new AppError(ErrorCode.VALIDATION_FAILED, '已有会话不可更换项目');
+        const outstandingKey = this.#store.settings.getJson<string>(`knowledge.pending.${requestedConversationId}`);
+        const status = outstandingKey === undefined ? undefined : this.#commands.get(outstandingKey)?.status;
+        if (status === 'accepted' || status === 'unknown') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, `当前对话还有未完成问答，请核对原请求 ${outstandingKey}`);
+      }
+      const model = requestedConversationId === undefined ? this.#model()
+        : this.#store.settings.getJson<ModelProfile>(`knowledge.model.${requestedConversationId}`) ?? this.#model();
       if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法问答');
       const retrieveStartedAt = nowIso();
       const retrieveStartedMs = Date.now();
       const inventory = listKnowledgeSources(project.rootPath);
       const available = new Set(inventory.map((source) => source.path));
-      const selectedPaths = sourcePaths ?? inventory.map((source) => source.path);
+      const selectedPaths = previous?.sources?.selectedPaths ?? sourcePaths ?? inventory.map((source) => source.path);
       if (selectedPaths.some((path) => !available.has(path))) {
         throw new AppError(ErrorCode.VALIDATION_FAILED, '所选资料已不可读取，请刷新资料来源后重新选择');
       }
@@ -109,6 +125,16 @@ export class KnowledgeService {
         },
       ];
       const conversationId = requestedConversationId ?? createId('conversation');
+      this.#store.settings.putJson(`knowledge.model.${conversationId}`, model);
+      this.#store.settings.putJson(`knowledge.project.${conversationId}`, input.projectId);
+      this.#store.settings.putJson(`knowledge.pending.${conversationId}`, input.requestKey);
+      const sourceSnapshot = { selectedPaths, readPaths: documents.map((document) => document.path), truncatedPaths };
+      this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId,
+        model: `${model.provider}/${model.model}`, status: 'researching', startedAt: nowIso(), updatedAt: nowIso(), answer: '', sources: sourceSnapshot });
+      const runKeys = this.#store.settings.getJson<string[]>(`knowledge.runs.${input.projectId}`) ?? [];
+      this.#store.settings.putJson(`knowledge.runs.${input.projectId}`, [input.requestKey, ...runKeys].slice(0, 200));
+      this.#active.add(input.requestKey);
+      let streamText = '';
       const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? [])
         .filter((entry) => entry.conversationId === conversationId)
         .slice(0, 3);
@@ -116,14 +142,41 @@ export class KnowledgeService {
         kind: 'review',
         metadata: { projectId: input.projectId, purpose: 'knowledge.ask' },
         cwd: project.rootPath,
-        prompt: buildPrompt(question, documents, recent),
+        prompt: buildPrompt(question, documents, recent) + (previous === undefined ? '' : `\n继续完成上次停止的回答，返回包含已有内容的完整答案。已保留内容：\n${previous.answer}`),
         system: SYSTEM_PROMPT,
         model,
         permission: 'read_only',
         toolPolicy: 'none',
-        sink: {},
+        onSessionId: (sessionId) => {
+          const progress = this.progress(input.requestKey, input.projectId);
+          if (progress.stopRequestKey !== undefined) {
+            // No prompt has been submitted yet; this is positive proof of no work.
+            this.#finishStopped(progress);
+            throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '问答在派发前已停止');
+          }
+          this.#saveProgress({ ...progress, sessionId });
+        },
+        sink: {
+          onTextDelta: (delta) => {
+            streamText += delta;
+            const progress = this.progress(input.requestKey, input.projectId);
+            if (!['researching', 'answering'].includes(progress.status)) return;
+            const answer = partialKnowledgeAnswer(streamText);
+            this.#saveProgress({ ...progress, answer, status: answer === '' ? 'researching' : 'answering' });
+          },
+          onIdle: () => {
+            const progress = this.progress(input.requestKey, input.projectId);
+            if (progress.stopRequestKey !== undefined) this.#finishStopped(progress);
+          },
+        },
         timeoutMs: 120_000,
       });
+      const progress = this.progress(input.requestKey, input.projectId);
+      if (progress.status === 'stopped' || (progress.stopRequestKey !== undefined && result.outcome.idle)) {
+        this.#finishStopped(progress);
+        return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
+      }
+      if (progress.stopRequestKey !== undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '停止尚未确认，请核对原操作');
       if (result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '知识问答超时，请缩小问题范围后重试');
       if (result.outcome.error !== undefined && result.outcome.error !== '') {
         throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `知识问答失败：${result.outcome.error}`);
@@ -155,6 +208,8 @@ export class KnowledgeService {
       });
       const orderedSteps = [...steps].sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0));
       const response: KnowledgeAskResponse = {
+        requestKey: input.requestKey,
+        status: 'completed',
         projectId: input.projectId,
         question,
         answer: parsed.answer.trim().slice(0, 8_000),
@@ -167,17 +222,93 @@ export class KnowledgeService {
         steps: orderedSteps,
         ...(toolActivity.length === 0 ? {} : { toolActivity }),
       };
-      const entry: KnowledgeHistoryEntry = { id: createId('knowledge'), ...response };
-      const key = historyKey(input.projectId);
-      const history = this.#store.settings.getJson<KnowledgeHistoryEntry[]>(key) ?? [];
-      this.#store.settings.putJson(key, [entry, ...history].slice(0, 30));
-      this.#store.settings.putJson(resultKey(input.requestKey), response);
-      this.#commands.settle(input.requestKey, { citations: citations.length, historyId: entry.id, conversationId });
+      this.#complete(input.requestKey, response);
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: response };
     } catch (error) {
-      this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('知识问答失败'));
+      const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(input.requestKey));
+      if (progress?.status === 'stopped') return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
+      const unknown = progress?.stopRequestKey !== undefined || (error instanceof AppError && error.code === ErrorCode.MODEL_BUDGET_EXCEEDED);
+      if (progress !== undefined) this.#saveProgress({ ...progress, status: unknown ? 'unknown' : 'failed', error: error instanceof Error ? error.message : '知识问答失败' });
+      this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('知识问答失败'), unknown);
       throw error;
+    } finally { this.#active.delete(input.requestKey); }
+  }
+
+  progress(requestKey: string, projectId: string): KnowledgeRunProgress {
+    let progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(requestKey));
+    if (progress === undefined || progress.projectId !== projectId) throw new AppError(ErrorCode.NOT_FOUND, '问答进度不存在');
+    if (!this.#active.has(requestKey) && ['researching', 'answering', 'stopping'].includes(progress.status)) {
+      progress = { ...progress, status: 'unknown', error: '执行连接已中断，请核对原操作。' };
+      this.#saveProgress(progress);
     }
+    return progress;
+  }
+
+  async stop(askKey: string, input: KnowledgeStopRequest): Promise<CommandResponse> {
+    const progress = this.progress(askKey, input.projectId);
+    const { record, replayed } = this.#commands.begin({ requestKey: input.requestKey, operation: 'knowledge.stop', body: { askKey, projectId: input.projectId }, target: { projectId: input.projectId } });
+    if (replayed) return { receipt: this.#commands.toReceipt(record) };
+    if (['completed', 'stopped', 'failed'].includes(progress.status)) {
+      this.#commands.settle(input.requestKey, { askKey, alreadyTerminal: true });
+    } else if (progress.stopRequestKey !== undefined) {
+      this.#commands.fail(input.requestKey, new AppError(ErrorCode.OPERATION_IN_PROGRESS, `请核对原停止请求 ${progress.stopRequestKey}`));
+    } else {
+      const stopping = { ...progress, status: 'stopping' as const, stopRequestKey: input.requestKey };
+      this.#saveProgress(stopping);
+      if (progress.sessionId !== undefined) {
+        try {
+          await Promise.race([this.#opencode.abortSession(progress.sessionId), new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => reject(new Error('停止确认超时')), 5000); timer.unref();
+          })]);
+          await this.reconcileOperation(input.requestKey);
+        } catch (error) {
+          if (this.#commands.get(input.requestKey)?.status !== 'succeeded') {
+            this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('停止未确认'), true);
+            this.#saveProgress({ ...stopping, status: 'unknown', error: '停止尚未确认，请核对原请求号。' });
+          }
+        }
+      }
+    }
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!) };
+  }
+
+  async reconcileOperation(key: string): Promise<void> {
+    const operation = this.#commands.get(key);
+    if (operation === undefined || !['knowledge.ask', 'knowledge.stop'].includes(operation.operation) || !['accepted', 'unknown'].includes(operation.status)) return;
+    const askKey = operation.operation === 'knowledge.ask' ? key : this.#store.settings.getJson<string>(`knowledge.stop-target.${key}`);
+    if (askKey === undefined) return;
+    const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(askKey));
+    if (progress?.sessionId === undefined || progress.stopRequestKey === undefined) return;
+    try {
+      const status = await this.#opencode.inspectSession?.(progress.sessionId);
+      if (status === 'idle') this.#finishStopped(progress);
+    } catch { /* Missing state cannot prove a stopped session. */ }
+  }
+
+  #saveProgress(progress: KnowledgeRunProgress): void {
+    this.#store.settings.putJson(progressKey(progress.requestKey), { ...progress, updatedAt: nowIso() });
+    if (progress.stopRequestKey !== undefined) this.#store.settings.putJson(`knowledge.stop-target.${progress.stopRequestKey}`, progress.requestKey);
+  }
+
+  #finishStopped(progress: KnowledgeRunProgress): void {
+    if (['completed', 'failed'].includes(progress.status)) return;
+    this.#complete(progress.requestKey, { requestKey: progress.requestKey, status: 'stopped', projectId: progress.projectId,
+      question: progress.question, answer: progress.answer, citations: [], model: progress.model,
+      generatedAt: nowIso(), conversationId: progress.conversationId, sources: progress.sources });
+    if (progress.stopRequestKey !== undefined && this.#commands.get(progress.stopRequestKey)?.status !== 'succeeded') {
+      this.#commands.settle(progress.stopRequestKey, { askKey: progress.requestKey, confirmedStopped: true });
+    }
+  }
+
+  #complete(requestKey: string, response: KnowledgeAskResponse): void {
+    if (this.#commands.get(requestKey)?.status === 'succeeded') return;
+    const entry: KnowledgeHistoryEntry = { id: createId('knowledge'), ...response, runStatus: response.status === 'stopped' ? 'stopped' : 'completed' };
+    const history = this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(response.projectId)) ?? [];
+    this.#store.settings.putJson(historyKey(response.projectId), [entry, ...history].slice(0, 30));
+    this.#store.settings.putJson(resultKey(requestKey), response);
+    const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(requestKey));
+    if (progress !== undefined) this.#saveProgress({ ...progress, answer: response.answer, status: response.status === 'stopped' ? 'stopped' : 'completed' });
+    this.#commands.settle(requestKey, { historyId: entry.id, conversationId: response.conversationId });
   }
 
   result(requestKey: string, projectId: string): KnowledgeAskResponse {
@@ -194,7 +325,16 @@ export class KnowledgeService {
 
   history(projectId: string): KnowledgeHistoryResponse {
     if (this.#store.projects.get(projectId) === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
-    return { entries: this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(projectId)) ?? [] };
+    const completed = this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(projectId)) ?? [];
+    const keys = this.#store.settings.getJson<string[]>(`knowledge.runs.${projectId}`) ?? [];
+    const pending: KnowledgeHistoryEntry[] = keys.flatMap((key) => {
+      const progress = this.progress(key, projectId);
+      if (['completed', 'stopped'].includes(progress.status)) return [];
+      return [{ id: key, requestKey: key, projectId, conversationId: progress.conversationId, question: progress.question,
+        answer: progress.answer, model: progress.model, generatedAt: progress.startedAt, sources: progress.sources,
+        runStatus: progress.status, citations: [] }];
+    });
+    return { entries: [...pending, ...completed].sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)) };
   }
 
   #model(): ModelProfile {
@@ -204,6 +344,8 @@ export class KnowledgeService {
     return model;
   }
 }
+
+function progressKey(requestKey: string): string { return `knowledge.progress.${requestKey}`; }
 
 function resultKey(requestKey: string): string {
   return `knowledge.result.${requestKey}`;

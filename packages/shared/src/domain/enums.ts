@@ -614,6 +614,7 @@ export const OperationKind = {
   CATALOG_TEMPLATE_ARCHIVE: 'catalog.template.archive',
   CATALOG_TEMPLATE_UPDATE: 'catalog.template.update',
   KNOWLEDGE_ASK: 'knowledge.ask',
+  KNOWLEDGE_STOP: 'knowledge.stop',
   PPT_WORK_CREATE: 'ppt.work.create',
   PPT_WORK_DELETE: 'ppt.work.delete',
   PPT_WORK_GENERATE: 'ppt.work.generate',
@@ -691,6 +692,7 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'catalog.template.archive': op('catalog.template.archive', 'global', true, '归档自定义模板'),
   'catalog.template.update': op('catalog.template.update', 'global', true, '更新自定义模板'),
   'knowledge.ask': op('knowledge.ask', 'project', true, '知识库问答（单次只读）'),
+  'knowledge.stop': op('knowledge.stop', 'project', true, '停止知识问答'),
   'ppt.work.create': op('ppt.work.create', 'project', true, '创建 PPT 草稿'),
   'ppt.work.delete': op('ppt.work.delete', 'project', true, '删除 PPT 草稿'),
   'ppt.work.generate': op('ppt.work.generate', 'project', true, '生成 PPT 大纲（只读模型）'),
@@ -770,3 +772,9 @@ export const Rationale = {
   NODE_REJECTED: 'NODE_REJECTED',
 } as const;
 export type RationaleValue = (typeof Rationale)[keyof typeof Rationale];
+
+export const KnowledgeRunStatus = {
+  RESEARCHING: 'researching', ANSWERING: 'answering', STOPPING: 'stopping',
+  STOPPED: 'stopped', COMPLETED: 'completed', FAILED: 'failed', UNKNOWN: 'unknown',
+} as const;
+export type KnowledgeRunStatusValue = typeof KnowledgeRunStatus[keyof typeof KnowledgeRunStatus];

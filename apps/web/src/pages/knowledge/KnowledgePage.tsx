@@ -436,7 +436,10 @@ export function KnowledgePage() {
     const projectParam = searchParams.get('project');
     const sourceParam = searchParams.get('source');
     const conversationParam = searchParams.get('conversation');
-    if (projectParam === null && sourceParam === null && conversationParam === null) return;
+    const requestParam = searchParams.get('requestKey');
+    if (projectParam === null && sourceParam === null && conversationParam === null && requestParam === null) return;
+    if (askCommand.pending !== undefined && requestParam !== askCommand.pending.input.requestKey) return;
+    if (requestParam !== null && projectParam !== null) void askCommand.openRun(requestParam, projectParam);
     if (projectParam !== null && bootstrap.data.projects.some((project) => project.id === projectParam)) {
       setSelectedProjectId(projectParam);
     }
@@ -449,6 +452,7 @@ export function KnowledgePage() {
     next.delete('project');
     next.delete('source');
     next.delete('conversation');
+    next.delete('requestKey');
     setSearchParams(next, { replace: true });
   }, [bootstrap.data, searchParams, setSearchParams]);
 
@@ -689,12 +693,18 @@ export function KnowledgePage() {
                 只读取本轮选中的资料；较长资料会使用节选，回答后可核对实际读取范围。
                 {sourcesMissing ? ' 项目没有找到可读取的资料，请先添加项目资料。' : ''}
               </p>
-              {askCommand.busy ? (
-                <div className="kb-research-note">
-                  <Icon name="clock" size="sm" />
-                  <span>研究中… 研究步骤与工具轨迹会在回答完成后由服务一次性返回；本轮非流式，不显示假进度。</span>
+              {askCommand.pending === undefined ? null : (
+                <div className="card pad" role="status" style={{ marginTop: 12 }}>
+                  <div className="row wrap">
+                    <Icon name="clock" size="sm" />
+                    <b>{askCommand.progress?.status === 'stopping' ? '正在停止…' : askCommand.progress?.status === 'unknown' ? '执行状态待核对' : '研究中'}</b>
+                    {askCommand.progress === undefined ? null : <span className="hint">已读取 {String(askCommand.progress.sources.readPaths.length)} 份来源 · 用时 {String(Math.max(0, Math.round((Date.now() - Date.parse(askCommand.progress.startedAt)) / 1000)))}s</span>}
+                    <span className="spacer" />
+                    <Button variant="secondary" size="sm" onClick={() => { void askCommand.stop(); }} disabled={askCommand.stopping || askCommand.progress?.stopRequestKey !== undefined} disabledReason="停止请求已发送，请核对原操作。">停止生成</Button>
+                  </div>
+                  {askCommand.progress?.answer ? <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askCommand.progress.answer}</p> : <p className="hint">正在依据所选资料组织回答…</p>}
                 </div>
-              ) : null}
+              )}
               {askCommand.pending !== undefined && !askCommand.busy ? (
                 <div className="banner warn" style={{ marginTop: 10 }} role="status">
                   <Icon name="help" />
@@ -719,7 +729,7 @@ export function KnowledgePage() {
               {askResult === undefined ? null : (
                 <div className="card pad" style={{ marginTop: 12 }}>
                   <div className="row wrap" style={{ gap: 8 }}>
-                    <Badge tone="ok" icon="check">回答</Badge>
+                    <Badge tone={askResult.status === 'stopped' ? 'warn' : 'ok'} icon={askResult.status === 'stopped' ? 'pause' : 'check'}>{askResult.status === 'stopped' ? '已停止' : '回答'}</Badge>
                     <span className="hint mono">{askResult.model}</span>
                     <span className="hint">{new Date(askResult.generatedAt).toLocaleString('zh-CN')}</span>
                     {askResult.usage === undefined ? null : <span className="hint num">{String(askResult.usage.total)} tokens</span>}
@@ -740,6 +750,9 @@ export function KnowledgePage() {
                       本轮读取 {String(askResult.sources.readPaths.length)} 份所选资料。
                       {askResult.sources.truncatedPaths.length === 0 ? '资料正文完整读取。' : `其中 ${String(askResult.sources.truncatedPaths.length)} 份使用节选：${askResult.sources.truncatedPaths.join('、')}`}
                     </p>
+                  )}
+                  {askResult.status !== 'stopped' ? null : (
+                    <Button variant="secondary" size="sm" disabled={askCommand.pending !== undefined} disabledReason="先核对当前问答结果。" onClick={() => { void askCommand.ask({ projectId: askResult.projectId, question: askResult.question, conversationId: askResult.conversationId, sourcePaths: askResult.sources?.selectedPaths, continueFromRequestKey: askResult.requestKey }); }}>继续生成</Button>
                   )}
                   <ResearchTimeline steps={askResult.steps} toolActivity={askResult.toolActivity} />
                   {askResult.citations.length === 0 ? <p className="hint">模型没有给出可验证的引用。</p> : (

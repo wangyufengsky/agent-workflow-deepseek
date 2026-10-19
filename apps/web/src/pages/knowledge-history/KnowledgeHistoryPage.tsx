@@ -20,7 +20,7 @@ import { SegmentedControl, type SegmentOption } from '../../components/Segmented
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import './knowledge-history.css';
 
-type StatusFilter = 'all' | 'cited' | 'uncited';
+type StatusFilter = 'all' | 'needs_answer' | 'running' | 'completed';
 
 interface ProjectHistorySlice {
   readonly project: ProjectSummary;
@@ -126,9 +126,11 @@ function HistoryRowItem({
 }) {
   const cited = row.entry.citations.length > 0;
   const group = dayGroup(row.entry.generatedAt);
+  const status = row.entry.runStatus ?? 'completed';
+  const label = ({ researching: '研究中', answering: '生成中', stopping: '正在停止', stopped: '已停止', completed: '已完成', failed: '失败', unknown: '待核对' } as const)[status];
   return (
     <div className="kh-item" data-cited={cited} data-expanded={expanded}>
-      <button type="button" className="kh-row" aria-expanded={expanded} onClick={onToggle}>
+      <Link className="kh-row" to={`/knowledge?project=${encodeURIComponent(row.projectId)}&conversation=${encodeURIComponent(row.entry.conversationId)}${row.entry.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(row.entry.requestKey)}`}`}>
         <span className="kh-ico" aria-hidden="true">
           <Icon name={cited ? 'book' : 'help'} size="sm" />
         </span>
@@ -136,8 +138,8 @@ function HistoryRowItem({
           <span className="kh-q">{highlight(row.entry.question, term)}</span>
           <span className="kh-a">{highlight(answerSummary(row.entry.answer), term)}</span>
           <span className="kh-meta">
-            <Badge tone={cited ? 'ok' : 'idle'} icon={cited ? 'check' : 'help'}>
-              {cited ? '有引用' : '无引用'}
+            <Badge tone={status === 'completed' ? 'ok' : 'idle'} icon={status === 'completed' ? 'check' : 'clock'}>
+              {label}
             </Badge>
             <span>{row.projectName}</span>
             <span aria-hidden="true">·</span>
@@ -150,10 +152,11 @@ function HistoryRowItem({
           <span className="hint num" title={formatAbsoluteTime(row.entry.generatedAt)}>
             {formatEntryTime(row.entry.generatedAt, group)}
           </span>
-          <span className="hint">{expanded ? '收起' : '展开'}</span>
+          <span className="hint">查看对话</span>
           <Icon name={expanded ? 'chevDown' : 'chevRight'} size="sm" />
         </span>
-      </button>
+      </Link>
+      <Button variant="ghost" size="sm" onClick={onToggle}>{expanded ? '收起详情' : '展开详情'}</Button>
       {expanded ? (
         <div className="kh-detail">
           <div>
@@ -187,11 +190,11 @@ function HistoryRowItem({
               variant="secondary"
               size="sm"
               icon="arrowRight"
-              to={`/knowledge?project=${encodeURIComponent(row.projectId)}&conversation=${encodeURIComponent(row.entry.conversationId)}`}
+              to={`/knowledge?project=${encodeURIComponent(row.projectId)}&conversation=${encodeURIComponent(row.entry.conversationId)}${row.entry.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(row.entry.requestKey)}`}`}
             >
               继续追问
             </LinkButton>
-            <span className="hint">会带上同一条对话的 conversationId，知识库页据此延续上下文；回答与引用均由服务重新生成。</span>
+            <span className="hint">回到原对话，保留已写回答与来源；未完成的操作按原请求号核对。</span>
           </div>
         </div>
       ) : null}
@@ -256,15 +259,14 @@ export function KnowledgeHistoryPage() {
       row.entry.question.toLowerCase().includes(lowerTerm) ||
       row.entry.answer.toLowerCase().includes(lowerTerm),
   );
-  const citedRows = searched.filter((row) => row.entry.citations.length > 0);
-  const uncitedRows = searched.filter((row) => row.entry.citations.length === 0);
-  const filtered =
-    statusFilter === 'cited' ? citedRows : statusFilter === 'uncited' ? uncitedRows : searched;
-
+  const runningRows = searched.filter((row) => ['researching', 'answering', 'stopping', 'unknown'].includes(row.entry.runStatus ?? 'completed'));
+  const completedRows = searched.filter((row) => ['completed', 'stopped'].includes(row.entry.runStatus ?? 'completed'));
+  const filtered = statusFilter === 'running' ? runningRows : statusFilter === 'completed' ? completedRows : statusFilter === 'needs_answer' ? [] : searched;
   const statusOptions: readonly SegmentOption<StatusFilter>[] = [
     { value: 'all', label: '全部', count: searched.length },
-    { value: 'cited', label: '有引用', count: citedRows.length },
-    { value: 'uncited', label: '无引用', count: uncitedRows.length },
+    { value: 'needs_answer', label: '需要回答', count: 0 },
+    { value: 'running', label: '进行中', count: runningRows.length },
+    { value: 'completed', label: '已完成', count: completedRows.length },
   ];
 
   const grouped = DAY_GROUPS.map((group) => ({
@@ -303,17 +305,6 @@ export function KnowledgeHistoryPage() {
           </div>
         }
       />
-
-      <div className="banner info kh-note">
-        <Icon name="info" />
-        <div className="grow">
-          <b>状态分段按可得事实降级</b>
-          <br />
-          服务端历史接口只返回已生成的问答（问题、回答、引用、模型、生成时间、conversationId），<b>没有「需要回答 / 进行中 / 已完成」的会话状态字段</b>。
-          因此本页按引用事实分段：全部 / 有引用 / 无引用；每条记录都是服务已返回的一次问答，不显示虚构的待回答或进行中状态。
-          「有引用」= 服务返回了可核对的引用；「无引用」= 模型没有给出引用。
-        </div>
-      </div>
 
       {bootstrap.isError ? (
         <div style={{ marginTop: 16 }}>

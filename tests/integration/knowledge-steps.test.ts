@@ -13,6 +13,9 @@ class FakeOpenCode implements OpenCodePort {
   assistantText = '';
   timedOut = false;
   gate?: Promise<void>;
+  abortCount = 0;
+  abortError?: Error;
+  sessionState: 'idle' | 'running' | 'unknown' = 'running';
 
   status(): ReturnType<OpenCodePort['status']> {
     return { state: 'ready' } as ReturnType<OpenCodePort['status']>;
@@ -24,6 +27,7 @@ class FakeOpenCode implements OpenCodePort {
 
   async runSession(request: OpenCodeRunRequest): Promise<OpenCodeRunResult> {
     this.requests.push(request);
+    request.onSessionId?.('sess_knowledge_fake');
     await this.gate;
     return {
       sessionId: 'sess_knowledge_fake',
@@ -32,8 +36,10 @@ class FakeOpenCode implements OpenCodePort {
   }
 
   async abortSession(): Promise<void> {
-    return;
+    this.abortCount++;
+    if (this.abortError !== undefined) throw this.abortError;
   }
+  async inspectSession() { return this.sessionState; }
 
   async findSessions(): Promise<readonly never[]> {
     return [];
@@ -169,7 +175,8 @@ test('W3-4b knowledge: missing runtime timings are omitted (no steps invented) a
       (error: unknown) => (error as { code?: string }).code === 'VALIDATION_FAILED',
     );
     assert.equal(fixture.store.operations.get(badKey)?.status, 'failed');
-    assert.equal(engine.knowledge.history(projectId).entries.length, 1, 'failed answer is not persisted');
+    assert.equal(engine.knowledge.history(projectId).entries.filter((entry) => entry.runStatus === 'completed').length, 1, 'failed attempt is not a completed answer');
+    assert.equal(engine.knowledge.history(projectId).entries.find((entry) => entry.requestKey === badKey)?.runStatus, 'failed');
   } finally {
     fixture.close();
   }
@@ -220,4 +227,61 @@ test('knowledge freezes selected input, rejects outside inventory and includes s
     const clipped = await fixture.engine.knowledge.ask({ requestKey: requestKey('clipped'), projectId: fixture.projectId, question: '长文件是什么？', sourcePaths: ['long.md'] });
     assert.deepEqual(clipped.resource?.sources?.truncatedPaths, ['long.md']);
   } finally { fixture.close(); }
+});
+
+test('knowledge streams decoded answer, stop remains pending until idle, and explicit continue retains partial answer', async () => {
+  const fixture = setup();
+  let release!: () => void;
+  fixture.opencode.gate = new Promise<void>((resolve) => { release = resolve; });
+  fixture.opencode.assistantText = ANSWER;
+  const askKey = requestKey('stream');
+  const stopKey = requestKey('stop');
+  try {
+    const first = fixture.engine.knowledge.ask({ requestKey: askKey, projectId: fixture.projectId, question: '这个项目是什么？' });
+    const sink = fixture.opencode.requests[0]!.sink;
+    sink.onTextDelta?.('{"answer":"已经写出的内容', { messageId: 'm1', partId: 'p1' });
+    assert.equal(fixture.engine.knowledge.progress(askKey, fixture.projectId).answer, '已经写出的内容');
+    assert.equal(fixture.engine.knowledge.progress(askKey, fixture.projectId).status, 'answering');
+    const stopping = await fixture.engine.knowledge.stop(askKey, { requestKey: stopKey, projectId: fixture.projectId });
+    assert.equal(stopping.receipt.status, 'accepted');
+    assert.equal(fixture.engine.knowledge.progress(askKey, fixture.projectId).status, 'stopping');
+    await fixture.engine.knowledge.stop(askKey, { requestKey: stopKey, projectId: fixture.projectId });
+    assert.equal(fixture.opencode.abortCount, 1);
+    fixture.opencode.sessionState = 'idle';
+    await fixture.engine.knowledge.reconcileOperation(stopKey);
+    const partial = fixture.engine.knowledge.result(askKey, fixture.projectId);
+    assert.equal(partial.status, 'stopped');
+    assert.equal(partial.answer, '已经写出的内容');
+    assert.equal(fixture.store.operations.get(stopKey)?.status, 'succeeded');
+    sink.onTextDelta?.('不允许追加', { messageId: 'm1', partId: 'p1' });
+    assert.equal(fixture.engine.knowledge.result(askKey, fixture.projectId).answer, '已经写出的内容');
+    release(); await first;
+    fixture.opencode.gate = undefined;
+    const resumed = await fixture.engine.knowledge.ask({ requestKey: requestKey('continue'), projectId: fixture.projectId, question: partial.question, conversationId: partial.conversationId, continueFromRequestKey: askKey });
+    assert.equal(resumed.resource?.status, 'completed');
+    assert.match(fixture.opencode.requests[1]!.prompt, /已经写出的内容/);
+  } finally { release(); fixture.close(); }
+});
+
+test('knowledge abort failure stays UNKNOWN and original-key reconciliation never re-aborts', async () => {
+  const fixture = setup();
+  let release!: () => void;
+  fixture.opencode.gate = new Promise<void>((resolve) => { release = resolve; });
+  fixture.opencode.abortError = new Error('abort transport lost');
+  fixture.opencode.assistantText = ANSWER;
+  const askKey = requestKey('unknown');
+  const stopKey = requestKey('unknown-stop');
+  try {
+    const first = fixture.engine.knowledge.ask({ requestKey: askKey, projectId: fixture.projectId, question: '这个项目是什么？' });
+    const result = await fixture.engine.knowledge.stop(askKey, { requestKey: stopKey, projectId: fixture.projectId });
+    assert.equal(result.receipt.status, 'unknown');
+    await fixture.engine.knowledge.reconcileOperation(stopKey);
+    assert.equal(fixture.store.operations.get(stopKey)?.status, 'unknown');
+    assert.equal(fixture.opencode.abortCount, 1);
+    fixture.opencode.sessionState = 'idle';
+    await fixture.engine.knowledge.reconcileOperation(stopKey);
+    assert.equal(fixture.store.operations.get(stopKey)?.status, 'succeeded');
+    release(); await first;
+    assert.equal(fixture.opencode.abortCount, 1);
+  } finally { release(); fixture.close(); }
 });
