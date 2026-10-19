@@ -599,6 +599,7 @@ export const OperationKind = {
   DATABASE_QUERY: 'database.query',
   SETTINGS_UPDATE: 'settings.update',
   SECRET_SAVE: 'secret.save',
+  OPENCODE_START: 'opencode.start',
   OPENCODE_RESTART: 'opencode.restart',
   OPERATION_RECONCILE: 'operations.by-key',
   TEMPLATE_TASK_CREATE: 'template.task.create',
@@ -726,6 +727,7 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'database.query': op('database.query', 'project', false, '执行只读查询'),
   'settings.update': op('settings.update', 'global', true, '保存设置'),
   'secret.save': op('secret.save', 'global', true, '保存凭据引用'),
+  'opencode.start': op('opencode.start', 'global', true, '启动 OpenCode 服务'),
   'opencode.restart': op('opencode.restart', 'global', true, '重启 OpenCode 服务'),
   'operations.by-key': op('operations.by-key', 'global', false, '按原请求号核对回执'),
   'template.task.create': op('template.task.create', 'project', true, '创建固定模板任务'),
@@ -814,3 +816,6 @@ export const PptPlanModules = { BRIEF: 'brief', NARRATIVE: 'narrative', SLIDES: 
 export const PptGenerationStatus = { RUNNING:'running', STOPPING:'stopping', UNKNOWN:'unknown', STOPPED:'stopped', COMPLETED:'completed', FAILED:'failed' } as const;
 export type PptGenerationStatusValue = (typeof PptGenerationStatus)[keyof typeof PptGenerationStatus];
 export const PPT_GENERATION_TERMINAL = [PptGenerationStatus.COMPLETED,PptGenerationStatus.FAILED,PptGenerationStatus.STOPPED] as const;
+
+export const RoleResponsibilitySlot = { EXECUTION: 'execution', READ_ONLY: 'execution_read_only' } as const;
+export type RoleResponsibilitySlotValue = (typeof RoleResponsibilitySlot)[keyof typeof RoleResponsibilitySlot];

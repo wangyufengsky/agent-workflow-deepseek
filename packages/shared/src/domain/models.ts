@@ -207,6 +207,7 @@ export interface RolePublishCheck {
 }
 
 export interface RoleDefinition {
+  readonly allowedSlots?: readonly string[];
   readonly id: string;
   readonly name: string;
   readonly purpose: string;
@@ -229,6 +230,7 @@ export interface RoleDefinition {
 
 /** Effective role after defaults are applied (instructions/capabilities always present). */
 export interface RoleDefinitionResolved {
+  readonly allowedSlots?: readonly string[];
   readonly id: string;
   readonly name: string;
   readonly purpose: string;

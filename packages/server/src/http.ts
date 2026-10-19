@@ -1,3 +1,5 @@
+import { registerRuntimeOperationRoutes } from './runtime-operations.ts';
+import { registerRoleInsightRoutes } from './role-insights.ts';
 import { DATABASE_TYPE_META } from '@agent-workflow/shared';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -58,7 +60,6 @@ import type {
   DeliveryMergeRequest,
   GitLabConnectionRequest,
   GitFetchRequest,
-  OpenCodeRestartRequest,
   TemplateArchiveRequest,
   MethodArchiveRequest,
   MethodCopyRequest,
@@ -260,6 +261,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/knowledge/ask',
   'POST /api/knowledge/runs/:key/stop',
   'POST /api/interactions/:id/resolve',
+  'POST /api/opencode/start',
   'POST /api/opencode/restart',
 ]);
 
@@ -341,6 +343,7 @@ const MIME: Record<string, string> = {
 
 export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): void {
   const { engine, store, opencodeRef, paths, databaseService, remoteService } = deps;
+  registerRoleInsightRoutes(app, store, engine);
   const requestId = (request: FastifyRequest): string => String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
   // Command envelopes are validated once, before any handler can reach domain
   // services. Hooks registered here also cover routes added by later plugins.
@@ -1473,6 +1476,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
             tools: mcpConnected ? countEnabledMcpTools(setting.opencode.toolsets) : 0,
           },
           startedAt: status.startedAt,
+          generation: status.startedAt === undefined ? undefined : createHash('sha256').update(`${status.startedAt}:${status.pid ?? ''}`).digest('hex').slice(0, 12),
           lastError: status.lastError,
           gateway: deps.gateway?.stats() ?? { enabled: false, requests: 0, normalized: 0 },
           sessions: diagnostics?.sessions ?? 0,
@@ -1490,34 +1494,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.get('/api/opencode/detect', async (request) => {
     return envelope(await detectOpenCodeBinaries(engine.publicSettings().opencode.binaryPath), requestId(request));
   });
-  app.post('/api/opencode/restart', async (request) => {
-    const body = commandBody<OpenCodeRestartRequest>(request);
-    if (body.confirmRestart !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '重启 OpenCode 需要 confirmRestart=true 确认');
-    const opencode = opencodeRef.current;
-    if (opencode === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'OpenCode 服务未启用');
-    const { record, replayed } = engine.commands.begin({
-      requestKey: body.requestKey,
-      operation: 'opencode.restart',
-      body: { confirmRestart: true },
-      target: {},
-    });
-    if (replayed && record.status !== 'accepted') {
-      return envelope({ receipt: engine.commands.toReceipt(record), resource: { status: opencode.status() } }, requestId(request));
-    }
-    try {
-      await opencode.stop();
-      await opencode.ensureReady();
-      engine.commands.settle(body.requestKey, { state: opencode.status().state });
-      return envelope(
-        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { status: opencode.status() } },
-        requestId(request),
-      );
-    } catch (error) {
-      const appError = error instanceof AppError ? error : new AppError(ErrorCode.OPENCODE_NOT_READY, error instanceof Error ? error.message : '重启 OpenCode 失败');
-      engine.commands.fail(body.requestKey, appError);
-      throw appError;
-    }
-  });
+  registerRuntimeOperationRoutes(app, store, engine, opencodeRef);
 
   // SSE events
   app.get<{ Querystring: { afterSeq?: string } }>('/api/events', async (request, reply) => {

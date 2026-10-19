@@ -1129,6 +1129,7 @@ export interface RoleCatalogEntry extends RoleDefinition {
 }
 
 export interface RoleRevisionSnapshot {
+  readonly allowedSlots?: readonly string[];
   readonly revision: string;
   readonly name: string;
   readonly purpose: string;
@@ -1794,11 +1795,16 @@ export interface OpenCodeStatusResponse {
     readonly agent: string;
     readonly mcp: { readonly name: string; readonly connected: boolean; readonly tools: number };
     readonly startedAt?: IsoDateTime;
+    readonly generation?: string;
     readonly lastError?: string;
     readonly sessions?: number;
     readonly totalSessions?: number;
     readonly maxSessions?: number;
   };
+}
+
+export interface OpenCodeStartRequest extends CommandRequest {
+  readonly confirmStart: true;
 }
 
 export interface OpenCodeRestartRequest extends CommandRequest {
@@ -2003,6 +2009,11 @@ export const ROUTES = {
   databaseProbe: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/probe`,
   databaseQuery: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/query`,
   opencodeStatus: '/api/opencode/status',
+  catalogRoleInsights: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/insights`,
+  catalogRolePermissionPreview: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/permission-preview`,
+  catalogRoleImages: '/api/catalog/role-images',
+  opencodeStart: '/api/opencode/start',
+  opencodeOperations: '/api/opencode/operations',
   opencodeRestart: '/api/opencode/restart',
   opencodeDetect: '/api/opencode/detect',
   opencodeLogs: '/api/opencode/logs',
@@ -2024,3 +2035,24 @@ export const ROUTES = {
 
 export type RouteKey = keyof typeof ROUTES;
 
+
+export interface RoleUsageView {
+  readonly roleId: string;
+  readonly workflows: readonly { readonly id: string; readonly name: string; readonly planning: boolean; readonly steps: readonly string[] }[];
+  readonly templates: readonly { readonly id: string; readonly name: string; readonly steps: readonly string[] }[];
+  readonly frozenNodes: number;
+}
+export interface RolePermissionPreview {
+  readonly roleId: string; readonly revision: string; readonly slot: string; readonly readAt: IsoDateTime;
+  readonly tools: readonly { readonly name: string; readonly description: string }[];
+  readonly limitations: readonly string[]; readonly diagnostics: readonly string[];
+}
+
+export interface RoleInsightsResponse {
+  readonly usage: RoleUsageView;
+  readonly published: { readonly revision: string; readonly allowedSlots: readonly string[] } | null;
+  readonly slots: readonly { readonly id: string; readonly label: string }[];
+}
+export interface RoleImageCatalogResponse { readonly images: readonly RoleImageBinding[] }
+export interface RuntimeOperationHistoryResponse { readonly operations: readonly OperationRecord[] }
+export type OpenCodeStartResponse = OpenCodeRestartResponse;

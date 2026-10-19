@@ -78,6 +78,8 @@ export class OpenCodeAdapter implements OpenCodePort {
   readonly #manager: OpenCodeManager;
   readonly #options: OpenCodeAdapterOptions;
   #activeSessions = 0;
+  #pendingSessions = 0;
+  #maintenance = false;
   #starting: Promise<void> | undefined;
 
   constructor(options: OpenCodeAdapterOptions) {
@@ -137,14 +139,36 @@ export class OpenCodeAdapter implements OpenCodePort {
     if (this.#manager.status.state === 'ready') return;
     if (this.#starting === undefined) {
       this.#starting = this.#manager.start().then((status) => {
-        this.#starting = undefined;
         if (status.state !== 'ready') throw new AppError(ErrorCode.OPENCODE_NOT_READY, status.lastError ?? '受管 OpenCode 服务未就绪');
-      });
+      }).finally(() => { this.#starting = undefined; });
     }
     await this.#starting;
   }
 
+  beginMaintenance(): () => void {
+    if (this.#maintenance || this.#pendingSessions > 0) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '运行时仍有活动会话或维护操作，请先停止并核对');
+    this.#maintenance = true;
+    let released = false;
+    return () => { if (!released) { released = true; this.#maintenance = false; } };
+  }
+
+  async verifyMaintenanceIdle(): Promise<void> {
+    if (!this.#maintenance) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '必须先持有运行时维护锁');
+    if (this.#manager.status.state !== 'ready' && this.#manager.status.state !== 'degraded') return;
+    const statuses = await this.#manager.client.request<Record<string, { type?: string }>>('/session/status');
+    if (statuses === null || typeof statuses !== 'object' || Array.isArray(statuses)) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '远程会话状态未知，禁止重启');
+    const activeIds = Object.entries(statuses).filter(([, status]) => status?.type !== 'idle').map(([id]) => id);
+    if (activeIds.length > 0) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, 'OpenCode 仍有活动或未知会话，禁止重启', { details: { sessionIds: activeIds } });
+  }
+
   async runSession(request: OpenCodeRunRequest): Promise<OpenCodeRunResult> {
+    if (this.#maintenance) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '运行时正在维护，暂不接受新会话');
+    this.#pendingSessions += 1;
+    try { return await this.#runSession(request); }
+    finally { this.#pendingSessions -= 1; }
+  }
+
+  async #runSession(request: OpenCodeRunRequest): Promise<OpenCodeRunResult> {
     await this.ensureReady();
     if (this.#activeSessions >= this.#options.maxSessions) {
       throw new AppError(ErrorCode.OPENCODE_SESSION_LIMIT, `受管 OpenCode 并发会话已达上限（${String(this.#options.maxSessions)}），请稍后重试或调高设置`, {
@@ -229,12 +253,12 @@ export class OpenCodeAdapter implements OpenCodePort {
 
   /** For diagnostics only; never exposes provider keys. */
   async diagnostics(): Promise<{ mcp: Record<string, { status: string }>; sessions: number; totalSessions: number }> {
-    if (this.#manager.status.state !== 'ready') return { mcp: {}, sessions: 0, totalSessions: 0 };
+    if (this.#manager.status.state !== 'ready') return { mcp: {}, sessions: this.#pendingSessions, totalSessions: 0 };
     const client = this.#manager.client;
     const [mcp, sessions] = await Promise.all([client.mcpStatus().catch(() => ({})), client.listSessions().catch(() => [])]);
     // `sessions` is the enforced concurrency counter; listSessions includes
     // historical sessions that must not be compared with the live limit.
-    return { mcp, sessions: this.#activeSessions, totalSessions: sessions.length };
+    return { mcp, sessions: this.#pendingSessions, totalSessions: sessions.length };
   }
 }
 

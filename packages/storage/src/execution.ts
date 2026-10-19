@@ -102,6 +102,11 @@ export class ExecutionRepository {
     };
   }
 
+  list(): readonly ExecutionView[] {
+    const rows = this.#db.prepare('SELECT * FROM executions ORDER BY rowid DESC').all() as unknown as Row[];
+    return rows.map((row) => mapExecution(row, this.nodes(String(row.id))));
+  }
+
   get(id: string): ExecutionView | undefined {
     const row = this.#db.prepare('SELECT * FROM executions WHERE id = ?').get(id) as Row | undefined;
     return row === undefined ? undefined : mapExecution(row, this.nodes(id));

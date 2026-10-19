@@ -104,6 +104,13 @@ export class OperationRepository {
     return rows.map(mapOperation);
   }
 
+  listRecentFor(operations: readonly string[], limit = 30): readonly OperationRecord[] {
+    if (operations.length === 0) return [];
+    const placeholders = operations.map(() => '?').join(',');
+    const rows = this.#db.prepare(`SELECT * FROM operations WHERE operation IN (${placeholders}) ORDER BY accepted_at DESC, rowid DESC LIMIT ?`).all(...operations, limit) as unknown as Row[];
+    return rows.map(mapOperation);
+  }
+
   listRecent(limit = 50): readonly OperationRecord[] {
     const rows = this.#db.prepare('SELECT * FROM operations ORDER BY accepted_at DESC LIMIT ?').all(limit) as unknown as Row[];
     return rows.map(mapOperation);

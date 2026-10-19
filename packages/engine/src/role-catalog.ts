@@ -6,6 +6,7 @@ import {
   RoleCapabilityGroup,
   RoleCapabilityGroupMeta,
   RoleResourceFileKind,
+  RoleResponsibilitySlot,
   RoleResourceToolKind,
   createId,
   nowIso,
@@ -45,6 +46,7 @@ const MAX_TEXT = 20_000;
 
 /** Extended fields shared by published records, drafts and history snapshots. */
 interface StoredRoleFields {
+  readonly allowedSlots?: readonly string[];
   readonly instructions?: string;
   readonly model?: string;
   readonly maxRuntimeMinutes?: number;
@@ -337,6 +339,7 @@ export class RoleCatalogService {
       ...(snapshot.maxRuntimeMinutes === undefined ? {} : { maxRuntimeMinutes: snapshot.maxRuntimeMinutes }),
       ...(snapshot.capabilityGroups === undefined ? {} : { capabilityGroups: snapshot.capabilityGroups }),
       ...(snapshot.resourcePermissions === undefined ? {} : { resourcePermissions: snapshot.resourcePermissions }),
+      ...(snapshot.allowedSlots === undefined ? {} : { allowedSlots: snapshot.allowedSlots }),
       ...(snapshot.image === undefined ? {} : { image: snapshot.image }),
       updatedAt: now,
     };
@@ -561,6 +564,7 @@ function resolveRole(role: RoleDefinition): RoleDefinitionResolved {
     : undefined;
   const model = typeof role.model === 'string' && MODEL_PATTERN.test(role.model) ? role.model : undefined;
   return {
+    allowedSlots: role.allowedSlots ?? Object.values(RoleResponsibilitySlot),
     id: role.id,
     name: role.name,
     purpose: role.purpose,
@@ -670,6 +674,7 @@ function normalizeExtendedFields(input: RoleSaveRequest, fallback: RoleDefinitio
     : normalizeResourcePermissionsInput(input.resourcePermissions, fallback.resourcePermissions);
   const image = input.image === undefined ? fallback.image : input.image === null ? undefined : normalizeImage(input.image);
   return {
+    allowedSlots: fallback.allowedSlots,
     ...(instructions === undefined || instructions.trim() === '' ? {} : { instructions }),
     ...(model === undefined ? {} : { model }),
     ...(maxRuntimeMinutes === undefined ? {} : { maxRuntimeMinutes }),
@@ -821,6 +826,7 @@ function normalizeMaxRuntime(value: unknown): number | undefined {
 
 function extendedFromResolved(resolved: RoleDefinitionResolved): StoredRoleFields {
   return {
+    allowedSlots: resolved.allowedSlots,
     instructions: resolved.instructions,
     ...(resolved.model === undefined ? {} : { model: resolved.model }),
     ...(resolved.maxRuntimeMinutes === undefined ? {} : { maxRuntimeMinutes: resolved.maxRuntimeMinutes }),
@@ -901,6 +907,7 @@ function toDefinition(record: StoredRoleRecord): RoleDefinition {
     responsibilities: record.responsibilities,
     revision: record.revision,
     promptRevision: record.revision,
+    ...(record.allowedSlots === undefined ? {} : { allowedSlots: record.allowedSlots }),
     ...(record.instructions === undefined ? {} : { instructions: record.instructions }),
     ...(record.model === undefined ? {} : { model: record.model }),
     ...(record.maxRuntimeMinutes === undefined ? {} : { maxRuntimeMinutes: record.maxRuntimeMinutes }),
@@ -923,6 +930,7 @@ function draftDefinition(record: StoredRoleRecord, draft: StoredRoleDraft, revis
     responsibilities: draft.responsibilities,
     revision,
     promptRevision: revision,
+    ...(draft.allowedSlots === undefined ? {} : { allowedSlots: draft.allowedSlots }),
     ...(draft.instructions === undefined ? {} : { instructions: draft.instructions }),
     ...(draft.model === undefined ? {} : { model: draft.model }),
     ...(draft.maxRuntimeMinutes === undefined ? {} : { maxRuntimeMinutes: draft.maxRuntimeMinutes }),

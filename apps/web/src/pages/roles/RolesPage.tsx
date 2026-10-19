@@ -1,3 +1,4 @@
+import { RoleUsage, RolePermissionEstimate, RoleImageChoices } from './RoleInsights.tsx';
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -809,22 +810,7 @@ export function RolesPage() {
         <aside className="role-aside">
           <section className="card pad">
             <div className="eyebrow" style={{ marginBottom: 8 }}>使用情况</div>
-            {planningMethods.length === 0 ? (
-              <p className="hint">当前目录中没有流程把它指定为规划职责。</p>
-            ) : (
-              <div className="col" style={{ gap: 6 }}>
-                {planningMethods.map((method) => (
-                  <div key={method.id} className="row" style={{ gap: 8 }}>
-                    <Icon name="flow" size="sm" />
-                    <span className="grow" style={{ fontSize: 13 }}>{method.name}</span>
-                    <span className="hint mono">{method.revision}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="hint" style={{ marginTop: 8 }}>
-              服务只返回流程的规划职责引用；步骤级使用统计没有 DTO，本页不补造。
-            </p>
+            <RoleUsage key={selected.id} id={selected.id} />
           </section>
           <section className="card pad">
             <div className="eyebrow" style={{ marginBottom: 8 }}>版本</div>
@@ -908,7 +894,7 @@ export function RolesPage() {
   };
 
   const renderPerms = (): ReactNode => {
-    if (form === null) return null;
+    if (selected === undefined || form === null) return null;
     const permissions = form.resourcePermissions;
     const commandEditRow = (index: number | null) => {
       if (commandEditor === null || commandEditor.index !== index) return null;
@@ -1110,14 +1096,7 @@ export function RolesPage() {
         <p className="hint" style={{ marginTop: 10 }}>
           资源权限保存的是上限声明；不会立即改变运行中的任务或工具发现结果。删除/添加后先保存草稿才会持久化。
         </p>
-        <div className="banner info" style={{ marginTop: 12 }}>
-          <Icon name="info" />
-          <div className="grow">
-            <b>已发布版本权限预估：服务未提供。</b>
-            <br />
-            当前契约没有已发布修订的 preview/slots DTO；本页只展示和编辑草稿上限，不伪造“实际可用”的预估结果。
-          </div>
-        </div>
+        <RolePermissionEstimate key={`${selected.id}:${selected.revision}`} id={selected.id} locked={readOnly} />
       </div>
     );
   };
@@ -1160,9 +1139,7 @@ export function RolesPage() {
             </section>
           ))}
         </div>
-        <p className="hint" style={{ marginTop: 12 }}>
-          服务未提供可选形象目录或独立绑定接口；本页只展示当前绑定与历史记录，不伪造“设为当前形象”的候选。清除绑定需保存草稿后生效。
-        </p>
+        <RoleImageChoices disabled={readOnly} onSelect={(image) => updateForm({ ...form, image })} />
       </div>
     );
   };
@@ -1261,7 +1238,7 @@ export function RolesPage() {
                 </div>
                 <div className="hint" style={{ marginTop: 4 }}>
                   {planningMethods.length === 0 ? '暂未被流程指定为规划职责。' : `被 ${String(planningMethods.length)} 个流程指定为规划职责。`}
-                  {' '}步骤级使用统计服务未提供。
+                  <RoleUsage key={selected.id} id={selected.id} compact />
                 </div>
               </div>
               <div className="role-head-actions">

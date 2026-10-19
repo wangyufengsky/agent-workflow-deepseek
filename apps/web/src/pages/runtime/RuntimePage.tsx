@@ -1,14 +1,14 @@
+import { RuntimeControls } from './RuntimeControls.tsx';
 import type { ReactNode } from 'react';
 import { OpencodeServiceStatus, type OpencodeServiceStatusValue } from '@agent-workflow/shared';
 import { isServiceUnavailable } from '../../api/client.ts';
-import { useBootstrap, useOpenCodeStatus, useRestartOpenCode } from '../../api/hooks.ts';
+import { useBootstrap, useOpenCodeStatus } from '../../api/hooks.ts';
 import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
-import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
-import { PendingBackendNotice, ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 
 const STATE_LABEL: Record<OpencodeServiceStatusValue, string> = {
   stopped: '已停止',
@@ -65,7 +65,6 @@ function MonoValue({ value }: { readonly value: string | undefined }) {
 export function RuntimePage() {
   const bootstrap = useBootstrap();
   const statusQuery = useOpenCodeStatus();
-  const restart = useRestartOpenCode();
   const status = statusQuery.data;
   const data = bootstrap.data;
   const disconnected = statusQuery.isError && isServiceUnavailable(statusQuery.error);
@@ -85,7 +84,6 @@ export function RuntimePage() {
             : state === null
               ? `OpenCode 返回了无法识别的状态「${status.state}」；为避免误操作，重启已停用。`
               : undefined;
-  const restartDisabledReason = restartBlockedReason ?? (restart.isPending ? '正在提交重启…' : undefined);
 
   let body: ReactNode;
   if (bootstrap.isLoading && statusQuery.isLoading) {
@@ -137,18 +135,10 @@ export function RuntimePage() {
                 ? '正在读取 OpenCode 进程状态与受管归属…'
                 : external
                   ? '当前 OpenCode 不是本程序受管进程（未启用或由外部启动）；本页只读取状态，不管理其进程，也不提供重启。'
-                  : '受管 OpenCode 通过本地 HTTP 接口执行任务与知识库对话。重启会结束当前会话，正在执行的任务会暂停。'}
+                  : '受管 OpenCode 通过本地 HTTP 接口执行任务与知识库对话。重启前必须先停止并核对活动会话；服务会拒绝不安全的重启。'}
             </div>
           </div>
-          <Button
-            variant="secondary"
-            icon="refresh"
-            disabled={restartDisabledReason !== undefined}
-            disabledReason={restartDisabledReason}
-            onClick={() => restart.mutate()}
-          >
-            {restart.isPending ? '正在提交重启…' : '重启 OpenCode'}
-          </Button>
+
         </section>
 
         {statusQuery.isError ? (
@@ -195,23 +185,6 @@ export function RuntimePage() {
           </div>
         )}
 
-        {restart.isSuccess ? (
-          <div className="banner ok" role="status" style={{ marginTop: 14 }}>
-            <Icon name="check" />
-            <div className="grow">
-              <b>已提交重启请求</b>
-              <br />
-              重启结果以 /api/opencode/status 重新读取的状态为准；本页不把提交当成成功。
-            </div>
-          </div>
-        ) : null}
-
-        {restart.isError ? (
-          <div style={{ marginTop: 14 }}>
-            <ServiceNotice error={restart.error} />
-          </div>
-        ) : null}
-
         <div className="grid-3" style={{ marginTop: 16 }}>
           <Fact icon="server" title="应用">
             <dl className="kv" style={{ gridTemplateColumns: '92px minmax(0,1fr)', fontSize: 12.5 }}>
@@ -242,6 +215,7 @@ export function RuntimePage() {
               </dd>
               <dt>PID</dt>
               <dd className="mono">{status?.pid === undefined ? '—' : String(status.pid)}</dd>
+              <dt>进程代次</dt><dd className="mono">{status?.generation ?? '未知'}</dd>
               <dt>启动于</dt>
               <dd>{formatAbsoluteTime(status?.startedAt)}</dd>
               <dt>默认模型</dt>
@@ -264,7 +238,7 @@ export function RuntimePage() {
               服务上报工具数：{status === undefined ? '—' : String(status.mcp.tools)}。连接状态只代表受管进程内的 MCP 通道，工具清单见「工具与 Skill」。
             </p>
             <p className="hint" style={{ marginTop: 6 }}>
-              重启历史与操作回执需要服务端的运行记录接口；本页不展示示例历史。
+              启动与重启记录见下方真实操作回执。
             </p>
           </Fact>
         </div>
@@ -292,25 +266,7 @@ export function RuntimePage() {
           </div>
         </section>
 
-        <div className="section">
-          <div className="section-head">
-            <span className="section-title">最近一次操作</span>
-            <span className="hint">启动 / 重启历史尚未接通</span>
-          </div>
-          <div className="card">
-            <EmptyState
-              compact
-              icon="clock"
-              title="没有可读取的操作记录"
-              description="服务端尚未提供运行时操作历史接口；本页只显示当前状态，不补写历史条目。"
-            />
-          </div>
-        </div>
-
-        <PendingBackendNotice
-          className="inline-banner"
-          message="启动 OpenCode 尚未接入界面：服务端当前只提供状态读取与受管重启。确认对话框、进程代次与启动失败原因需要新增接口后再接通。"
-        />
+        <RuntimeControls state={state} blockedReason={restartBlockedReason} onRefresh={() => { void statusQuery.refetch(); }} />
       </>
     );
   }
