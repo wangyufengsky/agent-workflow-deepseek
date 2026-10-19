@@ -167,8 +167,9 @@ export class OpenCodeAdapter implements OpenCodePort {
   }
 
   async abortSession(sessionId: string): Promise<void> {
-    if (this.#manager.status.state !== 'ready') return;
-    await this.#manager.client.abort(sessionId);
+    if (this.#manager.status.state !== 'ready') throw new AppError(ErrorCode.OPENCODE_NOT_READY, '运行时不可用，无法确认停止');
+    const aborted = await this.#manager.client.abort(sessionId);
+    if (!aborted) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '运行时未确认会话停止');
   }
 
   async findSessions(metadata: Record<string, string>): Promise<readonly OpenCodeSession[]> {
