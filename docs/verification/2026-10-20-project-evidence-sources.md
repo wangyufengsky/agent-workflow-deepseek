@@ -13,7 +13,7 @@
 ## 验证层次
 
 1. **实现/HTTP/真实本地命令**：`project-evidence.test.ts` 覆盖规则/越界/符号链接/角色过滤、真实文件探测、原key重放不重复探测、配置陈旧拒绝、无 GitLab 配置真实状态、JUnit多报告实际用例汇总、旧报告/DTD拒绝。`template-file-evidence.test.ts` 新用例调用真实 Node `--test --test-reporter=junit --test-reporter-destination=reports/result.xml`，经实际内部 HTTP+会话授权执行，验证冻结规则在项目改动后仍生效、实际2通过/0失败/1跳过及原报告身份，越出冻结规则拒绝。该用例是本地进程与协议验收，不是模型验收。
-2. **CUA 正式 Chrome GUI**：独立本地服务5527/Web5523，临时项目文件 reports/example.xml。从项目列表进入「Git 与 GitLab → GitLab 与证据」，添加 JUnit 行、填写 `reports/*.xml`、保存真实 succeeded 回执、检查显示1报告可读，同时仓库显示尚未配置。重载后来源/检查持久保留；切换日志类型清空路径，未保存检查禁用、空路径保存禁用。截图 `/tmp/project-evidence-check.png`（本机临时证据，不提交运行数据）。修复首次 GUI 发现的来源行输入框挤窄，重启独立服务后重新截图确认正常宽度。
+2. **CUA 正式 Chrome GUI**：独立本地服务5527/Web5523，临时项目文件 reports/example.xml。从项目列表进入「Git 与 GitLab → GitLab 与证据」，添加 JUnit 行、填写 `reports/*.xml`、保存真实 succeeded 回执、检查显示1报告可读，同时仓库显示尚未配置。重载后来源/检查持久保留；切换日志类型清空路径，未保存检查禁用、空路径保存禁用。截图 `docs/evidence/project-evidence-2026-10-20/binding-check.png`（只保留界面证据，不提交运行数据）。修复首次 GUI 发现的来源行输入框挤窄，重启独立服务后重新截图确认正常宽度。
 3. **未覆盖**：没有本批真实模型调用、真实 GitLab 账号成功/失败 GUI、网络中断 UNKNOWN GUI、检查期间配置竞态 GUI、四主题/窄屏全量 GUI；不得将离线协议或单次 GUI 当这些状态通过。外部日志内容消费本批按授权明确不实现；仅目录可读性探测。
 
 执行日志：`/tmp/project-evidence-final-tests.log`、`/tmp/project-evidence-final-build.log`。最终通过数量及退出码见交接。

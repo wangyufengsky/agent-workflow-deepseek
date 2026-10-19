@@ -1,10 +1,10 @@
 # 设计稿覆盖矩阵 · 当前分层口径
 
-更新时间：2026-10-20；当前实现/证据核对基线 **c3fcc3f**（已整合知识历史、PPT逐页、公约实际快照、项目事实及运行时）。设计权威为只读 v5（22 正式页 + recovery/requirements/roles-legacy 共25页）及 planning/delivery/git/node 补充稿。仅有路由/截图或主流程不能判整页通过。
+更新时间：2026-10-20；当前实现/证据核对基线 **f9bfaba**（已整合快照评审、恢复执行、模型目录、项目证据来源与工具原回执恢复）。设计权威为只读 v5（22 正式页 + recovery/requirements/roles-legacy 共25页）及 planning/delivery/git/node 补充稿。仅有路由/截图或主流程不能判整页通过。
 
 - **I 实现**：契约与代码路径存在；**H 服务/HTTP**：真实SQLite/HTTP/子进程或受控端口回归；**M 模型/外部**：配置的真实模型或真实服务；**G GUI**：CUA浏览器/原生界面的具体操作。离线模型端口、隐藏BrowserWindow脚本、原型图不计M/G。
 - 25页都有载体，但**当前不能给出25页全状态验收通过数量**。以下逐页列已获证据与具体仍缺状态；“—”表示未取得该层证据，不是失败。
-- 历史Wave403/392与后续整合556/545/11跳过均是各自基线的回归记录，不是本次818bf6c全仓重跑，也不是GUI状态通过数量。本批仅文档核对，没有新模型、GUI或远端写。
+- 历史Wave403/392与后续整合556/545/11跳过均是各自基线的回归记录，不是本次818bf6c全仓重跑，也不是GUI状态通过数量。各批新增模型/GUI见E26–E36；没有新增远端写。
 - 已实现的公约生成、知识来源/增量、快照报告、图编辑、PPT/角色/工具/DB合同不再列为“501/无接口”。诚实未知仍不自动等于设计已完成；设计明示缺能力态除外。
 - **已整合818bf6c（原90d45b9）**：模板归档严格原回执/原key核对、当前质量与历史open findings分离；11项回归及正式CUA归档来自E25，不扩大为模板/Insights全部状态通过。
 
@@ -13,8 +13,8 @@
 | # / 页面 | 路由与当前实现（I） | 服务/HTTP（H） | 模型/真实外部（M） | 正式GUI（G） | 仍缺的具体GUI状态 / 当前限制 |
 |---|---|---|---|---|---|
 | P01.home.V/.A/.S | `/ · HomePage`；进行中单卡、真实最近任务及动作已接；不再列单卡缺失 | E10；task-catalog HTTP | — | E11：浏览器首页局部观察 | 有任务/无任务/读取失败/需处理分流；四主题×三尺寸、键盘与返回 |
-| P02.projects.V/.A/.S | `/projects、/projects/:id`；公约实际快照生成/停止/原key、GitLab消费者/docPaths、真实技术栈与当前分支已接 | E09/E11/E27/E28：公约/项目22项定向 | E27：真实公约生成→单独写入1/1 | E27：生成中/草稿/写入；E28：三识别态/当前分支/修改清单重检 | 项目GitLab及JUnit/日志来源配置仍在补齐；公约停止/UNKNOWN由服务测试覆盖，未做全主题全异常GUI |
-| P03.knowledge.V/.A/.S | `/knowledge`；冻结来源/权限、真实研究/停止/继续及原生问题已接 | E03/E29：输入许可/同conversation/撤权清正文21项 | E01/E29：真实问答+原生问题答复后原session继续，GUI追问新session | E29：选项+其他答复、README/RULES精确引用、返回原conversation | 网络失败/DB多来源全部状态、停止继续与重启原会话的完整GUI仍待覆盖 |
+| P02.projects.V/.A/.S | `/projects、/projects/:id`；公约实际快照生成/停止/原key、GitLab消费者/docPaths、真实技术栈与当前分支已接 | E09/E11/E27/E28：公约/项目22项定向 | E27：真实公约生成→单独写入1/1 | E27：生成中/草稿/写入；E28：三识别态/当前分支/修改清单重检 | E33已接GitLab及JUnit/目录来源配置与真实探针；项目独立账号继续；公约停止/UNKNOWN由服务测试覆盖，未做全主题全异常GUI |
+| P03.knowledge.V/.A/.S | `/knowledge`；冻结来源/权限、真实研究/停止/继续及原生问题已接 | E03/E29：输入许可/同conversation/撤权清正文21项 | E01/E29：真实问答+原生问题答复后原session继续，GUI追问新session | E29/E35：真实问题答复与引用、研究中/待回答/撰写/完成、accepted回执 | 网络失败/DB多来源全部状态、停止继续与重启原会话的完整GUI仍待覆盖 |
 | P04.knowledge-history.V/.A/.S | `/knowledge/history`；持久conversation元数据、实际needs_answer、重命名/归档/恢复、原上下文追问已接 | E29：8项会话定向，21项知识组合 | E29：配置模型实际原生问题与两轮问答1/1 | E29：历史去回答→原会话继续→引用→追问；重启后重命名/归档/恢复/刷新 | 全主题/搜索空/读取失败/UNKNOWN故障UI；服务撤权回归不冒充GUI全态 |
 | P05.ppt.V/.A/.S | `/ppt`；五项简报、附件、三个方向、真实作品/生成已接 | E04/E05/E06：生产/停止/助手HTTP | E05：真实单页助手候选17秒后原key取回 | E05原生CUA；E06浏览器工作台 | 首页五项简报全部状态、模型自然澄清、附件失败/未知生成；不能以助手单页PASS代整份生成 |
 | P06.ppt-works.V/.A/.S | `/ppt作品库`；真实SVG封面、复制/归档/恢复/修订已接；不再称无接口 | E04/E05：复制/归档/版本与回执 | — | E04兼容Electron图不算CUA；E06浏览器局部 | 作品库loading/error/empty、分页/筛选、复制unknown、归档恢复和取消、原生文件返回 |
@@ -24,17 +24,17 @@
 | P10.workflow-editor.V/.A/.S | `/workflows/:id/edit`；真实requires图、并行/连边、拖动/缩放/模板抽屉、版本视觉diff已接 | E07：图/保存/冻结与HTTP；非模型 | — | E07：四主题浏览器、布局保存截图 | 409本地草稿对照、unknown跨刷新、unbound/empty、撤销键盘、PE28/PE38禁用原因全态 |
 | P11.requirement.V/.A/.S | `/requirement/:id`；五段、PE37、候选应用确认、记录分页/callId与seq已接 | E02/E08/E19：规划/编辑/505条分页 | E01：真实规划→应用确认准备 | E19：505条/缺口/工具原位；早期模型画布图属历史 | PE/PW全状态；超限/预算/资料撤权/停止迟到/跨组/重启unknown；不可把规划主流程扩成全矩阵 |
 | P12.tasks.V/.A/.S | `/tasks`；归档恢复/结束前置、项目ID过滤分组及规划活动已接 | E10/E11：归档/同名/HTTP | — | E11：同名项目精确ID空结果 | 加载更多失败/归档与恢复/菜单禁用、planning计数与Inbox一致、步骤进度历史/空/unknown |
-| P13.task.V/.A/.S | `/tasks/:id`；真实执行控制/停止确认/调整绑定/冻结、snapshot mode/depth/units/report已接 | E02/E08/E12/E13：停止19、计划7、作用域retry33、报告权限 | E01：真实节点修改README；非snapshot专用模型验收 | E14/E15节点局部；不替代整画布 | running两并行/auto-off/waiting/stalled/claim-race/stop未知；snapshot full/light批次与报告loading/error/cancelled可读 |
+| P13.task.V/.A/.S | `/tasks/:id`；真实执行控制/停止确认/调整绑定/冻结、snapshot mode/depth/units/report已接 | E02/E08/E12/E13：停止19、计划7、作用域retry33、报告权限 | E01/E32：真实节点修改及full/light专用快照评审 | E14/E15节点局部；E32报告加载/正文/下载/完整性失败恢复 | running两并行/auto-off/waiting/stalled/claim-race/stop未知；snapshot取消报告GUI及全主题全尺寸仍未齐 |
 | P14.inbox.V/.A/.S | `/inbox`；规划选项及原生节点permission/question、once/session/reject/hard、持久草稿/原key已接 | E17/E20：问题/权限26定向，HTTP/SQLite | E26：真实模型原生question→多选/其他答复→同session结果1/1 | E20：Chrome离线unknown/hard；E26：IAB实际模型问题答复、角标同步 | 真实模型permission事件及授权后继续；跨attempt/撤权/重启/全页筛选状态；后台无上下文来源仍限制 |
 | P15.insights.V/.A/.S | `/insights`；四阶段任务计量/未知、分币、完整全集、项目/状态/质量/归档同范围已接 | E16：10项定向；205任务/混币/零 | — | E16：同名ID/归档/质量实际驳回/服务失败保留 | 全部未知/加载与错误详细对照、四主题三尺寸；E25已修正历史问题污染当前质量；未新增全状态GUI |
 | P16.templates.V/.A/.S | `/templates`；必要范围/branch/date/source/doc冻结、B06历史档案已接；旧合同不回填 | E10/E12：模板范围/历史/原key | E26：v8单文件5步真实模型、3项JUnit与独立复核1/1 | E11：必要参数；E25：真实归档succeeded/key/auditId | source/doc/date所有参数失败、启动unknown、created/pending-start、历史run核对失败/导出；UNKNOWN原key恢复的完整GUI故障态仍待补 |
 | P17.run.V/.A/.S | `/runs/:taskId`；专用文档/源码/单测布局、冻结输入/报告/逐文件独立复核、真实JUnit结果已接 | E12/E13：50定向，actual子进程JUnit；结果权限 | E26：新逐文件单测合同真实5步/3测试/独立复核通过 | E14原生artifact保存；E26 Run覆盖、产物hash、实际JUnit，四主题1280×720 | 批次失败/限批retry/停止/unknown、通过失败跳过文件定位、报告re-read/download撤权、输入迟到切换/宽阅读返回 |
 | P18.runtime.V/.A/.S | `/runtime`；autoStart真实生效、手动启动/重启、维护锁/活动保护、历史与侧栏同步 | E11/E16/E31：12项回执/权限/启动定向 | E31：实际受管进程启动/重启两轮；不是模型调用 | E31：发送中→启动中→ready、不同PID/代次与两条成功原key | 外部/失败/unknown/read-error全态GUI、restart未知跨刷新；活动拒绝由服务回归证明 |
-| P19.tools.V/.A/.S | `/tools`；来源/单工具/项目三态、冻结会话策略、Skill目录/Markdown/原文已接 | E21：4项HTTP权限，旧/新会话分离 | — | E21：停用→回读、Skill空/原文/四主题/刷新同ID | 外部MCP真实授权/清单partial、来源整体确认/项目继承、write-unknown、Skill读取错误/搜索命中与返回 |
+| P19.tools.V/.A/.S | `/tools`；来源/单工具/项目三态、冻结会话策略、Skill目录/Markdown/原文已接 | E21：4项HTTP权限，旧/新会话分离 | — | E21：停用→回读、Skill空/原文/四主题；E36丢回执/Skill返回/刷新原key | 外部MCP真实授权/清单partial、来源整体确认/项目继承、Skill读取错误/搜索命中与返回 |
 | P20.databases.V/.A/.S | `/databases`；项目/schema/table授权、临时草稿探针、会话只读/撤权已接；planned驱动明确缺能力 | E22：45+9定向、真实关闭端口 | E01：已有MySQL真实1/1；非模型 | E22：草稿ECONNREFUSED保留输入、变更清探针、取消0连接 | 成功连接三格/重检失败、保存unknown/归档、运行中授权撤销；PG/其他驱动真实实例不可冒充MySQL通过 |
 | P21.roles.V/.A/.S | `/roles`；发布快照真正控制模型/时限/指令/工具资源；权限预估/形象/使用统计已接 | E23/E16：角色/冻结/原key/统计 | E01真实执行不等于全部角色配置live | E23包页CUA可打开精确roleId；角色页四tab未全态 | 编辑草稿取消/发布unknown/restore冲突、B02/B03完整界面与真实资源拒绝、形象目录/统计空与读取失败 |
-| P22.settings.V/.A/.S | `/settings`；分区脏状态/原key、业务限制与分类等待真正冻结生效、模型/Git真实配置 | E08/E24：19项配置/等待/模板、冻结policy | E01使用实际模型配置；非配置全态 | E24：30/300草稿跨分区/刷新/保存回读 | Git+普通同时脏/保存unknown、离开确认取消、模型读取失败/限额、重试真实429/会话错误、四主题键盘 |
-| P23.recovery.V/.A/.S | `/recovery、/tasks/:id/recovery`；三模式派生冻结计划/真实工作区快照、只核对硬只读及策略继承已接 | E08：真实Git/目录恢复与policy回归 | — | 早期恢复截图仅历史；本轮无独立正式CUA | 三模式差异预览→确认→准备→开始、unknown阻止、父旧结果只读、重启后lineage与原key；真实模型并行仍缺 |
+| P22.settings.V/.A/.S | `/settings`；分区脏状态/原key、业务限制与分类等待真正冻结生效、模型/Git真实配置 | E08/E24：19项配置/等待/模板、冻结policy | E01使用实际模型配置；非配置全态 | E24：30/300草稿跨分区；E35实际模型目录/网络保存重载 | Git+普通同时脏/保存unknown、离开确认取消、模型读取失败/限额、重试真实429/会话错误、四主题键盘 |
+| P23.recovery.V/.A/.S | `/recovery、/tasks/:id/recovery`；三模式派生冻结计划/真实工作区快照、只核对硬只读及策略继承已接 | E08/E34：真实Git/目录恢复与policy/来源漂移回归 | E34：派生真实模型2/2 | E34：三模式预览确认/UNKNOWN刷新/原key、模型执行完成；E35只读画布 | 四主题全部异常态/键盘/窄屏仍未齐；不以两步骤模型结果外推任意任务 |
 | P24.requirements.V/.A/.S | `/requirements`；B15只读详情/需求输入修订与计划号已接 | E10：需求/目录/冻结HTTP | — | E10未给完整B15正式GUI状态 | 抽屉loading/error、长需求/搜索空/项目切换、返回原任务及历史计划原文不能混入当前需求 |
 | P25.roles-legacy.V/.A/.S | `/roles/legacy`；JSON/ZIP只读校验→差异审阅→发布绑定，四tab及完整角色字段已接 | E23：25定向、CRC/路径/回滚/绑定原key | — | E23：原生文件选择真实ZIP、8差异→勾选→发布r1 | import-invalid/nodiff/replace/back-confirm/publish-unknown全态；角色归档被绑定阻止/错误与跨刷新草稿 |
 
@@ -75,14 +75,18 @@
 | E29 | docs/verification/2026-10-20-knowledge-history.md | 真实native question+原session回答、同conversation新session追问1/1；21项服务回归与历史管理CUA |
 | E30 | docs/review/ppt-page-progress-2026-10-20.md | 真实逐页进行/第二轮停止2/3、四主题刷新/部分导出禁用；助手并行与重启属离线回归 |
 | E31 | docs/review/runtime-controls-live-2026-10-20.md | autoStart关闭+实际启动重启、不同PID与原回执GUI；无模型调用；12项定向 |
+| E32 | docs/verification/2026-10-20-snapshot-review-live.md | full/light真实模型、独立复核及阶段报告读取/下载/hash，loading/完整性失败重读GUI；离线失败报告仍可读不算模型失败验收 |
+| E33 | docs/verification/2026-10-20-project-evidence-sources.md | GitLab绑定/JUnit规则/目录探针、实际Node JUnit2通过1跳过；GUI来源保存/检查；未调用真实GitLab账号 |
+| E34 | docs/review/recovery-gui-2026-10-20.md | Git与目录三模式差异预览/确认、丢回执刷新原key、派生真实模型2/2与父数据不变；readonly画布补验见E35 |
+| E35 | docs/review/final-gap-2026-10-20.md | 21回归、实际74模型目录、网络保存重载、人工验收推进、知识原生question及后续问答真实中间态；不代表外部发布 |
+| E36 | docs/review/tools-policy-receipts-2026-10-20.md | 策略真实保存后丢响应、Skill返回/刷新锁定原key、GET原回执解锁；不重复写 |
 
 ## 3. 当前优先项与明确不开放
 
-1. 当前818bf6c的后台原生交互：E20明确无节点/规划上下文的knowledge/charter/review/fix原生question/permission自动拒答；知识独立来源由A后续负责。节点问答协议/GUI已通，不能外推这些后台会话也已通。真实模型节点自然提问→IAB多选及其他答复→同session提交已由E26补证；后台业务域仍按各自证据。
-2. 模板归档与当前质量已在818bf6c修复并有E25独立回归/CUA；继续补UNKNOWN重启与完整质量状态GUI，不再列现存功能缺陷。
-3. 项目原稿 projects.html:148/193 的技术栈事实尚无真实Project字段/详情投影。当前显示Git/非Git状态是真实工作区能力，不得伪造技术栈。Lead已排后续独立实现，本矩阵不提前判通过。
-4. 新普通源码/单测逐文件合同已经真实HTTP/JUnit子进程验证；其模型写作→独立复核→Run实际阅读的整体M/G仍待Lead当前live批，不得用README普通执行或离线fixture替代。
-5. 具体GUI缺项按第1节和验收矩阵逐状态登记补测；四主题×三尺寸、UNKNOWN/撤权/迟到/冲突/取消返回普遍未齐，不降为可选。
+1. 原生question、知识历史、项目技术栈、逐文件单测合同与snapshot专用模型流程已有实际证据，不继续列为缺接口或缺模型主链。
+2. 恢复三模式的差异预览、确认、UNKNOWN原key与只读画布已补齐，见E34/E35。工具策略丢回执的跨页与刷新恢复已补齐，见E36。
+3. 当前继续收尾：项目独立Git账号与允许目录、质量分项真实来源、模板/流程创建与保存的UNKNOWN持久恢复、任务分页与首页先过滤再限量。各批独立测试完成后由Lead统一整合回归。
+4. 具体GUI缺项按第1节与验收矩阵逐状态保留；四主题×三尺寸、撤权/迟到/冲突/取消返回尚未取得完整组合证据，不因已接通主链而全部标PASS。
 
 设计边界：PE28子隔离/汇合、PE38跨范围替换禁用；PE37已开放且受限，不能退回“后续”。TaskDelivery reviewer按sources/delivery/API-DESIGN-CANDIDATE.md:271/449明确无字段/当前未接通；Fix reviewer是sources/git/API-DESIGN.md:143/697/728可选候选P3，不冒充完成扩展。外部MCP安装/连接编辑、数据库planned驱动按服务能力与只读权威逐项判断，不把UI禁用本身作为完成证据。
 
