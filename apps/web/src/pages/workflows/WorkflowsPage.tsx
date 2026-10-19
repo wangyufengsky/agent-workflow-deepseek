@@ -133,7 +133,7 @@ function MethodDetail({ method, roleName, taskTypes }: {
         </Button>
       </div>
       <p className="hint" style={{ marginTop: 8 }}>
-        开始任务向导当前为占位页；目录数据来自 /api/bootstrap 的 catalog.methods，不展示示例流程。
+        开始任务向导已接通：点「用这个流程开始任务」→ 填写需求并创建任务，随后进入 AI 规划/确认/执行。本页只读流程定义；编辑/导入流程定义尚未开放。
       </p>
     </aside>
   );
