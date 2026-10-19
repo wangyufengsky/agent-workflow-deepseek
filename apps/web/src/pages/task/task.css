@@ -1,0 +1,352 @@
+/* 任务执行画布：情况条、执行面板、调整待执行计划。颜色全部来自主题令牌。 */
+
+.task-canvas {
+  min-height: 0;
+}
+
+.task-bar {
+  gap: 10px;
+  padding: 12px 20px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.task-bar-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+.task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.task-title-row .badge {
+  height: 22px;
+  font-size: 11.5px;
+}
+
+.task-subline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.task-subline .sep {
+  color: var(--faint);
+}
+
+.task-stages {
+  flex: none;
+}
+
+.task-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.task-banners {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 20px 0;
+}
+
+.task-banners:empty {
+  display: none;
+}
+
+.task-banners .banner {
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.task-banners .banner .btn {
+  height: 30px;
+  font-size: 12.5px;
+  padding: 0 12px;
+}
+
+/* situation bar */
+.task-situ {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 10px 20px 0;
+  padding: 9px 14px;
+  border-radius: 14px;
+  background: var(--fill-2);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.situ-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: var(--fill-3);
+  color: var(--sub);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.situ-status.run { background: var(--run-fill); color: var(--run); }
+.situ-status.bad { background: var(--danger-fill); color: var(--danger); }
+.situ-status.unk { background: var(--unknown-fill); color: var(--unknown); }
+.situ-status.ok { background: var(--ok-fill); color: var(--ok); }
+
+.situ-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  flex: 0 1 260px;
+}
+
+.situ-progress .progress-bar {
+  height: 5px;
+}
+
+.situ-kv {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.situ-kv .k {
+  color: var(--muted);
+}
+
+.situ-kv.warn {
+  color: var(--wait);
+}
+
+.situ-notice {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sub);
+}
+
+.task-body {
+  margin-top: 12px;
+  position: relative;
+  display: flex;
+}
+
+.task-side {
+  width: 480px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  box-shadow: -1px 0 0 var(--line);
+}
+
+.task-side-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 12px 20px;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.task-side-head h2 {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.task-side-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 28px;
+}
+
+/* execution panel */
+.exec-facts {
+  margin-bottom: 4px;
+}
+
+.exec-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.exec-reason {
+  margin-top: 6px;
+}
+
+.auto-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--fill-1);
+}
+
+.auto-row .switch {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.auto-row .t {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.auto-row .action-reason {
+  max-width: 150px;
+}
+
+.frontier-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.frontier-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--wait-line);
+  background: var(--wait-fill);
+  color: var(--wait);
+  font-size: 12.5px;
+}
+
+.frontier-chip:hover {
+  background: color-mix(in srgb, var(--wait) 16%, transparent);
+}
+
+.node-row {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.node-row:hover {
+  background: var(--fill-2);
+}
+
+.exec-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding-top: 12px;
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+/* plan edit panel */
+.plan-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.edit-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.edit-nodes {
+  min-width: 0;
+}
+
+.edit-node {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.edit-node:hover {
+  background: var(--fill-2);
+}
+
+.edit-node.active {
+  background: var(--fill-3);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.edit-node.locked {
+  cursor: pointer;
+  opacity: 0.92;
+}
+
+.edit-form {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  min-width: 0;
+}
+
+.chip-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 1180px) {
+  .task-side {
+    width: 420px;
+  }
+  .task-title {
+    max-width: 220px;
+  }
+}
+
+@media (max-width: 960px) {
+  .task-side {
+    width: min(480px, 100%);
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 9;
+  }
+  .task-situ .situ-kv {
+    display: none;
+  }
+}

@@ -17,7 +17,6 @@ import {
   CHANGE_STATUS_LABEL,
   CHANGE_STATUS_TONE,
   FailureNotice,
-  countDelta,
   severityLabel,
 } from './git-shared.tsx';
 
@@ -233,7 +232,12 @@ export function DiffViewer({
         <SegmentedControl
           ariaLabel="差异视图"
           value={mode}
-          onChange={(value) => { setMode(value); }}
+          onChange={(value) => {
+            setMode(value);
+            // 并排视图需要宽度：切到并排自动全宽，切回统一时退出全宽（与设计稿一致）。
+            if (value === 'split' && !fullscreen) onToggleFullscreen();
+            if (value === 'unified' && fullscreen) onToggleFullscreen();
+          }}
           options={[
             { value: 'unified', label: '统一' },
             { value: 'split', label: '并排' },

@@ -11,11 +11,13 @@
  */
 
 import {
+  ErrorCode,
   ROUTES,
   createRequestKey,
   type ActionAvailability,
   type CommandResponse,
   type DeliveryCommitRequest,
+  type DeliveryMergeRequest,
   type DeliveryMergeRequestRequest,
   type DeliveryPushRequest,
   type DeliveryResponse,
@@ -96,10 +98,15 @@ export type GitFailureKind = 'not_connected' | 'unavailable' | 'failed';
  * - `failed`：业务读取或校验失败，显示服务给出的原因。
  */
 export function classifyGitFailure(error: unknown): GitFailureKind {
-  if (isServiceUnavailable(error)) return 'unavailable';
-  if (error instanceof ApiClientError && error.kind === 'http' && error.status === 404 && error.code === null) {
-    return 'not_connected';
+  if (error instanceof ApiClientError) {
+    // 服务明确说「未实现 / 能力未接入」时不是连接问题，而是接口还没接通。
+    if (error.code === ErrorCode.NOT_IMPLEMENTED || error.code === ErrorCode.CAPABILITY_UNAVAILABLE) return 'not_connected';
+    // 路由未注册：Fastify 404 不返回应用错误信封，因此 code 为空。
+    if (error.kind === 'http' && error.status === 404 && error.code === null) return 'not_connected';
+    // 有应用错误码说明服务已应答并给出业务原因（即使是 5xx 的域错误），按失败展示原因。
+    if (error.code !== null) return 'failed';
   }
+  if (isServiceUnavailable(error)) return 'unavailable';
   return 'failed';
 }
 
@@ -117,7 +124,7 @@ export function failureKindLabel(kind: GitFailureKind): string {
 export function failureKindDetail(kind: GitFailureKind): string {
   switch (kind) {
     case 'not_connected':
-      return '服务端还没有提供这个 Git 读口；本页不会显示示例数据。等接口接通后重新加载即可。';
+      return '服务端还没有提供这个 Git 接口（未注册、未实现或能力未接入）；页面不会显示示例数据。等接口接通后重新加载即可。';
     case 'unavailable':
       return '无法连接本地服务（默认 127.0.0.1:5177）。请启动后端后重试；连接前不展示示例数据。';
     case 'failed':
@@ -144,6 +151,9 @@ function queryString(params: Readonly<Record<string, QueryValue>>): string {
 /* ------------------------------------------------------------------ */
 /* Git 读口                                                            */
 /* ------------------------------------------------------------------ */
+
+/** 根提交没有父提交：服务端用空树 SHA 作为 diff 基线（与 git 的约定一致）。 */
+export const GIT_EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
 export async function fetchGitOverview(): Promise<GitOverviewResponse> {
   const response = await apiGet<GitOverviewResponse>(ROUTES.gitOverview);
@@ -415,6 +425,15 @@ export async function createFixMergeRequest(input: FixMergeRequestInput): Promis
   return response.data;
 }
 
+export async function stopFix(projectId: string, fixRunId: string): Promise<CommandResponse<FixResponse>> {
+  const response = await apiPost<CommandResponse<FixResponse>>(`${ROUTES.fix(projectId, fixRunId)}/stop`, {
+    requestKey: createRequestKey(),
+    projectId,
+    fixRunId,
+  });
+  return response.data;
+}
+
 export async function discardFix(projectId: string, fixRunId: string): Promise<CommandResponse<FixResponse>> {
   const body: FixDiscardRequest = {
     requestKey: createRequestKey(),
@@ -519,6 +538,30 @@ export interface DeliveryMergeRequestInput {
   readonly expectedTargetTip: string;
   readonly title: string;
   readonly description: string;
+}
+
+export interface DeliveryMergeInput {
+  readonly taskId: string;
+  readonly targetBranch: string;
+  readonly expectedTargetSha: string;
+  readonly sourceSha: string;
+  readonly message: string;
+  readonly strategy: 'no_ff' | 'ff_only';
+}
+
+/** `task.delivery.merge`：在服务端临时 worktree 合并并按 CAS 更新目标分支。 */
+export async function mergeDelivery(input: DeliveryMergeInput): Promise<CommandResponse<DeliveryResponse>> {
+  const body: DeliveryMergeRequest = {
+    requestKey: createRequestKey(),
+    targetBranch: input.targetBranch,
+    expectedTargetSha: input.expectedTargetSha,
+    sourceSha: input.sourceSha,
+    message: input.message,
+    strategy: input.strategy,
+    confirmMerge: true,
+  };
+  const response = await apiPost<CommandResponse<DeliveryResponse>>(ROUTES.deliveryMerge(input.taskId), body);
+  return response.data;
 }
 
 export async function createDeliveryMergeRequest(

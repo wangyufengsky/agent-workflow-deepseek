@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import type { DiffPage, FileChange, GitBranch, GitCommit, GitCommitSummary, GitRepo, RepoGitStateValue } from '@agent-workflow/shared';
 import { AppError, ErrorCode } from '@agent-workflow/shared';
@@ -15,9 +15,11 @@ interface ExecResult {
 /** Minimal local Git CLI adapter implementing the engine GitPort. */
 export class GitCliAdapter implements GitPort {
   readonly #timeoutMs: number;
+  readonly #tempRoot: string;
 
-  constructor(timeoutMs = 120000) {
+  constructor(timeoutMs = 120000, tempRoot = join(process.cwd(), '.data', 'merge-tmp')) {
     this.#timeoutMs = timeoutMs;
+    this.#tempRoot = tempRoot;
   }
 
   async detect(rootPath: string): Promise<{ gitState: RepoGitStateValue; defaultBranch?: string; remoteDisplayUrl?: string; detail?: string }> {
@@ -183,13 +185,13 @@ export class GitCliAdapter implements GitPort {
   }
 
   async branches(rootPath: string): Promise<readonly GitBranch[]> {
-    const out = await this.#run(['for-each-ref', '--format=%(refname)%x1f%(objectname)%x1f%(upstream:short)', 'refs/heads', 'refs/remotes'], rootPath);
+    const out = await this.#run(['for-each-ref', '--format=%(refname)%09%(objectname)%09%(upstream:short)', 'refs/heads', 'refs/remotes'], rootPath);
     const current = (await this.#run(['symbolic-ref', '--short', '-q', 'HEAD'], rootPath).catch(() => undefined))?.stdout.trim();
     return out.stdout
       .split('\n')
       .filter((line) => line.trim() !== '')
       .map((line) => {
-        const [refname, sha, upstream] = line.split('\x1f');
+        const [refname, sha, upstream] = line.split('\t');
         const fullRef = refname ?? '';
         const name = fullRef.replace(/^refs\/heads\//, '').replace(/^refs\/remotes\//, '');
         return {
@@ -300,6 +302,55 @@ export class GitCliAdapter implements GitPort {
       throw error;
     });
     return { remoteRef: input.remoteRef, pushedSha: input.localSha, created: true };
+  }
+
+  async mergeTaskBranch(input: {
+    repoRoot: string;
+    targetBranch: string;
+    expectedTargetSha: string;
+    sourceSha: string;
+    message: string;
+    tempRoot: string;
+    strategy: 'no_ff' | 'ff_only';
+  }): Promise<{ mergeSha: string; kind: 'merge' | 'ff' }> {
+    this.#assertSha(input.expectedTargetSha);
+    this.#assertSha(input.sourceSha);
+    if (!/^[A-Za-z0-9._/-]+$/.test(input.targetBranch) || input.targetBranch.startsWith('-')) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '目标分支不合法');
+    }
+    const current = (await this.#run(['rev-parse', `refs/heads/${input.targetBranch}`], input.repoRoot)).stdout.trim();
+    if (current !== input.expectedTargetSha) {
+      throw new AppError(ErrorCode.STALE_TARGET, '目标分支已前移，请重新读取后确认', { details: { expected: input.expectedTargetSha, actual: current } });
+    }
+    mkdirSync(this.#tempRoot, { recursive: true });
+    const temporary = join(this.#tempRoot, `merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    await this.#run(['worktree', 'add', '--detach', temporary, input.expectedTargetSha], input.repoRoot);
+    try {
+      const mergeArgs = ['-C', temporary, 'merge'];
+      if (input.strategy === 'ff_only') mergeArgs.push('--ff-only');
+      else mergeArgs.push('--no-ff');
+      mergeArgs.push(input.sourceSha, '-m', input.message);
+      await this.#run(mergeArgs, input.repoRoot).catch((error: unknown) => {
+        if (error instanceof AppError && /conflict|CONFLICT/i.test(error.message)) {
+          throw new AppError(ErrorCode.MERGE_CONFLICT, '合并存在冲突；已中止合并，目标分支未改变', { details: { output: error.message } });
+        }
+        throw error;
+      });
+      const mergeSha = (await this.#run(['-C', temporary, 'rev-parse', 'HEAD'], input.repoRoot)).stdout.trim();
+      const parentCount = (await this.#run(['-C', temporary, 'rev-list', '--parents', '-n', '1', 'HEAD'], input.repoRoot)).stdout.trim().split(/\s+/).length - 1;
+      await this.#run(['update-ref', `refs/heads/${input.targetBranch}`, mergeSha, input.expectedTargetSha], input.repoRoot).catch((error: unknown) => {
+        if (error instanceof AppError && /cannot lock ref|is at|expected/i.test(error.message)) {
+          throw new AppError(ErrorCode.STALE_TARGET, '目标分支在合并期间发生变化，未更新', { details: { output: error.message } });
+        }
+        throw error;
+      });
+      return { mergeSha, kind: parentCount > 1 ? 'merge' : 'ff' };
+    } catch (error) {
+      await this.#run(['-C', temporary, 'merge', '--abort'], input.repoRoot).catch(() => undefined);
+      throw error;
+    } finally {
+      await this.#run(['worktree', 'remove', '--force', temporary], input.repoRoot).catch(() => undefined);
+    }
   }
 
   async #diffNumStat(rootPath: string, base: string, head: string): Promise<{ files: number; additions: number; deletions: number }> {

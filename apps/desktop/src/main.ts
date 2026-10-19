@@ -1,4 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import electron from 'electron';
+import type { BrowserWindow as ElectronBrowserWindow } from 'electron';
+
+const { app, BrowserWindow, dialog, ipcMain, shell } = electron;
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -8,7 +11,7 @@ const dataDir = process.env.AGENT_WORKFLOW_DATA_DIR ?? join(app.getPath('userDat
 const devUrl = process.env.AGENT_WORKFLOW_DEV_URL;
 const preferredPort = Number(process.env.AGENT_WORKFLOW_PORT ?? 5288);
 let serverProcess: ChildProcess | undefined;
-let mainWindow: BrowserWindow | undefined;
+let mainWindow: ElectronBrowserWindow | undefined;
 
 async function waitForServer(url: string, timeoutMs = 30000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
@@ -65,11 +68,21 @@ async function createWindow(): Promise<void> {
       sandbox: true,
     },
   });
-  mainWindow.webContents.setWindowOpenHandler(({ url: target }) => {
+  mainWindow.webContents.setWindowOpenHandler(({ url: target }: { url: string }) => {
     if (target.startsWith('https://')) void shell.openExternal(target);
     return { action: 'deny' };
   });
   await mainWindow.loadURL(url);
+  const capturePath = process.env.AGENT_WORKFLOW_CAPTURE;
+  if (capturePath !== undefined) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 2500));
+    const image = await mainWindow.webContents.capturePage();
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(capturePath, image.toPNG());
+    console.log(`[agent-workflow] captured ${capturePath}`);
+    app.quit();
+    return;
+  }
   mainWindow.on('closed', () => {
     mainWindow = undefined;
   });

@@ -152,10 +152,9 @@ function RepoCard({ repo }: { readonly repo: GitRepo }) {
             <Icon name="arrowRight" size="sm" />
           </span>
         ) : (
-          <span className="btn ghost sm">
+          <LinkButton variant="ghost" size="sm" icon="folder" to="/projects">
             查看项目
-            <Icon name="arrowRight" size="sm" />
-          </span>
+          </LinkButton>
         )}
       </div>
     </>
@@ -240,12 +239,12 @@ export function GitOverview() {
                 {connection.accountUsername === undefined ? null : <span className="mono-sm">@{connection.accountUsername}</span>}
               </div>
               <div className="git-connection-note">
-                {connection.message ??
-                  (connection.state === 'connected'
-                    ? `凭据只在服务端；界面不读取令牌。${connection.lastVerifiedAt === undefined ? '' : ` 上次验证：${formatRelativeTime(connection.lastVerifiedAt)}。`}`
-                    : connection.state === 'not_configured'
-                      ? '本地提交仍可浏览；远端分支、合并请求、推送与创建 MR 不可用。到「设置 → GitLab」配置连接。'
-                      : '远端相关功能由服务判定不可用；本地只读浏览不受影响。')}
+                {connection.message === undefined ? '' : `${connection.message} `}
+                {connection.state === 'connected'
+                  ? `凭据只在服务端；界面不读取令牌。${connection.lastVerifiedAt === undefined ? '' : ` 上次验证：${formatRelativeTime(connection.lastVerifiedAt)}。`}`
+                  : connection.state === 'not_configured'
+                    ? '本地提交仍可浏览；远端分支、合并请求、推送与创建 MR 不可用。到「设置 → GitLab」配置连接。'
+                    : '远端相关功能由服务判定不可用；本地只读浏览不受影响。'}
               </div>
             </div>
             <div className="git-connection-actions">

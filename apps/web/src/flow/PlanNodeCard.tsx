@@ -3,7 +3,7 @@ import { NODE_STATUS_LABEL, TASK_ATTENTION_LABEL } from '@agent-workflow/shared'
 import { Badge, type BadgeTone } from '../components/Badge.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import type { PositionedFlowFrame } from './layout.ts';
-import { DIFF_LABEL, DIFF_TONE, NODE_KIND_LABEL, NODE_KIND_TONE, NODE_STATUS_TONE, type FlowNodeView } from './types.ts';
+import { DIFF_LABEL, NODE_KIND_LABEL, NODE_KIND_TONE, NODE_STATUS_TONE, type FlowNodeView } from './types.ts';
 
 export type PlanNodeData = {
   kind: 'planNode';

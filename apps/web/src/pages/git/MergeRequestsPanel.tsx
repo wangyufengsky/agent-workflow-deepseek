@@ -112,7 +112,7 @@ export function MergeRequestDetail({ mr }: { readonly mr: GitMergeRequest }) {
     <div className="stack-loose">
       <div className="mr-detail-head">
         <div className="row-wrap">
-          <Badge tone={mrStateTone(mr.state)} icon={mr.state === 'opened' ? 'run' : mr.state === 'merged' ? 'check' : 'x'}>
+          <Badge tone={mrStateTone(mr.state)} icon={mr.state === 'opened' ? 'play' : mr.state === 'merged' ? 'check' : 'x'}>
             {MR_STATE_LABEL[mr.state]}
           </Badge>
           {mr.draft ? <Badge tone="idle">草稿</Badge> : null}

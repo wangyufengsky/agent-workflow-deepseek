@@ -250,11 +250,15 @@ function maxDepth(nodeKeys: readonly string[], edges: readonly { readonly fromKe
   for (const key of nodeKeys) incoming.set(key, []);
   for (const edge of edges) incoming.get(edge.toKey)?.push(edge.fromKey);
   const memo = new Map<string, number>();
+  const visiting = new Set<string>();
   const depth = (key: string): number => {
     const cached = memo.get(key);
     if (cached !== undefined) return cached;
+    if (visiting.has(key)) return 0;
+    visiting.add(key);
     const parents = incoming.get(key) ?? [];
     const value = parents.length === 0 ? 1 : 1 + Math.max(...parents.map(depth));
+    visiting.delete(key);
     memo.set(key, value);
     return value;
   };

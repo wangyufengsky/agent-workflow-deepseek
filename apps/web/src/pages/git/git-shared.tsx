@@ -349,7 +349,7 @@ export function dateGroupLabel(key: string): string {
 }
 
 export function countDelta(additions: number | null, deletions: number | null): string {
-  if (additions === null && deletions === null) return '二进制';
+  if (additions === null && deletions === null) return '行数未知';
   return `+${String(additions ?? 0)} / −${String(deletions ?? 0)}`;
 }
 
@@ -505,6 +505,12 @@ export function UnavailablePanel({
       )}
     </div>
   );
+}
+
+/** 取禁用原因：服务给了就用服务的，没给时用调用方写明的前提。 */
+export function actionReasonText(action: ActionAvailability | undefined, fallback: string): string {
+  if (action === undefined) return fallback;
+  return action.reason ?? action.reasonCode ?? fallback;
 }
 
 /** 可用性说明：不满足时按钮禁用并把服务原因写在旁边。 */

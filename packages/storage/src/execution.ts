@@ -113,7 +113,7 @@ export class ExecutionRepository {
   }
 
   nodes(executionId: string): readonly ExecutionNodeState[] {
-    const rows = this.#db.prepare('SELECT * FROM execution_nodes WHERE execution_id = ?').all(executionId) as unknown as Row[];
+    const rows = this.#db.prepare('SELECT * FROM execution_nodes WHERE execution_id = ? ORDER BY rowid ASC').all(executionId) as unknown as Row[];
     return rows.map((row) => ({
       nodeId: String(row.node_id),
       status: row.status as NodeStatusValue,

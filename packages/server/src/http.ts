@@ -1,8 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   ApiEnvelope,
+  DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
   CommandRequest,
   CreateProjectRequest,
@@ -26,10 +27,12 @@ import type {
   DeliverySelectRequest,
   DeliveryCommitRequest,
   DeliveryPushRequest,
-  DeliveryMergeRequestRequest,
+  DeliveryMergeRequest,
+
 } from '@agent-workflow/shared';
 import { AppError, ErrorCode, THEMES, THEME_ORDER, createId, mergeSettings, nowIso, validateSettings, type AppSettings } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
+import type { DatabaseService } from '@agent-workflow/database';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
@@ -37,7 +40,8 @@ import type { RuntimePaths } from './runtime.ts';
 export interface HttpDependencies {
   readonly engine: Engine;
   readonly store: Store;
-  readonly opencode: OpenCodeAdapter | undefined;
+  readonly opencodeRef: { current?: OpenCodeAdapter | undefined };
+  readonly databaseService?: DatabaseService;
   readonly paths: RuntimePaths;
   readonly internalToken: string;
   readonly appVersion: string;
@@ -115,7 +119,7 @@ const MIME: Record<string, string> = {
 };
 
 export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): void {
-  const { engine, store, opencode, paths } = deps;
+  const { engine, store, opencodeRef, paths, databaseService } = deps;
   const requestId = (request: FastifyRequest): string => String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
 
   app.get('/api/health', async (request) => ({
@@ -132,7 +136,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const settings = engine.publicSettings();
     const projects = engine.projects.list();
     const tasks = engine.tasks.list({ limit: 100 });
-    const opencodeStatus = opencode?.status();
+    const opencodeStatus = opencodeRef.current?.status();
     const integration = {
       opencode: {
         status: opencodeStatus?.state ?? 'stopped',
@@ -316,7 +320,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/select', async (request) => envelope(await engine.deliveries.select(request.params.id, request.body as DeliverySelectRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/commit', async (request) => envelope(await engine.deliveries.commit(request.params.id, request.body as DeliveryCommitRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/push', async (request) => envelope(await engine.deliveries.push(request.params.id, request.body as DeliveryPushRequest), requestId(request)));
-  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/merge-request', async (request) => envelope(await engine.deliveries.createMergeRequest(request.params.id, request.body as DeliveryMergeRequestRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/merge-request', async (request) => envelope(await engine.deliveries.createMergeRequest(request.params.id, request.body as { requestKey: string; sourceRef: string; pushedSha: string; targetBranch: string; expectedTargetTip: string; title: string; description: string; confirmMergeRequest: true }), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/merge', async (request) => envelope(await engine.deliveries.merge(request.params.id, request.body as DeliveryMergeRequest), requestId(request)));
 
   // Git read models (local Git CLI; remote providers are wired separately)
   app.get('/api/git/repos', async (request) => {
@@ -429,8 +434,51 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope({ settings: merged, issues, catalog: engine.catalog }, requestId(request));
   });
 
+  // Database connections (mysql2; read-only / probe)
+  app.get('/api/settings/databases', async (request) => {
+    if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
+    return envelope({ connections: databaseService.list() }, requestId(request));
+  });
+  app.post('/api/settings/databases', async (request) => {
+    if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
+    const body = request.body as DatabaseConnectionUpsertRequest;
+    const input = body.connection;
+    const id = input.id ?? `db_${Math.random().toString(36).slice(2, 12)}`;
+    const passwordRef = input.password === undefined ? undefined : `db:${id}`;
+    if (input.password !== undefined && passwordRef !== undefined) store.secrets.put(passwordRef, input.password);
+    const config = {
+      id,
+      name: input.name,
+      type: input.type,
+      host: input.host,
+      port: input.port,
+      database: input.database,
+      user: input.user,
+      ...(passwordRef === undefined ? {} : { passwordRef }),
+      readOnly: input.readOnly ?? true,
+      ssl: input.ssl ?? false,
+    };
+    databaseService.registerConnection(config);
+    const settings = engine.publicSettings();
+    const connections = [...settings.database.connections.filter((item) => item.id !== id), config];
+    engine.updateSettings({ ...settings, database: { ...settings.database, connections } });
+    return envelope({ connection: databaseService.get(id) }, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/settings/databases/:id/probe', async (request) => {
+    if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
+    return envelope({ probe: await databaseService.tryProbe(request.params.id) }, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/settings/databases/:id/query', async (request) => {
+    if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
+    const body = request.body as { sql?: string; limit?: number };
+    if (body.sql === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 sql');
+    const result = await databaseService.queryReadOnly(request.params.id, body.sql, body.limit === undefined ? {} : { limit: body.limit });
+    return envelope({ result }, requestId(request));
+  });
+
   // OpenCode
   app.get('/api/opencode/status', async (request) => {
+    const opencode = opencodeRef.current;
     const status = opencode?.status() ?? { state: 'stopped' };
     const diagnostics = opencode === undefined ? undefined : await opencode.diagnostics().catch(() => undefined);
     const setting = engine.publicSettings();
@@ -459,6 +507,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     );
   });
   app.post('/api/opencode/restart', async (request) => {
+    const opencode = opencodeRef.current;
     if (opencode === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'OpenCode 服务未启用');
     await opencode.stop();
     await opencode.ensureReady().catch((error: unknown) => {
@@ -517,8 +566,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
         reply.status(400).send({ error: { code: 'FORBIDDEN', message: '非法路径' } });
         return;
       }
-      const candidate = join(webDist, wildcard);
-      if (existsSync(candidate) && !candidate.endsWith('/')) {
+      const candidate = wildcard === '' ? indexHtml : join(webDist, wildcard);
+      if (existsSync(candidate) && statSync(candidate).isFile()) {
         serveFile(candidate, reply);
         return;
       }

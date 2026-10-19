@@ -424,6 +424,15 @@ export interface DeliveryMergeRequestRequest extends CommandRequest {
   readonly confirmMergeRequest: true;
 }
 
+export interface DeliveryMergeRequest extends CommandRequest {
+  readonly targetBranch: string;
+  readonly expectedTargetSha: string;
+  readonly sourceSha: string;
+  readonly message: string;
+  readonly strategy: 'no_ff' | 'ff_only';
+  readonly confirmMerge: true;
+}
+
 export interface DeliveryApplyRequest extends CommandRequest {
   readonly previewRef: string;
   readonly previewRevision: string;
@@ -735,6 +744,7 @@ export const ROUTES = {
   deliveryCommit: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/commit`,
   deliveryPush: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/push`,
   deliveryMergeRequest: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/merge-request`,
+  deliveryMerge: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/merge`,
   deliveryApplyPreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/apply/preview`,
   deliveryApply: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/apply`,
   gitOverview: '/api/git/repos',

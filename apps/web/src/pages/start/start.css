@@ -1,0 +1,206 @@
+/* 开始任务页 — 结构与设计稿开始页一致，颜色全部读主题令牌。 */
+
+.start-page {
+  padding-bottom: 48px;
+}
+
+.start-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+.start-aside {
+  position: sticky;
+  top: 12px;
+}
+
+.start-summary-title {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.start-ok,
+.start-warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.start-ok {
+  color: var(--ok);
+}
+
+.start-warn {
+  color: var(--warn);
+}
+
+.start-submit {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.start-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.start-reason svg.i {
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  flex: none;
+}
+
+/* method cards */
+.method-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.method-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  border: 1px solid var(--line-2);
+  background: var(--fill-1);
+  text-align: left;
+  min-width: 0;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
+}
+
+.method-card:hover {
+  border-color: var(--line-3);
+  background: var(--fill-2);
+}
+
+.method-card[aria-checked="true"] {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 4px var(--accent-fill);
+}
+
+.method-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.method-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.method-card-head .badge {
+  height: 20px;
+  font-size: 11px;
+  padding: 0 7px;
+}
+
+.method-desc {
+  font-size: 12.5px;
+  color: var(--sub);
+  line-height: 1.55;
+}
+
+.method-line {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--sub);
+  line-height: 1.5;
+}
+
+.method-line b {
+  color: var(--ink-2);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.method-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.step-chip {
+  font-size: 11.5px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--fill-3);
+  color: var(--ink-2);
+}
+
+.step-chip.refinable {
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+}
+
+.method-refine {
+  color: var(--ink-2);
+}
+
+.method-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.method-ai.ok {
+  color: var(--ok);
+}
+
+.method-ai.warn {
+  color: var(--warn);
+}
+
+/* template entry */
+.template-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--fill-2);
+  border: 1px dashed var(--line-2);
+}
+
+.template-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+@media (max-width: 1180px) {
+  .method-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 960px) {
+  .start-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .start-aside {
+    position: static;
+  }
+  .method-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,4 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import electron from 'electron';
+
+const { contextBridge, ipcRenderer } = electron;
 
 const desktopApi = {
   platform: process.platform,

@@ -92,6 +92,7 @@ function ToolsView() {
             <div className="hint" style={{ marginTop: 4 }}>
               共 {String(MANAGED_MCP_TOOLS.length)} 个工具，按 toolset 分组注入受管 OpenCode。
               {status?.mcp.name === undefined ? '' : ` MCP 服务名：${status.mcp.name}。`}
+              {status === undefined ? '' : status.mcp.tools > 0 ? ` 服务上报工具数：${String(status.mcp.tools)}。` : ' 服务未上报工具数。'}
             </div>
           </div>
           {status?.version === undefined ? null : <span className="hint mono">OpenCode {status.version}</span>}

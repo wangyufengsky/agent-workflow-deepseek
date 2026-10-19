@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { TaskLifecycle, type TaskLifecycleValue, type TaskSummary } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
-import { formatCount, formatRelativeTime } from '../../app/format.ts';
+import { formatAbsoluteTime, formatCount, formatRelativeTime } from '../../app/format.ts';
 import { deriveTaskStatus, sortByUpdatedDesc, taskHref, taskProgressText } from '../../app/taskStatus.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { LinkButton } from '../../components/Button.tsx';
@@ -269,7 +269,7 @@ export function InsightsPage() {
         </div>
         <SegmentedControl ariaLabel="任务状态" options={filterOptions} value={quality} onChange={setQuality} />
         <span className="spacer" />
-        <span className="hint">快照时间：{formatRelativeTime(bootstrap.data?.app.startedAt)} 服务启动后</span>
+        <span className="hint">服务启动于 {formatAbsoluteTime(bootstrap.data?.app.startedAt)}</span>
       </div>
 
       <div className="grid-3" style={{ marginBottom: 16 }}>

@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, AppError, ErrorCode, mergeSettings, nowIso } from '@a
 import { Store } from '@agent-workflow/storage';
 import { Engine, type OpenCodePort, type OpenCodeRunRequest, type OpenCodeRunResult, type DatabasePort } from '@agent-workflow/engine';
 import type { OpenCodeManagerStatus, OpenCodeSession } from '@agent-workflow/opencode';
+import { DatabaseService, createDatabasePort } from '@agent-workflow/database';
 import { GitCliAdapter } from './adapters/git-cli.ts';
 import { OpenCodeAdapter } from './adapters/opencode.ts';
 import { registerCors, registerErrorHandler, registerRoutes } from './http.ts';
@@ -46,6 +47,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   const internalToken = options.internalToken ?? randomBytes(24).toString('base64url');
 
   let adapter: OpenCodeAdapter | undefined;
+  const opencodeRef: { current?: OpenCodeAdapter | undefined } = {};
   const opencodeProxy: OpenCodePort = {
     status: (): OpenCodeManagerStatus => adapter?.status() ?? { state: 'stopped' },
     ensureReady: async () => {
@@ -66,7 +68,8 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   };
 
   const git = new GitCliAdapter(baseSettings.git.commandTimeoutMs);
-  const database: DatabasePort | undefined = undefined;
+  const databaseService = new DatabaseService({ settings: baseSettings.database, secrets: store.secrets });
+  const database: DatabasePort = createDatabasePort(databaseService);
   const engine = new Engine({
     store,
     ports: { git, opencode: opencodeProxy, database },
@@ -85,7 +88,8 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   registerRoutes(app, {
     engine,
     store,
-    opencode: adapter,
+    opencodeRef,
+    databaseService,
     paths: { ...paths, dataDir },
     internalToken,
     appVersion: APP_VERSION,
@@ -95,6 +99,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   registerInternalRoutes(app, { engine, store, token: internalToken, internalUrl: '' });
   app.addHook('onClose', async () => {
     await adapter?.stop().catch(() => undefined);
+    await databaseService.closeAll().catch(() => undefined);
     store.close();
   });
 
@@ -141,6 +146,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
         configPath: `${dataDir}/opencode/opencode.json`,
         cwd: paths.repoRoot,
       });
+      opencodeRef.current = adapter;
       // Start in the background: the HTTP API must be reachable immediately.
       void adapter.ensureReady().catch((error: unknown) => {
         const message = error instanceof Error ? error.message : 'OpenCode 启动失败';

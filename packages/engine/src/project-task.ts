@@ -369,7 +369,7 @@ export class InboxService {
         taskTitle: task.title,
         projectName: project?.name ?? '未知项目',
         createdAt: task.updatedAt,
-        returnTo: `/requirements/${task.id}`,
+        returnTo: `/requirement/${task.id}`,
       };
       if (round?.stage === 'needs_answer') {
         items.push({ id: `inbox_${task.id}_answer`, kind: 'planning_answer', title: '有必须答复的规划问题', detail: round.questions.filter((question) => question.required).map((question) => question.question).join('；'), ...base });

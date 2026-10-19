@@ -13,6 +13,7 @@ export type BadgeTone =
   | 'idle'
   | 'danger'
   | 'unknown'
+  | 'warn'
   | 'accent';
 
 const TONE_CLASS: Record<BadgeTone, string> = {
@@ -26,6 +27,7 @@ const TONE_CLASS: Record<BadgeTone, string> = {
   idle: 'st-idle',
   danger: 'st-danger',
   unknown: 'st-unknown',
+  warn: 'st-fail',
   accent: 'st-accent',
 };
 

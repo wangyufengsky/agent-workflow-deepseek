@@ -78,12 +78,6 @@ export const MANUAL_METHOD: WorkflowMethod = {
   refinableGroups: [],
 };
 
-export const DEFAULT_METHODS: readonly WorkflowMethod[] = [
-  REQUIREMENT_DEVELOPMENT_METHOD,
-  DEFECT_FIX_METHOD,
-  TECH_DESIGN_METHOD,
-  MANUAL_METHOD,
-];
 
 export const UNIT_TEST_TEMPLATE = {
   id: 'template.unit-test-development',
@@ -103,6 +97,24 @@ export const UNIT_TEST_TEMPLATE = {
     { key: 'framework', label: '测试框架', required: false },
   ],
 } as const;
+
+export const UNIT_TEST_METHOD: WorkflowMethod = {
+  id: 'method.unit-test-development',
+  name: '单元测试开发',
+  revision: 'template-v7',
+  support: 'skeleton_only',
+  description: '固定模板任务：步骤由模板版本锁定，创建后不能修改。',
+  requiredSteps: UNIT_TEST_TEMPLATE.steps.map((step) => ({ ...step })),
+  refinableGroups: [],
+};
+
+export const DEFAULT_METHODS: readonly WorkflowMethod[] = [
+  REQUIREMENT_DEVELOPMENT_METHOD,
+  DEFECT_FIX_METHOD,
+  TECH_DESIGN_METHOD,
+  MANUAL_METHOD,
+  UNIT_TEST_METHOD,
+];
 
 export const DEFAULT_ROLES = [
   {
@@ -143,7 +155,7 @@ export const DEFAULT_TASK_TYPES = [
   { id: 'type.requirement-development', name: '需求开发', methodId: REQUIREMENT_DEVELOPMENT_METHOD.id },
   { id: 'type.defect-fix', name: '缺陷修复', methodId: DEFECT_FIX_METHOD.id },
   { id: 'type.tech-design', name: '技术设计', methodId: TECH_DESIGN_METHOD.id },
-  { id: 'type.unit-test', name: '单元测试开发', methodId: UNIT_TEST_TEMPLATE.id },
+  { id: 'type.unit-test', name: '单元测试开发', methodId: UNIT_TEST_METHOD.id },
 ] as const;
 
 export const DEFAULT_MODELS: readonly ModelProfile[] = DEFAULT_MODEL_PROFILES;

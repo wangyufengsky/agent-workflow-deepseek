@@ -248,10 +248,6 @@ button.git-repo-card:hover {
   border: 1px solid var(--line-2);
   color: var(--ink-2);
   font-size: 12.5px;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a1a6ae' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 9px center;
   max-width: 240px;
 }
 
@@ -369,11 +365,7 @@ button.git-repo-card:hover {
   outline: none;
 }
 .rail-select {
-  appearance: none;
-  padding-right: 26px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a1a6ae' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
+  padding-right: 8px;
 }
 .rail-input:focus,
 .rail-select:focus {
@@ -1692,4 +1684,77 @@ button.git-repo-card:hover {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* ---------- 布局修正 / 窄屏 ---------- */
+.git-page {
+  height: calc(100vh - var(--header-h));
+  overflow: hidden;
+}
+.git-page-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.git-overview {
+  min-height: 100%;
+}
+.only-narrow {
+  display: none !important;
+}
+@media (max-width: 1000px) {
+  .only-narrow {
+    display: inline-flex !important;
+  }
+}
+.git-wb-body.diff-full {
+  grid-template-columns: minmax(0, 1fr);
+}
+.git-wb-body.diff-full .git-detail {
+  display: flex;
+}
+
+/* ---------- 并排视图的对齐与标注 ---------- */
+.diff-line.split {
+  border-bottom: 1px solid var(--line);
+}
+.diff-line.split .ln:nth-child(3) {
+  border-left: 1px solid var(--line-2);
+}
+.diff-line.split .code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 1.65em;
+}
+.diff-line.split .code.add-code {
+  background: var(--ok-fill);
+  color: var(--ink);
+}
+.diff-line.split .code.del-code {
+  background: var(--danger-fill);
+  color: var(--ink);
+}
+.diff-line.split .code.diff-empty-line {
+  background: var(--fill-1);
+}
+.diff-line.split .ln {
+  border-right: 1px solid var(--line);
+}
+
+/* ---------- 审查问题在 diff 中的圆点（状态同时有文字提示） ---------- */
+.finding-mark.sev-blocker {
+  color: var(--danger);
+  background: var(--danger-fill);
+}
+.finding-mark.sev-critical {
+  color: var(--stall);
+  background: var(--stall-fill);
+}
+.finding-mark.sev-major {
+  color: var(--warn);
+  background: var(--warn-fill);
+}
+.finding-mark.sev-suggestion {
+  color: var(--sub);
+  background: var(--fill-3);
 }

@@ -236,7 +236,7 @@ export async function savePlanningAnswers(
   return response.data;
 }
 
-export async function usePlanSkeleton(taskId: string): Promise<CommandResponse<PlanResponse>> {
+export async function applyPlanSkeleton(taskId: string): Promise<CommandResponse<PlanResponse>> {
   const body: UseSkeletonRequest = { requestKey: createRequestKey(), confirmUseSkeleton: true };
   const response = await apiPost<CommandResponse<PlanResponse>>(ROUTES.planSkeleton(taskId), body);
   return response.data;
@@ -630,6 +630,9 @@ export function useWorkflowCommand(taskId: string): WorkflowCommandRunner {
         return response;
       } catch (error) {
         setState({ busy: false, error, receipt: undefined });
+        // A rejected command can still have changed service state (e.g. an edit
+        // save that hit a claim race). Re-read the authoritative models.
+        await refresh();
         return undefined;
       }
     },

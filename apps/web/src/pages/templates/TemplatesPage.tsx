@@ -9,7 +9,7 @@ import {
   type TaskDetailResponse,
   type TaskTemplate,
 } from '@agent-workflow/shared';
-import { apiGet, apiPost, errorMessage } from '../../api/client.ts';
+import { ApiClientError, apiGet, apiPost, errorMessage } from '../../api/client.ts';
 import { queryKeys, useBootstrap } from '../../api/hooks.ts';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../../components/Badge.tsx';
@@ -102,6 +102,7 @@ export function TemplatesPage() {
   const effectiveMethodId = methodId.length > 0 ? methodId : (methods[0]?.id ?? '');
   const selectedMethod = methods.find((method) => method.id === effectiveMethodId);
   const formLocked = state?.phase === 'submitting' || state?.phase === 'unknown';
+  const creationSucceeded = state?.phase === 'succeeded';
 
   const missingFields: string[] = [];
   if (projectId.length === 0) missingFields.push('项目');
@@ -138,30 +139,40 @@ export function TemplatesPage() {
       const response = await apiPost<CommandResponse<TaskDetailResponse>>(ROUTES.tasks, payload);
       const result = response.data;
       const status = result.receipt.status;
-      if (status === 'unknown') {
+      const createdTaskId = result.resource?.task.id;
+      if (status === 'succeeded') {
+        setState({
+          phase: 'succeeded',
+          requestKey,
+          body: payload,
+          receiptStatus: status,
+          ...(createdTaskId === undefined ? {} : { taskId: createdTaskId }),
+        });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
+          queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+        ]);
+      } else if (status === 'failed') {
+        setState({
+          phase: 'failed',
+          requestKey,
+          body: payload,
+          message: result.receipt.error?.message ?? '服务返回失败回执，任务没有创建。',
+        });
+      } else {
         setState({
           phase: 'unknown',
           requestKey,
           body: payload,
-          message: '创建请求已发出，但没有收到确认回执。',
+          message: '创建请求已发出，但服务只返回 accepted / unknown 回执，尚未确认创建结果。',
         });
-        return;
       }
-      const createdTaskId = result.resource?.task.id;
-      setState({
-        phase: 'succeeded',
-        requestKey,
-        body: payload,
-        receiptStatus: status,
-        ...(createdTaskId === undefined ? {} : { taskId: createdTaskId }),
-      });
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
-        queryClient.invalidateQueries({ queryKey: ['tasks'] }),
-      ]);
     } catch (error) {
+      // A connection failure or timeout leaves the outcome unknown on the client:
+      // the service may still have created the task. Never silently resubmit.
+      const unknown = error instanceof ApiClientError && (error.kind === 'timeout' || error.kind === 'unavailable');
       setState({
-        phase: 'failed',
+        phase: unknown ? 'unknown' : 'failed',
         requestKey,
         body: payload,
         message: errorMessage(error),
@@ -342,12 +353,7 @@ export function TemplatesPage() {
                     <div className="grow">
                       <b>任务没有创建</b>
                       <br />
-                      {state.message ?? '未知错误'}
-                    </div>
-                    <div className="actions">
-                      <Button variant="secondary" size="sm" icon="refresh" onClick={() => void submit(state.requestKey, state.body)}>
-                        用原请求重试
-                      </Button>
+                      {state.message ?? '未知错误'}。修改输入后重新提交会使用新的 requestKey；同一失败请求不会自动重发。
                     </div>
                   </div>
                 ) : null}
@@ -360,7 +366,7 @@ export function TemplatesPage() {
                     id="tpl-project"
                     className="select"
                     value={projectId}
-                    disabled={formLocked || state?.phase === 'succeeded'}
+                    disabled={formLocked}
                     onChange={(event) => {
                       setProjectId(event.target.value);
                     }}
@@ -383,7 +389,7 @@ export function TemplatesPage() {
                     id="tpl-title"
                     className="input"
                     value={title}
-                    disabled={formLocked || state?.phase === 'succeeded'}
+                    disabled={formLocked}
                     placeholder="例如：订单服务单元测试补齐"
                     onChange={(event) => {
                       setTitle(event.target.value);
@@ -399,7 +405,7 @@ export function TemplatesPage() {
                     id="tpl-requirement"
                     className="textarea"
                     value={requirementText}
-                    disabled={formLocked || state?.phase === 'succeeded'}
+                    disabled={formLocked}
                     placeholder="写清目标、范围与验收方式；创建后会作为任务需求原文保存。"
                     onChange={(event) => {
                       setRequirementText(event.target.value);
@@ -415,7 +421,7 @@ export function TemplatesPage() {
                     id="tpl-method"
                     className="select"
                     value={effectiveMethodId}
-                    disabled={formLocked || state?.phase === 'succeeded'}
+                    disabled={formLocked}
                     onChange={(event) => {
                       setMethodId(event.target.value);
                     }}
@@ -438,7 +444,7 @@ export function TemplatesPage() {
                   <ParameterField
                     template={template}
                     parameters={parameters}
-                    disabled={formLocked || state?.phase === 'succeeded'}
+                    disabled={formLocked}
                     onChange={(key, value) => {
                       setParameters((current) => ({ ...current, [key]: value }));
                     }}

@@ -1,15 +1,26 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { RepoGitState, type ProjectSummary, type RepoGitStateValue } from '@agent-workflow/shared';
-import { useProjects } from '../../api/hooks.ts';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  ROUTES,
+  RepoGitState,
+  createRequestKey,
+  type CommandResponse,
+  type CreateProjectRequest,
+  type OperationsByKeyResponse,
+  type ProjectDetailResponse,
+  type ProjectSummary,
+  type RepoGitStateValue,
+} from '@agent-workflow/shared';
+import { ApiClientError, apiGet, apiPost, errorMessage } from '../../api/client.ts';
+import { queryKeys, useProjects } from '../../api/hooks.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
+import { Drawer } from '../../components/Drawer.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
-
-const REGISTER_BLOCKED_REASON = '项目登记写入未在本批次接通：本页只读取 /api/projects；登记抽屉与写入流程由 Lead 安排后续接通。';
 
 const GIT_STATE_LABEL: Record<RepoGitStateValue, string> = {
   git: 'Git 仓库',
@@ -33,6 +44,19 @@ const GIT_STATE_ICON: Record<RepoGitStateValue, 'git' | 'folder' | 'alert' | 'he
 };
 
 type GitFilter = 'all' | RepoGitStateValue;
+type RegisterPhase = 'submitting' | 'failed' | 'unknown';
+
+interface RegisterAttempt {
+  readonly phase: RegisterPhase;
+  readonly requestKey: string;
+  readonly body: CreateProjectRequest;
+  readonly message?: string;
+}
+
+function apiErrorDetail(error: unknown): string {
+  if (error instanceof ApiClientError) return `${error.code ?? 'HTTP_ERROR'} · ${error.message}`;
+  return errorMessage(error);
+}
 
 function ProjectCard({ project }: { readonly project: ProjectSummary }) {
   const unavailable = project.gitState === RepoGitState.PATH_UNAVAILABLE || project.gitState === RepoGitState.CAPABILITY_UNAVAILABLE;
@@ -45,7 +69,11 @@ function ProjectCard({ project }: { readonly project: ProjectSummary }) {
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row wrap" style={{ gap: 6 }}>
             <span style={{ fontSize: 14.5, fontWeight: 500 }}>{project.name}</span>
-            {project.archived ? <Badge tone="idle" icon="archive">已归档</Badge> : null}
+            {project.archived ? (
+              <Badge tone="idle" icon="archive">
+                已归档
+              </Badge>
+            ) : null}
           </div>
           <div className="hint mono" style={{ marginTop: 3, overflowWrap: 'anywhere' }}>
             {project.rootPath}
@@ -116,10 +144,18 @@ function ProjectCard({ project }: { readonly project: ProjectSummary }) {
 }
 
 export function ProjectsPage() {
+  const queryClient = useQueryClient();
   const projectsQuery = useProjects();
   const projects = projectsQuery.data ?? [];
   const [gitFilter, setGitFilter] = useState<GitFilter>('all');
   const [keyword, setKeyword] = useState('');
+
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [rootPath, setRootPath] = useState('');
+  const [description, setDescription] = useState('');
+  const [attempt, setAttempt] = useState<RegisterAttempt | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     const base: Record<GitFilter, number> = { all: projects.length, git: 0, not_git: 0, path_unavailable: 0, capability_unavailable: 0 };
@@ -131,21 +167,116 @@ export function ProjectsPage() {
     { value: 'all', label: '全部', count: counts.all },
     { value: 'git', label: 'Git 仓库', count: counts.git },
     { value: 'not_git', label: '非 Git', count: counts.not_git },
-    { value: 'path_unavailable', label: '路径不可用', count: counts.path_unavailable + counts.capability_unavailable },
+    { value: 'path_unavailable', label: '路径不可用', count: counts.path_unavailable },
+    { value: 'capability_unavailable', label: '能力不可用', count: counts.capability_unavailable },
   ];
 
   const filtered = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
     return projects.filter((project) => {
-      if (gitFilter === 'path_unavailable') {
-        if (project.gitState !== RepoGitState.PATH_UNAVAILABLE && project.gitState !== RepoGitState.CAPABILITY_UNAVAILABLE) return false;
-      } else if (gitFilter !== 'all' && project.gitState !== gitFilter) {
-        return false;
-      }
+      if (gitFilter !== 'all' && project.gitState !== gitFilter) return false;
       if (needle.length === 0) return true;
       return [project.name, project.rootPath, project.description, project.id].join(' ').toLowerCase().includes(needle);
     });
   }, [gitFilter, keyword, projects]);
+
+  const issues: string[] = [];
+  if (name.trim().length === 0) issues.push('项目名称');
+  if (rootPath.trim().length === 0) issues.push('项目目录');
+  else if (!rootPath.trim().startsWith('/')) issues.push('项目目录需要是绝对路径');
+  const submitting = attempt?.phase === 'submitting';
+  const unknown = attempt?.phase === 'unknown';
+  const canSubmit = issues.length === 0 && !submitting && !unknown;
+
+  const openRegister = () => {
+    setRegisterOpen(true);
+    setAttempt(null);
+  };
+
+  const resetForm = () => {
+    setName('');
+    setRootPath('');
+    setDescription('');
+    setAttempt(null);
+  };
+
+  const submit = async (requestKey = createRequestKey(), body?: CreateProjectRequest) => {
+    const payload: CreateProjectRequest =
+      body ?? {
+        requestKey,
+        name: name.trim(),
+        rootPath: rootPath.trim(),
+        ...(description.trim().length === 0 ? {} : { description: description.trim() }),
+      };
+    setAttempt({ phase: 'submitting', requestKey, body: payload });
+    try {
+      const response = await apiPost<CommandResponse<ProjectDetailResponse>>(ROUTES.projects, payload);
+      const status = response.data.receipt.status;
+      if (status === 'succeeded') {
+        const project = response.data.resource?.project;
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
+        ]);
+        setNotice(
+          project === undefined
+            ? '项目已登记；列表已刷新。'
+            : `已登记项目：${project.name}（${project.rootPath}）。登记不会移动或修改任何文件。`,
+        );
+        setRegisterOpen(false);
+        resetForm();
+      } else if (status === 'failed') {
+        setAttempt({
+          phase: 'failed',
+          requestKey,
+          body: payload,
+          message: response.data.receipt.error?.message ?? '服务返回失败回执，项目没有登记。',
+        });
+      } else {
+        setAttempt({
+          phase: 'unknown',
+          requestKey,
+          body: payload,
+          message: '登记请求已发出，但服务只返回 accepted / unknown 回执，尚未确认结果。',
+        });
+      }
+    } catch (error) {
+      // A timeout/unavailable error leaves the outcome unknown: the project may
+      // still have been registered. Never resend automatically.
+      const outcomeUnknown = error instanceof ApiClientError && (error.kind === 'timeout' || error.kind === 'unavailable');
+      setAttempt({
+        phase: outcomeUnknown ? 'unknown' : 'failed',
+        requestKey,
+        body: payload,
+        message: outcomeUnknown ? '请求没有收到回执，登记结果未明。' : apiErrorDetail(error),
+      });
+    }
+  };
+
+  const reconcile = async () => {
+    if (attempt === null) return;
+    try {
+      const response = await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(attempt.requestKey));
+      const operation = response.data.operation;
+      if (operation.status === 'succeeded') {
+        const outcome = operation.outcome ?? {};
+        const projectId = typeof outcome.projectId === 'string' ? outcome.projectId : operation.target.projectId;
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
+        ]);
+        setNotice(projectId === undefined ? '按原请求核对：项目已登记。' : `按原请求核对：项目已登记（${projectId}）。`);
+        setRegisterOpen(false);
+        resetForm();
+      } else if (operation.status === 'failed') {
+        setAttempt({ ...attempt, phase: 'failed', message: operation.error?.message ?? '按原请求核对：登记失败。' });
+      } else {
+        setAttempt({ ...attempt, phase: 'unknown', message: '核对后仍未确认结果；不会自动重复登记。' });
+      }
+    } catch (error) {
+      setAttempt({ ...attempt, message: `核对失败：${apiErrorDetail(error)}` });
+    }
+  };
 
   let body: ReactNode;
   if (projectsQuery.isLoading) {
@@ -180,10 +311,10 @@ export function ProjectsPage() {
         <EmptyState
           icon="folder"
           title="还没有登记项目"
-          description="登记一个本机项目目录后，就可以围绕它开始任务、配置 Git 与项目公约。当前页面只读取项目列表，登记写入尚未接通。"
+          description="登记一个本机项目目录后，就可以围绕它开始任务、配置 Git 与项目公约。登记不会移动或修改任何文件。"
           action={
-            <Button variant="primary" icon="plus" disabled disabledReason={REGISTER_BLOCKED_REASON}>
-              登记项目
+            <Button variant="primary" icon="plus" onClick={openRegister}>
+              登记第一个项目
             </Button>
           }
         />
@@ -205,13 +336,47 @@ export function ProjectsPage() {
     <div className="page">
       <PageHeader
         title="项目"
-        lede="项目是任务、流程和配置的归属。选一个项目开始工作，或查看它的需求与运行状态。"
+        lede="项目是任务、流程和配置的归属。选一个项目开始工作，或登记本机已有目录；登记不会移动或修改任何文件。"
         actions={
-          <Button variant="secondary" size="sm" icon="plus" disabled disabledReason={REGISTER_BLOCKED_REASON}>
+          <Button variant="primary" size="sm" icon="plus" onClick={openRegister}>
             登记项目
           </Button>
         }
       />
+
+      {notice === null ? null : (
+        <div className="banner ok" role="status" style={{ marginBottom: 14 }}>
+          <Icon name="check" />
+          <div className="grow">{notice}</div>
+          <div className="actions">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setNotice(null);
+              }}
+            >
+              知道了
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {unknown && !registerOpen ? (
+        <div className="banner unknown" role="alert" style={{ marginBottom: 14 }}>
+          <Icon name="help" />
+          <div className="grow">
+            <b>项目登记结果未明</b>
+            <br />
+            {attempt?.message ?? '请求已发出但没有收到确认。'}按原请求核对，不会重复登记。
+          </div>
+          <div className="actions">
+            <Button variant="secondary" size="sm" icon="refresh" onClick={() => void reconcile()}>
+              按原请求核对
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="toolbar">
         <div className="input-wrap">
@@ -234,6 +399,149 @@ export function ProjectsPage() {
       </div>
 
       {body}
+
+      <Drawer
+        open={registerOpen}
+        title="登记项目"
+        size="md"
+        onClose={() => {
+          if (submitting) return;
+          setRegisterOpen(false);
+          if (!unknown) resetForm();
+        }}
+        footer={
+          <>
+            <span className="hint grow">
+              {submitting
+                ? '正在登记，请稍候…'
+                : unknown
+                  ? '结果未明：按原请求核对后才能再次提交'
+                  : issues.length > 0
+                    ? `还缺：${issues.join('、')}`
+                    : '登记后可以立即开始任务。'}
+            </span>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setRegisterOpen(false);
+                if (!unknown) resetForm();
+              }}
+              disabled={submitting}
+            >
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              icon="check"
+              disabled={!canSubmit}
+              disabledReason={issues.length > 0 ? `还缺：${issues.join('、')}` : submitting ? '登记中' : '结果未明，先按原请求核对'}
+              onClick={() => {
+                void submit();
+              }}
+            >
+              {submitting ? '登记中…' : '登记项目'}
+            </Button>
+          </>
+        }
+      >
+        <div className="col" style={{ gap: 16 }}>
+          {attempt?.phase === 'failed' ? (
+            <div className="banner danger" role="alert">
+              <Icon name="alert" />
+              <div className="grow">
+                <b>项目没有登记</b>
+                <br />
+                {attempt.message ?? '未知错误'}。修改输入后重新提交会使用新的 requestKey。
+              </div>
+            </div>
+          ) : null}
+
+          {unknown ? (
+            <div className="banner unknown" role="alert">
+              <Icon name="help" />
+              <div className="grow">
+                <b>登记结果未明</b>
+                <br />
+                {attempt?.message ?? '请求已发出但没有收到确认。'}
+                <br />
+                <span className="mono" style={{ fontSize: 11.5 }}>
+                  requestKey {attempt?.requestKey}
+                </span>
+              </div>
+              <div className="actions">
+                <Button variant="secondary" size="sm" icon="refresh" onClick={() => void reconcile()}>
+                  按原请求核对
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <p className="hint" style={{ lineHeight: 1.65 }}>
+            把本机已有的项目目录接入 opencode-workflow。登记会读取目录的 Git 状态并保存路径与名称，不会移动或修改任何文件。
+          </p>
+
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label" htmlFor="project-path">
+              项目目录 <span className="req">*</span>
+            </label>
+            <input
+              id="project-path"
+              className="input mono"
+              value={rootPath}
+              disabled={submitting || unknown}
+              placeholder="/Users/you/workspace/my-project"
+              onChange={(event) => {
+                const next = event.target.value;
+                setRootPath(next);
+                if (name.trim().length === 0) {
+                  const base = next.split('/').filter(Boolean).at(-1);
+                  if (base !== undefined) setName(base);
+                }
+              }}
+            />
+            <span className="hint">填写本机绝对路径；路径不存在时仍可登记，但 Git 状态会显示为路径不可用。</span>
+          </div>
+
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label" htmlFor="project-name">
+              项目名称 <span className="req">*</span>
+            </label>
+            <input
+              id="project-name"
+              className="input"
+              value={name}
+              disabled={submitting || unknown}
+              placeholder="选择目录后自动填入，可修改"
+              onChange={(event) => {
+                setName(event.target.value);
+              }}
+            />
+          </div>
+
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label" htmlFor="project-description">
+              说明 <span className="opt">可选</span>
+            </label>
+            <textarea
+              id="project-description"
+              className="textarea"
+              style={{ minHeight: 90 }}
+              value={description}
+              disabled={submitting || unknown}
+              onChange={(event) => {
+                setDescription(event.target.value);
+              }}
+            />
+          </div>
+
+          <div className="banner info">
+            <Icon name="info" />
+            <div className="grow">
+              登记是一个写操作：成功后会刷新项目列表；如果结果未明，页面只用原 requestKey 通过 GET /api/operations/:key 核对，不会自动重发。
+            </div>
+          </div>
+        </div>
+      </Drawer>
     </div>
   );
 }

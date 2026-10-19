@@ -424,7 +424,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.home-row .side {
+.home-row .home-side {
   flex: none;
   display: flex;
   flex-direction: column;

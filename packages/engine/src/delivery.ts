@@ -1,5 +1,6 @@
 import type {
   CommandResponse,
+  DeliveryMergeRequest,
   DeliveryCommitRequest,
   DeliveryPushRequest,
   DeliveryResponse,
@@ -202,6 +203,60 @@ export class DeliveryService {
       this.#store.events.publish('task.delivery.updated', { taskId, deliveryId: delivery.id, revision: updated!.revision, projection: 'delivered' });
       this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: task.stage, revision: 1 });
       this.#commands.settle(input.requestKey, { iid: mr.iid, webUrl: mr.webUrl });
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { delivery: updated!, actions: {} } };
+    } catch (error) {
+      this.#commands.fail(input.requestKey, error as Error);
+      throw error;
+    }
+  }
+
+  async merge(taskId: string, input: DeliveryMergeRequest): Promise<CommandResponse<DeliveryResponse>> {
+    const delivery = this.get(taskId);
+    const task = this.#requireTask(taskId);
+    const project = this.#requireProject(task.projectId);
+    const commitStep = delivery.steps.find((step) => step.step === 'commit');
+    const sourceSha = commitStep?.commitSha ?? input.sourceSha;
+    if (commitStep?.state !== 'succeeded' || commitStep.commitSha === undefined) {
+      throw new AppError(ErrorCode.DELIVERY_BLOCKED, '需要先成功提交任务变更，才能合并');
+    }
+    if (this.#git.mergeTaskBranch === undefined) {
+      throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前 Git 适配未提供合并能力');
+    }
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'task.delivery.merge',
+      body: { taskId, targetBranch: input.targetBranch, expectedTargetSha: input.expectedTargetSha, sourceSha, message: input.message, strategy: input.strategy, confirmMerge: true },
+      target: { taskId, ref: input.targetBranch, expectedSha: input.expectedTargetSha },
+    });
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
+    try {
+      const result = await this.#git.mergeTaskBranch({
+        repoRoot: project.rootPath,
+        targetBranch: input.targetBranch,
+        expectedTargetSha: input.expectedTargetSha,
+        sourceSha,
+        message: input.message,
+        tempRoot: `${this.#context.store.dataDir}/merge-tmp`,
+        strategy: input.strategy,
+      });
+      const steps = updateStep(delivery.steps, {
+        step: 'merge',
+        state: 'succeeded',
+        requestKey: input.requestKey,
+        settledAt: nowIso(),
+        commitSha: result.mergeSha,
+      });
+      const updated = this.#store.deliveries.update(delivery.id, {
+        projection: 'delivered',
+        projectionReason: `已合并到 ${input.targetBranch}`,
+        steps,
+        taskCompletionRef: `merge:${result.mergeSha}`,
+        verificationOutcome: delivery.verificationOutcome ?? 'not_run',
+      });
+      this.#store.tasks.update(taskId, { attention: 'none', lifecycle: 'completed' });
+      this.#store.events.publish('task.delivery.updated', { taskId, deliveryId: delivery.id, revision: updated!.revision, projection: 'delivered' });
+      this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: task.stage, revision: 1 });
+      this.#commands.settle(input.requestKey, { mergeSha: result.mergeSha, kind: result.kind });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { delivery: updated!, actions: {} } };
     } catch (error) {
       this.#commands.fail(input.requestKey, error as Error);

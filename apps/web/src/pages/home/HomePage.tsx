@@ -25,7 +25,7 @@ function OngoingRow({ task }: { readonly task: TaskSummary }) {
           {task.projectName} · {TASK_STAGE_LABEL[task.stage]} · 更新 {formatRelativeTime(task.updatedAt)}
         </div>
       </div>
-      <span className="side">
+      <span className="home-side">
         <TaskStatusBadge task={task} />
         <span className="when">{formatRelativeTime(task.updatedAt)}</span>
       </span>
@@ -45,7 +45,7 @@ function AttentionRow({ item }: { readonly item: InboxItem }) {
           {item.title} · {item.projectName}
         </div>
       </div>
-      <span className="side">
+      <span className="home-side">
         <Badge tone="wait" icon="help">
           {inboxKindLabel(item)}
         </Badge>
@@ -67,7 +67,7 @@ function RecentRow({ task }: { readonly task: TaskSummary }) {
           {task.projectName} · {task.methodName}
         </div>
       </div>
-      <span className="side">
+      <span className="home-side">
         <TaskStatusBadge task={task} />
         <span className="when">{formatRelativeTime(task.updatedAt)}</span>
       </span>

@@ -79,6 +79,15 @@ export interface GitPort {
   commit(input: GitCommitInput): Promise<{ readonly sha: string }>;
   push(input: GitPushInput): Promise<{ readonly remoteRef: string; readonly pushedSha: string; readonly created: boolean }>;
   createMergeRequest?(input: { readonly repoRoot: string; readonly sourceBranch: string; readonly targetBranch: string; readonly title: string; readonly description: string }): Promise<{ readonly iid: number; readonly webUrl: string }>;
+  mergeTaskBranch?(input: {
+    readonly repoRoot: string;
+    readonly targetBranch: string;
+    readonly expectedTargetSha: string;
+    readonly sourceSha: string;
+    readonly message: string;
+    readonly tempRoot: string;
+    readonly strategy: 'no_ff' | 'ff_only';
+  }): Promise<{ readonly mergeSha: string; readonly kind: 'merge' | 'ff' }>;
   /** Read-only snapshot comparison for non-Git projects. */
   copyToDirectory?(input: { readonly sourceRoot: string; readonly targetRoot: string }): Promise<void>;
 }
