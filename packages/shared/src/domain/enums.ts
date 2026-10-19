@@ -519,6 +519,7 @@ export const OperationKind = {
   CATALOG_ROLE_SAVE: 'catalog.role.save',
   CATALOG_ROLE_PUBLISH: 'catalog.role.publish',
   CATALOG_ROLE_ARCHIVE: 'catalog.role.archive',
+  KNOWLEDGE_ASK: 'knowledge.ask',
 } as const;
 export type OperationKindValue = (typeof OperationKind)[keyof typeof OperationKind];
 
@@ -573,6 +574,7 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'catalog.role.save': op('catalog.role.save', 'global', true, '保存职业草稿'),
   'catalog.role.publish': op('catalog.role.publish', 'global', true, '发布职业'),
   'catalog.role.archive': op('catalog.role.archive', 'global', true, '归档职业'),
+  'knowledge.ask': op('knowledge.ask', 'project', true, '知识库问答（单次只读）'),
   'git.fetch': op('git.fetch', 'git', true, '获取远端更新'),
   'review.start': op('review.start', 'git', true, '开始 AI 审查'),
   'review.stop': op('review.stop', 'git', true, '停止 AI 审查'),

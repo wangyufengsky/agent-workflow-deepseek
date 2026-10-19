@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { KnowledgeSearchResponse, KnowledgeSourceContentResponse, KnowledgeSourcesResponse } from '@agent-workflow/shared';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { createRequestKey, type KnowledgeAskResponse, type KnowledgeSearchResponse, type KnowledgeSourceContentResponse, type KnowledgeSourcesResponse } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
-import { apiGet } from '../../api/client.ts';
+import { apiGet, apiPost } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
@@ -25,6 +25,15 @@ export function KnowledgePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [submittedTerm, setSubmittedTerm] = useState('');
   const [sourcePath, setSourcePath] = useState<string | null>(null);
+  const [askResult, setAskResult] = useState<KnowledgeAskResponse | undefined>(undefined);
+  const askMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiPost<{ receipt: { status: string }; resource: KnowledgeAskResponse }>('/api/knowledge/ask', { requestKey: createRequestKey(), projectId, question: question.trim() });
+      if (response.data.receipt.status !== 'succeeded') throw new Error(`问答回执：${response.data.receipt.status}`);
+      return response.data.resource;
+    },
+    onSuccess: (result) => { setAskResult(result); },
+  });
   const projectId = selectedProjectId !== '' ? selectedProjectId : (projects[0]?.id ?? '');
   const contentQuery = useQuery({
     queryKey: ['knowledge', 'content', projectId, sourcePath],
@@ -49,10 +58,10 @@ export function KnowledgePage() {
     <div className="page">
       <PageHeader
         title="知识库"
-        lede="从代码、文档和数据库中查找依据，每个结论都能回到原文。资料来源已可读取；问答与引用接口尚未接通。"
+        lede="从代码、文档和数据库中查找依据，每个结论都能回到原文。问答基于项目文档，引用可回到原文；不保存历史。"
         actions={
-          <Badge tone="wait" icon="eye">
-            资料来源已接通
+          <Badge tone="ok" icon="check">
+            文档问答可用
           </Badge>
         }
       />
@@ -117,13 +126,43 @@ export function KnowledgePage() {
             </span>
             <span className="spacer" />
             <span className="hint num">{String(question.length)} 字</span>
-            <Button variant="primary" size="sm" icon="arrowUp" disabled disabledReason={ASK_BLOCKED_REASON}>
-              发送
+            <Button
+              variant="primary"
+              size="sm"
+              icon="arrowUp"
+              disabled={question.trim().length < 2 || projectId === '' || askMutation.isPending}
+              disabledReason={projectId === '' ? '先在下方选择项目' : question.trim().length < 2 ? '问题至少 2 个字' : undefined}
+              onClick={() => { setAskResult(undefined); askMutation.mutate(); }}
+            >
+              {askMutation.isPending ? '研究中…' : '发送'}
             </Button>
           </div>
           <p className="hint" id="kb-disabled-note" style={{ marginTop: 8 }}>
-            发送按钮已禁用：问答、检索与引用读取接口都尚未接通；输入内容只保留在当前页面，不会写入任何记录。
+            问答使用受管 OpenCode（只读）基于下方项目文档回答；结果不写入历史，引用可点击回到原文。
           </p>
+          {askMutation.isError ? <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>问答失败：{String((askMutation.error as Error).message)}</p> : null}
+          {askResult === undefined ? null : (
+            <div className="card pad" style={{ marginTop: 12 }}>
+              <div className="row wrap" style={{ gap: 8 }}>
+                <Badge tone="ok" icon="check">回答</Badge>
+                <span className="hint mono">{askResult.model}</span>
+                <span className="hint">{new Date(askResult.generatedAt).toLocaleString('zh-CN')}</span>
+              </div>
+              <p style={{ marginTop: 10, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askResult.answer}</p>
+              {askResult.citations.length === 0 ? <p className="hint">模型没有给出可验证的引用。</p> : (
+                <div className="list" style={{ marginTop: 8 }}>
+                  {askResult.citations.map((citation) => (
+                    <button key={`${citation.path}:${citation.line}`} type="button" className="list-row" onClick={() => { setSourcePath(citation.path); }}>
+                      <span className="tile"><Icon name="doc" size="sm" /></span>
+                      <span className="grow mono" style={{ fontSize: 12.5, textAlign: 'left' }}>{citation.path}:{citation.line}</span>
+                      {citation.snippet === undefined ? null : <span className="hint" style={{ textAlign: 'right', maxWidth: 420 }}>{citation.snippet}</span>}
+                      <Icon name="chevRight" size="sm" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="section">

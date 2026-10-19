@@ -56,6 +56,10 @@ test('knowledge sources lists project docs read-only and skips ignored directori
     assert.equal(escape.statusCode, 400, escape.body);
     assert.equal(escape.json().error.code, 'PATH_ESCAPE');
 
+    const ask = await app.app.inject({ method: 'POST', url: '/api/knowledge/ask', payload: { requestKey: requestKey('ask'), projectId, question: '这个项目如何做知识库？' } });
+    assert.equal(ask.statusCode, 503, ask.body);
+    assert.equal(ask.json().error.code, 'OPENCODE_NOT_READY');
+
     const missing = await app.app.inject({ method: 'GET', url: '/api/knowledge/sources' });
     assert.equal(missing.statusCode, 400, missing.body);
   } finally {

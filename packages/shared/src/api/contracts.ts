@@ -201,6 +201,26 @@ export interface KnowledgeSource {
   readonly modifiedAt: IsoDateTime;
 }
 
+export interface KnowledgeAskRequest extends CommandRequest {
+  readonly projectId: string;
+  readonly question: string;
+}
+
+export interface KnowledgeCitation {
+  readonly path: string;
+  readonly line: number;
+  readonly snippet?: string;
+}
+
+export interface KnowledgeAskResponse {
+  readonly projectId: string;
+  readonly question: string;
+  readonly answer: string;
+  readonly citations: readonly KnowledgeCitation[];
+  readonly model: string;
+  readonly generatedAt: IsoDateTime;
+}
+
 export interface KnowledgeSourceContentResponse {
   readonly projectId: string;
   readonly path: string;
@@ -936,6 +956,7 @@ export const ROUTES = {
   knowledgeSources: '/api/knowledge/sources',
   knowledgeSearch: '/api/knowledge/search',
   knowledgeSourceContent: '/api/knowledge/source',
+  knowledgeAsk: '/api/knowledge/ask',
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;

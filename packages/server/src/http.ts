@@ -8,6 +8,7 @@ import type {
   RolePublishRequest,
   RoleArchiveRequest,
   NodeSkipRequest,
+  KnowledgeAskRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
   CommandRequest,
@@ -504,6 +505,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       if (message === 'SOURCE_NOT_TEXT') throw new AppError(ErrorCode.VALIDATION_FAILED, '来源包含二进制内容');
       throw new AppError(ErrorCode.INTERNAL_ERROR, '读取来源失败');
     }
+  });
+  app.post('/api/knowledge/ask', async (request) => {
+    const body = request.body as KnowledgeAskRequest;
+    return envelope(await engine.knowledge.ask(body), requestId(request));
   });
   app.get('/api/skills', async (request) => envelope({ skills: discoverSkills() }, requestId(request)));
   app.get('/api/insights', async (request) => envelope(engine.insights.summary(), requestId(request)));
