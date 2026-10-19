@@ -17,7 +17,7 @@ await build({
   format: 'esm',
   sourcemap: true,
   packages: 'bundle',
-  external: ['fastify', 'mysql2', 'electron', 'pino', 'pino-pretty'],
+  external: ['fastify', 'mysql2', 'electron', 'pino', 'pino-pretty', 'pptxgenjs'],
   logLevel: 'info',
 });
 console.log(`[build-server] wrote ${out}`);

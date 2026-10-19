@@ -46,6 +46,34 @@ export class PptService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.list().works };
   }
 
+  async exportPptx(id: string): Promise<Buffer> {
+    const work = this.#store.pptWorks.get(id);
+    if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    const slides = work.slides.length > 0
+      ? work.slides
+      : work.outline.map((title) => ({ title, bullets: [] as string[] }));
+    if (slides.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '先生成或编辑大纲');
+    const module = await import('pptxgenjs');
+    const PptxGen = (module.default ?? module) as unknown as new () => {
+      layout: string;
+      addSlide: () => { addText: (text: unknown, options?: Record<string, unknown>) => void };
+      write: (options: { outputType: string }) => Promise<Buffer>;
+    };
+    const pptx = new PptxGen();
+    pptx.layout = 'LAYOUT_WIDE';
+    const titleSlide = pptx.addSlide();
+    titleSlide.addText(work.title, { x: 0.6, y: 2.2, w: 12, h: 1.2, fontSize: 32, bold: true });
+    titleSlide.addText(work.topic, { x: 0.6, y: 3.4, w: 12, h: 1, fontSize: 16 });
+    for (const slide of slides) {
+      const page = pptx.addSlide();
+      page.addText(slide.title, { x: 0.5, y: 0.35, w: 12.3, h: 0.8, fontSize: 24, bold: true });
+      if (slide.bullets.length > 0) {
+        page.addText(slide.bullets.map((bullet) => ({ text: bullet, options: { bullet: true } })), { x: 0.7, y: 1.4, w: 11.8, h: 5.2, fontSize: 16 });
+      }
+    }
+    return pptx.write({ outputType: 'nodebuffer' });
+  }
+
   exportMarkdown(id: string): { filename: string; content: string } {
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');

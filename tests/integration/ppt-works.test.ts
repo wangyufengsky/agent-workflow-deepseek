@@ -42,6 +42,13 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     assert.match(exported.json().data.content as string, /## 1\. 开场/);
     assert.equal((await app.app.inject({ method: 'GET', url: '/api/ppt/works/ppt_unknown/export' })).statusCode, 404);
 
+    const pptx = await app.app.inject({ method: 'GET', url: `/api/ppt/works/${id}/pptx` });
+    assert.equal(pptx.statusCode, 200, pptx.body);
+    assert.match(String(pptx.headers['content-type']), /presentationml/);
+    assert.ok(pptx.rawPayload.length > 1_000);
+    assert.equal(pptx.rawPayload.subarray(0, 2).toString('utf8'), 'PK');
+    assert.equal((await app.app.inject({ method: 'GET', url: '/api/ppt/works/ppt_unknown/pptx' })).statusCode, 404);
+
     const generate = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/generate`, payload: { requestKey: requestKey('gen'), confirmGenerate: true } });
     assert.equal(generate.statusCode, 503, generate.body);
     const generateSlides = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/generate-slides`, payload: { requestKey: requestKey('slides'), confirmGenerate: true } });

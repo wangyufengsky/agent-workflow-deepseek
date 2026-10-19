@@ -523,6 +523,13 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = request.body as PptWorkCreateRequest;
     return envelope(engine.ppt.create(body), requestId(request));
   });
+  app.get<{ Params: { id: string } }>('/api/ppt/works/:id/pptx', async (request, reply) => {
+    const buffer = await engine.ppt.exportPptx(request.params.id);
+    return reply
+      .header('content-type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+      .header('content-disposition', `attachment; filename="${encodeURIComponent(request.params.id)}.pptx"`)
+      .send(buffer);
+  });
   app.get<{ Params: { id: string } }>('/api/ppt/works/:id/export', async (request) => envelope(engine.ppt.exportMarkdown(request.params.id), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/ppt/works/:id/generate-slides', async (request) => {
     const body = request.body as PptWorkGenerateContentRequest;
