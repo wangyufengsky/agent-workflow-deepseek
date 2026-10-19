@@ -51,6 +51,12 @@ test('role catalog: draft, publish and archive; effective role revision reaches 
     assert.equal(entries[0]!.revision, 'r3');
     assert.equal(entries[0]!.name, '代码审查员（定制）');
     assert.equal((await app.app.inject({ method: 'GET', url: '/api/catalog/roles/role.missing/history' })).statusCode, 404);
+    const restore = await app.app.inject({ method: 'POST', url: '/api/catalog/roles/role.reviewer/restore/r3', payload: { requestKey: requestKey('rest'), confirmRestore: true } });
+    assert.equal(restore.statusCode, 200, restore.body);
+    const restored = (restore.json().data.resource.roles as { id: string; hasDraft: boolean; name: string }[]).find((role) => role.id === 'role.reviewer')!;
+    assert.equal(restored.hasDraft, true);
+    assert.equal(restored.name, '代码审查员（定制）');
+    assert.equal((await app.app.inject({ method: 'POST', url: '/api/catalog/roles/role.reviewer/restore/r999', payload: { requestKey: requestKey('rest2'), confirmRestore: true } })).statusCode, 404);
     assert.equal(app.engine.catalog.roles.find((role) => role.id === 'role.reviewer')?.name, '代码审查员（定制）');
     assert.notEqual(app.engine.catalog.roles.find((role) => role.id === 'role.reviewer')?.revision, originalRevision);
 

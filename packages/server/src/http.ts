@@ -17,6 +17,7 @@ import type {
   PptWorkGenerateContentRequest,
   PptAttachmentRequest,
   TaskAcceptanceRequest,
+  RoleRestoreRequest,
   PptWorkUpdateRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
@@ -630,6 +631,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));
+  app.post<{ Params: { id: string; revision: string } }>('/api/catalog/roles/:id/restore/:revision', async (request) => {
+    const body = request.body as RoleRestoreRequest;
+    return envelope(engine.roleCatalog.restore(request.params.id, request.params.revision, body), requestId(request));
+  });
   app.get<{ Params: { id: string } }>('/api/catalog/roles/:id/history', async (request) => envelope(engine.roleCatalog.history(request.params.id), requestId(request)));
   app.post('/api/catalog/roles', async (request) => {
     const body = request.body as RoleSaveRequest;

@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ROUTES, type RoleCatalogEntry, type RoleDefinition, type RoleHistoryResponse } from '@agent-workflow/shared';
-import { apiGet, errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { ROUTES, createRequestKey, type RoleCatalogEntry, type RoleDefinition, type RoleHistoryResponse } from '@agent-workflow/shared';
+import { apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
 import { archiveRole, fetchRoleCatalog, publishRole, saveRoleDraft } from '../../api/catalog-editor.ts';
 import { Modal } from '../../components/Modal.tsx';
 import { useBootstrap } from '../../api/hooks.ts';
@@ -369,6 +369,25 @@ export function RolesPage() {
                   <span className="hint">{new Date(entry.publishedAt).toLocaleString('zh-CN')}</span>
                   <span className="spacer" />
                   <span className="hint">{entry.name}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="refresh"
+                    onClick={() => {
+                      if (editor?.roleId === undefined || history === null) return;
+                      void (async () => {
+                        try {
+                          await apiPost(ROUTES.catalogRoleRestore(editor.roleId!, entry.revision), { requestKey: createRequestKey(), confirmRestore: true });
+                          await queryClient.invalidateQueries({ queryKey: ['catalog', 'roles'] });
+                          setHistory(null);
+                        } catch (error) {
+                          setHistoryError(errorMessage(error));
+                        }
+                      })();
+                    }}
+                  >
+                    恢复为草稿
+                  </Button>
                 </div>
                 <p className="hint" style={{ marginTop: 6 }}>{entry.purpose}</p>
                 <div className="hint" style={{ marginTop: 4 }}>{entry.responsibilities.map((item, index) => <div key={`${entry.revision}-${String(index)}`}>· {item}</div>)}</div>

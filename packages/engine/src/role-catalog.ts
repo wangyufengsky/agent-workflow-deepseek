@@ -231,6 +231,47 @@ export class RoleCatalogService {
     return { roleId: id, history };
   }
 
+  restore(roleId: string, revision: string, input: { requestKey: string; confirmRestore: true }): CommandResponse<RoleCatalogResponse> {
+    if (input?.confirmRestore !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '恢复历史版本需要显式确认');
+    const id = normalizeId(roleId);
+    const history = this.#store.settings.getJson<readonly { revision: string; name: string; purpose: string; responsibilities: readonly string[]; publishedAt: string }[]>(`catalog.role.history.${id}`) ?? [];
+    const snapshot = history.find((item) => item.revision === revision);
+    if (snapshot === undefined) throw new AppError(ErrorCode.NOT_FOUND, '历史版本不存在');
+    const builtin = BUILT_IN_ROLES.find((role) => role.id === id);
+    const records = [...this.#records()];
+    const index = records.findIndex((record) => record.id === id);
+    if (builtin === undefined && index < 0) throw new AppError(ErrorCode.NOT_FOUND, '职业不存在', { details: { roleId: id } });
+    const { replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'catalog.role.restore',
+      body: { roleId: id, revision },
+      target: { ref: id },
+    });
+    if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    const now = nowIso();
+    const draft = { name: snapshot.name, purpose: snapshot.purpose, responsibilities: snapshot.responsibilities, updatedAt: now };
+    if (index >= 0) {
+      records[index] = { ...records[index]!, draft, updatedAt: now };
+    } else {
+      records.push({
+        id,
+        ...(builtin === undefined ? {} : { baseId: id }),
+        name: builtin!.name,
+        purpose: builtin!.purpose,
+        responsibilities: builtin!.responsibilities,
+        revision: builtin!.revision,
+        status: 'published',
+        draft,
+        updatedAt: now,
+      });
+    }
+    this.#saveRecords(records);
+    this.applyEffective();
+    this.#commands.settle(input.requestKey, { roleId: id, revision, restoredAsDraft: true });
+    this.#publish('role.draft.saved', id);
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.list() };
+  }
+
   archive(roleId: string, input: RoleArchiveRequest): CommandResponse<RoleCatalogResponse> {
     if (input?.confirmArchive !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '归档职业需要显式确认');
     const id = normalizeId(roleId);

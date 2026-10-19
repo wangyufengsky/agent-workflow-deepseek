@@ -431,6 +431,10 @@ export interface RoleRevisionSnapshot {
   readonly publishedAt: IsoDateTime;
 }
 
+export interface RoleRestoreRequest extends CommandRequest {
+  readonly confirmRestore: true;
+}
+
 export interface RoleHistoryResponse {
   readonly roleId: string;
   readonly history: readonly RoleRevisionSnapshot[];
@@ -1088,6 +1092,7 @@ export const ROUTES = {
   catalogTemplateImport: '/api/catalog/templates/import',
   catalogTemplateUpdate: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
   catalogTemplateArchive: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
+  catalogRoleRestore: (id: string, revision: string) => `/api/catalog/roles/${encodeURIComponent(id)}/restore/${encodeURIComponent(revision)}`,
   catalogRoleHistory: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/history`,
   catalogRoleArchive: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/archive`,
   fixMerge: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/merge`,
