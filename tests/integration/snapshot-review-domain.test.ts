@@ -4,6 +4,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createServer } from 'vite';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createRequestKey, type CodeReviewSnapshot, type PlanRevision } from '@agent-workflow/shared';
 import { createApplication } from '../../packages/server/src/index.ts';
 import { createSessionScope } from '../../packages/server/src/session-scope.ts';
@@ -93,4 +96,35 @@ test('source reads use frozen Git blobs and evidence requires exact assigned fil
     assert.equal(snapshotExpectedUnitIds(snapshot, verify, snapshotEvidenceState(app.store, taskId)).length, 0, 'clean lightweight units do not create an independent model dispatch');
     scope.revoke();
   } finally { await app.close(); }
+});
+
+
+// Explicit offline dispatch fault: no synthetic successful model output or source evidence.
+test('offline dispatch failure preserves an honest readable snapshot report with pending source units', async () => {
+  const repo = repository(); const dataDir = mkdtempSync(join(tmpdir(), 'aw-snapshot-failure-'));
+  const app = await createApplication({ dataDir, host: '127.0.0.1', port: 0 });
+  let web: Awaited<ReturnType<typeof createServer>> | undefined;
+  try {
+    assert.ok(app.adapter); let dispatches = 0;
+    app.adapter.status = () => ({ state: 'ready' }) as never;
+    app.adapter.ensureReady = async () => {};
+    app.adapter.runSession = async () => { dispatches++; throw new Error('Explicit offline dispatch fault before session creation'); };
+    const post = async (url: string, payload: object) => { const response = await app.app.inject({ method: 'POST', url, payload: { requestKey: createRequestKey(), ...payload } }); assert.ok(response.statusCode < 300, response.body); return response.json().data.resource; };
+    const project = (await post('/api/projects', { name: '离线失败控制流夹具', rootPath: repo.root })).project;
+    const task = (await post('/api/tasks', { projectId: project.id, title: '快照执行失败后读取（离线端口夹具）', requirementText: 'Test only: explicit offline dispatch failure, not a model result.', methodId: 'method.requirement-development', template: { templateId: 'template.snapshot-code-review', parameters: { mode: 'full', depth: 'full', scopePaths: 'src' } } })).task;
+    const plan = (await post(`/api/tasks/${task.id}/plan/from-template`, { confirmUseTemplate: true })).plan;
+    await post(`/api/tasks/${task.id}/plan/confirm`, { planRevisionId: plan.id, confirmPlan: true });
+    await post(`/api/tasks/${task.id}/workspace/prepare`, { expectedPlanRevisionNumber: plan.revisionNumber, expectedBaseRef: 'main', confirmPrepare: true });
+    await post(`/api/tasks/${task.id}/execution/start`, { confirm: true });
+    for (let index = 0; index < 100; index++) { const execution = app.store.executions.get(app.store.tasks.get(task.id)!.executionId!)!; if (execution.nodes.some(node => node.status === 'failed')) break; await new Promise(resolve => setTimeout(resolve, 10)); }
+    const execution = app.store.executions.get(app.store.tasks.get(task.id)!.executionId!)!; assert.ok(execution.nodes.some(node => node.status === 'failed')); assert.equal(dispatches, 1);
+    const before = JSON.stringify(execution);
+    const report = (await app.app.inject({ method: 'GET', url: `/api/tasks/${task.id}/snapshot-review/report` })).json().data;
+    assert.equal(report.analyzedUnits, 0); assert.equal(report.pendingUnits, 2); assert.match(report.contentMarkdown, /未分析/);
+    const download = await app.app.inject({ method: 'GET', url: `/api/tasks/${task.id}/snapshot-review/report/${report.reportId}/download` }); assert.equal(download.statusCode, 200); assert.equal(download.json().data.markdown, report.contentMarkdown); assert.equal(JSON.stringify(app.store.executions.get(execution.id)), before); assert.equal(dispatches, 1);
+    if (process.env.AGENT_WORKFLOW_SNAPSHOT_FAILURE_GUI === '1') {
+      web = await createServer({ configFile: resolve('apps/web/vite.config.ts'), root: resolve('apps/web'), server: { host: '127.0.0.1', port: 5302, strictPort: true, proxy: { '/api': { target: app.url } } } }); await web.listen(); console.log('[snapshot-offline-failure] GUI', JSON.stringify({ taskId: task.id, dataDir, url: `http://127.0.0.1:5302/tasks/${task.id}` }));
+      const deadline = Date.now() + 180_000; while (!existsSync(join(dataDir, 'gui-reviewed')) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 500)); assert.ok(existsSync(join(dataDir, 'gui-reviewed')));
+    }
+  } finally { await web?.close(); await app.close(); }
 });

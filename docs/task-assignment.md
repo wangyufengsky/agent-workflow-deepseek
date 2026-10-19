@@ -207,7 +207,7 @@ npm run build:server
 | P03 | R04/R05 | 幂等及全前端丢回执锁定/恢复 | Lead + design_acceptance_inventory | in_progress | 核心域/HTTP/项目/角色/模板原回执防重已整合，真实文件不覆写回归通过；完整断线GUI继续 |
 | P04 | R06 | 知识来源、实时研究、停止/继续、会话管理 | role_execution_parity + Lead | in_progress | 冻结代码/文档/数据库/网络来源与原会话恢复已整合；许可/模型UI已整合，真实知识问答/引用通过；全状态验收继续 |
 | P05 | R07 | 公约生成、项目 GitLab、文档路径生效 | Lead + role_execution_parity | in_progress | 公约实际快照与真实模型/GUI写入通过；技术栈/当前分支通过；项目证据来源契约继续 |
-| P06 | R08 | 快照评审模式、阶段报告、读取/下载 | role_execution_parity | in_progress | 两批已整合，真实Git/blob范围及离线调用回归通过；真实模型/专门阅读GUI待验收 |
+| P06 | R08 | 快照评审模式、阶段报告、读取/下载 | role_execution_parity | done | 专用真实模型 full分析2/复核2、light分析2/复核1；阶段报告、GUI正文/下载/loading/完整性失败恢复及离线执行失败仍可读通过；见 docs/verification/2026-10-20-snapshot-review-live.md |
 | P07 | R09 | 流程图编辑、并行/连线、模板/缩放/版本差异 | execution_parity | in_progress | 图编辑与执行计划重绑定已整合；真实GUI保存/历史/拖动及实际调度回归通过，完整状态待验收 |
 | P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | design_acceptance_inventory | in_progress | 真实助手候选/明确应用、原生PDF/PPTX保存/取消/文件核验已整合；三栏与三页签已修复；逐页真实制作与第二轮停止2/3、四主题保留已通过 |
 | P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | Lead | in_progress | 专门报告/批次与历史节点阅读已整合，撤权同步隐藏与报告下载鉴权回归通过；新合同逐文件证据、真实5步/3项JUnit/独立复核及Run GUI已通过；多文件/异常GUI继续 |
