@@ -79,7 +79,7 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
   const exportPptx = async (): Promise<void> => {
     setPptx({ phase: 'running' });
     try {
-      const response = await fetch(`${ROUTES.pptWork(work.id)}/pptx`, {
+      const response = await fetch(ROUTES.pptWorkPptx(work.id), {
         method: 'GET',
         headers: { Accept: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
         credentials: 'same-origin',

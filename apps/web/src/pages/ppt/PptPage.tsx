@@ -43,7 +43,7 @@ async function executePptCommand(command: PptCommand, requestKey: string): Promi
     case 'copy':
     case 'archive':
     case 'restore': {
-      return (await apiPost<CommandResponse<PptWork>>(`${ROUTES.pptWork(command.workId)}/${command.kind}`, command.body)).data.receipt;
+      return (await apiPost<CommandResponse<PptWork>>(({ archive: ROUTES.pptWorkArchive, copy: ROUTES.pptWorkCopy, restore: ROUTES.pptWorkRestore })[command.kind](command.workId), command.body)).data.receipt;
     }
     case 'create': {
       const response = await apiPost<CommandResponse<readonly PptWork[]>>(ROUTES.pptWorks, command.body, { timeoutMs: 20_000 });

@@ -344,7 +344,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
           {reader.kind === 'tool' ? (
             <ToolDetailView fragment={reader.fragment} attemptLabel={reader.attemptLabel} />
           ) : reader.kind === 'artifact' ? (
-            <ArtifactDetailView artifact={reader.artifact} attemptLabel={reader.attemptLabel} />
+            <ArtifactDetailView taskId={taskId} artifact={reader.artifact} attemptLabel={reader.attemptLabel} />
           ) : (
             <CitationSourceView link={reader.link} />
           )}

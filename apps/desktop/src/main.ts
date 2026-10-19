@@ -1,3 +1,6 @@
+import { exportArtifact } from './artifact-export.ts';
+import { writeFile } from 'node:fs/promises';
+import type { ArtifactExportRequest } from '@agent-workflow/shared';
 import electron from 'electron';
 import type { BrowserWindow as ElectronBrowserWindow } from 'electron';
 
@@ -10,6 +13,7 @@ const repoRoot = resolve(import.meta.dirname, '..', '..');
 const dataDir = process.env.AGENT_WORKFLOW_DATA_DIR ?? join(app.getPath('userData'), 'data');
 const devUrl = process.env.AGENT_WORKFLOW_DEV_URL;
 const preferredPort = Number(process.env.AGENT_WORKFLOW_PORT ?? 5288);
+let trustedBaseUrl: string | undefined;
 let serverProcess: ChildProcess | undefined;
 let mainWindow: ElectronBrowserWindow | undefined;
 
@@ -52,6 +56,7 @@ async function startServer(): Promise<string> {
 
 async function createWindow(): Promise<void> {
   const url = devUrl ?? (await startServer());
+  trustedBaseUrl = url;
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -88,6 +93,19 @@ async function createWindow(): Promise<void> {
     mainWindow = undefined;
   });
 }
+
+ipcMain.handle('workflow:exportArtifact', async (event, input: ArtifactExportRequest) => {
+  if (!mainWindow || !trustedBaseUrl || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || new URL(event.senderFrame.url).origin !== new URL(trustedBaseUrl).origin) return { status: 'unsupported' };
+  return exportArtifact(input, {
+    baseUrl: trustedBaseUrl,
+    fetch,
+    choosePath: async (filename) => {
+      const result = await dialog.showSaveDialog(mainWindow!, { defaultPath: filename, title: '保存产物' });
+      return result.canceled ? undefined : result.filePath;
+    },
+    write: (path, bytes) => writeFile(path, bytes),
+  });
+});
 
 ipcMain.handle('workflow:openExternal', async (_event, url: unknown) => {
   if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return false;

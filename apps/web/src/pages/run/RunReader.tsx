@@ -1,3 +1,4 @@
+import { ArtifactDetailView } from '../node/ArtifactDetailView.tsx';
 import { useQuery } from '@tanstack/react-query';
 import {
   NODE_STATUS_LABEL,
@@ -251,12 +252,13 @@ function NodePane({ taskId, plan, execution, nodeId }: {
                   </div>
                 ))}
               </div>
-              {detail.attempts.length > 5 ? <p className="hint">只展示最近 5 次尝试；服务没有运行内容专用读取接口。</p> : null}
+              {detail.attempts.length > 5 ? <p className="hint">这里只展示最近5次尝试，完整尝试列表可在节点详情中查看。</p> : null}
             </div>
           ) : (
             <p className="hint">该节点还没有执行尝试。</p>
           )}
 
+          <div><h3>文件产物</h3>{detail.attempts.some((attempt) => (attempt.result?.artifacts.length ?? 0) > 0) ? detail.attempts.map((attempt) => attempt.result?.artifacts.map((artifact) => <details key={artifact.id}><summary>{artifact.name} · 第{attempt.ordinal}次尝试</summary><ArtifactDetailView taskId={taskId} artifact={artifact} attemptLabel={`第${attempt.ordinal}次尝试`} /></details>)) : <p className="hint">尚未提交文件产物。</p>}</div>
           <div>
             <div className="row" style={{ gap: 8, marginBottom: 8 }}>
               <span className="eyebrow">输出片段</span>

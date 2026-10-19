@@ -1,8 +1,10 @@
+import type { ArtifactExportRequest, ArtifactExportResult } from '@agent-workflow/shared';
 import electron from 'electron';
 
 const { contextBridge, ipcRenderer } = electron;
 
 const desktopApi = {
+  exportArtifact: (input: ArtifactExportRequest): Promise<ArtifactExportResult> => ipcRenderer.invoke('workflow:exportArtifact', input),
   platform: process.platform,
   versions: {
     electron: process.versions.electron,

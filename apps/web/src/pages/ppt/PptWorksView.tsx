@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createRequestKey, type PptWork, type ProjectSummary } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, type PptWork, type ProjectSummary } from '@agent-workflow/shared';
 import { formatRelativeTime } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
@@ -46,7 +46,7 @@ function StageBar({ progress }: { readonly progress: PptProgress }) {
 }
 
 function WorkCover({ work, small }: { readonly work: PptWork; readonly progress: PptProgress; readonly small?: boolean }) {
-  return <span className="ppt-cover" data-small={small}><img style={{ width: '100%', height: '100%', objectFit: 'contain' }} src={`/api/ppt/works/${work.id}/thumbnail?revision=${work.revision ?? 1}`} alt={`${work.title} 当前封面渲染`} /></span>;
+  return <span className="ppt-cover" data-small={small}><img style={{ width: '100%', height: '100%', objectFit: 'contain' }} src={`${ROUTES.pptWorkThumbnail(work.id)}?revision=${work.revision ?? 1}`} alt={`${work.title} 当前封面渲染`} /></span>;
 }
 
 function WorkActions({ work, onCommand }: { readonly work: PptWork; readonly onCommand: (command: PptCommand) => void }) {

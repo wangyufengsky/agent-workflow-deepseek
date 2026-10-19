@@ -83,6 +83,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
       summary?: string;
       payload?: Record<string, unknown>;
       verification?: AttemptResult['verification'];
+      artifacts?: readonly import('@agent-workflow/shared').ArtifactSubmission[];
     };
     if (body.taskId === undefined || body.nodeId === undefined || body.attemptId === undefined || body.summary === undefined) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / nodeId / attemptId / summary');
@@ -94,6 +95,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
       summary: body.summary,
       payload: body.payload,
       verification: body.verification,
+      artifacts: body.artifacts,
     });
   }));
 

@@ -96,6 +96,11 @@ export function validateResultSubmitArgs(args: Record<string, unknown>): ResultS
     }
   }
 
+  const artifacts = args.artifacts as ResultSubmitInput['artifacts'];
+  if (artifacts !== undefined && (!Array.isArray(artifacts) || artifacts.length > 32 || artifacts.some((item) => !item || typeof item !== 'object' || typeof item.path !== 'string' || !item.path.trim()))) {
+    problems.push({ code: 'INVALID_ARTIFACTS', message: 'artifacts最多32个，每项必须包含相对文件path', path: 'artifacts' });
+  }
+
   let verification: VerificationInput | undefined;
   if (args.verification !== undefined) {
     if (typeof args.verification !== 'object' || args.verification === null || Array.isArray(args.verification)) {
@@ -140,6 +145,7 @@ export function validateResultSubmitArgs(args: Record<string, unknown>): ResultS
       attemptId,
       summary,
       ...(payload === undefined ? {} : { payload }),
+      ...(artifacts === undefined ? {} : { artifacts }),
       ...(verification === undefined ? {} : { verification }),
     },
   };
@@ -229,6 +235,7 @@ export function createWorkflowTools(deps: WorkflowToolDeps): readonly ToolDefini
           attemptId: stringSchema('节点执行尝试 id', { minLength: 1 }),
           summary: stringSchema('执行摘要', { minLength: 1 }),
           payload: looseObjectSchema,
+          artifacts: arraySchema('已完成的文件产物', objectSchema({ path: stringSchema('工作区内已完成文件的相对路径', { minLength: 1 }) }, ['path'])),
           verification: objectSchema(
             {
               state: stringSchema('验证状态', { enum: ['passed', 'failed', 'not_configured'] }),

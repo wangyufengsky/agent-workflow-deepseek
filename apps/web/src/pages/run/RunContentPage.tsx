@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import {
+  ROUTES,
+  type RunContentModel,
   EXECUTION_STATUS_LABEL,
   NODE_STATUS_LABEL,
   PLAN_REVISION_STATUS_LABEL,
@@ -9,7 +11,7 @@ import {
   WORKSPACE_STATE_LABEL,
   type NodeStatusValue,
 } from '@agent-workflow/shared';
-import { errorMessage, isApiClientError } from '../../api/client.ts';
+import { apiGet, errorMessage, isApiClientError } from '../../api/client.ts';
 import { fetchTaskChanges } from '../../api/git.ts';
 import { useTaskDetail } from '../../api/workflow.ts';
 import { formatAbsoluteTime, formatRelativeTime } from '../../app/format.ts';
@@ -23,7 +25,6 @@ import { RunReader } from './RunReader.tsx';
 import {
   CHANGE_STATUS_LABEL,
   NODE_KIND_LABEL,
-  isDocumentKind,
   isTestPath,
   selectionKey,
   type RunNavItem,
@@ -31,11 +32,6 @@ import {
   type RunSelection,
 } from './run-shared.tsx';
 import './run.css';
-
-function statusOf(nodeId: string, executionStatus: readonly { readonly nodeId: string; readonly status: NodeStatusValue }[]): NodeStatusValue {
-  const state = executionStatus.find((item) => item.nodeId === nodeId);
-  return state === undefined ? 'pending' : state.status;
-}
 
 export function RunContentPage() {
   const { taskId = '' } = useParams<{ taskId: string }>();
@@ -46,6 +42,8 @@ export function RunContentPage() {
     enabled: taskId !== '' && taskDetail.data !== undefined,
     retry: false,
   });
+  const contentQuery = useQuery({ queryKey: ['run', 'content', taskId], queryFn: async () => (await apiGet<RunContentModel>(ROUTES.taskRunContent(taskId))).data, enabled: taskId !== '', retry: false });
+  const content = contentQuery.error || contentQuery.isFetching ? undefined : contentQuery.data;
   const [selection, setSelection] = useState<RunSelection | null>(null);
 
   useEffect(() => {
@@ -56,7 +54,6 @@ export function RunContentPage() {
   const task = data?.task;
   const plan = data?.plan;
   const execution = data?.execution;
-  const nodeStatuses = execution?.nodes ?? [];
   const changes = changesQuery.data;
   const nodes = plan?.graph.nodes ?? [];
   const coverage = plan?.validation?.requirementCoverage ?? [];
@@ -83,20 +80,23 @@ export function RunContentPage() {
           selection: { kind: 'coverage' as const, requirementId: entry.id },
         }));
 
-  const docNodes = nodes.filter((node) => isDocumentKind(node.kind));
-  const implNodes = nodes.filter((node) => node.kind === 'implementation');
-  const testNodes = nodes.filter((node) => node.kind === 'test');
+  const contentNodes = content?.groups.flatMap((group) => group.nodes) ?? [];
+  const categoryNodes = (category: string) => contentNodes.filter((node) => node.category === category).map((node) => ({ id: node.nodeId }));
+  const docNodes = [...categoryNodes('documents'), ...categoryNodes('other')];
+  const implNodes = categoryNodes('source');
+  const testNodes = categoryNodes('tests');
   const sourceFiles = files.filter((file) => !isTestPath(file.path));
   const testFiles = files.filter((file) => isTestPath(file.path));
 
   const nodeItem = (nodeId: string): RunNavItem | null => {
     const node = nodes.find((candidate) => candidate.id === nodeId);
     if (node === undefined) return null;
-    const status = statusOf(nodeId, nodeStatuses);
+    const current = contentNodes.find((item) => item.nodeId === nodeId);
+    const status = (current?.status ?? 'pending') as NodeStatusValue;
     return {
       key: `node:${nodeId}`,
       label: node.title,
-      meta: `${NODE_KIND_LABEL[node.kind]} · ${NODE_STATUS_LABEL[status]}`,
+      meta: `${NODE_KIND_LABEL[node.kind]} · ${NODE_STATUS_LABEL[status]} · ${current?.latestAttempt?.artifactCount ?? 0} 个产物`,
       icon: node.kind === 'test' ? 'shield' : node.kind === 'implementation' ? 'terminal' : 'file',
       selection: { kind: 'node', nodeId },
     };
@@ -124,7 +124,7 @@ export function RunContentPage() {
     {
       key: 'doc',
       title: '文档',
-      hint: '非实现/测试步骤节点；服务没有文档产物读取接口，正文来自节点摘要与输出片段',
+      hint: '文档步骤与实际提交的产物',
       items: compact(docNodes.map((node) => nodeItem(node.id))),
     },
     {
@@ -150,6 +150,7 @@ export function RunContentPage() {
 
   const refresh = (): void => {
     void taskDetail.refetch();
+    void contentQuery.refetch();
     if (taskDetail.data !== undefined) void changesQuery.refetch();
   };
 
@@ -217,6 +218,7 @@ export function RunContentPage() {
             error={taskDetail.error}
             onRetry={() => {
               void taskDetail.refetch();
+    void contentQuery.refetch();
             }}
             title="运行内容读取失败"
           />
@@ -273,11 +275,11 @@ export function RunContentPage() {
         <div className="grow">
           <b>只读运行内容</b>
           <br />
-          服务没有运行内容专用接口（文档 / 源码运行读取、批次与段落绑定、报告与测试结果都没有契约）。
-          本页由任务详情、计划图、节点只读接口与变更 diff 组合展示；缺失部分会明确标注降级，不展示示例运行数据，也不提供任何写操作。
+          按本次运行的实际步骤、执行尝试和产物分类阅读。文件产物保存提交时的内容，变更文件显示当前工作区差异。
         </div>
       </div>
 
+      {contentQuery.isFetching ? <p role="status">正在读取运行内容…</p> : contentQuery.error ? <ServiceNotice error={contentQuery.error} onRetry={() => { void contentQuery.refetch(); }} /> : !content?.available ? <p>{content?.note ?? '运行内容尚未产生'}</p> : null}
       <div className="run-summary">
         <span>
           <Icon name="folder" size="sm" />

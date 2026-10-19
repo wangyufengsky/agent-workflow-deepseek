@@ -1,7 +1,7 @@
 import './tools-policy.css';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createRequestKey, type ToolPolicyResponse, type ToolPolicyUpdate } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, type ToolPolicyResponse, type ToolPolicyUpdate } from '@agent-workflow/shared';
 import { apiGet, request, errorMessage, ApiClientError } from '../../api/client.ts';
 import { useProjects } from '../../api/hooks.ts';
 import { MANAGED_MCP_TOOLS } from '../../api/catalog.ts';
@@ -20,12 +20,12 @@ export function ToolsPolicyView() {
   const [message, setMessage] = useState('');
   const [selectedSource, setSelectedSource] = useState('workflow');
   const [sourceToDisable, setSourceToDisable] = useState<string | null>(null);
-  const query = useQuery({ queryKey: ['tool-policy', projectId], queryFn: async () => (await apiGet<ToolPolicyResponse>(`/api/tools/policy${projectId === '' ? '' : `?projectId=${encodeURIComponent(projectId)}`}`)).data, retry: false });
+  const query = useQuery({ queryKey: ['tool-policy', projectId], queryFn: async () => (await apiGet<ToolPolicyResponse>(`${ROUTES.toolsPolicy}${projectId === '' ? '' : `?projectId=${encodeURIComponent(projectId)}`}`)).data, retry: false });
   const save = async (change: Omit<ToolPolicyUpdate, 'requestKey' | 'projectId'>) => {
     const body = { ...change, requestKey: createRequestKey(), ...(projectId === '' ? {} : { projectId }) };
     setPending(body); setUnknown(false); setMessage('正在保存工具策略…');
     try {
-      await request('/api/tools/policy', { method: 'PATCH', body });
+      await request(ROUTES.toolsPolicy, { method: 'PATCH', body });
       await client.invalidateQueries({ queryKey: ['tool-policy'] });
       setPending(null); setMessage('策略已保存；扩权供新会话使用，撤销立即拒绝后续调用。');
     } catch (error) {

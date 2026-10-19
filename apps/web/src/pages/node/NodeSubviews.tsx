@@ -34,18 +34,6 @@ function prettyJson(text: string): string {
   }
 }
 
-function formattedBytes(sizeBytes: number | undefined): string {
-  if (sizeBytes === undefined) return '服务未提供大小';
-  if (sizeBytes < 1024) return `${String(sizeBytes)} B`;
-  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`;
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function isPreviewableMediaType(mediaType: string): boolean {
-  const type = mediaType.toLowerCase();
-  return type.startsWith('text/') || type.includes('json') || type.includes('xml') || type.includes('yaml');
-}
-
 function DegradeNotice({ children }: { readonly children: string }) {
   return (
     <div className="notice">
@@ -64,7 +52,8 @@ const TOOL_STATUS_TONE = (status: string): 'run' | 'done' | 'fail' | 'idle' => {
 
 /** N13/N14: tool detail from the already-recorded activity fragment (no extra request). */
 export function ToolDetailView({ fragment, attemptLabel }: { readonly fragment: OutputFragment; readonly attemptLabel: string }) {
-  const text = fragment.text ?? '';
+  const evidence = fragment.toolEvidence;
+  const text = evidence?.output ?? evidence?.error ?? (evidence === undefined ? fragment.text ?? '' : '');
   const toolRef = fragment.toolCallRef;
   const status = toolRef?.status ?? '状态未知';
   const failed = status === 'failed';
@@ -89,9 +78,11 @@ export function ToolDetailView({ fragment, attemptLabel }: { readonly fragment: 
       <p className="hint">
         记录 #{String(fragment.seq)}
         {fragment.recordedAt === undefined ? ' · 时间未知（服务未提供）' : ` · 记录于 ${formatAbsoluteTime(fragment.recordedAt)}`}
-        {' '}· 开始 / 结束 / 时长未提供
+        {' '}· {evidence?.startedAt === undefined ? '开始时间未记录' : `开始于 ${formatAbsoluteTime(evidence.startedAt)}`}
+        {' '}· {evidence?.durationMs === undefined ? '时长未记录' : `${evidence.durationMs} ms`}
       </p>
 
+      {evidence ? <><h3>{evidence.name}</h3>{evidence.input === undefined ? <p className="hint">调用参数未记录。</p> : <details open><summary>调用参数</summary><pre className="node-reader-pre wrap">{prettyJson(evidence.input)}</pre></details>}{evidence.redacted ? <p><Icon name="shield" />敏感字段已隐藏。</p> : null}{evidence.truncated ? <p><Icon name="info" />内容超出保存上限，当前记录已截断。</p> : null}</> : null}
       <div className="row wrap" style={{ gap: 8 }}>
         <Button size="sm" variant="ghost" icon="doc" onClick={() => { setWrap(!wrap); }}>
           {wrap ? '关闭自动换行' : '自动换行'}
@@ -101,7 +92,7 @@ export function ToolDetailView({ fragment, attemptLabel }: { readonly fragment: 
       </div>
 
       {text.trim() === '' ? (
-        <p className="hint">工具返回空结果；服务没有记录正文。</p>
+        <p className="hint">{evidence?.output === '' ? '工具返回空结果。' : '这条工具记录尚未包含输出正文。'}</p>
       ) : (
         <>
           <pre className={`node-reader-pre${wrap ? ' wrap' : ''}`}>{visible.join('\n')}</pre>
@@ -120,75 +111,12 @@ export function ToolDetailView({ fragment, attemptLabel }: { readonly fragment: 
         </div>
       ) : null}
 
-      <DegradeNotice>
-        服务当前只返回工具调用引用（callId / 状态 / 来源）与已记录正文；完整参数、无权限 / 缺能力标记、服务端脱敏标记、截断元数据与增量读取接口均未提供。这里展示的都是已加载内容，不伪造 JSON 结构树、脱敏值或“继续读取服务端”。
-      </DegradeNotice>
+      {evidence === undefined ? <DegradeNotice>这条历史记录没有保存调用参数、输出和时间明细。</DegradeNotice> : null}
     </div>
   );
 }
 
-/** N15: artifact metadata reader. The service exposes metadata only; no body/download endpoint. */
-export function ArtifactDetailView({ artifact, attemptLabel }: { readonly artifact: ArtifactRef; readonly attemptLabel: string }) {
-  const previewable = isPreviewableMediaType(artifact.mediaType);
-  return (
-    <div className="node-subview">
-      <div className="row wrap" style={{ gap: 8 }}>
-        <span className="tile">
-          <Icon name="file" />
-        </span>
-        <div className="grow" style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 500 }}>{artifact.name}</div>
-          <div className="hint mono">{artifact.id} · 修订 {artifact.revision}</div>
-        </div>
-        <Badge outline>{artifact.mediaType}</Badge>
-      </div>
-
-      <dl className="kv-list">
-        <dt>媒体类型</dt>
-        <dd className="mono">{artifact.mediaType}</dd>
-        <dt>大小</dt>
-        <dd>{formattedBytes(artifact.sizeBytes)}</dd>
-        <dt>SHA-256</dt>
-        <dd className="mono-wrap" style={{ wordBreak: 'break-all' }}>{artifact.sha256}</dd>
-        <dt>来源尝试</dt>
-        <dd>{artifact.sourceAttemptId ?? '服务未提供'} · {attemptLabel}</dd>
-      </dl>
-
-      {previewable ? (
-        <div className="banner info" role="status">
-          <Icon name="info" />
-          <div className="grow">
-            这种格式（{artifact.mediaType}）本可阅读，但服务未提供产物正文读取接口；本页只显示真实元数据，不伪造内容。
-          </div>
-        </div>
-      ) : (
-        <div className="banner info" role="status">
-          <Icon name="info" />
-          <div className="grow">
-            这种格式（{artifact.mediaType} · {formattedBytes(artifact.sizeBytes)}）不能在这里预览；服务也未提供下载接口。
-          </div>
-        </div>
-      )}
-
-      <div className="row wrap" style={{ gap: 8 }}>
-        <Button
-          variant="secondary"
-          size="sm"
-          icon="download"
-          disabled
-          disabledReason="服务未提供产物正文读取与下载接口"
-        >
-          下载产物
-        </Button>
-        <span className="hint">不可用：NodeDetail 只返回产物元数据（id / 修订 / sha256 / 类型 / 大小 / 来源尝试）。</span>
-      </div>
-
-      <DegradeNotice>
-        降级说明：服务未提供产物正文读取、下载、版本失效与权限接口；这里不生成预览、不伪造下载，也不把元数据当成已读正文。
-      </DegradeNotice>
-    </div>
-  );
-}
+export { ArtifactDetailView } from './ArtifactDetailView.tsx';
 
 /** N16: requirement-source excerpt with the character range the service actually returns. */
 export function CitationSourceView({ link }: { readonly link: RequirementLink }) {

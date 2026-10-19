@@ -1,3 +1,4 @@
+import { toolEvidence } from './tool-evidence.ts';
 import { projectDocumentInstructions } from './project-documents.ts';
 import { canShareWorkspace, executionPolicy } from './execution-policy.ts';
 import type {
@@ -31,7 +32,8 @@ import {
   type ExecutionAcceptanceGate,
 } from './actions.ts';
 import type { CommandService } from './operations.ts';
-import { roleModel } from './role-runtime.ts';
+import { captureArtifacts, readArtifactBytes } from './artifacts.ts';
+import { roleFileAllowed, roleModel } from './role-runtime.ts';
 import type { OpenCodePort } from './ports.ts';
 
 interface StopContext {
@@ -61,6 +63,7 @@ export interface SubmitNodeResultInput {
   readonly summary: string;
   readonly payload?: Record<string, unknown>;
   readonly verification?: AttemptResult['verification'];
+  readonly artifacts?: readonly import('@agent-workflow/shared').ArtifactSubmission[];
 }
 
 export class ExecutionService {
@@ -658,19 +661,39 @@ export class ExecutionService {
     if (attempt.executionId !== (this.get(input.taskId)?.id ?? '')) throw new AppError(ErrorCode.STALE_TARGET, '尝试不属于当前执行');
     if (this.#stops.has(attempt.executionId)) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行停止中，不能提交迟到结果');
     if (attempt.status !== 'running') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '该尝试已结束，不能再提交结果');
+    if (attempt.nodeId !== input.nodeId) throw new AppError(ErrorCode.STALE_TARGET, '尝试不属于当前节点');
     const waiter = this.#resultWaiters.get(input.attemptId);
+    if (waiter === undefined) throw new AppError(ErrorCode.STALE_TARGET, '结果等待器不存在');
+    const task = this.#requireTask(input.taskId);
+    const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(task.id) : this.#store.workspaces.get(task.workspaceId);
+    const execution = this.get(task.id)!;
+    const role = this.#store.plans.get(execution.planRevisionId)?.graph.nodes.find((node) => node.id === input.nodeId)?.roleSnapshot;
+    if ((input.artifacts?.length ?? 0) > 0 && (!workspace?.displayRoot || !role)) throw new AppError(ErrorCode.WORKSPACE_NOT_READY, '产物工作区或职业权限不可用');
+    if (input.artifacts !== undefined && !Array.isArray(input.artifacts)) throw new AppError(ErrorCode.VALIDATION_FAILED, 'artifacts必须是数组');
+    const artifacts = input.artifacts === undefined || input.artifacts.length === 0 ? [] : captureArtifacts(this.#store.dataDir, workspace!.displayRoot!, attempt.id, input.artifacts, (path) => roleFileAllowed(role!, path, 'read'));
     const result: AttemptResult = {
       resultRevision: createId('res'),
       summary: input.summary,
       payload: input.payload,
-      artifacts: [],
+      artifacts,
       verification: input.verification,
       errors: [],
       warnings: [],
     };
     if (waiter === undefined) throw new AppError(ErrorCode.STALE_TARGET, '结果等待器不存在');
+    this.#resultWaiters.delete(input.attemptId);
     waiter.resolve(result);
     return { ok: true };
+  }
+
+  readArtifact(taskId: string, attemptId: string, artifactId: string, revision: string, sha256: string) {
+    this.#requireTask(taskId);
+    const attempt = this.#store.executions.getAttempt(attemptId);
+    if (!attempt || this.#store.executions.get(attempt.executionId)?.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '产物来源尝试不存在');
+    const artifact = attempt.result?.artifacts.find((item) => item.id === artifactId && item.sourceAttemptId === attemptId);
+    if (!artifact) throw new AppError(ErrorCode.NOT_FOUND, '产物不存在');
+    if (artifact.revision !== revision || artifact.sha256 !== sha256) throw new AppError(ErrorCode.STALE_TARGET, '产物版本已经失效，请重新读取');
+    return { artifact, bytes: readArtifactBytes(this.#store.dataDir, artifact) };
   }
 
   async #advance(executionId: string): Promise<void> {
@@ -917,7 +940,7 @@ export class ExecutionService {
     let textBuffer = '';
     let textBlock = '';
     let flushTimer: NodeJS.Timeout | undefined;
-    const appendFragment = (category: 'model_text' | 'tool_activity', text: string, blockId: string | undefined, extra: { callId?: string; status?: string; tool?: string } = {}) => {
+    const appendFragment = (category: 'model_text' | 'tool_activity', text: string, blockId: string | undefined, extra: { callId?: string; status?: string; tool?: string; evidence?: import('@agent-workflow/shared').ToolCallEvidence } = {}) => {
       if (!isCurrent() || stopped()) return;
       outputSeq += 1;
       const fragmentId = `${attempt.id}:${outputSeq}`;
@@ -937,7 +960,7 @@ export class ExecutionService {
           text,
           blockId,
           recordedAt: nowIso(),
-          ...(category === 'tool_activity' ? { toolCallRef: { callId: extra.callId ?? '', status: extra.status ?? '', source: 'opencode' as const } } : {}),
+          ...(category === 'tool_activity' ? { toolCallRef: { callId: extra.callId ?? '', status: extra.status ?? '', source: 'opencode' as const }, toolEvidence: extra.evidence } : {}),
         },
       });
       this.#store.events.publish('node.output.appended', {
@@ -998,7 +1021,7 @@ export class ExecutionService {
           },
           onTool: (part, status) => {
             flushText();
-            appendFragment('tool_activity', `${part.tool ?? '工具'} · ${status}`, undefined, { callId: part.callID ?? '', status, tool: part.tool });
+            appendFragment('tool_activity', `${part.tool ?? '工具'} · ${status}`, undefined, { callId: part.callID ?? '', status: status === 'success' ? 'completed' : status === 'called' || status === 'progress' ? 'running' : 'failed', tool: part.tool, evidence: toolEvidence(part) });
           },
           onPermission: (permission) => {
             if (!isCurrent() || stopped()) return 'reject';
@@ -1134,6 +1157,7 @@ ${projectDocumentInstructions(this.#store.projects.get(task.projectId)?.settings
 2. 不要执行 git commit/push/merge，不要联网，不要修改工作区外文件。
 3. 完成后必须调用 workflow.result.submit 提交结构化结果：
    { taskId: "${task.id}", nodeId: "${node.id}", attemptId: "${attemptId}", summary: "做了什么、结果如何", verification: { state: "passed" | "failed" | "not_configured", summary: "..." } }
+如有文件产物，提交 artifacts: [{ path: "工作区内相对文件路径" }]；只提交已写完且职业获准读取的文件，每个最多8 MiB、合计最多32个。
 4. 如果无法完成，也调用 workflow.result.submit，在 summary 中说明失败原因，verification.state 设为 "failed"。
 5. 不要声称未实际验证的测试结果。`;
   }

@@ -698,6 +698,10 @@ export interface AttemptResult {
   readonly warnings: readonly string[];
 }
 
+export interface ArtifactSubmission {
+  readonly path: string;
+}
+
 export interface ArtifactRef {
   readonly id: string;
   readonly revision: string;
@@ -721,7 +725,20 @@ export interface Attempt {
   readonly readability: { readonly output: string; readonly tools: string; readonly result: string };
 }
 
+export interface ToolCallEvidence {
+  readonly name: string;
+  readonly input?: string;
+  readonly output?: string;
+  readonly error?: string;
+  readonly startedAt?: string;
+  readonly endedAt?: string;
+  readonly durationMs?: number;
+  readonly redacted: boolean;
+  readonly truncated: boolean;
+}
+
 export interface OutputFragment {
+  readonly toolEvidence?: ToolCallEvidence;
   readonly fragmentId: string;
   readonly seq: number;
   readonly category: 'model_text' | 'public_reasoning_summary' | 'tool_activity' | 'service_event';

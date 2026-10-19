@@ -45,6 +45,7 @@ export interface VerificationInput {
 }
 
 export interface ResultSubmitInput {
+  readonly artifacts?: readonly import('@agent-workflow/shared').ArtifactSubmission[];
   readonly taskId: string;
   readonly nodeId: string;
   readonly attemptId: string;

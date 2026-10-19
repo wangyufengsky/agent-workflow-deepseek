@@ -728,6 +728,21 @@ export interface SnapshotReviewModel {
   readonly partialReport: SnapshotPartialReport;
 }
 
+export interface ArtifactExportRequest {
+  readonly taskId: string;
+  readonly attemptId: string;
+  readonly artifactId: string;
+  readonly revision: string;
+  readonly sha256: string;
+}
+export type ArtifactExportResult = { readonly status: 'saved' | 'cancelled' | 'unsupported' } | { readonly status: 'failed'; readonly message: string };
+
+export interface ArtifactContentResponse {
+  readonly artifact: import('../domain/models.ts').ArtifactRef;
+  readonly preview: string | null;
+  readonly truncated: boolean;
+}
+
 export type RunContentCategory = 'documents' | 'source' | 'tests' | 'other';
 
 export interface RunContentNode {
@@ -1814,7 +1829,13 @@ export const ROUTES = {
   tasks: '/api/tasks',
   task: (id: string) => `/api/tasks/${encodeURIComponent(id)}`,
   taskDetail: (id: string) => `/api/tasks/${encodeURIComponent(id)}/detail`,
+  toolsPolicy: '/api/tools/policy',
   pptWorks: '/api/ppt/works',
+  pptWorkArchive: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/archive`,
+  pptWorkCheck: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/check`,
+  pptWorkCopy: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/copy`,
+  pptWorkRestore: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/restore`,
+  pptWorkThumbnail: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/thumbnail`,
   pptWork: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
   pptWorkPptx: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/pptx`,
   pptWorkGenerateSlides: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate-slides`,
@@ -1828,6 +1849,7 @@ export const ROUTES = {
   taskPlanFreezes: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/freezes`,
   taskAudit: (id: string) => `/api/tasks/${encodeURIComponent(id)}/audit`,
   taskSnapshotReview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/snapshot-review`,
+  taskArtifact: (id: string, attemptId: string, artifactId: string) => `/api/tasks/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/artifacts/${encodeURIComponent(artifactId)}`,
   taskRunContent: (id: string) => `/api/tasks/${encodeURIComponent(id)}/run-content`,
   taskPlanFromTemplate: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/from-template`,
   taskRecovery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery`,
