@@ -1,7 +1,7 @@
 import type { OpenCodeMessage } from '@agent-workflow/opencode';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
@@ -39,16 +39,25 @@ function fixture() {
   return { store, root, model, engine, project };
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+async function dispatched(model: ControlledModel) {
+  const deadline = Date.now() + 3000;
+  while (model.requests.length === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(model.requests.length, 1, 'original generation must dispatch');
+}
 test('charter generation dispatches once read-only and saves a model draft without writing AGENTS.md', async () => {
   const { store, root, model, engine, project } = fixture();
   try {
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ scripts: { test: 'node --test actual-spec/*.test.mjs' } }));
     const input = { requestKey: key('generate'), confirmGenerate: true as const };
     const started = await engine.charters.generate(project.id, input);
     assert.equal(started.receipt.status, 'accepted');
     await engine.charters.generate(project.id, input);
-    await tick();
+    await dispatched(model);
     assert.equal(model.requests.length, 1);
     assert.equal(model.requests[0]?.permission, 'read_only');
+    assert.equal(model.requests[0]?.toolPolicy, 'none');
+    assert.match(model.requests[0]!.prompt, /actual-spec/);
+    assert.ok(store.settings.getJson(`charter.context.${input.requestKey}`));
     await assert.rejects(engine.charters.generate(project.id, { ...input, requestKey: key('other') }));
     await assert.rejects(engine.charters.update(project.id, { requestKey: key('racingedit'), content: '# override' }));
     model.finish('# 实际项目公约\n\n- 运行 npm test。'); await tick();
@@ -63,7 +72,7 @@ test('charter stop acknowledgement does not unlock generation until original pro
   const { store, model, engine, project } = fixture();
   try {
     await engine.charters.update(project.id, { requestKey: key('seed'), content: '# 保留的手工草稿' });
-    await engine.charters.generate(project.id, { requestKey: key('stopped'), confirmGenerate: true }); await tick();
+    await engine.charters.generate(project.id, { requestKey: key('stopped'), confirmGenerate: true }); await dispatched(model);
     const stop = await engine.charters.stop(project.id, { requestKey: key('stop'), confirmStop: true });
     assert.equal(stop.receipt.status, 'accepted');
     assert.equal(model.aborted, 1);
@@ -111,7 +120,7 @@ test('restart exposes persisted generation as unknown and blocks a new model dis
 test('abort failure is an unknown stop receipt and cannot reopen generation', async () => {
   const { store, model, engine, project } = fixture();
   try {
-    await engine.charters.generate(project.id, { requestKey: key('abort-generation'), confirmGenerate: true }); await tick();
+    await engine.charters.generate(project.id, { requestKey: key('abort-generation'), confirmGenerate: true }); await dispatched(model);
     model.abortFails = true;
     const stopped = await engine.charters.stop(project.id, { requestKey: key('abort-failed'), confirmStop: true });
     assert.equal(stopped.receipt.status, 'unknown');
@@ -127,7 +136,7 @@ test('charter timeout after abort failure remains unknown, restart reconciliatio
   const { store, model, engine, project } = fixture();
   try {
     await engine.charters.update(project.id, { requestKey: key('timeout-seed'), content: '# 保留草稿' });
-    await engine.charters.generate(project.id, { requestKey: key('timeout-generate'), confirmGenerate: true }); await tick();
+    await engine.charters.generate(project.id, { requestKey: key('timeout-generate'), confirmGenerate: true }); await dispatched(model);
     model.abortFails = true;
     await engine.charters.stop(project.id, { requestKey: key('timeout-stop'), confirmStop: true });
     model.complete?.({ sessionId: 'charter-session', outcome: { idle: false, timedOut: true, assistantText: '', messages: [] } }); await tick();
@@ -151,7 +160,7 @@ test('charter original-key completion recovery requires idle and completed origi
   const { store, model, engine, project } = fixture();
   try {
     const requestKey = key('recover-complete');
-    await engine.charters.generate(project.id, { requestKey, confirmGenerate: true }); await tick();
+    await engine.charters.generate(project.id, { requestKey, confirmGenerate: true }); await dispatched(model);
     const restarted = new CharterService(store, engine.commands, model, engine.context);
     const message: OpenCodeMessage = { info: { id: 'msg-charter', sessionID: 'charter-session', role: 'assistant', time: { created: Date.now(), completed: Date.now() } }, parts: [{ id: 'text-charter', type: 'text', text: '# 恢复的原会话公约' }] };
     model.messages = [message];

@@ -42,6 +42,19 @@ test('accepted PPT deletion prevents duplicate deletion but permits another oper
   await request('/api/ppt/works/w2', { method: 'PATCH', body: { requestKey: 'edit-key' } });
 });
 
+test('original lookup distinguishes an accepted request from an unknown result without redispatch', async () => {
+  let writes = 0;
+  globalThis.fetch = async () => { writes++; return envelope({ receipt: { status: 'accepted' } }); };
+  await request('/api/projects/p1/charter/generate', { method: 'POST', body: { requestKey: 'charter-original' } });
+  assert.equal(pendingCommands()[0]?.phase, 'accepted');
+  await assert.rejects(request('/api/projects/p1/charter/generate', { method: 'POST', body: { requestKey: 'new-generation' } }), /原请求已受理/);
+  globalThis.fetch = async () => envelope({ operation: { requestKey: 'charter-original', status: 'unknown' } });
+  await request('/api/operations/charter-original');
+  assert.equal(pendingCommands()[0]?.phase, undefined);
+  await assert.rejects(request('/api/projects/p1/charter/stop', { method: 'POST', body: { requestKey: 'new-stop' } }), /待核对/);
+  assert.equal(writes, 1);
+});
+
 test('valid envelope without receipt retains key; create project and task are tracked too', async () => {
   globalThis.fetch = async () => envelope({});
   await assert.rejects(request('/api/projects', { method: 'POST', body: { requestKey: 'missing-receipt' } }), /missing-receipt/);

@@ -1,5 +1,7 @@
 # 设计稿一致性审查报告（design parity）
 
+> **历史审查基线，保留原始发现。** 后续已修复内容与当前证据以 `docs/design-coverage.md`、`docs/review/design-parity-acceptance-2026-10-20.md` 和 `docs/task-assignment.md` 第9节为准。下文“缺失/无路由”不是当前实现状态。
+
 > 审查对象：`opencode-workflow-design-showcase/`（只读权威） vs `apps/web`（React 实现）。
 > 审查方式：读设计页 HTML/JS 的静态结构、状态列表与 `sources/` 验收文档，逐页对照实现的 TSX 结构与真实状态分支；不做逐像素对比。全程只读，未修改设计稿与产品代码。
 > 基线：`originals/main/index.html:85-152` 的 GROUPS（22 个正式产品页）+ `index.html:171` 的 BITEMS（B-01…B-15，补出 recovery / requirements / roles-legacy 三页），合计 25 个正式页；另核对 delivery / planning / git / node 补充稿。

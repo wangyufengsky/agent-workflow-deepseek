@@ -189,7 +189,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const tracked = scope !== undefined && key !== undefined && options.method !== undefined && options.method !== 'GET';
   if (tracked) {
     const pending = pendingCommands().find((v) => v.scope === scope && (v.phase !== 'accepted' || v.path === path));
-    if (pending !== undefined) throw new ApiClientError({ kind: 'protocol', message: `操作结果待核对，请核对原请求号 ${pending.requestKey}，不会重复提交。`, details: { requestKey: pending.requestKey } });
+    if (pending !== undefined) throw new ApiClientError({ kind: 'protocol', message: `${pending.phase === 'accepted' ? '原请求已受理，等待完成' : '操作结果待核对'}，请核对原请求号 ${pending.requestKey}，不会重复提交。`, details: { requestKey: pending.requestKey } });
     rememberCommand({ scope, path, requestKey: key });
   }
   try {
@@ -202,7 +202,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     }
     if ((options.method === undefined || options.method === 'GET') && path.startsWith('/api/operations/')) {
       const operation = data?.operation;
-      if (operation !== undefined && path === ROUTES.operationsByKey(operation.requestKey) && (operation.status === 'succeeded' || operation.status === 'failed')) settleCommand(operation.requestKey);
+      if (operation !== undefined && path === ROUTES.operationsByKey(operation.requestKey)) {
+        if (operation.status === 'succeeded' || operation.status === 'failed') settleCommand(operation.requestKey);
+        else if (operation.status === 'accepted' || operation.status === 'unknown') {
+          const pending = pendingCommands().find((item) => item.requestKey === operation.requestKey);
+          if (pending) rememberCommand({ ...pending, phase: operation.status === 'accepted' ? 'accepted' : undefined });
+        }
+      }
     }
     return response;
   } catch (error) {

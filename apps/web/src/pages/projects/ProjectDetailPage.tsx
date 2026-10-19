@@ -1003,7 +1003,7 @@ function CharterTab({
               size="sm"
               icon="sparkle"
               disabled={loading || charter === undefined || generateMutation.isPending || locked || dirty || !charter.capabilities.generate.allowed}
-              disabledReason={loading ? '正在读取项目公约…' : charter === undefined ? '服务没有返回项目公约。' : locked ? '结果待核对。' : dirty ? '请先保存或放弃未保存的公约修改。' : charter?.capabilities.generate.reason}
+              disabledReason={loading ? '正在读取项目公约…' : charter === undefined ? '服务没有返回项目公约。' : locked ? (receipt?.status === 'accepted' ? '原请求已受理，等待服务完成。' : '结果待核对。') : dirty ? '请先保存或放弃未保存的公约修改。' : charter?.capabilities.generate.reason}
               onClick={() => { setGenerateError(null); setReceipt(undefined); setReceiptKind(undefined); generateMutation.mutate(); }}
             >
               {generateMutation.isPending ? '生成中…' : '生成公约草稿'}

@@ -23,3 +23,16 @@
 ## 普通公约生成的原会话恢复
 
 原请求号核对现在可从已持久化 sessionId 读取实际会话状态及消息：仅 idle + 已完成 assistant 正文才生成草稿并结算原回执，不派新模型、不写 AGENTS.md。停止请求仍按原停止路径处理，旧请求号不能结算其他新轮次；核对后迟到旧正文不会覆盖用户后续编辑。公约/项目配置相关 11 项测试通过，包含服务对象重建、未停稳、正文未完成、恢复成功、迟到覆盖保护。
+
+
+## 实际项目上下文与真实模型验收（Lead，2026-10-20）
+
+复查发现旧生成提示只有项目说明与现有AGENTS.md；adapter的隔离工作目录和受控工具并未授予这个无taskId的会话读取项目的能力。因此撤回上文“只读检查项目”已获实证的含义。现在由服务先读取有界项目快照（三层/120条、16份白名单文档或构建清单、单份64KB/总128KB），保存相对路径/内容hash/限制说明，再以toolPolicy=none交给模型。隐藏目录、运行数据、依赖、符号链接不读取，不执行项目脚本；缺失内容明确未知。快照按原requestKey持久保存，恢复只读原会话，不扩大权限或重派。
+
+同时修正全局原操作条与公约禁用原因：正常accepted显示“已受理，等待完成”，UNKNOWN才显示待核对。原key读取返回unknown时同步持久phase，避免旧accepted继续开放其他操作。
+
+- 定向回归：context/config-consumers/command-receipts **16/16**；类型检查与Web构建通过。新测试覆盖实际清单进入提示、源码/隐藏凭据/依赖/链接不泄漏、超大/二进制未知、请求去重及accepted转unknown。
+- 真实模型：`AGENT_WORKFLOW_LIVE=1 AGENT_WORKFLOW_GUI_REVIEW=1 node --import tsx --test tests/integration/project-charter-live.test.ts` **1/1，exit0**（`/tmp/aw-charter-live-r2.log`）。IAB真实点击生成→生成中→审阅草稿→独立确认写入；项目`prj_0mvfmh822ozww7lgln3`，生成key `req_0mvfmhk7qpodrpvrnuq`，写入key `req_0mvfmijjbeff3al38bx`。
+- 模型准确记录Cedar Ledger、库存非负整数约定、`node --test spec/*.test.mjs`；明确未运行测试/未读取源码。package.json hash `a95492a49fff26ac5bb857e174e6ff5c68c60d23f13903f1103afb212b794819`，README hash `f03826c0dc5276480ab361251a2ab747d3fccca888439677e77f3e85bb1b9e68`。写入前AGENTS.md不存在，写入后与审阅草稿逐字相等。
+- 第一次实际生成/GUI写入成功，但测试错误地读取确认后已清除的draft，断言TypeError；该失败保留于`/tmp/aw-charter-live.log`，修正为比较观察过的草稿正文后新隔离项目重跑通过。不是业务成功被测试伪造。
+- 图：`docs/evidence/project-charter-live-2026-10-20/generating-accepted.png`、`draft-r2.png`、`written-r2.png`；无r2后缀的draft/confirm/written是首次流程证据。当前覆盖DeepSeek 1280×720与正常链，停止/重启/UNKNOWN由定向服务回归证明，不声称全部主题/全部异常GUI通过。
