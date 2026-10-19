@@ -51,6 +51,13 @@ export interface ExecutionNodePatch {
   readonly error?: { readonly code: string; readonly message: string } | null;
 }
 
+// Evaluate against the stored row in the same UPDATE: a late completion must
+// never grant back content access revoked while its session was running.
+const preserveRevokedReadability = `json_patch(json_patch(json_patch(?,
+  CASE WHEN json_extract(readability_json, '$.output') = 'forbidden' THEN '{"output":"forbidden"}' ELSE '{}' END),
+  CASE WHEN json_extract(readability_json, '$.tools') = 'forbidden' THEN '{"tools":"forbidden"}' ELSE '{}' END),
+  CASE WHEN json_extract(readability_json, '$.result') = 'forbidden' THEN '{"result":"forbidden"}' ELSE '{}' END)`;
+
 export class ExecutionRepository {
   readonly #db: SqliteDatabase;
 
@@ -258,7 +265,7 @@ export class ExecutionRepository {
 
   /** Persist a submission before the remote session ends, without claiming execution success. */
   saveSubmittedResult(id: string, result: AttemptResult): boolean {
-    const saved = this.#db.prepare("UPDATE attempts SET result_json = ?, readability_json = ? WHERE id = ? AND status = 'running' AND result_json IS NULL")
+    const saved = this.#db.prepare(`UPDATE attempts SET result_json = ?, readability_json = ${preserveRevokedReadability} WHERE id = ? AND status = 'running' AND result_json IS NULL`)
       .run(jsonStringify(result), jsonStringify({ output: 'ok', tools: 'ok', result: 'ok' }), id);
     return Number(saved.changes) === 1;
   }
@@ -267,7 +274,7 @@ export class ExecutionRepository {
     const endedAt = nowIso();
     result ??= this.getAttempt(id)?.result;
     this.#db
-      .prepare('UPDATE attempts SET status = ?, ended_at = ?, result_json = ?, readability_json = ?, usage_json = ? WHERE id = ?')
+      .prepare(`UPDATE attempts SET status = ?, ended_at = ?, result_json = ?, readability_json = ${preserveRevokedReadability}, usage_json = ? WHERE id = ?`)
       .run(
         status,
         endedAt,

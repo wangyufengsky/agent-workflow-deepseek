@@ -1,3 +1,4 @@
+import { boundAttempt } from './node-read.ts';
 import { templateScopePrompt } from './template-scope.ts';
 import { toolEvidence } from './tool-evidence.ts';
 import { projectDocumentInstructions } from './project-documents.ts';
@@ -841,9 +842,8 @@ export class ExecutionService {
 
   readTool(taskId: string, nodeId: string, attemptId: string, callId: string, part: 'input' | 'output' | 'error', cursor?: string): import('@agent-workflow/shared').ToolCallReadResponse {
     this.#requireTask(taskId);
-    const attempt = this.#store.executions.getAttempt(attemptId);
-    if (!attempt || attempt.nodeId !== nodeId || this.#store.executions.get(attempt.executionId)?.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '工具调用来源不存在');
-    if (attempt.readability.tools === 'forbidden') throw new AppError(ErrorCode.FORBIDDEN, '你没有查看此调用完整参数的权限');
+    const attempt = boundAttempt(this.#store, taskId, attemptId, nodeId);
+    if (attempt.readability.tools === 'forbidden' || attempt.readability.output === 'forbidden') throw new AppError(ErrorCode.FORBIDDEN, '你没有查看此调用完整参数的权限');
     const record = this.#store.executions.readToolRecord(attemptId, callId);
     if (!record) throw new AppError(ErrorCode.NOT_FOUND, '工具调用不存在');
     if (!record.evidence) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '这条历史记录没有保留工具完整参数');
@@ -863,8 +863,8 @@ export class ExecutionService {
 
   readArtifact(taskId: string, attemptId: string, artifactId: string, revision: string, sha256: string) {
     this.#requireTask(taskId);
-    const attempt = this.#store.executions.getAttempt(attemptId);
-    if (!attempt || this.#store.executions.get(attempt.executionId)?.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '产物来源尝试不存在');
+    const attempt = boundAttempt(this.#store, taskId, attemptId);
+    if (attempt.readability.result === 'forbidden') throw new AppError(ErrorCode.FORBIDDEN, '你没有查看这次尝试产物的权限');
     const artifact = attempt.result?.artifacts.find((item) => item.id === artifactId && item.sourceAttemptId === attemptId);
     if (!artifact) throw new AppError(ErrorCode.NOT_FOUND, '产物不存在');
     if (artifact.revision !== revision || artifact.sha256 !== sha256) throw new AppError(ErrorCode.STALE_TARGET, '产物版本已经失效，请重新读取');

@@ -1,3 +1,4 @@
+import { readableOutput } from '@agent-workflow/engine';
 import { registerRuntimeOperationRoutes } from './runtime-operations.ts';
 import { registerRoleInsightRoutes } from './role-insights.ts';
 import { DATABASE_TYPE_META } from '@agent-workflow/shared';
@@ -623,7 +624,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     engine.executions.kick(request.params.id);
     return envelope(result, requestId(request));
   });
-  app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/plan/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId), requestId(request)));
+  app.get<{ Params: { id: string; nodeId: string }; Querystring: { attemptId?: string } }>('/api/tasks/:id/plan/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId, request.query.attemptId), requestId(request)));
   app.get<{ Params: { id: string; revisionId: string } }>('/api/tasks/:id/plan/revisions/:revisionId', async (request) => {
     const plan = store.plans.get(request.params.revisionId);
     if (plan === undefined || plan.taskId !== request.params.id) throw new AppError(ErrorCode.NOT_FOUND, '计划修订不存在');
@@ -679,14 +680,19 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope({ artifact, preview: content === null ? null : content.slice(offset, end), truncated: content !== null && end < content.length, ...(content !== null && end < content.length ? { nextCursor: String(end) } : {}) }, requestId(request));
   });
 
-  app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId), requestId(request)));
+  app.get<{ Params: { id: string; nodeId: string }; Querystring: { attemptId?: string } }>('/api/tasks/:id/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId, request.query.attemptId), requestId(request)));
   app.post<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId/accept', async (request) =>
     envelope(engine.plans.acceptNode(request.params.id, request.params.nodeId, request.body as NodeAcceptRequest), requestId(request)));
   app.post<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId/reject', async (request) =>
     envelope(engine.plans.rejectNode(request.params.id, request.params.nodeId, request.body as NodeRejectRequest), requestId(request)));
   app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId/attempts', async (request) => {
+    const task = store.tasks.get(request.params.id);
+    if (task === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务不存在');
+    const plan = task.currentPlanRevisionId === undefined ? store.plans.latest(task.id) : store.plans.get(task.currentPlanRevisionId);
     const execution = engine.executions.get(request.params.id);
+    if (execution === undefined && !plan?.graph.nodes.some((node) => node.id === request.params.nodeId)) throw new AppError(ErrorCode.NOT_FOUND, '步骤不存在');
     if (execution === undefined) return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attempts: [] }, requestId(request));
+    if (!execution.nodes.some((node) => node.nodeId === request.params.nodeId)) throw new AppError(ErrorCode.NOT_FOUND, '步骤不存在');
     const attempts = store.executions.listAttempts(execution.id, request.params.nodeId).map((attempt) => ({
       attemptId: attempt.id,
       ordinal: attempt.ordinal,
@@ -694,7 +700,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       isCurrent: execution.nodes.find((node) => node.nodeId === request.params.nodeId)?.currentAttemptId === attempt.id,
       startedAt: attempt.startedAt,
       endedAt: attempt.endedAt,
-      reasonSummary: attempt.result?.summary,
+      reasonSummary: attempt.readability.result === 'forbidden' ? undefined : attempt.result?.summary,
     }));
     return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attempts }, requestId(request));
   });
@@ -708,7 +714,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const afterSeq = Number(request.query.afterSeq ?? 0);
     if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '片段游标不合法');
     const page = attemptId === undefined ? [] : store.executions.listOutput(attemptId, afterSeq, 501);
-    const fragments = page.slice(0, 500).map((fragment) => attempt?.readability.tools === 'forbidden' ? { ...fragment, toolEvidence: undefined } : fragment);
+    const fragments = attempt === undefined ? [] : readableOutput(attempt, page.slice(0, 500));
     const terminal = isTerminalOutputStatus(attempt?.status ?? node.status);
     return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attemptId, fragments, terminal, nextSeq: fragments.at(-1)?.seq ?? afterSeq, hasMore: page.length > 500 }, requestId(request));
   });

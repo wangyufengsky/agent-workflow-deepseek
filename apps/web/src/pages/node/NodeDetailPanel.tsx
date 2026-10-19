@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { toolFeed } from './tool-feed.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -112,6 +113,7 @@ export interface NodeDetailPanelProps {
  * Missing model text is stated as a runtime fact — never filled with fake prose.
  */
 export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan, execution, focusAcceptance = false, focusAcceptanceToken, onClose, onOpenPlan }: NodeDetailPanelProps) {
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<NodeTab>('session');
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | undefined>(undefined);
   const [actionSuccess, setActionSuccess] = useState<string | undefined>(undefined);
@@ -121,11 +123,10 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
   const [verdictError, setVerdictError] = useState<string | undefined>(undefined);
   const [reader, setReader] = useState<NodeReaderState | null>(null);
   const [wide, setWide] = useState(false);
-  const detailQuery = useNodeDetail(taskId, nodeId);
+  const detailQuery = useNodeDetail(taskId, nodeId, selectedAttemptId, pollInterval === false ? 2_000 : Math.min(pollInterval, 2_000));
   const attemptsQuery = useNodeAttempts(taskId, nodeId);
   const command = useWorkflowCommand(taskId);
   const selectedAttemptIdResolved = selectedAttemptId ?? detailQuery.data?.currentAttempt?.id;
-  const outputQuery = useNodeOutput(taskId, nodeId, selectedAttemptIdResolved, pollInterval);
 
   useEffect(() => {
     setTab(focusAcceptance ? 'overview' : 'session');
@@ -151,9 +152,9 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
     };
   }, [reader, verdict, wide]);
 
-  const detail = detailQuery.data as NodeDetailResponse | undefined;
+  const detail = detailQuery.error || (detailQuery.isFetching && !detailQuery.isFetchedAfterMount) || detailQuery.data?.taskId !== taskId || detailQuery.data?.nodeId !== nodeId ? undefined : detailQuery.data as NodeDetailResponse | undefined;
   const currentAttempt = detail?.currentAttempt;
-  const attempts =
+  const attemptRows =
     attemptsQuery.data?.attempts ??
     (detail?.attempts ?? []).map((attempt) => ({
       attemptId: attempt.id,
@@ -164,14 +165,26 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
       endedAt: attempt.endedAt,
       reasonSummary: attempt.result?.summary,
     }));
-  const isHistoricalAttempt = selectedAttemptIdResolved !== undefined && currentAttempt !== undefined && selectedAttemptIdResolved !== currentAttempt.id;
+  const attempts = attemptRows.map((row) => detail?.attempts.find((attempt) => attempt.id === row.attemptId)?.readability.result === 'forbidden' ? { ...row, reasonSummary: undefined } : row);
+  const isHistoricalAttempt = selectedAttemptIdResolved !== undefined && selectedAttemptIdResolved !== currentAttempt?.id;
   const selectedAttempt: Attempt | undefined = useMemo(() => {
     if (detail === undefined) return undefined;
-    if (selectedAttemptIdResolved === undefined) return detail.attempts[0];
-    return detail.attempts.find((attempt) => attempt.id === selectedAttemptIdResolved) ?? (currentAttempt?.id === selectedAttemptIdResolved ? currentAttempt : undefined);
+    if (selectedAttemptIdResolved === undefined) return undefined;
+    const attempt = detail.attempts.find((attempt) => attempt.id === selectedAttemptIdResolved) ?? (currentAttempt?.id === selectedAttemptIdResolved ? currentAttempt : undefined);
+    return attempt?.readability.result === 'forbidden' ? { ...attempt, result: undefined } : attempt;
   }, [currentAttempt, detail, selectedAttemptIdResolved]);
-  const fragments = outputQuery.error ? [] : outputQuery.data?.fragments ?? (selectedAttemptIdResolved === currentAttempt?.id ? detail?.output.fragments : undefined) ?? [];
-  const feed = toolFeed(fragments);
+  const outputQuery = useNodeOutput(taskId, nodeId, selectedAttempt?.readability.output === 'forbidden' ? undefined : selectedAttemptIdResolved, isHistoricalAttempt ? false : pollInterval);
+  useEffect(() => {
+    for (const attempt of detail?.attempts ?? []) {
+      const revoked = (key: readonly unknown[]) => (key[0] === 'artifact' && key[1] === taskId && key[2] === attempt.id && attempt.readability.result === 'forbidden')
+        || (key[0] === 'workflow' && key[1] === taskId && key[2] === 'node' && key[3] === nodeId && key[4] === 'output' && key[5] === attempt.id && attempt.readability.output === 'forbidden')
+        || (key[0] === 'node-tool' && key[1] === taskId && key[2] === nodeId && key[3] === attempt.id && (attempt.readability.tools === 'forbidden' || attempt.readability.output === 'forbidden'));
+      void queryClient.cancelQueries({ predicate: (query) => revoked(query.queryKey) }).then(() => { queryClient.removeQueries({ predicate: (query) => revoked(query.queryKey) }); });
+    }
+  }, [detail, taskId, nodeId, queryClient]);
+  const fragments = outputQuery.error || detailQuery.error || selectedAttempt?.readability.output === 'forbidden' ? [] : outputQuery.data?.fragments ?? (selectedAttemptIdResolved === currentAttempt?.id ? detail?.output.fragments : undefined) ?? [];
+  const visibleFragments = selectedAttempt?.readability.tools === 'forbidden' ? fragments.filter((fragment) => fragment.category !== 'tool_activity' && fragment.toolEvidence === undefined) : fragments;
+  const feed = toolFeed(visibleFragments);
   const attemptLabel =
     selectedAttempt === undefined
       ? '尝试记录：服务未提供'
@@ -336,6 +349,9 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
   const rejectAction = detail.actions.reject;
   const asideClass = ['side', 'node-side', wide || reader !== null ? 'node-side-wide' : ''].filter(Boolean).join(' ');
 
+  const readerAttempt = reader?.kind === 'artifact' ? detail.attempts.find((attempt) => attempt.id === reader.artifact.sourceAttemptId) : reader?.kind === 'tool' ? detail.attempts.find((attempt) => attempt.id === reader.attemptId) : undefined;
+  const readerForbidden = reader?.kind === 'artifact' ? readerAttempt === undefined || readerAttempt.readability.result === 'forbidden' : reader?.kind === 'tool' ? readerAttempt === undefined || readerAttempt.readability.tools === 'forbidden' || readerAttempt.readability.output === 'forbidden' : false;
+  if (reader !== null && readerForbidden) return <aside className={asideClass} aria-label="节点内容无权限"><div className="side-head"><Icon name="lock" /><h2 className="grow">无权查看这次尝试内容</h2><Button onClick={() => setReader(null)}>返回节点</Button></div><p>读取权限已变化，已隐藏之前加载的内容。</p></aside>;
   if (reader !== null) {
     const readerTitle = reader.kind === 'tool' ? '工具详情' : reader.kind === 'artifact' ? '产物详情' : '引用原文';
     return (
@@ -345,7 +361,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
             <div className="grow">
               <div className="node-head-eyebrow">
                 <Badge outline>宽阅读区 · 900</Badge>
-                <span className="hint">{detail.node.title}</span>
+                <span className="hint">{detail.definitionUnavailableReason === undefined ? detail.node.title : '步骤定义未保留'}</span>
               </div>
               <h2 className="node-head-title">{readerTitle}</h2>
             </div>
@@ -374,11 +390,11 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
         <div className="node-head-row">
           <div className="grow">
             <div className="node-head-eyebrow">
-              <Badge outline>{NODE_KIND_LABEL[detail.node.kind]}</Badge>
-              {detail.group === undefined ? null : <span className="hint">{detail.group.label}</span>}
-              <span className="mono muted">{detail.node.key}</span>
+              {detail.definitionUnavailableReason === undefined ? <Badge outline>{NODE_KIND_LABEL[detail.node.kind]}</Badge> : null}
+              {detail.definitionUnavailableReason !== undefined || detail.group === undefined ? null : <span className="hint">{detail.group.label}</span>}
+              {detail.definitionUnavailableReason === undefined ? <span className="mono muted">{detail.node.key}</span> : null}
             </div>
-            <h2 className="node-head-title">{detail.node.title}</h2>
+            <h2 className="node-head-title">{detail.definitionUnavailableReason === undefined ? detail.node.title : '步骤定义未保留'}</h2>
           </div>
           <Button
             size="sm"
@@ -408,9 +424,10 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
       </div>
 
       <div className="side-body node-side-body">
-        {tab === 'overview' ? (
+        {detail.definitionUnavailableReason === undefined ? null : <p role="status"><Icon name="info" />{detail.definitionUnavailableReason}</p>}
+        {tab === 'overview' && detail.definitionUnavailableReason === undefined ? (
           <NodeOverview
-            detail={detail}
+            detail={isHistoricalAttempt && selectedAttempt !== undefined ? { ...detail, execution: { nodeId, status: selectedAttempt.status, attemptCount: selectedAttempt.ordinal, currentAttemptId: selectedAttempt.id, startedAt: selectedAttempt.startedAt, endedAt: selectedAttempt.endedAt }, currentAttempt: selectedAttempt } : detail}
             onOpenPlan={onOpenPlan}
             onOpenCitation={(link) => {
               openReader({ kind: 'citation', link });
@@ -419,14 +436,15 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
         ) : null}
         {tab === 'session' ? (
           <div className="node-session">
+            {selectedAttempt?.readability.output === 'forbidden' ? <p role="status"><Icon name="lock" />你没有查看这次尝试正文的权限。</p> : null}
             <FactsBar>
               <FactPill label="数据连接" value={connection === 'connected' ? '已连接' : connection === 'connecting' ? '正在连接' : '已断开（只读轮询）'} tone={connection === 'connected' ? 'ok' : connection === 'connecting' ? 'neutral' : 'warn'} />
-              <FactPill label="模型正文" value={capability?.modelText === 'ok' ? (hasModelText ? '有公开正文' : terminal ? '未提供正文' : '等待正文') : '此运行时未提供'} tone={hasModelText ? 'ok' : 'neutral'} />
-              <FactPill label="工具" value={fragments.some((f) => f.category === 'tool_activity') ? '有工具记录' : '无工具记录'} tone="neutral" />
+              <FactPill label="模型正文" value={capability?.modelText === 'ok' ? (hasModelText ? '有公开正文' : terminal ? '未提供正文' : '等待正文') : capability?.modelText === 'forbidden' ? '无权读取' : '此运行时未提供'} tone={hasModelText ? 'ok' : 'neutral'} />
+              <FactPill label="工具" value={selectedAttempt?.readability.tools === 'forbidden' ? '无权读取' : visibleFragments.some((f) => f.category === 'tool_activity') ? '有工具记录' : '无工具记录'} tone="neutral" />
               <FactPill label="尝试" value={`${String(attempts.length)} 次`} tone="neutral" />
-              <FactPill label="结果与验收" value={detail.execution === undefined ? '尚未执行' : NODE_STATUS_LABEL[detail.execution.status]} tone={detail.execution?.status === 'succeeded' ? 'ok' : detail.execution?.status === 'failed' ? 'warn' : 'neutral'} />
+              <FactPill label="结果与验收" value={selectedAttempt === undefined ? '尚未执行' : NODE_STATUS_LABEL[selectedAttempt.status]} tone={selectedAttempt?.status === 'succeeded' ? 'ok' : selectedAttempt?.status === 'failed' ? 'warn' : 'neutral'} />
             </FactsBar>
-            <p className="node-explain">{explainSentence(detail, hasModelText)}</p>
+            <p className="node-explain">{explainSentence(selectedAttempt?.status, hasModelText)}</p>
 
             {isHistoricalAttempt ? (
               <div className="hist-bar" role="status">
@@ -444,7 +462,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
               </div>
             ) : null}
 
-            {capability?.modelText !== 'ok' ? (
+            {selectedAttempt?.readability.output === 'forbidden' ? null : capability?.modelText !== 'ok' ? (
               <div className="notice">
                 <Icon name="info" size="sm" />
                 <span>此运行时暂未提供公开正文；阶段与工具活动仍然真实显示。没有正文不代表失败。</span>
@@ -481,7 +499,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                   setFollowing(atBottom);
                 }}
               >
-                {outputQuery.error ? <ServiceNotice error={outputQuery.error} onRetry={() => { void outputQuery.refetch(); }} /> : fragments.length === 0 ? (
+                {selectedAttempt?.readability.output === 'forbidden' ? null : outputQuery.error ? <ServiceNotice error={outputQuery.error} onRetry={() => { void outputQuery.refetch(); }} /> : fragments.length === 0 ? (
                   <EmptyState compact icon="terminal" title="还没有执行记录" description="服务返回空记录；这里不会补写演示正文。" />
                 ) : (
                   feed.map((fragment) => (
@@ -538,7 +556,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                 )}
               </div>
               {outputQuery.hasNextPage ? <Button disabled={outputQuery.isFetchingNextPage} disabledReason="正在读取下一段" onClick={() => { void outputQuery.fetchNextPage(); }}>{outputQuery.isFetchingNextPage ? '读取中…' : '继续读取记录'}</Button> : null}
-              <div className="follow">
+              {isHistoricalAttempt || selectedAttempt?.readability.output === 'forbidden' ? null : <div className="follow">
                 <span className="muted">跟随最新</span>
                 <button
                   type="button"
@@ -555,7 +573,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                     }
                   }}
                 />
-              </div>
+              </div>}
             </div>
           </div>
         ) : null}
@@ -610,7 +628,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                   </div>
                 ) : null}
                 {selectedAttempt?.result === undefined ? (
-                  <p className="hint">这次尝试还没有提交结果。没有结果时不显示结论，也不把“正文结束”当作完成。</p>
+                  <p className="hint">{selectedAttempt?.readability.result === 'forbidden' ? '你没有查看这次尝试结果和产物的权限。' : '这次尝试还没有提交结果。没有结果时不显示结论，也不把“正文结束”当作完成。'}</p>
                 ) : (
                   <div className="box pad">
                     <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -680,7 +698,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
           </div>
         ) : null}
 
-        {tab === 'overview' && manualAdvance !== undefined ? (
+        {tab === 'overview' && !isHistoricalAttempt && manualAdvance !== undefined ? (
           <div>
             <div className="sec-t" style={{ marginTop: 16 }}>
               直接后继 · 自动推进已关闭
@@ -738,7 +756,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
           </div>
         ) : null}
 
-        {tab === 'overview' ? (
+        {tab === 'overview' && !isHistoricalAttempt ? (
           <div>
             <div className="sec-t" style={{ marginTop: 16 }}>
               人工验收
@@ -857,8 +875,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
   );
 }
 
-function explainSentence(detail: NodeDetail, hasModelText: boolean): string {
-  const status = detail.execution?.status;
+function explainSentence(status: Attempt['status'] | undefined, hasModelText: boolean): string {
   if (status === undefined) return '这一步尚未执行；没有尝试记录时不会预造正文或结果。';
   if (status === 'running') return hasModelText ? '正文正在记录；模型说“完成了”不会改变步骤状态。' : '正文尚未出现；以服务事实与工具活动为准。';
   if (status === 'failed') return '这次执行失败；已收到的正文与工具记录保留，不会自动重试。';

@@ -1,3 +1,4 @@
+import { boundAttempt, readableAttempt, readableOutput } from './node-read.ts';
 import { freezeRequirement, requirementLinks as sourceLinks, readRequirementSource } from './requirement-source.ts';
 import { executionPolicy } from './execution-policy.ts';
 import { snapshotPlanGraph } from './snapshot-review.ts';
@@ -453,44 +454,52 @@ export class PlanService {
     return readRequirementSource(this.#store, taskId, nodeId, planId, entryId, revision, sha256);
   }
 
-  nodeDetail(taskId: string, nodeId: string): NodeDetailResponse {
+  nodeDetail(taskId: string, nodeId: string, attemptId?: string): NodeDetailResponse {
     const task = this.#requireTask(taskId);
-    const plan = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
-    if (plan === undefined) throw new AppError(ErrorCode.NOT_FOUND, '当前没有计划');
-    const node = plan.graph.nodes.find((item) => item.id === nodeId);
+    const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
+    if (execution !== undefined && execution.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '执行不属于该任务');
+    const currentNode = execution?.nodes.find((item) => item.nodeId === nodeId);
+    const selectedId = attemptId ?? currentNode?.currentAttemptId;
+    const selected = selectedId === undefined ? undefined : boundAttempt(this.#store, taskId, selectedId, nodeId);
+    if (selected?.definition !== undefined && selected.definition.node.id !== nodeId) throw new AppError(ErrorCode.STALE_TARGET, '步骤定义与尝试身份不一致');
+    const selectedPlanId = selected?.definition?.planRevisionId;
+    const plan = selectedPlanId !== undefined ? this.#store.plans.get(selectedPlanId) : task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
+    if (plan === undefined || plan.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '当前没有计划');
+    const node = selected?.definition?.node ?? plan.graph.nodes.find((item) => item.id === nodeId);
     if (node === undefined) throw new AppError(ErrorCode.NOT_FOUND, '步骤不存在');
     const group = plan.graph.groups.find((item) => item.id === node.groupId);
     const requirementLinks = sourceLinks(this.#store, task, plan, node);
     const dependencyReasons = plan.graph.edges
       .filter((edge) => edge.to === node.id)
       .map((edge) => ({ fromNodeId: edge.from, kind: edge.kind, reason: edge.kind === 'data' ? '数据依赖' : edge.kind === 'resource' ? '资源依赖' : '顺序依赖' }));
-    const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
-    const attemptStates = execution === undefined ? [] : this.#store.executions.listAttempts(execution.id, node.id);
-    const currentNode = execution?.nodes.find((item) => item.nodeId === node.id);
-    const currentAttempt = attemptStates.find((attempt) => attempt.id === currentNode?.currentAttemptId) ?? attemptStates[0];
-    const output = currentAttempt === undefined ? [] : this.#store.executions.listOutput(currentAttempt.id);
+    const attemptStates = execution === undefined ? [] : this.#store.executions.listAttempts(execution.id, node.id).map(readableAttempt);
+    const currentAttempt = attemptStates.find((attempt) => attempt.id === currentNode?.currentAttemptId);
+    const outputAttempt = selected === undefined ? currentAttempt : readableAttempt(selected);
+    const output = outputAttempt === undefined ? [] : readableOutput(outputAttempt, this.#store.executions.listOutput(outputAttempt.id, 0, 500));
     const acceptance = this.#acceptanceView(execution?.id, node.id, currentNode?.status);
     return {
       taskId,
       nodeId,
+      ...(selected !== undefined && selected.definition === undefined ? { definitionUnavailableReason: '这次尝试未保存步骤定义；不能用当前计划代替' } : {}),
       planRevisionId: plan.id,
       node,
       group,
       requirementLinks,
       dependencyReasons,
-      execution: currentNode,
+      execution: selected === undefined || selected.id === currentAttempt?.id ? currentNode : { nodeId, status: selected.status, currentAttemptId: selected.id, attemptCount: selected.ordinal, startedAt: selected.startedAt, endedAt: selected.endedAt },
       currentAttempt,
+      selectedAttempt: outputAttempt,
       attempts: attemptStates,
       output: {
         fragments: output,
         nextSeq: output.at(-1)?.seq ?? 0,
-        terminal: currentNode === undefined ? false : currentNode.status !== NodeStatus.RUNNING,
-        capabilities: { modelText: 'ok', publicReasoningSummary: 'none_in_attempt', toolSources: ['managed_mcp'] },
+        terminal: outputAttempt === undefined ? false : outputAttempt.status !== NodeStatus.RUNNING,
+        capabilities: { modelText: outputAttempt?.readability.output ?? 'ok', publicReasoningSummary: 'none_in_attempt', toolSources: ['managed_mcp'] },
       },
-      ...(acceptance === undefined ? {} : { acceptance }),
+      ...(acceptance === undefined || (selected !== undefined && selected.id !== currentAttempt?.id) ? {} : { acceptance }),
       actions: {
-        accept: nodeAcceptanceAvailability(currentNode?.status, acceptance, NodeManualAcceptanceState.ACCEPTED),
-        reject: nodeAcceptanceAvailability(currentNode?.status, acceptance, NodeManualAcceptanceState.REJECTED),
+        accept: selected !== undefined && selected.id !== currentAttempt?.id ? { allowed: false, reason: '历史尝试只读，不能更改验收结论' } : nodeAcceptanceAvailability(currentNode?.status, acceptance, NodeManualAcceptanceState.ACCEPTED),
+        reject: selected !== undefined && selected.id !== currentAttempt?.id ? { allowed: false, reason: '历史尝试只读，不能更改验收结论' } : nodeAcceptanceAvailability(currentNode?.status, acceptance, NodeManualAcceptanceState.REJECTED),
       },
     };
   }

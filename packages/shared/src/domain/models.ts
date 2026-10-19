@@ -785,6 +785,10 @@ export interface OutputFragment {
 }
 
 export interface NodeDetail {
+  /** Missing historical definitions must never be presented as the current plan. */
+  readonly definitionUnavailableReason?: string;
+  /** Attempt selected for this detail; currentAttempt retains the live identity. */
+  readonly selectedAttempt?: Attempt;
   readonly taskId: TaskId;
   readonly nodeId: PlanNodeId;
   readonly planRevisionId: PlanId;

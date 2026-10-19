@@ -46,7 +46,7 @@ import {
   type WorkflowMethod,
   type WorkspaceResponse,
 } from '@agent-workflow/shared';
-import { apiGet, apiPost, openEventStream, type EventStreamHandle } from './client.ts';
+import { ApiClientError, apiGet, apiPost, openEventStream, type EventStreamHandle } from './client.ts';
 
 /* ------------------------------------------------------------------ */
 /* Read models                                                         */
@@ -125,8 +125,9 @@ export async function fetchExecution(taskId: string): Promise<ExecutionViewRespo
   return response.data;
 }
 
-export async function fetchNodeDetail(taskId: string, nodeId: string): Promise<NodeDetail> {
-  const response = await apiGet<NodeDetail>(ROUTES.node(taskId, nodeId));
+export async function fetchNodeDetail(taskId: string, nodeId: string, attemptId?: string): Promise<NodeDetail> {
+  const response = await apiGet<NodeDetail>(`${ROUTES.node(taskId, nodeId)}${attemptId === undefined ? '' : `?attemptId=${encodeURIComponent(attemptId)}`}`);
+  if (response.data.taskId !== taskId || response.data.nodeId !== nodeId || (attemptId !== undefined && response.data.selectedAttempt?.id !== attemptId)) throw new ApiClientError({ kind: 'protocol', message: '节点详情的任务、步骤或尝试身份不一致' });
   return response.data;
 }
 
@@ -511,10 +512,11 @@ export function useExecutionView(taskId: string | undefined, refetchInterval: Po
   });
 }
 
-export function useNodeDetail(taskId: string | undefined, nodeId: string | undefined) {
+export function useNodeDetail(taskId: string | undefined, nodeId: string | undefined, attemptId?: string, refetchInterval: PollInterval = false) {
   return useQuery({
-    queryKey: workflowKeys.node(taskId ?? '', nodeId ?? ''),
-    queryFn: () => fetchNodeDetail(taskId!, nodeId!),
+    queryKey: [...workflowKeys.node(taskId ?? '', nodeId ?? ''), attemptId ?? 'current'],
+    queryFn: () => fetchNodeDetail(taskId!, nodeId!, attemptId),
+    refetchInterval,
     enabled: taskId !== undefined && nodeId !== undefined && nodeId.length > 0,
     staleTime: 3_000,
   });

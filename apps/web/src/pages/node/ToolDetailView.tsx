@@ -23,8 +23,7 @@ export function ToolDetailView({ taskId, nodeId, attemptId, fragment, attemptLab
   });
   const revoked = query.error instanceof ApiClientError && query.error.code === 'FORBIDDEN';
   const stale = query.error instanceof ApiClientError && query.error.code === 'STALE_TARGET';
-  const unavailable = query.error instanceof ApiClientError && (query.error.code === 'NOT_FOUND' || query.error.kind === 'protocol');
-  const data = revoked || stale || unavailable ? undefined : query.data?.pages[0];
+  const data = query.error || (query.isFetching && !query.isFetchingNextPage) ? undefined : query.data?.pages[0];
   const content = data === undefined ? undefined : query.data!.pages.map((page) => page.content ?? '').join('');
   const status = data?.status ?? fragment.toolCallRef?.status ?? 'unknown';
   const evidence = data?.evidence;
