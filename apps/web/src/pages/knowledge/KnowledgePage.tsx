@@ -209,17 +209,18 @@ export function KnowledgePage() {
           ) : (
             <div className="list" style={{ marginTop: 8, maxHeight: 260, overflow: 'auto' }}>
               {searchQuery.data.matches.map((match) => (
-                <div key={`${match.path}:${match.line}`} className="list-row" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                <button key={`${match.path}:${match.line}`} type="button" className="list-row" style={{ alignItems: 'flex-start', textAlign: 'left' }} onClick={() => { setSourcePath(match.path); }}>
                   <span className="tile"><Icon name="search" size="sm" /></span>
                   <div className="grow" style={{ minWidth: 0 }}>
                     <div className="mono" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>{match.path}:{match.line}</div>
                     <div className="hint" style={{ marginTop: 3 }}>{match.text}</div>
                   </div>
-                </div>
+                  <Icon name="chevRight" size="sm" />
+                </button>
               ))}
             </div>
           )}
-          <p className="hint" style={{ marginTop: 8 }}>搜索只读本地文档文本，返回文件与行号；它不是模型问答，也不会生成引用结论。</p>
+          <p className="hint" style={{ marginTop: 8 }}>搜索只读本地文档文本，返回文件与行号；点击结果可回到原文预览。它不是模型问答，也不会生成引用结论。</p>
         </section>
 
         <section className="card pad">
