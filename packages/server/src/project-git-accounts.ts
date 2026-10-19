@@ -49,6 +49,7 @@ export function projectForGitRoot(store: Store, root: string, expectedProjectId?
         actual = realpathSync(root);
     }
     catch {
+        if (expectedProjectId !== undefined) throw new AppError(ErrorCode.FORBIDDEN, 'Git目录无法核对，未使用项目或全局凭据');
         return undefined;
     }
     const ids = new Set<string>();
@@ -168,4 +169,12 @@ export function registerProjectGitAccountRoutes(app: FastifyInstance, store: Sto
             id: string;
         };
     }>('/api/projects/:id/git-account/test', command(true));
+}
+
+/** Project credentials do not inherit arbitrary global API origin changes. */
+export function assertProjectApiOrigin(credentialOrigin: string, provider: 'github' | 'gitlab', apiBaseUrl: string): void {
+    let api: URL;
+    try { api = new URL(apiBaseUrl); } catch { throw new AppError(ErrorCode.FORBIDDEN, '项目API来源无效，未发送独立凭据'); }
+    const canonicalGitHub = provider === 'github' && credentialOrigin === 'https://github.com' && api.origin === 'https://api.github.com';
+    if (!['http:', 'https:'].includes(api.protocol) || api.username || api.password || api.origin !== credentialOrigin && !canonicalGitHub) throw new AppError(ErrorCode.FORBIDDEN, '项目API服务器不在独立账号绑定来源内，未发送凭据；请使用同源API或GitHub官方API映射');
 }

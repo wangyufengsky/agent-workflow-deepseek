@@ -1,11 +1,12 @@
+import { assertProjectAccountReceipt, readProjectAccountOperation } from './project-account-receipt.ts';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ROUTES, createRequestKey, type CommandResponse, type OperationReceipt, type OperationsByKeyResponse, type ProjectGitAccountView, type ProjectGitAccountDraft, type ProjectGitAccountProbe } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, type CommandResponse, type OperationReceipt, type ProjectGitAccountView, type ProjectGitAccountDraft, type ProjectGitAccountProbe } from '@agent-workflow/shared';
 import { apiGet, request, errorMessage } from '../../api/client.ts';
 import { pendingCommands, subscribePending, commandScope } from '../../api/pending-commands.ts';
 import { Button } from '../../components/Button.tsx';
 import { Badge } from '../../components/Badge.tsx';
-export function ProjectGitAccount({ projectId }: {
+function ProjectGitAccountForm({ projectId }: {
     readonly projectId: string;
 }) {
     const client = useQueryClient();
@@ -15,51 +16,57 @@ export function ProjectGitAccount({ projectId }: {
     const [draft, setDraft] = useState<ProjectGitAccountDraft>({ source: 'inherit', provider: 'gitlab', authentication: 'token', username: '', credential: '', repositoryUrl: '' });
     const [requestKey, setRequestKey] = useState('');
     const [busy, setBusy] = useState(false);
+    const [needsReceipt, setNeedsReceipt] = useState(false);
     const [error, setError] = useState('');
     const [receipt, setReceipt] = useState<OperationReceipt>();
     const [probe, setProbe] = useState<ProjectGitAccountProbe>();
     const [pending, setPending] = useState(pendingCommands);
     useEffect(() => subscribePending(() => setPending(pendingCommands())), []);
-    useEffect(() => { if (query.data)
+    useEffect(() => { generation.current++; if (query.data)
         setDraft({ ...query.data, credential: '', repositoryUrl: '' }); setProbe(undefined); setBusy(false); }, [projectId, query.data?.revision]);
     const generation = useRef(0);
-    useEffect(() => { generation.current++; setBusy(false); setReceipt(undefined); setError(''); setProbe(undefined); }, [projectId]);
+    const mounted = useRef(true);
+    useEffect(() => { mounted.current = true; return () => { mounted.current = false; generation.current++; }; }, []);
+    useEffect(() => { generation.current++; setRequestKey(''); setNeedsReceipt(false); setBusy(false); setReceipt(undefined); setError(''); setProbe(undefined); }, [projectId]);
     useEffect(() => {
         if (!requestKey || busy || receipt || pending.some(item => item.requestKey === requestKey))
             return;
         let active = true;
-        void apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(requestKey)).then(response => { if (!active)
-            return; const operation = response.data.operation; setReceipt(operation); if (operation.status === 'failed')
+        const identity = generation.current;
+        void readProjectAccountOperation(projectId, requestKey, () => active && mounted.current && identity === generation.current).then(operation => { if (!active)
+            return; setReceipt(operation); setNeedsReceipt(!['succeeded','failed'].includes(operation.status)); if (operation.status === 'failed')
             setError(`${operation.error?.message ?? '操作失败'}（原请求已核对为失败，候选验证不会保存账号）`); }).catch(() => undefined);
         return () => { active = false; };
-    }, [requestKey, busy, receipt, pending]);
+    }, [projectId, requestKey, busy, receipt, pending]);
     const current = query.data;
     const dirty = !!current && (draft.source !== current.source || draft.provider !== current.provider || draft.authentication !== current.authentication || draft.username !== current.username || !!draft.credential);
-    const locked = busy || pending.some((item) => item.scope === commandScope(ROUTES.projectGitAccount(projectId)));
+    const locked = busy || needsReceipt || pending.some((item) => item.scope === commandScope(ROUTES.projectGitAccount(projectId)));
     const update = (patch: Partial<ProjectGitAccountDraft>) => { generation.current++; setDraft(value => ({ ...value, ...patch })); setProbe(undefined); setError(''); };
     useEffect(() => { if (!dirty)
         return; const unload = (event: BeforeUnloadEvent) => { event.preventDefault(); }; const navigate = (event: MouseEvent) => { const target = event.target instanceof Element ? event.target.closest('a,[role="tab"]') : null; if (target && !window.confirm('项目Git账号有未保存修改，离开会放弃这些修改（凭据不会保存在浏览器）。是否离开？')) {
         event.preventDefault();
         event.stopPropagation();
     } }; window.addEventListener('beforeunload', unload); document.addEventListener('click', navigate, true); return () => { window.removeEventListener('beforeunload', unload); document.removeEventListener('click', navigate, true); }; }, [dirty]);
-    const reconcile = async () => { if (!receipt)
-        return; try {
-        const result = (await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(receipt.requestKey))).data.operation;
-        setReceipt(result);
-        if (result.status === 'succeeded' && result.operation === 'project.git-account.test' && result.outcome?.resource && typeof result.outcome.resource === 'object' && 'readable' in result.outcome.resource)
-            setProbe(result.outcome.resource as ProjectGitAccountProbe);
-        if (result.status === 'succeeded' || result.status === 'failed')
-            await Promise.all([client.invalidateQueries({ queryKey: ['project-git-account', projectId] }), client.invalidateQueries({ predicate: query => query.queryKey.includes(projectId) }), client.invalidateQueries({ queryKey: ['bootstrap'] })]);
-    }
-    catch (error) {
-        setError(errorMessage(error));
-    } };
+    const reconcile = async () => {
+        const key = receipt?.requestKey ?? requestKey;
+        if (!key) return;
+        const identity = generation.current;
+        try {
+            const result = await readProjectAccountOperation(projectId, key, () => mounted.current && identity === generation.current);
+            setReceipt(result);
+            setNeedsReceipt(!['succeeded','failed'].includes(result.status));
+            if (result.status === 'succeeded' && result.operation === 'project.git-account.test' && result.outcome?.resource && typeof result.outcome.resource === 'object' && 'readable' in result.outcome.resource) setProbe(result.outcome.resource as ProjectGitAccountProbe);
+            if (result.status === 'succeeded' || result.status === 'failed') await Promise.all([client.invalidateQueries({ queryKey: ['project-git-account', projectId] }), client.invalidateQueries({ predicate: query => query.queryKey.includes(projectId) }), client.invalidateQueries({ queryKey: ['bootstrap'] })]);
+        } catch (error) { if (mounted.current && identity === generation.current) setError(errorMessage(error)); }
+    };
     const submit = async (test: boolean) => { if (!current)
-        return; const identity = generation.current; const key = createRequestKey(); setRequestKey(key); setReceipt(undefined); setBusy(true); setError(''); setProbe(undefined); try {
+        return; const identity = generation.current; const key = createRequestKey(); setRequestKey(key); setReceipt(undefined); setNeedsReceipt(true); setBusy(true); setError(''); setProbe(undefined); try {
         const response = await request<CommandResponse<ProjectGitAccountView | ProjectGitAccountProbe>>(test ? ROUTES.projectGitAccountTest(projectId) : ROUTES.projectGitAccount(projectId), { method: 'POST', body: { ...draft, credential: draft.source === 'custom' ? draft.credential : undefined, expectedRevision: current.revision, requestKey: key } });
-        if (identity !== generation.current)
+        if (!mounted.current || identity !== generation.current)
             return;
+        assertProjectAccountReceipt(response.data.receipt, projectId, key);
         setReceipt(response.data.receipt);
+        setNeedsReceipt(!['succeeded','failed'].includes(response.data.receipt.status));
         if (response.data.receipt.status === 'succeeded') {
             if (test)
                 setProbe(response.data.resource as ProjectGitAccountProbe);
@@ -70,11 +77,11 @@ export function ProjectGitAccount({ projectId }: {
         }
     }
     catch (error) {
-        if (identity === generation.current)
+        if (mounted.current && identity === generation.current)
             setError(errorMessage(error));
     }
     finally {
-        if (identity === generation.current)
+        if (mounted.current && identity === generation.current)
             setBusy(false);
     } };
     if (query.isError)
@@ -89,8 +96,13 @@ export function ProjectGitAccount({ projectId }: {
     <p className="hint">保存后凭据不再显示，只在本机密钥库加密保留。独立账号按服务器绑定，凭据缺失或服务器改变不会回退全局账号。用户名密码用于Git传输；GitHub/GitLab API操作需要访问令牌。</p>{current.origin ? <p className="hint">已保存服务器：<span className="mono-wrap">{current.origin}</span></p> : null}
     <div className="row wrap" style={{ gap: 12, marginTop: 16 }}><Button variant="secondary" icon="link" disabled={locked} disabledReason={reason} onClick={() => { void submit(true); }}>{busy ? '处理中…' : '验证连接'}</Button><span className="hint grow">验证只读取仓库，不会保存账号或配置。</span><Button variant="primary" icon="check" disabled={locked || !dirty} disabledReason={reason ?? '没有账号修改'} onClick={() => { void submit(false); }}>保存项目账号</Button></div>
     {error ? <p className="banner danger" role="alert">{error}；旧验证结果已清空，本地输入保留。</p> : null}
-    {!receipt && requestKey ? <p className="hint">本次请求号 {requestKey}；结果未知时按原请求号核对，不自动重发。</p> : null}
+    {!receipt && requestKey ? <p className="hint">本次请求号 {requestKey}；结果未知时按原请求号核对，不自动重发。{needsReceipt ? <Button size="sm" onClick={() => { void reconcile(); }}>核对原操作</Button> : null}</p> : null}
     {receipt ? <p className="hint">原请求 {receipt.requestKey} · {receipt.status}{['accepted', 'unknown'].includes(receipt.status) ? <Button size="sm" onClick={() => { void reconcile(); }}>核对原操作</Button> : null}</p> : null}
     {probe ? <p className="banner info" role="status">{probe.message} · {probe.refs} 个分支 · {new Date(probe.checkedAt).toLocaleString('zh-CN')}</p> : null}
   </section>;
+}
+
+/** A different project owns a new form, including request keys and credential inputs. */
+export function ProjectGitAccount({ projectId }: { readonly projectId: string }) {
+    return <ProjectGitAccountForm key={projectId} projectId={projectId} />;
 }

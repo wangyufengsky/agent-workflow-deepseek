@@ -1,5 +1,5 @@
 import { assertPublishUrl, networkFetch } from './remote-network.ts';
-import { projectAccountAuth, projectAccountView, projectForGitRoot, type ResolvedGitAuth } from './project-git-accounts.ts';
+import { assertProjectApiOrigin, projectAccountAuth, projectAccountView, projectForGitRoot, type ResolvedGitAuth } from './project-git-accounts.ts';
 import { readFileSync } from 'node:fs';
 import { AppError, DEFAULT_SETTINGS, ErrorCode, mergeSettings, nowIso, type AppSettings, type GitConnectionStatus, type GitMergeRequest, type Project } from '@agent-workflow/shared';
 import type { RemoteProvider } from '@agent-workflow/git';
@@ -235,6 +235,8 @@ export class RemoteService implements RemotePort {
     if (coordinates === undefined || (coordinates.provider === 'gitlab' && override?.enabled === false)) return undefined;
     const settingsForAccount = this.settings();
     const targetBase = coordinates.provider === 'gitlab' && override?.inheritGlobal === false ? override.baseUrl! : settingsForAccount.git[coordinates.provider].baseUrl;
+    const apiBaseUrl = coordinates.provider === 'gitlab' && override?.inheritGlobal === false ? `${override.baseUrl!.replace(/\/$/, '')}/api/v4` : settingsForAccount.git[coordinates.provider].apiBaseUrl;
+    if (account.source === 'custom') assertProjectApiOrigin(account.origin!, account.provider, apiBaseUrl);
     if (account.source === 'custom' && account.provider !== coordinates.provider) throw new AppError(ErrorCode.FORBIDDEN, '项目账号Provider与仓库绑定不匹配，未发送凭据');
     const auth = account.source === 'custom' ? projectAccountAuth(this.#store, project.id, new URL(targetBase).origin) : this.authForRoot(project.rootPath, targetBase);
     if (auth?.authentication === 'password') throw new AppError(ErrorCode.NOT_CONFIGURED, '此项目用户名密码账号用于Git传输；GitHub/GitLab API操作需要该项目的访问令牌，未回退全局账号');
@@ -249,7 +251,7 @@ export class RemoteService implements RemotePort {
         token,
         fetchImpl: networkFetch(settings.git.network),
         timeoutMs: settings.git.network.requestTimeoutMs,
-        apiBaseUrl: settings.git.github.apiBaseUrl,
+        apiBaseUrl,
         webBaseUrl: settings.git.github.baseUrl,
       });
     }
@@ -258,7 +260,7 @@ export class RemoteService implements RemotePort {
       token,
       fetchImpl: networkFetch(settings.git.network),
       timeoutMs: settings.git.network.requestTimeoutMs,
-      apiBaseUrl: override?.inheritGlobal === false ? `${override.baseUrl!.replace(/\/$/, '')}/api/v4` : settings.git.gitlab.apiBaseUrl,
+      apiBaseUrl,
       webBaseUrl: override?.inheritGlobal === false ? override.baseUrl! : settings.git.gitlab.baseUrl,
     });
   }

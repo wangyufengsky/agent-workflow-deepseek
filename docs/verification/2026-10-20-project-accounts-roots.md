@@ -33,3 +33,15 @@
 4. 设置页输入两个允许目录（真实保留换行），保存设置；原范围外既有项目仍显示。范围外新登记返回服务FORBIDDEN，输入保留，截图 `docs/evidence/project-accounts-2026-10-20/project-root-denied.png`；改为允许目录后真实登记成功，列表同时保留原项目。
 
 未覆盖：真实外部GitHub/GitLab账号、真实外部推送/MR、代理和非回环网络、真实模型；四主题/窄屏/全部UNKNOWN跨服务重启GUI、密码模式GUI（密码传输已由实际本地H覆盖）。这些均不得因本批H/G成功而升级通过。
+
+## 合并后独立复核收口（追加批次）
+
+只读检查 Lead e900170 后发现3个原补丁边界，追加修复，不是合并冲突丢失：
+
+1. 独立凭据额外核对实际 API origin，不能通过改全局 API 地址绕过账号 origin；同源 API 允许，唯一显式跨源映射为 `https://github.com` → `https://api.github.com`。企业 GitHub 的同源 `/api/v3` 可用，其他跨源 API 需要未来明确授权契约，不隐式放行。
+2. 项目账号表单按 projectId 重建，并清理请求号；异步核对/提交响应验证 projectId、requestKey、操作类型及组件代次。卸载或切换项目后的迟到回执不更新当前页面。回执身份异常保留只核对状态，不直接解锁重发。
+3. 明确 expectedProjectId 时，目录 realpath 失败直接拒绝，不退为未知目录后选全局凭据。
+
+定向证据：`project-accounts.test.ts` 的真实本地 HTTP 第二服务器计数为0，证明 API 跨 origin 拒绝发生在请求/凭据发送前；GitHub 官方映射由实际来源判定函数回归验证，未调用真实 GitHub。`tests/web/project-account-receipts.test.ts` 验证 React 项目键隔离、延迟 GET 的代次拒绝和错误项目/key/operation拒绝；没有伪造模型结果，也不将该客户端离线测试写成全页面GUI验收。日志 `/tmp/project-account-followup-tests.log`、`/tmp/project-account-followup-types.log`；最终定向计数与退出码见交接。
+
+4张历史截图已逐张视觉检查，并检查 PNG 无 tEXt/iTXt/zTXt 文本块、无已知夹具凭据字节：candidate 仅密码圆点；fetch 无凭据；saved 仅空输入占位；root-denied 无凭据。均可按临时夹具证据归档。root-denied 中路径说明为当时版本，只证明当时拒绝状态，不替代最终所有文案验收。

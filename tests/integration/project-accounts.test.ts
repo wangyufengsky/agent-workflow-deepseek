@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { createApplication } from '../../packages/server/src/application.ts';
+import { assertProjectApiOrigin } from '../../packages/server/src/project-git-accounts.ts';
 import { RemoteService } from '../../packages/server/src/remote.ts';
 import { DEFAULT_SETTINGS } from '@agent-workflow/shared';
 const temp = () => mkdtempSync(join(tmpdir(), 'aw-project-account-'));
@@ -180,4 +181,30 @@ test('a candidate verification finishing after an account revision changes canno
         const late = await pending; assert.equal(late.json().error.code, 'STALE_TARGET');
         assert.equal(f.app.engine.commands.get('req_project_account_racing_probe_12345')?.status, 'failed');
     } finally { release(); await f.close(); }
+});
+
+test('independent credentials reject an API origin change before sending, and only accept the canonical GitHub origin mapping', async () => {
+    const f = await fixture(); let requests = 0;
+    const other = createServer((_request, response) => { requests++; response.end('{}'); });
+    await new Promise<void>(resolve => other.listen(0, '127.0.0.1', resolve));
+    const api = `http://127.0.0.1:${(other.address() as import('node:net').AddressInfo).port}/api/v4`;
+    try {
+        assert.equal((await f.post('', { ...f.draft, requestKey: 'req_account_api_origin_save_12345' })).statusCode, 200);
+        const remote = new RemoteService(f.app.store);
+        f.app.engine.updateSettings({ ...f.app.engine.settings, git: { ...f.app.engine.settings.git, gitlab: { baseUrl: f.origin, apiBaseUrl: api } } });
+        await assert.rejects(remote.inspectProjectBinding(f.project.id), /API服务器不在/);
+        assert.equal(requests, 0, 'no request or credential reaches the other origin');
+        assert.doesNotThrow(() => assertProjectApiOrigin('https://github.com', 'github', 'https://api.github.com'));
+        assert.doesNotThrow(() => assertProjectApiOrigin(f.origin, 'gitlab', `${f.origin}/api/v4`));
+        for (const [origin, provider, target] of [['https://github.com','github','https://api.github.com:444'],['http://github.com','github','https://api.github.com'],['https://github.com','gitlab','https://api.github.com'],['https://github.com','github','https://other.invalid/api']] as const) assert.throws(() => assertProjectApiOrigin(origin, provider, target), /绑定来源/);
+    } finally { await f.close(); await new Promise<void>(resolve => other.close(() => resolve())); }
+});
+test('an explicit project identity with an unresolvable root never obtains global credentials', async () => {
+    const f = await fixture();
+    try {
+        f.app.store.secrets.put('git:gitlab', 'fixture-global-token');
+        f.app.engine.updateSettings({ ...f.app.engine.settings, git: { ...f.app.engine.settings.git, gitlab: { baseUrl: f.origin, apiBaseUrl: `${f.origin}/api/v4` } } });
+        const remote = new RemoteService(f.app.store);
+        assert.throws(() => remote.authForRoot(join(f.base, 'missing-root'), f.repositoryUrl, f.project.id), /目录无法核对/);
+    } finally { await f.close(); }
 });
