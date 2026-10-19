@@ -1,3 +1,4 @@
+import { assertAllowedProjectRoot } from './project-roots.ts';
 import { normalizeEvidenceSources, projectBindingHash } from './project-evidence.ts';
 import { detectProjectTechnology } from './project-technology.ts';
 import { isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview, isPlanningQuestionAnswered, type RuntimeInteraction } from '@agent-workflow/shared';
@@ -85,7 +86,10 @@ export class ProjectService {
     return this.#withFacts(project);
   }
 
-  #withFacts(project: ProjectSummary): ProjectSummary { return { ...project, facts: this.#store.settings.getJson<import('@agent-workflow/shared').ProjectFacts>(`project.facts.${project.id}`) }; }
+  #withFacts(project: ProjectSummary): ProjectSummary {
+    const stored = this.#store.settings.getJson<import('@agent-workflow/shared').ProjectGitAccountView & {secretRef?:string}>(`project.git-account.${project.id}`);
+    const gitAccount = stored ? {projectId:project.id,revision:stored.revision,source:stored.source,provider:stored.provider,authentication:stored.authentication,username:stored.username,origin:stored.origin,credentialSaved:!!stored.secretRef && this.#store.secrets.has(stored.secretRef)} : undefined;
+    return { ...project, ...(gitAccount ? {gitAccount}:{}), facts: this.#store.settings.getJson<import('@agent-workflow/shared').ProjectFacts>(`project.facts.${project.id}`) }; }
 
   async #refreshFacts(projectId: string, rootPath: string, gitState: ProjectSummary['gitState']): Promise<void> {
     const technology = await detectProjectTechnology(rootPath);
@@ -112,6 +116,7 @@ export class ProjectService {
         this.#commands.settle(input.requestKey, { projectId: existing.id, existing: true });
         return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.detail(existing.id) };
       }
+      await assertAllowedProjectRoot(rootPath, this.#context.settings().server.allowedProjectRoots);
       const detection = await this.#git.detect(rootPath);
       const project = this.#store.projects.create({
         name: input.name.trim() || rootPath.split('/').at(-1) || '未命名项目',

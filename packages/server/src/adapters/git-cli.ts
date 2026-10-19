@@ -20,36 +20,44 @@ const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 export interface GitAuthToken {
   readonly provider: 'github' | 'gitlab';
   readonly token: string;
+  readonly username?: string;
+  readonly origin?: string;
 }
 
 export class GitCliAdapter implements GitPort {
   readonly #timeoutMs: number;
   readonly #tempRoot: string;
-  readonly #tokenProvider: (() => GitAuthToken | undefined) | undefined;
+  readonly #tokenProvider: ((repoRoot: string, remoteUrl: string, projectId?: string) => GitAuthToken | undefined) | undefined;
 
-  constructor(timeoutMs = 120000, tempRoot = join(process.cwd(), '.data', 'merge-tmp'), tokenProvider?: () => GitAuthToken | undefined) {
+  constructor(timeoutMs = 120000, tempRoot = join(process.cwd(), '.data', 'merge-tmp'), tokenProvider?: (repoRoot: string, remoteUrl: string, projectId?: string) => GitAuthToken | undefined) {
     this.#timeoutMs = timeoutMs;
     this.#tempRoot = tempRoot;
     this.#tokenProvider = tokenProvider;
   }
 
   /** Token is injected as a one-shot git config http.extraheader; never in argv. */
-  async #remoteAuthEnv(repoRoot: string): Promise<Record<string, string>> {
-    const auth = this.#tokenProvider?.();
-    if (auth === undefined) return {};
-    const remoteUrl = await this.#run(['remote', 'get-url', 'origin'], repoRoot).catch(() => undefined);
+  async #remoteAuthEnv(repoRoot: string, remote = 'origin', projectId?: string): Promise<Record<string, string>> {
+    const remoteUrl = await this.#run(['remote', 'get-url', remote], repoRoot).catch(() => undefined);
     if (remoteUrl === undefined) return {};
-    let host: string;
+    const auth = this.#tokenProvider?.(repoRoot, remoteUrl.stdout.trim(), projectId);
+    if (auth === undefined) return {};
+    let origin: string;
     try {
-      host = new URL(remoteUrl.stdout.trim()).host;
-    } catch {
+      const target = new URL(remoteUrl.stdout.trim());
+      if (!['http:', 'https:'].includes(target.protocol)) return {};
+      origin = target.origin;
+      if (auth.origin !== undefined && auth.origin !== origin) throw new AppError(ErrorCode.FORBIDDEN, 'Git账号与目标仓库服务器不匹配');
+    } catch (error) {
+      if (error instanceof AppError) throw error;
       return {};
     }
-    const credentials = auth.provider === 'github' ? `x-access-token:${auth.token}` : `oauth2:${auth.token}`;
+    const credentials = `${auth.username ?? (auth.provider === 'github' ? 'x-access-token' : 'oauth2')}:${auth.token}`;
     const header = `Authorization: Basic ${Buffer.from(credentials, 'utf8').toString('base64')}`;
     return {
-      GIT_CONFIG_COUNT: '1',
-      GIT_CONFIG_KEY_0: `http.https://${host}/.extraheader`,
+      GIT_CONFIG_COUNT: '3',
+      GIT_CONFIG_KEY_1: 'http.followRedirects', GIT_CONFIG_VALUE_1: 'false',
+      GIT_CONFIG_KEY_2: 'credential.helper', GIT_CONFIG_VALUE_2: '',
+      GIT_CONFIG_KEY_0: `http.${origin}/.extraheader`,
       GIT_CONFIG_VALUE_0: header,
     };
   }
@@ -87,11 +95,11 @@ export class GitCliAdapter implements GitPort {
     return blob.stdout;
   }
 
-  async fetch(input: { repoRoot: string; remote?: string; prune?: boolean }): Promise<{ fetchedAt: string }> {
+  async fetch(input: { projectId?: string; repoRoot: string; remote?: string; prune?: boolean }): Promise<{ fetchedAt: string }> {
     const args = ['fetch'];
     if (input.prune !== false) args.push('--prune');
     args.push(input.remote ?? 'origin');
-    const authEnv = await this.#remoteAuthEnv(input.repoRoot);
+    const authEnv = await this.#remoteAuthEnv(input.repoRoot, input.remote, input.projectId);
     await this.#run(args, input.repoRoot, authEnv).catch((error: unknown) => {
       if (error instanceof AppError) {
         const details = error.details === undefined ? {} : { details: error.details };
@@ -410,9 +418,9 @@ export class GitCliAdapter implements GitPort {
     return { sha };
   }
 
-  async push(input: { repoRoot: string; localSha: string; remote: string; remoteRef: string; token?: string }): Promise<{ remoteRef: string; pushedSha: string; created: boolean }> {
+  async push(input: { projectId?: string; repoRoot: string; localSha: string; remote: string; remoteRef: string; token?: string }): Promise<{ remoteRef: string; pushedSha: string; created: boolean }> {
     if (input.remoteRef.includes(':refs/heads/')) throw new AppError(ErrorCode.VALIDATION_FAILED, '推送引用不合法');
-    const authEnv = await this.#remoteAuthEnv(input.repoRoot);
+    const authEnv = await this.#remoteAuthEnv(input.repoRoot, input.remote, input.projectId);
     await this.#run(['push', input.remote, `${input.localSha}:${input.remoteRef}`], input.repoRoot, authEnv).catch((error: unknown) => {
       if (error instanceof AppError && /non-fast-forward|fetch first|rejected/i.test(error.message)) {
         throw new AppError(ErrorCode.PUSH_REJECTED_NON_FF, '远端已有新提交，推送被拒；请先获取远端更新', { details: { output: error.message } });
@@ -498,14 +506,18 @@ export class GitCliAdapter implements GitPort {
   #run(args: readonly string[], cwd: string, env?: Record<string, string>): Promise<ExecResult> {
     return new Promise<ExecResult>((resolvePromise, rejectPromise) => {
       execFile('git', ['--no-optional-locks', ...args], { cwd, timeout: this.#timeoutMs, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env } }, (error, stdout, stderr) => {
-        const result = { stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1 };
+        const encoded = env?.GIT_CONFIG_VALUE_0?.match(/Basic (.+)$/)?.[1];
+        const decoded = encoded ? Buffer.from(encoded, 'base64').toString('utf8') : undefined;
+        const secret = decoded?.slice(decoded.indexOf(':') + 1);
+        const redact = (value: string) => [encoded, decoded, secret].filter((item): item is string => !!item).reduce((text, item) => text.replaceAll(item, '[REDACTED]'), value);
+        const result = { stdout: redact(String(stdout ?? '')), stderr: redact(String(stderr ?? '')), code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1 };
         if (error !== null) {
           // execFile kills the child on timeout; the empty/partial stderr says
           // nothing about the remote outcome, so expose a machine-readable reason
           // (remote writes then settle UNKNOWN instead of a false failure).
           const meta = error as { killed?: boolean; signal?: string | null };
           const killed = meta.killed === true || (typeof meta.signal === 'string' && meta.signal !== '');
-          const output = result.stderr.trim() || error.message;
+          const output = result.stderr.trim() || redact(error.message);
           if (killed) {
             rejectPromise(new AppError(ErrorCode.NETWORK_UNREACHABLE, `git ${args[0] ?? ''} 超时或被中止`, { details: { exitCode: result.code, reason: 'timeout' } }));
             return;

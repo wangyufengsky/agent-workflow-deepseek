@@ -5,8 +5,7 @@ import { AppError, ErrorCode, type PublishNetworkSettings } from '@agent-workflo
 export function networkFetch(policy: PublishNetworkSettings): typeof fetch {
   return async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new AppError(ErrorCode.VALIDATION_FAILED, '发布网络地址必须是无凭据的 HTTP(S) URL');
-    if (url.protocol === 'http:' && !policy.allowedHttpHosts.some((host) => host === url.hostname || host === url.host)) throw new AppError(ErrorCode.FORBIDDEN, '此 HTTP 主机未获发布网络许可，请在设置中明确添加或使用 HTTPS');
+    assertPublishUrl(url, policy);
     const agent = new Agent({ connectTimeout: policy.connectTimeoutMs });
     const deadline = AbortSignal.timeout(policy.requestTimeoutMs);
     const signal = init?.signal ? AbortSignal.any([deadline, init.signal]) : deadline;
@@ -22,4 +21,9 @@ export function networkFetch(policy: PublishNetworkSettings): typeof fetch {
       return new Response(response.status === 204 || response.status === 205 || response.status === 304 ? null : Buffer.concat(chunks), { status: response.status, statusText: response.statusText, headers: Object.fromEntries(response.headers.entries()) });
     } finally { await agent.destroy(); }
   };
+}
+
+export function assertPublishUrl(url: URL, policy: PublishNetworkSettings): void {
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new AppError(ErrorCode.VALIDATION_FAILED, '发布网络地址必须是无凭据的 HTTP(S) URL');
+    if (url.protocol === 'http:' && !policy.allowedHttpHosts.some((host) => host === url.hostname || host === url.host)) throw new AppError(ErrorCode.FORBIDDEN, '此 HTTP 主机未获发布网络许可，请在设置中明确添加或使用 HTTPS');
 }

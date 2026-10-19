@@ -1,4 +1,5 @@
-import { networkFetch } from './remote-network.ts';
+import { assertPublishUrl, networkFetch } from './remote-network.ts';
+import { projectAccountAuth, projectAccountView, projectForGitRoot, type ResolvedGitAuth } from './project-git-accounts.ts';
 import { readFileSync } from 'node:fs';
 import { AppError, DEFAULT_SETTINGS, ErrorCode, mergeSettings, nowIso, type AppSettings, type GitConnectionStatus, type GitMergeRequest, type Project } from '@agent-workflow/shared';
 import type { RemoteProvider } from '@agent-workflow/git';
@@ -55,6 +56,25 @@ export class RemoteService implements RemotePort {
     const provider = settings.git.defaultProvider;
     const token = this.token(provider);
     return token === undefined ? undefined : { provider, token };
+  }
+
+  authForRoot(repoRoot: string, remoteUrl: string, expectedProjectId?: string): ResolvedGitAuth | undefined {
+    const projectId = projectForGitRoot(this.#store, repoRoot, expectedProjectId);
+    const account = projectId ? projectAccountView(this.#store, projectId, this.settings().git.defaultProvider) : undefined;
+    let target: URL;
+    try { target = new URL(remoteUrl); } catch { if (account?.source === 'custom') throw new AppError(ErrorCode.FORBIDDEN, '独立HTTP账号不能用于该远端协议，不回退系统账号'); return undefined; }
+    if (!['http:', 'https:'].includes(target.protocol)) { if(account?.source === 'custom')throw new AppError(ErrorCode.FORBIDDEN,'独立HTTP账号不能用于该远端协议，不回退系统账号');return undefined; }
+    assertPublishUrl(target, this.settings().git.network);
+    if (projectId && account?.source === 'custom') return projectAccountAuth(this.#store, projectId, target.origin);
+    return this.globalAuth(remoteUrl);
+  }
+
+  globalAuth(remoteUrl: string): ResolvedGitAuth | undefined {
+    let target: URL; try { target = new URL(remoteUrl); } catch { return undefined; }
+    const settings = this.settings();
+    const provider = (['github','gitlab'] as const).find((provider) => new URL(settings.git[provider].baseUrl).origin === target.origin);
+    if (!provider) return undefined;
+    const token = this.token(provider); return token ? { provider, token, origin: target.origin } : undefined;
   }
 
   connectionState(provider: 'github' | 'gitlab'): GitConnectionState {
@@ -150,6 +170,8 @@ export class RemoteService implements RemotePort {
     if (projectId === undefined) return base;
     const project = this.#store.projects.get(projectId);
     if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
+    const projectAccount = projectAccountView(this.#store, projectId, settings.git.defaultProvider);
+    if (projectAccount.source === 'custom') return { provider: projectAccount.provider, state: 'not_configured', ...(projectAccount.origin ? {hostDisplayName:new URL(projectAccount.origin).host}:{}), message: projectAccount.credentialSaved ? '项目独立凭据已保存；未以全局账号验证结果代替本项目验证' : '项目独立凭据不可用，不回退全局账号' };
     const override = project.settings.gitlab;
     const coordinates = await this.#coordinates(project.rootPath, project.remoteDisplayUrl);
     if (override?.enabled === false && coordinates?.provider !== 'github') return { provider: 'gitlab', state: 'not_configured', message: '此项目已停用 GitLab 集成' };
@@ -205,12 +227,19 @@ export class RemoteService implements RemotePort {
   }
 
   async #providerFor(project: Project): Promise<RemoteProvider | undefined> {
+    const account = projectAccountView(this.#store, project.id, this.settings().git.defaultProvider);
     const override = project.settings.gitlab;
     const coordinates = override?.enabled !== false && override?.inheritGlobal === false && override.baseUrl !== undefined && override.projectPath !== undefined
       ? { provider: 'gitlab' as const, host: new URL(override.baseUrl).host, pathWithNamespace: override.projectPath }
-      : await this.#coordinates(project.rootPath, project.remoteDisplayUrl);
+      : await this.#coordinates(project.rootPath, project.remoteDisplayUrl, account.source === 'custom' ? account.provider : project.settings.gitProvider);
     if (coordinates === undefined || (coordinates.provider === 'gitlab' && override?.enabled === false)) return undefined;
-    const token = this.token(coordinates.provider);
+    const settingsForAccount = this.settings();
+    const targetBase = coordinates.provider === 'gitlab' && override?.inheritGlobal === false ? override.baseUrl! : settingsForAccount.git[coordinates.provider].baseUrl;
+    if (account.source === 'custom' && account.provider !== coordinates.provider) throw new AppError(ErrorCode.FORBIDDEN, '项目账号Provider与仓库绑定不匹配，未发送凭据');
+    const auth = account.source === 'custom' ? projectAccountAuth(this.#store, project.id, new URL(targetBase).origin) : this.authForRoot(project.rootPath, targetBase);
+    if (auth?.authentication === 'password') throw new AppError(ErrorCode.NOT_CONFIGURED, '此项目用户名密码账号用于Git传输；GitHub/GitLab API操作需要该项目的访问令牌，未回退全局账号');
+    if (account.source === 'custom' && new URL(targetBase).host !== coordinates.host) throw new AppError(ErrorCode.FORBIDDEN, '仓库服务器与项目账号API服务器不同，未发送凭据');
+    const token = auth?.token;
     if (token === undefined) return undefined;
     const settings = this.settings();
     if (coordinates.provider === 'github') {
@@ -234,13 +263,13 @@ export class RemoteService implements RemotePort {
     });
   }
 
-  async #coordinates(rootPath: string, remoteUrl: string | undefined): Promise<RemoteCoordinates | undefined> {
+  async #coordinates(rootPath: string, remoteUrl: string | undefined, preferred?: 'github' | 'gitlab'): Promise<RemoteCoordinates | undefined> {
     const raw = remoteUrl ?? readRemoteUrlFromGitConfig(rootPath);
     if (raw === undefined || raw === '') return undefined;
     const normalized = normalizeRemoteUrl(raw);
     if (normalized === undefined) return undefined;
     const { host, path } = normalized;
-    if (host.includes('github') || /github\./i.test(host)) {
+    if (preferred === 'github' || preferred === undefined && (host.includes('github') || /github\./i.test(host))) {
       const [owner, repo] = path.replace(/\.git$/, '').split('/');
       if (owner === undefined || repo === undefined) return undefined;
       return { provider: 'github', host, owner, repo, pathWithNamespace: `${owner}/${repo}`, webUrl: `https://${host}/${owner}/${repo}` };
@@ -271,7 +300,7 @@ function normalizeRemoteUrl(raw: string): { host: string; path: string } | undef
   }
   try {
     const url = new URL(value);
-    return { host: url.hostname, path: url.pathname.replace(/^\/+/, '') };
+    return { host: url.host, path: url.pathname.replace(/^\/+/, '') };
   } catch {
     return undefined;
   }

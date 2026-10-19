@@ -117,6 +117,7 @@ export interface ProjectFacts {
 }
 
 export interface Project {
+  readonly gitAccount?: import('./project-account.ts').ProjectGitAccountView;
   readonly facts?: ProjectFacts;
   readonly id: ProjectId;
   readonly name: string;

@@ -1,3 +1,4 @@
+import { registerProjectGitAccountRoutes } from './project-git-accounts.ts';
 import { registerProjectEvidenceRoutes } from './project-evidence.ts';
 import { isPlanningQuestionAnswered, isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview } from '@agent-workflow/shared';
 import { normalizeQuestionAnswer, questionChoices } from '@agent-workflow/shared';
@@ -356,6 +357,7 @@ const MIME: Record<string, string> = {
 export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): void {
   const { engine, store, opencodeRef, paths, databaseService, remoteService } = deps;
   registerRoleInsightRoutes(app, store, engine);
+  if (remoteService) registerProjectGitAccountRoutes(app, store, engine, remoteService);
   registerProjectEvidenceRoutes(app, store, engine, remoteService);
   const requestId = (request: FastifyRequest): string => String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
   // Command envelopes are validated once, before any handler can reach domain
@@ -909,7 +911,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
 
       const fetchImpl = engine.ports.git.fetch;
       if (fetchImpl === undefined) throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '当前 Git 适配不支持获取远端');
-      const result = await fetchImpl.call(engine.ports.git, { repoRoot: project.rootPath, remote, prune: true });
+      const result = await fetchImpl.call(engine.ports.git, { projectId: project.id, repoRoot: project.rootPath, remote, prune: true });
       store.events.publish('git.repo.changed', { projectId: project.id });
       engine.commands.settle(body.requestKey, { fetchedAt: result.fetchedAt, remote });
       return envelope(

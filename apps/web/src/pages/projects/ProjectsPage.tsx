@@ -653,7 +653,7 @@ export function ProjectsPage() {
                 选择文件夹…
               </Button>
             </div>
-            <span className="hint">可直接输入绝对路径，或点「选择文件夹…」浏览本机目录；桌面版会打开系统文件夹选择器。路径不存在时仍可登记，但 Git 状态会显示为路径不可用。</span>
+            <span className="hint">可直接输入绝对路径，或点「选择文件夹…」浏览本机目录；桌面版会打开系统文件夹选择器。设置了允许项目根目录时，目录必须存在且真实路径在允许范围内；未限制时，不存在路径可登记为路径不可用。</span>
           </div>
 
           <div className="field" style={{ margin: 0 }}>

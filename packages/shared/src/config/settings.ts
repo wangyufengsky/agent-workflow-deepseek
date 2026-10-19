@@ -137,6 +137,8 @@ export interface UiSettings {
 }
 
 export interface ServerSettings {
+  /** Empty permits any project root; applies only to new registrations. */
+  readonly allowedProjectRoots: readonly string[];
   readonly host: string;
   readonly port: number;
   readonly corsOrigins: readonly string[];
@@ -179,7 +181,7 @@ export const DEFAULT_MODEL_PROFILES: readonly ModelProfile[] = [
 
 export const DEFAULT_SETTINGS: AppSettings = {
   ui: { theme: 'deepseek', displayMode: 'present', reducedMotion: false, sidebarCollapsed: false, locale: 'zh-CN' },
-  server: { host: '127.0.0.1', port: 5177, corsOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173'] },
+  server: { allowedProjectRoots: [], host: '127.0.0.1', port: 5177, corsOrigins: ['http://127.0.0.1:5173', 'http://localhost:5173'] },
   opencode: {
     enabled: true,
     binaryPath: 'opencode',
@@ -305,6 +307,8 @@ export interface SettingsIssue {
 
 export function validateSettings(settings: AppSettings): SettingsIssue[] {
   const issues: SettingsIssue[] = [];
+  const roots = settings.server.allowedProjectRoots;
+  if (!Array.isArray(roots) || roots.length > 16 || roots.some((root) => typeof root !== 'string' || !root.startsWith('/') || root.length > 1000 || /[\0\r\n]/.test(root))) issues.push({ path: 'server.allowedProjectRoots', message: '允许项目根目录须为最多16条绝对目录路径，空列表不限制' });
   const port = settings.server.port;
   if (!Number.isInteger(port) || port < 1024 || port > 65535) issues.push({ path: 'server.port', message: '端口必须在 1024–65535 之间' });
   if (settings.opencode.expectedVersion !== '1.19.0') {

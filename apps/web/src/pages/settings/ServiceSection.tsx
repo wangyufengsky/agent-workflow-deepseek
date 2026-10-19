@@ -2,11 +2,14 @@ import type { BootstrapResponse } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { OpenCodeCard } from './OpenCodeCard.tsx';
-import { DraftNumberRow } from './draft.tsx';
+import { DraftNumberRow, useSettingsDraft } from './draft.tsx';
 import { SettingsHeading, SettingsRow } from './shared.tsx';
 
 export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
   const settings = data.settings;
+  const draft = useSettingsDraft();
+  const rootsBaseline = settings.server.allowedProjectRoots.join('\n');
+  const rootsValue = String(draft.fields['server.allowedProjectRoots']?.value ?? rootsBaseline);
   return (
     <>
       <div className="sect">
@@ -59,6 +62,9 @@ export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
           </SettingsRow>
           <SettingsRow label="模型档案">
             <span>{String(settings.models.length)} 个配置 · MCP 服务 {settings.opencode.mcpServerName}</span>
+          </SettingsRow>
+          <SettingsRow label="允许的项目根目录" hint="每行一个绝对目录，最多16条；留空允许登记任意目录。只约束新登记，已有项目继续保留。按真实路径核对，符号链接不能绕过目录边界。" effect="live" dirty={draft.fields['server.allowedProjectRoots'] !== undefined}>
+            <textarea className="textarea mono" aria-label="允许的项目根目录" value={rootsValue} disabled={draft.saving} onChange={(event) => draft.setField({ path: 'server.allowedProjectRoots', label: '允许的项目根目录', section: 'service', value: event.target.value, baseline: rootsBaseline, effect: 'live' })} />
           </SettingsRow>
           <PollIntervalRow value={settings.monitoring.pollIntervalMs} />
           <SessionThresholdRow value={settings.monitoring.sessionAlertThreshold} />

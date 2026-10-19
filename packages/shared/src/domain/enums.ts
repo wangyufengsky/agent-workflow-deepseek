@@ -551,6 +551,8 @@ export const OperationKind = {
   PROJECT_CREATE: 'project.create',
   PROJECT_UPDATE: 'project.update',
   PROJECT_RECHECK: 'project.recheck',
+  PROJECT_GIT_ACCOUNT_SAVE: 'project.git-account.save',
+  PROJECT_GIT_ACCOUNT_TEST: 'project.git-account.test',
   PROJECT_BINDING_CHECK: 'project.binding.check',
   PROJECT_CHARTER_GENERATE: 'project.charter.generate',
   PROJECT_CHARTER_STOP: 'project.charter.stop',
@@ -662,6 +664,8 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'project.create': op('project.create', 'global', true, '登记项目'),
   'project.update': op('project.update', 'project', true, '更新项目设置'),
   'project.recheck': op('project.recheck', 'project', true, '重新检测项目路径与 Git 状态'),
+  'project.git-account.save': op('project.git-account.save', 'project', true, '保存项目Git账号'),
+  'project.git-account.test': op('project.git-account.test', 'project', true, '只读验证候选项目Git账号（不保存）'),
   'project.binding.check': op('project.binding.check', 'project', true, '检查GitLab仓库与执行证据来源'),
   'project.charter.generate': op('project.charter.generate', 'project', true, '只读模型生成项目公约草稿'),
   'project.charter.stop': op('project.charter.stop', 'project', true, '请求停止公约生成'),
@@ -867,3 +871,7 @@ export type ProjectBindingRepositoryStateValue = (typeof ProjectBindingRepositor
 /** Availability and conclusion of an Insights evidence source, never an inferred result. */
 export const QualityCheckStatus = { NOT_CONFIGURED: 'not_configured', NOT_REQUIRED: 'not_required', NOT_REVIEWED: 'not_reviewed', IN_PROGRESS: 'in_progress', PASSED: 'passed', FAILED: 'failed', UNKNOWN: 'unknown' } as const;
 export type QualityCheckStatusValue = typeof QualityCheckStatus[keyof typeof QualityCheckStatus];
+export const ProjectGitAccountSource = { INHERIT: 'inherit', CUSTOM: 'custom' } as const;
+export type ProjectGitAccountSourceValue = (typeof ProjectGitAccountSource)[keyof typeof ProjectGitAccountSource];
+export const GitAuthentication = { TOKEN: 'token', PASSWORD: 'password' } as const;
+export type GitAuthenticationValue = (typeof GitAuthentication)[keyof typeof GitAuthentication];

@@ -1,3 +1,4 @@
+import { ProjectGitAccount } from './ProjectGitAccount.tsx';
 import { ProjectEvidenceEditor, ProjectBindingResult } from './ProjectEvidence.tsx';
 import { pendingCommands, subscribePending, commandScope } from '../../api/pending-commands.ts';
 import { projectBindingIdentity, type ProjectEvidenceSource, type ProjectBindingCheck } from '@agent-workflow/shared';
@@ -521,9 +522,9 @@ function GitTab({
       {section === 'account' ? (
         <DetailSection
           title="Git 账号"
-          subtitle="账号与令牌只在服务端设置中维护；项目页只读。"
+          subtitle="继承全局账号或为此项目单独配置；验证连接不会保存。"
           className="project-section"
-          aside={<Badge outline>{project.settings.gitProvider === undefined ? '继承全局' : PROVIDER_LABEL[project.settings.gitProvider]}</Badge>}
+          aside={<Badge outline>{project.gitAccount?.source === 'custom' ? `独立${PROVIDER_LABEL[project.gitAccount.provider]}账号` : '继承全局'}</Badge>}
         >
           {!isGit ? (
             <p className="hint">
@@ -531,40 +532,15 @@ function GitTab({
             </p>
           ) : (
             <>
-              <dl className="kv">
-                <dt>项目 Provider</dt>
-                <dd>{project.settings.gitProvider === undefined ? '继承全局默认' : PROVIDER_LABEL[project.settings.gitProvider]}</dd>
-                <dt>项目级凭据</dt>
-                <dd>未提供（服务没有项目级 Git 凭据接口）</dd>
-              </dl>
               <GitAccountFacts integration={integration} loading={integrationLoading} />
-              <div className="grid-2" style={{ gap: 10, marginTop: 12 }}>
-                <div className="card pad">
-                  <div className="row" style={{ gap: 8 }}>
-                    <span className="grow" style={{ fontSize: 13.5, fontWeight: 500 }}>继承全局账号</span>
-                    <Badge tone="ok" icon="check">只读</Badge>
-                  </div>
-                  <p className="hint" style={{ marginTop: 4, lineHeight: 1.6 }}>
-                    任务提交使用设置中的 Git 账号；本页不保存令牌。
-                  </p>
-                </div>
-                <div className="card pad">
-                  <div className="row" style={{ gap: 8 }}>
-                    <span className="grow" style={{ fontSize: 13.5, fontWeight: 500 }}>此项目单独配置</span>
-                    <Badge tone="unknown" icon="help">服务未提供</Badge>
-                  </div>
-                  <p className="hint" style={{ marginTop: 4, lineHeight: 1.6 }}>
-                    服务没有项目级 Git 凭据接口；不会伪造项目账号或验证结果。
-                  </p>
-                </div>
-              </div>
+              <ProjectGitAccount projectId={project.id} />
             </>
           )}
           <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: 'wrap' }}>
             <LinkButton to="/settings?section=git" variant="secondary" size="sm" icon="settings">
               去设置 Git 账号
             </LinkButton>
-            <span className="hint">凭证、令牌与 Provider 配置都在设置页；本页不保存凭据。</span>
+            <span className="hint">全局账号在设置页维护；项目独立账号只对本项目生效。</span>
           </div>
         </DetailSection>
       ) : (
@@ -1194,8 +1170,8 @@ function ConfigStatusCard({
     ? `非 Git 项目 · ${gitlabOverride} · 远程调用采用项目覆盖或继承全局`
     : `${gitlabState === 'not_configured' && gitlabConfigured ? '全局 GitLab 已配置' : '执行证据来源按项目保存并受控检查'} · ${gitlabOverride} · 远程调用采用项目覆盖或继承全局`;
 
-  const projectProvider = project.settings.gitProvider ?? integration?.git.provider;
-  const providerState = integration === undefined || projectProvider === undefined
+  const projectProvider = project.gitAccount?.source === 'custom' ? project.gitAccount.provider : project.settings.gitProvider ?? integration?.git.provider;
+  const providerState = project.gitAccount?.source === 'custom' ? { configured: project.gitAccount.credentialSaved, authState: '项目独立凭据 · 尚未验证当前仓库' } : integration === undefined || projectProvider === undefined
     ? undefined
     : projectProvider === 'github' ? integration.git.github : integration.git.gitlab;
   const accountTone: BadgeTone = integrationLoading
@@ -1518,7 +1494,7 @@ export function ProjectDetailPage() {
                 <dt>Git 状态</dt>
                 <dd>{GIT_STATE_LABEL[project.gitState]}{gitStateDetail === undefined ? '' : ` · ${gitStateDetail}`}</dd>
                 <dt>Git Provider</dt>
-                <dd>{project.settings.gitProvider === undefined ? '继承全局默认' : PROVIDER_LABEL[project.settings.gitProvider]}</dd>
+                <dd>{project.gitAccount?.source === 'custom' ? `独立${PROVIDER_LABEL[project.gitAccount.provider]}账号` : '继承全局默认'}</dd>
                 <dt>默认流程方法</dt>
                 <dd className="mono">{project.settings.defaultMethodId ?? '未设置（跟随目录默认）'}</dd>
                 <dt>更新时间</dt>

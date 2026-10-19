@@ -59,6 +59,7 @@ export interface GitCommitInput {
 }
 
 export interface GitPushInput {
+  readonly projectId?: string;
   readonly repoRoot: string;
   readonly localSha: string;
   readonly remote: string;
@@ -101,7 +102,7 @@ export interface GitPort {
   worktreeChangedFiles(input: { readonly worktreePath: string; readonly baseSha: string }): Promise<{ readonly files: readonly FileChange[]; readonly changesRevision: string }>;
   commit(input: GitCommitInput): Promise<{ readonly sha: string }>;
   push(input: GitPushInput): Promise<{ readonly remoteRef: string; readonly pushedSha: string; readonly created: boolean }>;
-  fetch?(input: { readonly repoRoot: string; readonly remote?: string; readonly prune?: boolean }): Promise<{ readonly fetchedAt: string }>;
+  fetch?(input: { readonly projectId?: string; readonly repoRoot: string; readonly remote?: string; readonly prune?: boolean }): Promise<{ readonly fetchedAt: string }>;
   createMergeRequest?(input: { readonly repoRoot: string; readonly sourceBranch: string; readonly targetBranch: string; readonly title: string; readonly description: string }): Promise<{ readonly iid: number; readonly webUrl: string }>;
   mergeTaskBranch?(input: {
     readonly repoRoot: string;

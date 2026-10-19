@@ -85,7 +85,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   };
 
   const remoteService = new RemoteService(store);
-  const git = new GitCliAdapter(baseSettings.git.commandTimeoutMs, `${dataDir}/merge-tmp`, () => remoteService.currentToken());
+  const git = new GitCliAdapter(baseSettings.git.commandTimeoutMs, `${dataDir}/merge-tmp`, (repoRoot, remoteUrl, projectId) => remoteService.authForRoot(repoRoot, remoteUrl, projectId));
   const databaseService = new DatabaseService({ settings: baseSettings.database, secrets: store.secrets });
   const database: DatabasePort = createDatabasePort(databaseService);
   const engine = new Engine({

@@ -51,7 +51,8 @@ function buildPatch(fields: readonly DraftField[]): Record<string, unknown> {
       const key = parts[index];
       if (key === undefined) continue;
       if (index === parts.length - 1) {
-        cursor[key] = field.path === 'git.network.allowedHttpHosts' && typeof field.value === 'string' ? field.value.split('\n').map((host) => host.trim().toLowerCase()).filter(Boolean) : field.value;
+        const lines = typeof field.value === 'string' ? field.value.split('\n').map(line => line.trim()).filter(Boolean) : undefined;
+        cursor[key] = field.path === 'git.network.allowedHttpHosts' && lines ? lines.map(host => host.toLowerCase()) : field.path === 'server.allowedProjectRoots' && lines ? lines : field.value;
       } else {
         const existing = cursor[key];
         if (typeof existing !== 'object' || existing === null) cursor[key] = {};
@@ -69,7 +70,7 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
 
   useEffect(() => {
     // These draft rows contain execution/monitoring limits, never credential inputs.
-    const safeFields = Object.fromEntries(Object.entries(fields).filter(([path]) => path.startsWith('execution.') || path.startsWith('monitoring.') || path.startsWith('git.network.') || path.startsWith('git.gitlab.')));
+    const safeFields = Object.fromEntries(Object.entries(fields).filter(([path]) => path.startsWith('execution.') || path.startsWith('monitoring.') || path.startsWith('git.network.') || path.startsWith('git.gitlab.') || path === 'server.allowedProjectRoots'));
     try { sessionStorage.setItem(draftStorageKey, JSON.stringify(safeFields)); } catch { /* current draft remains in memory */ }
   }, [fields]);
   const setField = (field: DraftField) => {

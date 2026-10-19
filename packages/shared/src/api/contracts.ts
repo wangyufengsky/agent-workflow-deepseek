@@ -1985,6 +1985,8 @@ export const ROUTES = {
   projects: '/api/projects',
   projectSourcePath: (id: string, path?: string) => `/api/projects/${encodeURIComponent(id)}/source-path${path === undefined ? '' : `?path=${encodeURIComponent(path)}`}`,
   project: (id: string) => `/api/projects/${encodeURIComponent(id)}`,
+  projectGitAccount: (id: string) => `/api/projects/${id}/git-account`,
+  projectGitAccountTest: (id: string) => `/api/projects/${id}/git-account/test`,
   projectBindingCheck: (id: string) => `/api/projects/${encodeURIComponent(id)}/binding/check`,
   tasks: '/api/tasks',
   taskArchive: (id: string) => `/api/tasks/${encodeURIComponent(id)}/archive`,

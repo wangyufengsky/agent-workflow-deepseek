@@ -148,6 +148,7 @@ export class DeliveryService {
     if (project.gitState !== 'git') throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '非 Git 项目不支持推送');
     try {
       const result = await this.#git.push({
+        projectId: task.projectId,
         repoRoot: project.rootPath,
         localSha: input.expectedLocalSha,
         remote: 'origin',
