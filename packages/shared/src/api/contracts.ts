@@ -864,6 +864,8 @@ export interface PptAttachmentRequest extends CommandRequest {
 }
 
 export interface PptWorkUpdateRequest extends CommandRequest {
+  readonly cover?: import('../domain/models.ts').PptSlide;
+  readonly plan?: import('../domain/models.ts').PptProductionPlan;
   readonly expectedRevision?: number;
   readonly brief?: import('../domain/models.ts').PptBrief;
   readonly direction?: import('../domain/enums.ts').PptVisualDirectionValue;
@@ -873,6 +875,10 @@ export interface PptWorkUpdateRequest extends CommandRequest {
   readonly outline?: readonly string[];
   readonly theme?: ThemeIdValue;
   readonly confirmUpdate: true;
+}
+
+export interface PptWorkStopRequest extends CommandRequest {
+  readonly confirmStop: true;
 }
 
 export interface PptWorkManageRequest extends CommandRequest {
@@ -1860,6 +1866,7 @@ export const ROUTES = {
   pptWorkAttachments: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/attachments`,
   pptWorkAttachment: (id: string, name: string) => `/api/ppt/works/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`,
   pptWorkUpdate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
+  pptWorkStop: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/stop`,
   pptWorkGenerate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate`,
   taskAcceptance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/acceptance`,
   taskPlanFreeze: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/freeze`,

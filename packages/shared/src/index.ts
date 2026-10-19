@@ -15,3 +15,4 @@ export * from './api/contracts.ts';
 export * from './domain/access.ts';
 
 export * from './domain/snapshot.ts';
+export * from './domain/ppt-renderer.ts';

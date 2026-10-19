@@ -622,6 +622,7 @@ export const OperationKind = {
   PPT_WORK_RESTORE: 'ppt.work.restore',
   PPT_WORK_DELETE: 'ppt.work.delete',
   PPT_WORK_GENERATE: 'ppt.work.generate',
+  PPT_WORK_STOP: 'ppt.work.stop',
   PPT_WORK_UPDATE: 'ppt.work.update',
   PPT_WORK_SLIDES: 'ppt.work.slides',
   PPT_ATTACHMENT_ADD: 'ppt.attachment.add',
@@ -703,6 +704,7 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'ppt.work.restore': op('ppt.work.restore', 'global', true, '恢复PPT内容版本'),
   'ppt.work.create': op('ppt.work.create', 'project', true, '创建 PPT 草稿'),
   'ppt.work.delete': op('ppt.work.delete', 'project', true, '删除 PPT 草稿'),
+  'ppt.work.stop': op('ppt.work.stop', 'project', true, '停止PPT生成并核对原运行'),
   'ppt.work.generate': op('ppt.work.generate', 'project', true, '生成 PPT 大纲（只读模型）'),
   'ppt.work.update': op('ppt.work.update', 'project', true, '编辑 PPT 草稿/大纲'),
   'ppt.work.slides': op('ppt.work.slides', 'project', true, '生成 PPT 逐页内容（只读模型）'),
@@ -803,3 +805,12 @@ export const SnapshotReviewDepth = { FULL: 'full', LIGHTWEIGHT: 'lightweight' } 
 export type SnapshotReviewDepthValue = (typeof SnapshotReviewDepth)[keyof typeof SnapshotReviewDepth];
 export const SnapshotReviewStage = { ANALYSIS: 'analysis', VERIFICATION: 'verification', REPORT: 'report' } as const;
 export type SnapshotReviewStageValue = (typeof SnapshotReviewStage)[keyof typeof SnapshotReviewStage];
+export const PptSlideLayout = { TITLE: 'title', TEXT: 'text', COLUMNS: 'columns', CARDS: 'cards', FLOW: 'flow', IMAGE: 'image' } as const;
+export type PptSlideLayoutValue = (typeof PptSlideLayout)[keyof typeof PptSlideLayout];
+export const PptTextColor = { PRIMARY: 'primary', ACCENT: 'accent', MUTED: 'muted' } as const;
+export const PptTextAlign = { LEFT: 'left', CENTER: 'center', RIGHT: 'right' } as const;
+export const PptPlanModules = { BRIEF: 'brief', NARRATIVE: 'narrative', SLIDES: 'slides', VISUAL: 'visual', ASSETS: 'assets', NOTES: 'notes', DELIVERY: 'delivery' } as const;
+
+export const PptGenerationStatus = { RUNNING:'running', STOPPING:'stopping', UNKNOWN:'unknown', STOPPED:'stopped', COMPLETED:'completed', FAILED:'failed' } as const;
+export type PptGenerationStatusValue = (typeof PptGenerationStatus)[keyof typeof PptGenerationStatus];
+export const PPT_GENERATION_TERMINAL = [PptGenerationStatus.COMPLETED,PptGenerationStatus.FAILED,PptGenerationStatus.STOPPED] as const;

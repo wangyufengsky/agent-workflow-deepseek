@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { pendingCommands } from '../../api/pending-commands.ts';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ROUTES,
@@ -91,7 +92,7 @@ export function PptPage() {
     queryKey: WORKS_QUERY_KEY,
     queryFn: async () => (await apiGet<{ works: readonly PptWork[] }>(ROUTES.pptWorks)).data.works,
     retry: false,
-    refetchInterval: (query) => (query.state.data?.some((work) => work.status === 'generating') === true ? 5_000 : false),
+    refetchInterval: (query) => (query.state.data?.some((work) => work.status === 'generating' || work.mutationBlock !== undefined) === true ? 1_500 : false),
   });
   const projectsQuery = useProjects();
   const projects = projectsQuery.data ?? [];
@@ -107,6 +108,18 @@ export function PptPage() {
   const [receipt, setReceipt] = useState<PptReceiptState | null>(null);
   const [lastResult, setLastResult] = useState<PptCommandSignal | null>(null);
   const busyRef = useRef<PptCommandKind | null>(null);
+  const commandEpoch = useRef(0);
+  const activeWorkRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (busyRef.current !== 'generate' && busyRef.current !== 'generateSlides') return;
+    const stopped=worksQuery.data?.find(work=>work.id===activeWorkRef.current)?.generation;
+    if(stopped?.status!=='stopped')return;
+    const epoch=commandEpoch.current;
+    void apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(stopped.requestKey)).then(response=>{
+      if(commandEpoch.current!==epoch || response.data.operation.status!=='succeeded' || response.data.operation.outcome?.stopped!==true)return;
+      commandEpoch.current+=1;busyRef.current=null;setBusyKind(null);
+    }).catch(()=>undefined);
+  },[worksQuery.data]);
 
   const selectedWork = selectedId === null ? undefined : works.find((work) => work.id === selectedId);
   const viewOptions: readonly SegmentOption<PptView>[] = [
@@ -120,13 +133,17 @@ export function PptPage() {
 
   const runCommand = async (command: PptCommand): Promise<void> => {
     if (busyRef.current !== null) return;
+    const epoch=++commandEpoch.current;
+    activeWorkRef.current='workId' in command ? command.workId : undefined;
     busyRef.current = command.kind;
     setBusyKind(command.kind);
+    if (command.kind === 'generate' || command.kind === 'generateSlides') window.setTimeout(() => { void refreshWorks(); }, 150);
     setReceipt(null);
     const label = PPT_COMMAND_LABEL[command.kind];
     const requestKey = pptCommandRequestKey(command) ?? createRequestKey();
     try {
       const rawReceipt = await executePptCommand(command, requestKey);
+      if(epoch!==commandEpoch.current)return;
       const receiptView = toPptReceipt(rawReceipt);
       const outcome: PptCommandOutcome = receiptView.status;
       let signalMessage: string | undefined;
@@ -148,7 +165,7 @@ export function PptPage() {
           outcome,
           receipt: receiptView,
           requestKey: receiptView.requestKey,
-          message: '回执已结算，作品列表已刷新。',
+          message: rawReceipt.outcome?.stopped === true ? '原生成已核对停止，已有内容保留；未采用迟到生成结果。' : '回执已结算，作品列表已刷新。',
         });
       } else if (outcome === 'accepted') {
         signalMessage = '服务已接受但尚未结算：界面不会重复提交，请稍后刷新作品列表核对。';
@@ -169,8 +186,10 @@ export function PptPage() {
       }
       setLastResult({ kind: command.kind, outcome, ...(signalMessage === undefined ? {} : { message: signalMessage }), at: Date.now() });
     } catch (error) {
+      if(epoch!==commandEpoch.current)return;
+      const effectiveKey=error instanceof ApiClientError && typeof error.details?.requestKey==='string' ? error.details.requestKey : requestKey;
       const failureKind = error instanceof ApiClientError ? error.kind : null;
-      const unresolved = failureKind === 'timeout' || failureKind === 'unavailable';
+      const unresolved = pendingCommands().some(item=>item.requestKey===effectiveKey) || failureKind === 'timeout' || failureKind === 'unavailable';
       const outcome: PptCommandOutcome = unresolved ? 'unknown' : 'failed';
       const detail = errorMessage(error);
       const message = unresolved
@@ -178,11 +197,10 @@ export function PptPage() {
           ? '没有收到服务回执：结果未明，界面不会自动重发。该命令的请求号由服务端生成且未返回，请刷新作品列表按真实状态核对。'
           : '没有收到服务回执：结果未明，界面不会自动重发。可用请求号核对原操作，再按读口刷新作品列表。'
         : detail;
-      setReceipt({ label, outcome, requestKey, message });
+      setReceipt({ label, outcome, requestKey: effectiveKey, message });
       setLastResult({ kind: command.kind, outcome, message, at: Date.now() });
     } finally {
-      busyRef.current = null;
-      setBusyKind(null);
+      if(epoch===commandEpoch.current){busyRef.current = null;setBusyKind(null);}
     }
   };
 

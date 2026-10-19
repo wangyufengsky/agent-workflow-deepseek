@@ -17,7 +17,7 @@ import {
 } from './ppt-shared.tsx';
 
 const MAX_ATTACHMENTS = 10;
-const MAX_OUTLINE_ITEMS = 40;
+const MAX_OUTLINE_ITEMS = 100;
 
 export interface PptStepCommonProps {
   readonly work: PptWork;
@@ -167,7 +167,7 @@ export function PptStepDiscussion({ work, busyKind, blocked, blockedReason, proj
         >
           {busyKind === 'update' ? '正在保存…' : '保存修改'}
         </Button>
-        <Button variant="secondary" iconAfter="arrowRight" disabled={blocked} disabledReason={blockedReason} onClick={onNext}>
+        <Button variant="secondary" iconAfter="arrowRight" disabled={blocked || work.actions?.design.allowed===false} disabledReason={blockedReason ?? work.actions?.design.reason} onClick={onNext}>
           下一步：设计方案
         </Button>
         <span className="hint">保存与生成都会返回真实回执；回执显示在页面顶部。</span>
@@ -243,8 +243,8 @@ export function PptStepDesign({ work, busyKind, blocked, blockedReason, onComman
           <Button
             variant="primary"
             icon="wand"
-            disabled={blocked}
-            disabledReason={blockedReason}
+            disabled={blocked || work.actions?.generate.allowed===false}
+            disabledReason={blockedReason ?? work.actions?.generate.reason}
             onClick={() => {
               onCommand({ kind: 'generate', workId: work.id, body: { expectedRevision: work.revision ?? 1, requestKey: createRequestKey(), confirmGenerate: true } });
             }}
@@ -274,9 +274,9 @@ export function PptStepDesign({ work, busyKind, blocked, blockedReason, onComman
           <Button
             variant="secondary"
             icon="layers"
-            disabled={blocked || work.outline.length === 0}
+            disabled={blocked || work.outline.length === 0 || work.actions?.generateSlides.allowed===false}
             disabledReason={
-              blockedReason ??
+              blockedReason ?? work.actions?.generateSlides.reason ??
               (work.outline.length === 0 ? '先生成或编辑大纲；服务要求至少 1 条大纲才能生成逐页内容。' : undefined)
             }
             onClick={() => {

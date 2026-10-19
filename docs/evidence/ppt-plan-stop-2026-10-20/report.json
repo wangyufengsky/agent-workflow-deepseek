@@ -1,0 +1,12 @@
+{
+  "modules": 7,
+  "invalidAccentBlocked": true,
+  "planPersisted": true,
+  "objectTitle": "手工对象标题",
+  "objectStyle": {
+    "fontSize": 40,
+    "color": "accent",
+    "align": "center"
+  },
+  "errors": []
+}

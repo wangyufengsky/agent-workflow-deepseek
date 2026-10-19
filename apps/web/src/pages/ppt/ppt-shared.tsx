@@ -200,6 +200,7 @@ export interface PptCommandSignal {
 /* ------------------------------------------------------------------ */
 
 export interface PptReceiptView {
+  readonly stopped?: boolean;
   readonly requestKey: string;
   readonly operation: string;
   readonly status: ReceiptStatusValue;
@@ -210,6 +211,7 @@ export interface PptReceiptView {
 
 export function toPptReceipt(receipt: OperationReceipt): PptReceiptView {
   return {
+    stopped: receipt.outcome?.stopped === true,
     requestKey: receipt.requestKey,
     operation: receipt.operation,
     status: receipt.status,
@@ -220,6 +222,7 @@ export function toPptReceipt(receipt: OperationReceipt): PptReceiptView {
 }
 
 export interface PptOperationLookup {
+  readonly stopped?: boolean;
   readonly requestKey: string;
   readonly operation: string;
   readonly status: ReceiptStatusValue;
@@ -229,6 +232,7 @@ export interface PptOperationLookup {
 
 export function toPptLookup(record: OperationRecord): PptOperationLookup {
   return {
+    stopped: record.outcome?.stopped === true,
     requestKey: record.requestKey,
     operation: record.operation,
     status: record.status,
@@ -256,7 +260,7 @@ const OUTCOME_META: Record<PptCommandOutcome, { readonly title: string; readonly
 };
 
 function lookupTitle(lookup: PptOperationLookup): string {
-  if (lookup.status === 'succeeded') return '原操作已结算成功';
+  if (lookup.status === 'succeeded') return lookup.stopped ? '原生成已停止，已有内容保留' : '原操作已结算成功';
   if (lookup.status === 'failed') return '原操作明确失败';
   if (lookup.status === 'accepted') return '原操作仍在处理';
   return '仍然未知';
@@ -285,7 +289,7 @@ export function PptReceiptBanner({ state, onVerify, onDismiss }: PptReceiptBanne
       <Icon name={meta.icon} />
       <div className="grow">
         <b>
-          {meta.title} · {state.label}
+          {state.receipt?.stopped ? '已停止' : meta.title} · {state.label}
         </b>
         {state.receipt === undefined && state.requestKey === undefined ? null : (
           <div className="ppt-meta mono" style={{ marginTop: 2 }}>

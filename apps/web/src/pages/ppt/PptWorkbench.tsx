@@ -1,3 +1,5 @@
+import { PptPlanDrawer } from './PptPlanDrawer.tsx';
+import { PptGenerationControls } from './PptGenerationControls.tsx';
 import { PptVersions } from './PptProductionPanels.tsx';
 import { useState } from 'react';
 import type { PptWork } from '@agent-workflow/shared';
@@ -36,6 +38,7 @@ const STEP_TITLES: Record<PptStageKey, { readonly title: string; readonly hint: 
 
 export function PptWorkbench({ work, projectName, busyKind, lastResult, onCommand, onBack }: PptWorkbenchProps) {
   const progress = derivePptProgress(work);
+  const [planOpen,setPlanOpen] = useState(false);
   const [activeStep, setActiveStep] = useState<PptStageKey>(progress.current);
   const status = pptStatusMeta(work.status);
   const generating = work.status === 'generating';
@@ -50,6 +53,8 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
 
   return (
     <div className="ppt-workbench">
+      <PptPlanDrawer {...{work,blocked,onCommand}} open={planOpen} onClose={()=>setPlanOpen(false)} />
+      <PptGenerationControls work={work} />
       <section className="card pad ppt-wb-head" aria-label="工作台页头">
         <div className="row wrap" style={{ gap: 10, alignItems: 'flex-start' }}>
           <Button variant="ghost" size="sm" icon="arrowLeft" onClick={onBack}>
@@ -79,6 +84,7 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
             >
               资料 {String(work.attachments.length)}
             </Button>
+            <Button variant="secondary" size="sm" icon="layers" onClick={() => setPlanOpen(true)}>制作方案</Button>
             <Button
               variant="primary"
               size="sm"

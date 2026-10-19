@@ -1,8 +1,11 @@
-import { checkPpt, pptPalette, pptPages, pptPageLayout, renderPptPage } from './ppt-renderer.ts';
+import { validatePlan, validateSlideExtras } from './ppt-plan.ts';
+import { PptGenerationCoordinator } from './ppt-generation.ts';
+import { checkPpt, pptPalette, pptPages, pptPageLayout, pptLineColor, renderPptPage } from './ppt-renderer.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppError, ErrorCode, nowIso, type CommandResponse, type PptWork, type PptWorkCreateRequest, type PptWorkGenerateRequest,
   type PptWorkUpdateRequest,
+  type PptWorkStopRequest, type PptProductionPlan,
   type PptWorkManageRequest, type PptBrief, type PptVisualDirectionValue,
   type PptWorkGenerateContentRequest,
   type PptAttachmentRequest,
@@ -19,12 +22,14 @@ export class PptService {
   readonly #commands: CommandService;
   readonly #context: EngineContext;
   readonly #opencode: OpenCodePort;
+  readonly #generation: PptGenerationCoordinator;
 
   constructor(store: Store, commands: CommandService, context: EngineContext, opencode: OpenCodePort) {
     this.#store = store;
     this.#commands = commands;
     this.#context = context;
     this.#opencode = opencode;
+    this.#generation = new PptGenerationCoordinator(store, commands, opencode);
   }
 
   /**
@@ -68,7 +73,12 @@ export class PptService {
   list(): PptWorksResponse {
     return { works: this.#store.pptWorks.list().map((work) => {
       const pending = this.#store.operations.listPending().find((record) => record.target.ref === work.id && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides'));
-      return pending === undefined ? work : { ...work, mutationBlock: { requestKey: pending.requestKey, reason: '原生成尚未核对结束；只能按原请求号核对，不能重新派发' } };
+      const missing=this.#missingBrief(work);
+      const reason=missing.length ? `先补全并保存需求简报：${missing.join('、')}` : undefined;
+      const actions={ generate: reason ? {allowed:false,reason} : {allowed:true}, generateSlides: reason ? {allowed:false,reason} : work.plan && !work.plan.confirmed ? {allowed:false,reason:'先保存并确认制作方案'} : {allowed:true}, design: reason ? {allowed:false,reason} : {allowed:true} };
+      const generation = this.#generation.state(work.id);
+      const projected = generation && !['completed', 'failed'].includes(generation.status) ? { ...work, generation: { requestKey: generation.requestKey, stopRequestKey: generation.stopRequestKey, status: generation.status as 'running' | 'stopping' | 'unknown' | 'stopped', startedAt: generation.startedAt } } : work;
+      return pending === undefined ? {...projected,actions} : { ...projected,actions, mutationBlock: { requestKey: pending.requestKey, reason: '原生成尚未核对结束；只能按原请求号核对，不能重新派发' } };
     }) };
   }
 
@@ -92,6 +102,7 @@ export class PptService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.list().works };
   }
 
+  exportFilename(id: string) { const work=this.#requireWork(id); return `${(work.plan?.delivery.filename || work.title).replace(/[\\/:*?"<>|]/g,'_').trim().slice(0,60) || '演示'}.pptx`; }
   async exportPptx(id: string): Promise<Buffer> {
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
@@ -111,14 +122,13 @@ export class PptService {
       const target = pptx.addSlide();
       (target as unknown as { background?: unknown }).background = { color: palette.bg };
       const layout = pptPageLayout(page, index === 0);
-      for (const line of layout.title) target.addText(line.text, { x: line.x, y: line.y, w: 12, h: line.height, fontFace: 'Arial', fontSize: line.size, color: palette.accent, margin: 0, breakLine: false });
-      for (const line of layout.body) target.addText(line.text, { x: line.x, y: line.y, w: 12, h: line.height, fontFace: 'Arial', fontSize: line.size, color: palette.text, margin: 0, breakLine: false });
-      target.addText(String(index + 1), { x: 12.5, y: 7, w: 0.5, h: 0.3, fontFace: 'Arial', fontSize: 12, color: palette.text });
+      for (const line of [...layout.title, ...layout.body, ...layout.tag]) target.addText(line.text, { x: line.x, y: line.y, w: line.width, h: line.height, align: line.align, fontFace: work.plan?.visual.fontFace ?? 'Arial', fontSize: line.size, color: pptLineColor(line.color,palette), transparency: line.color === 'muted' ? 35 : 0, margin: 0, breakLine: false });
+      target.addText(String(index + 1), { x: 12.5, y: 7, w: 0.5, h: 0.3, fontFace: work.plan?.visual.fontFace ?? 'Arial', fontSize: 12, color: palette.text });
       if (page.imageName) {
         const image = work.attachments.find((item) => item.kind === 'image' && item.name === page.imageName);
         if (image) (target as unknown as { addImage: (options: Record<string, unknown>) => void }).addImage({ data: image.content, x: 7, y: 1.6, w: 5.5, h: 4.8 });
       }
-      if (page.notes) (target as unknown as { addNotes: (text: string) => void }).addNotes(page.notes);
+      if (page.notes && work.plan?.delivery.includeNotes !== false) (target as unknown as { addNotes: (text: string) => void }).addNotes(page.notes);
     }
     return pptx.write({ outputType: 'nodebuffer' });
   }
@@ -126,7 +136,7 @@ export class PptService {
   exportMarkdown(id: string): { filename: string; content: string } {
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
-    const safe = work.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60) || '演示';
+    const safe = (work.plan?.delivery.filename || work.title).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60) || '演示';
     const outline = work.outline.length === 0 ? '（尚未生成大纲）' : work.outline.map((slide, index) => `## ${String(index + 1)}. ${slide}`).join('\n\n');
     return {
       filename: `${safe}.md`,
@@ -180,23 +190,30 @@ export class PptService {
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
     this.#assertEditable(work, input.expectedRevision);
+    const plan = input.plan === undefined ? work.plan : validatePlan(input.plan);
+    if (work.plan?.confirmed && plan?.confirmed && (
+      JSON.stringify(work.plan.directions) !== JSON.stringify(plan.directions) || work.plan.duration !== plan.duration || work.plan.pageCount !== plan.pageCount || work.plan.requirements !== plan.requirements ||
+      (input.brief !== undefined && JSON.stringify(input.brief) !== JSON.stringify(work.brief)) || (input.direction !== undefined && input.direction !== work.direction)
+    )) throw new AppError(ErrorCode.CONFLICT, '制作目标与整体方向已确认；请先重新打开方案');
     const brief = input.brief === undefined ? work.brief : validateBrief(input.brief);
     const direction = input.direction === undefined ? work.direction : validateDirection(input.direction);
+    const cover = input.cover === undefined ? work.cover : validateSlides([input.cover])[0];
     const slides = input.slides === undefined ? work.slides : validateSlides(input.slides);
     const title = input.title === undefined ? work.title : input.title.trim();
     if (title === '' || title.length > 120) throw new AppError(ErrorCode.VALIDATION_FAILED, 'PPT 标题长度需要在 1–120 之间');
     const topic = input.topic === undefined ? work.topic : input.topic.trim();
     if (topic.length > 2_000) throw new AppError(ErrorCode.VALIDATION_FAILED, 'PPT 主题过长');
-    const outline = input.outline === undefined ? work.outline : input.outline.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 40);
+    if (input.outline !== undefined && (!Array.isArray(input.outline) || input.outline.length > 100 || input.outline.some((item) => typeof item !== 'string' || !item.trim() || item.length > 200))) throw new AppError(ErrorCode.VALIDATION_FAILED, '大纲需要1–100页以内的有效标题，每项最多200字');
+    const outline = input.outline === undefined ? work.outline : input.outline.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 100);
     const theme = input.theme === undefined ? work.theme : validateTheme(input.theme);
     const { replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'ppt.work.update',
-      body: { workId: id, title, topic, outline, theme, brief, direction, slides, expectedRevision: input.expectedRevision },
+      body: { workId: id, title, topic, outline, theme, brief, direction, slides, plan, cover, expectedRevision: input.expectedRevision },
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
-    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline, theme, brief, direction, slides });
+    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline, theme, brief, direction, slides, plan, cover });
     this.#commands.settle(input.requestKey, { workId: id, slides: outline.length });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
   }
@@ -206,10 +223,12 @@ export class PptService {
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
     this.#assertEditable(work, input.expectedRevision);
+    if (work.plan && !work.plan.confirmed) throw new AppError(ErrorCode.VALIDATION_FAILED, '先保存并确认制作方案');
     if (work.outline.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '先生成或编辑大纲');
     if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法生成逐页内容');
     const model = this.#context.settings().models.find((item) => item.enabled && item.roles.includes('planner')) ?? this.#context.settings().models.find((item) => item.enabled);
     if (model === undefined) throw new AppError(ErrorCode.MODEL_NOT_CONFIGURED, '没有启用的模型可用于 PPT 内容');
+    this.#assertBrief(work);
     const { replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'ppt.work.slides',
@@ -217,6 +236,7 @@ export class PptService {
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    this.#generation.begin(id, input.requestKey);
     this.#store.pptWorks.update({ ...work, status: 'generating' });
     try {
       const documents = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.filter((attachment) => attachment.kind === 'text').map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
@@ -224,22 +244,28 @@ export class PptService {
         kind: 'review',
         metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.slides' },
         cwd: this.#store.projects.get(work.projectId ?? '')?.rootPath ?? this.#store.dataDir,
-        prompt: `需求简报：${JSON.stringify(work.brief ?? {})}\n视觉方向：${work.direction ?? '未选择'}\n演示标题：${work.title}\n主题：${work.topic}\n大纲：\n${work.outline.map((slide, index) => `${String(index + 1)}. ${slide}`).join('\n')}\n\n项目资料：\n${documents.join('\n\n') || '（无）'}`,
+        prompt: `制作方案：${JSON.stringify(work.plan ?? {})}\n需求简报：${JSON.stringify(work.brief ?? {})}\n视觉方向：${work.direction ?? '未选择'}\n演示标题：${work.title}\n页面方案与逐页依据：${JSON.stringify(work.slides)}\n主题：${work.topic}\n大纲：\n${work.outline.map((slide, index) => `${String(index + 1)}. ${slide}`).join('\n')}\n\n项目资料：\n${documents.join('\n\n') || '（无）'}`,
         system: '你是演示内容助手。只输出 JSON：{"slides":[{"title":"页标题","bullets":["要点1","要点2"]}]}，与给定大纲一一对应，每页 2–6 条要点，不要 Markdown。',
         model,
         permission: 'read_only',
-        sink: {},
+        onSessionId: this.#generation.bind(id, input.requestKey),
+        sink: { onIdle: () => this.#generation.onIdle(id, input.requestKey) },
         timeoutMs: 120_000,
       });
+      if (this.#generation.ignoreLate(id,input.requestKey)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
+      if (this.#generation.afterResult(id, result.outcome)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
       if (!result.outcome.idle || result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '逐页内容生成超时');
       if (result.outcome.error !== undefined && result.outcome.error !== '') throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `逐页生成失败：${result.outcome.error}`);
       const slides = extractSlides(result.outcome.assistantText ?? '');
       if (slides.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '模型输出没有可用逐页内容');
       const updated = this.#store.pptWorks.update({ ...work, status: 'ready', slides, usage: usageFromMessages(result.outcome.messages) });
+      this.#generation.complete(id);
       this.#commands.settle(input.requestKey, { workId: id, slides: slides.length });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
     } catch (error) {
+      if (this.#generation.ignoreLate(id,input.requestKey) || this.#generation.stopped(id)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
       const unknown = !(error instanceof AppError && (error.code === ErrorCode.VALIDATION_FAILED || error.code === ErrorCode.OPENCODE_PROVIDER_FAILED));
+      this.#generation.fail(id, unknown);
       this.#store.pptWorks.update({ ...work, status: unknown ? 'generating' : 'failed' });
       this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('逐页内容生成失败'), unknown);
       throw error;
@@ -254,6 +280,7 @@ export class PptService {
     if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法生成大纲');
     const model = this.#context.settings().models.find((item) => item.enabled && item.roles.includes('planner')) ?? this.#context.settings().models.find((item) => item.enabled);
     if (model === undefined) throw new AppError(ErrorCode.MODEL_NOT_CONFIGURED, '没有启用的模型可用于 PPT 大纲');
+    this.#assertBrief(work);
     const { replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'ppt.work.generate',
@@ -261,6 +288,7 @@ export class PptService {
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    this.#generation.begin(id, input.requestKey);
     this.#store.pptWorks.update({ ...work, status: 'generating' });
     try {
       const context = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.filter((attachment) => attachment.kind === 'text').map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
@@ -268,22 +296,28 @@ export class PptService {
         kind: 'review',
         metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.outline' },
         cwd: this.#store.projects.get(work.projectId ?? '')?.rootPath ?? this.#store.dataDir,
-        prompt: `需求简报：${JSON.stringify(work.brief ?? {})}\n视觉方向：${work.direction ?? '未选择'}\n演示标题：${work.title}\n演示主题：${work.topic}\n\n项目资料（只读）：\n${context.join('\n\n') || '（没有项目资料，只根据标题/主题生成）'}`,
-        system: '你是演示结构设计助手。只输出 JSON：{"outline":["第1页标题","第2页标题", ...]}，6–12 页，不要 Markdown、不要解释。',
+        prompt: `制作方案：${JSON.stringify(work.plan ?? {})}\n需求简报：${JSON.stringify(work.brief ?? {})}\n视觉方向：${work.direction ?? '未选择'}\n演示标题：${work.title}\n演示主题：${work.topic}\n\n项目资料（只读）：\n${context.join('\n\n') || '（没有项目资料，只根据标题/主题生成）'}`,
+        system: `你是演示结构设计助手。只输出 JSON：{"outline":["第1页标题","第2页标题", ...]}，${work.plan?.pageCount ?? '6–12'} 页，不要 Markdown、不要解释。`,
         model,
         permission: 'read_only',
-        sink: {},
+        onSessionId: this.#generation.bind(id, input.requestKey),
+        sink: { onIdle: () => this.#generation.onIdle(id, input.requestKey) },
         timeoutMs: 90_000,
       });
+      if (this.#generation.ignoreLate(id,input.requestKey)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
+      if (this.#generation.afterResult(id, result.outcome)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
       if (!result.outcome.idle || result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, 'PPT 大纲生成超时');
       if (result.outcome.error !== undefined && result.outcome.error !== '') throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `大纲生成失败：${result.outcome.error}`);
       const parsed = extractOutline(result.outcome.assistantText ?? '');
       if (parsed.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '模型输出没有可用大纲');
       const updated = this.#store.pptWorks.update({ ...work, status: 'ready', outline: parsed, usage: usageFromMessages(result.outcome.messages) });
+      this.#generation.complete(id);
       this.#commands.settle(input.requestKey, { workId: id, slides: parsed.length });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
     } catch (error) {
+      if (this.#generation.ignoreLate(id,input.requestKey) || this.#generation.stopped(id)) return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#requireWork(id) };
       const unknown = !(error instanceof AppError && (error.code === ErrorCode.VALIDATION_FAILED || error.code === ErrorCode.OPENCODE_PROVIDER_FAILED));
+      this.#generation.fail(id, unknown);
       this.#store.pptWorks.update({ ...work, status: unknown ? 'generating' : 'failed' });
       this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('大纲生成失败'), unknown);
       throw error;
@@ -302,6 +336,8 @@ export class PptService {
     }).filter((text) => text !== '');
   }
 
+  stop(id: string, input: PptWorkStopRequest) { this.#requireWork(id); return this.#generation.stop(id, input); }
+  reconcileOperation(key: string) { return this.#generation.reconcile(key); }
   check(id: string) { return checkPpt(this.#requireWork(id)); }
   thumbnail(id: string, page = 0, direction?: unknown) { const saved = this.#requireWork(id); const work = direction === undefined ? saved : { ...saved, direction: validateDirection(direction) }; if (!Number.isInteger(page) || page < 0 || page >= pptPages(work).length) throw new AppError(ErrorCode.NOT_FOUND, '页面不存在'); return renderPptPage(work, page); }
   manage(id: string, action: 'copy' | 'archive' | 'restore', input: PptWorkManageRequest): CommandResponse<PptWork> {
@@ -323,13 +359,15 @@ export class PptService {
         this.#assertEditable(work);
         const version = work.versions?.find((item) => item.revision === input.revision);
         if (version === undefined) throw new AppError(ErrorCode.NOT_FOUND, '内容版本未保留');
-        updated = this.#store.pptWorks.update({ ...work, ...version, brief: version.brief, direction: version.direction, id: work.id, versions: work.versions, archived: work.archived });
+        updated = this.#store.pptWorks.update({ ...work, ...version, brief: version.brief, direction: version.direction, plan: version.plan, cover: version.cover, id: work.id, versions: work.versions, archived: work.archived });
       }
       this.#commands.settle(input.requestKey, { workId: updated.id, revision: updated.revision });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
     } catch (error) { this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('作品操作失败')); throw error; }
   }
   #requireWork(id: string): PptWork { const work = this.#store.pptWorks.get(id); if (!work) throw new AppError(ErrorCode.NOT_FOUND, '作品不存在'); return work; }
+  #missingBrief(work: PptWork) { return ([['audience','给谁看'],['objective','想达到'],['length','篇幅'],['style','风格'],['sources','依据资料']] as const).filter(([field])=>!work.brief?.[field]?.trim()).map(([,label])=>label); }
+  #assertBrief(work: PptWork) { const fields=this.#missingBrief(work); if(fields.length)throw new AppError(ErrorCode.VALIDATION_FAILED, `先补全并保存需求简报：${fields.join('、')}`,{details:{fields}}); }
   #assertSettled(work: PptWork) {
     if (work.status === 'generating') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '作品仍在生成，原进程尚未核对结束');
     const unknown = this.#store.operations.listPending().find((record) => record.target.ref === work.id && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides'));
@@ -369,7 +407,7 @@ function extractOutline(text: string): readonly string[] {
   try {
     const parsed = JSON.parse(text.slice(start, end + 1)) as { outline?: unknown };
     if (!Array.isArray(parsed.outline)) return [];
-    return parsed.outline.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 20);
+    return parsed.outline.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 100);
   } catch {
     return [];
   }
@@ -390,7 +428,7 @@ function extractSlides(text: string): readonly PptSlide[] {
         bullets: Array.isArray(item.bullets) ? item.bullets.filter((bullet): bullet is string => typeof bullet === 'string' && bullet.trim() !== '').map((bullet) => bullet.trim().slice(0, 300)).slice(0, 8) : [],
       }))
       .filter((slide) => slide.title !== '')
-      .slice(0, 24);
+      .slice(0, 100);
   } catch {
     return [];
   }
@@ -411,6 +449,7 @@ function validateBrief(value: PptBrief): PptBrief {
 }
 function validateDirection(value: unknown): PptVisualDirectionValue { if (value === 'restrained' || value === 'editorial' || value === 'contrast') return value; throw new AppError(ErrorCode.VALIDATION_FAILED, '视觉方向不可用'); }
 function validateSlides(value: readonly PptSlide[]): readonly PptSlide[] {
-  if (!Array.isArray(value) || value.length > 40 || value.some((page) => typeof page.title !== 'string' || page.title.length > 200 || !Array.isArray(page.bullets) || page.bullets.length > 8 || page.bullets.some((bullet: unknown) => typeof bullet !== 'string' || bullet.length > 300) || (page.notes !== undefined && (typeof page.notes !== 'string' || page.notes.length > 4000)))) throw new AppError(ErrorCode.VALIDATION_FAILED, '页面内容、要点或备注超出限制');
-  return value.map((page) => ({ title: page.title, bullets: [...page.bullets], ...(page.notes === undefined ? {} : { notes: page.notes }), ...(typeof page.imageName === 'string' ? { imageName: page.imageName } : {}) }));
+  if (!Array.isArray(value) || value.length > 100 || value.some((page) => typeof page.title !== 'string' || page.title.length > 200 || !Array.isArray(page.bullets) || page.bullets.length > 8 || page.bullets.some((bullet: unknown) => typeof bullet !== 'string' || bullet.length > 300) || (page.notes !== undefined && (typeof page.notes !== 'string' || page.notes.length > 4000)))) throw new AppError(ErrorCode.VALIDATION_FAILED, '页面内容、要点或备注超出限制');
+  for (const page of value) validateSlideExtras(page);
+  return value.map((page) => ({ ...page, title: page.title, bullets: [...page.bullets], ...(page.notes === undefined ? {} : { notes: page.notes }), ...(typeof page.imageName === 'string' ? { imageName: page.imageName } : {}) }));
 }

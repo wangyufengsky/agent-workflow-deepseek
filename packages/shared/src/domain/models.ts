@@ -1134,11 +1134,36 @@ export interface FixRun {
   readonly actions: Record<string, ActionAvailability>;
 }
 
+export interface PptTextStyle {
+  readonly fontSize: number;
+  readonly color: 'primary' | 'accent' | 'muted';
+  readonly align: 'left' | 'center' | 'right';
+}
+export interface PptProductionPlan {
+  readonly confirmed: boolean;
+  readonly duration: string;
+  readonly pageCount: number;
+  readonly requirements: string;
+  readonly storyline: string;
+  readonly directions: readonly { readonly id: import('./enums.ts').PptVisualDirectionValue; readonly title: string; readonly description: string; readonly storyline: string; readonly chapters: string; readonly suggestedPages: number; readonly visual: string }[];
+  readonly chapters: readonly { readonly name: string; readonly purpose: string; readonly pages: number }[];
+  readonly visual: { readonly style: string; readonly fontFace: string; readonly accent: string; readonly density: 'sparse' | 'balanced' | 'detailed'; readonly aspect: '16:9' };
+  readonly assets: { readonly usage: string; readonly charts: string; readonly images: string };
+  readonly delivery: { readonly filename: string; readonly targetSoftware: string; readonly includeNotes: boolean };
+}
 export interface PptSlide {
   readonly title: string;
   readonly bullets: readonly string[];
   readonly notes?: string;
   readonly imageName?: string;
+  readonly chapter?: string;
+  readonly keyMessage?: string;
+  readonly sourceNames?: readonly string[];
+  readonly layout?: import('./enums.ts').PptSlideLayoutValue;
+  readonly titleStyle?: PptTextStyle;
+  readonly bodyStyle?: PptTextStyle;
+  readonly tag?: string;
+  readonly tagStyle?: PptTextStyle;
 }
 
 export interface PptAttachment {
@@ -1164,6 +1189,8 @@ export interface PptBrief {
   readonly sources: string;
 }
 export interface PptVersion {
+  readonly cover?: PptSlide;
+  readonly plan?: PptProductionPlan;
   readonly revision: number;
   readonly savedAt: IsoDateTime;
   readonly title: string;
@@ -1187,6 +1214,10 @@ export interface PptCheckReport {
 }
 
 export interface PptWork {
+  readonly actions?: { readonly generate: ActionAvailability; readonly generateSlides: ActionAvailability; readonly design: ActionAvailability };
+  readonly cover?: PptSlide;
+  readonly plan?: PptProductionPlan;
+  readonly generation?: { readonly requestKey: string; readonly stopRequestKey?: string; readonly status: 'running' | 'stopping' | 'unknown' | 'stopped'; readonly startedAt: string };
   readonly mutationBlock?: { readonly requestKey: string; readonly reason: string };
   readonly revision?: number;
   readonly brief?: PptBrief;

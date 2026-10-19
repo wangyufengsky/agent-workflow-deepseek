@@ -90,7 +90,7 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
         return;
       }
       const blob = await response.blob();
-      const filename = `${safeFilename(work.title)}.pptx`;
+      const filename = `${safeFilename(work.plan?.delivery.filename || work.title)}.pptx`;
       downloadBlob(blob, filename);
       setPptx({ phase: 'done', filename, size: blob.size });
     } catch {

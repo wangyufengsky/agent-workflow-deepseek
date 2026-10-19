@@ -67,8 +67,8 @@ export class PptWorkRepository {
     const before = this.get(work.id);
     const versions = before?.versions ?? work.versions ?? [];
     const revision = (before?.revision ?? 1) + 1;
-    const snapshot = before === undefined ? [] : [{ revision: before.revision ?? 1, savedAt: before.updatedAt, title: before.title, topic: before.topic, outline: before.outline, slides: before.slides, theme: before.theme, ...(before.brief === undefined ? {} : { brief: before.brief }), ...(before.direction === undefined ? {} : { direction: before.direction }) }];
-    const metadata = { revision, brief: work.brief, direction: work.direction, archived: work.archived ?? false, versions: [...snapshot, ...versions].slice(0, 30) };
+    const snapshot = before === undefined ? [] : [{ revision: before.revision ?? 1, savedAt: before.updatedAt, cover: before.cover, plan: before.plan, title: before.title, topic: before.topic, outline: before.outline, slides: before.slides, theme: before.theme, ...(before.brief === undefined ? {} : { brief: before.brief }), ...(before.direction === undefined ? {} : { direction: before.direction }) }];
+    const metadata = { revision, brief: work.brief, direction: work.direction, cover: work.cover, plan: work.plan, archived: work.archived ?? false, versions: [...snapshot, ...versions].slice(0, 30) };
 
     this.#db
       .prepare('UPDATE ppt_works SET title = ?, topic = ?, status = ?, outline_json = ?, slides_json = ?, updated_at = ?, usage_json = ?, attachments_json = ?, theme = ?, metadata_json = ? WHERE id = ?')
@@ -83,7 +83,7 @@ export class PptWorkRepository {
 }
 
 function mapRow(row: Row): PptWork {
-  const metadata = JSON.parse(row.metadata_json ?? '{}') as Pick<PptWork, 'revision' | 'brief' | 'direction' | 'archived' | 'versions'>;
+  const metadata = JSON.parse(row.metadata_json ?? '{}') as Pick<PptWork, 'revision' | 'brief' | 'direction' | 'archived' | 'versions' | 'plan' | 'cover'>;
   let outline: string[] = [];
   try {
     const parsed = JSON.parse(row.outline_json) as unknown;
@@ -96,6 +96,7 @@ function mapRow(row: Row): PptWork {
     const parsed = JSON.parse(row.slides_json ?? '[]') as unknown;
     if (Array.isArray(parsed)) {
       slides = parsed.filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object' && typeof (item as { title?: unknown }).title === 'string').map((item) => ({
+        ...item,
         title: String(item.title),
         ...(typeof item.notes === 'string' ? { notes: item.notes } : {}),
         ...(typeof item.imageName === 'string' ? { imageName: item.imageName } : {}),

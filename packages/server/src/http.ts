@@ -944,6 +944,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       throw new AppError(ErrorCode.INTERNAL_ERROR, '读取来源失败');
     }
   });
+  app.post<{ Params: { id: string } }>('/api/ppt/works/:id/stop', async (request) => envelope(await engine.ppt.stop(request.params.id, request.body as import('@agent-workflow/shared').PptWorkStopRequest), requestId(request)));
   app.get<{ Params: { id: string }; Querystring: { page?: string; direction?: string } }>('/api/ppt/works/:id/thumbnail', async (request, reply) => reply.header('content-type', 'image/svg+xml; charset=utf-8').header('cache-control', 'no-store').send(engine.ppt.thumbnail(request.params.id, Number(request.query.page ?? 0), request.query.direction)));
   app.get<{ Params: { id: string } }>('/api/ppt/works/:id/check', async (request) => envelope(engine.ppt.check(request.params.id), requestId(request)));
   for (const action of ['copy', 'archive', 'restore'] as const) {
@@ -958,7 +959,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const buffer = await engine.ppt.exportPptx(request.params.id);
     return reply
       .header('content-type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
-      .header('content-disposition', `attachment; filename="${encodeURIComponent(request.params.id)}.pptx"`)
+      .header('content-disposition', `attachment; filename="${encodeURIComponent(engine.ppt.exportFilename(request.params.id))}"`)
       .send(buffer);
   });
   app.get<{ Params: { id: string } }>('/api/ppt/works/:id/export', async (request) => envelope(engine.ppt.exportMarkdown(request.params.id), requestId(request)));
@@ -1167,6 +1168,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     await engine.executions.reconcileOperation(request.params.key);
     await engine.knowledge.reconcileOperation(request.params.key);
     await engine.charters.reconcileOperation(request.params.key);
+    await engine.ppt.reconcileOperation(request.params.key);
     const operation = engine.commands.get(request.params.key);
     if (operation === undefined) throw new AppError(ErrorCode.NOT_FOUND, '操作记录不存在');
     return envelope({ operation, stillUnknown: operation.status === 'unknown' || operation.status === 'accepted' }, requestId(request));
