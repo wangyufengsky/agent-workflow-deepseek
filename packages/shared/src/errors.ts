@@ -141,9 +141,7 @@ export function defaultStatus(code: ErrorCodeValue): number {
     case ErrorCode.NODE_LOCKED:
     case ErrorCode.NODE_NOT_EXECUTABLE:
     case ErrorCode.DELIVERY_BLOCKED:
-    case ErrorCode.WORKSPACE_NAME_CONFLICT:
     case ErrorCode.WORKSPACE_PARTIAL:
-    case ErrorCode.PLANNING_BUSY:
     case ErrorCode.CHARTER_STATE_UNKNOWN:
       return 409;
     case ErrorCode.NOT_CONFIGURED:

@@ -454,3 +454,9 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - **构建/脚本**：`docs:api` 重生成（**163 路由**）、`check:docs-routes` OK、`build:web`、`build:server`、`test:e2e --skip-build`、`ui:smoke`（兼容 flags，13 截图 + 2 交互）通过。
 - **功能证据**：任务画布「⋯」四入口（恢复/冻结/审计/快照评审 B-07/运行内容）+ 冻结/审计/快照评审 HTTP 与回执（`task-extras-http.test.ts` 2 pass）；知识研究步骤/工具轨迹时间线真实执行（`knowledge-steps.test.ts` 2 pass，非流式，旧历史缺字段时隐藏）；项目详情 charter UI、工作流编辑器、角色四页签、PE37、设置导航修复均已验收。
 - **最终状态**：功能波次全部完成；W4-5/W2-5 真实 PG/GitLab **blocked**（无实例/凭据，未伪造 PASS）；W4-4 仍为未签名 346MB arm64 `.app`；W4-6 推送 main 待 Lead 执行。设计级降级见 `docs/design-coverage.md`。
+
+## 2026-10-20 设计一致性分支验证（进行中）
+
+- 第五轮整合离线测试：503项 / 492通过 / 11跳过 / 0失败。完整设计状态矩阵仍未全部验收，不能据此宣称全部功能完成。
+- 原生Electron产物读取、macOS保存/取消、文件哈希核对通过；发现并修复沙箱preload的ESM产物加载问题。四主题有真实原生截图，详见 `review/node-artifacts-2026-10-20.md`。
+- 真实最小模型测试：受管OpenCode 1.19.0、MCP connected，opencode-go模型返回OK，idle=true/timedOut=false。首次沙箱运行在写OpenCode自身日志前退出，没有派发模型；放行后使用全新临时数据验证成功。知识/规划完整模型链路继续验证。

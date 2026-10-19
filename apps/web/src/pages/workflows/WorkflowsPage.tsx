@@ -271,7 +271,7 @@ export function WorkflowsPage() {
               size="sm"
               icon="plus"
               disabled={fallbackMode}
-              disabledReason={fallbackMode ? '接口未接通，暂不能新建；请等待 W3-8c 接线' : undefined}
+              disabledReason={fallbackMode ? '当前服务不支持流程写入，暂时不能新建' : undefined}
               onClick={() => { setCreateOpen(true); }}
             >
               新建流程
@@ -324,7 +324,7 @@ export function WorkflowsPage() {
             size="sm"
             icon="plus"
             disabled={fallbackMode}
-            disabledReason={fallbackMode ? '流程写入接口尚未接通（W3-8c 进行中）' : undefined}
+            disabledReason={fallbackMode ? '当前服务不支持流程写入' : undefined}
             onClick={() => {
               setCreateName('');
               setCreateDescription('');
@@ -341,9 +341,9 @@ export function WorkflowsPage() {
         <div className="banner warn" style={{ marginBottom: 14 }}>
           <Icon name="info" />
           <div className="grow">
-            <b>/api/workflows 接口尚未接通（W3-8c 进行中）</b>
+            <b>当前服务未提供流程目录</b>
             <br />
-            当前显示 bootstrap 目录快照里的程序内置流程（只读）；新建、复制、归档与保存不可用，页面不会伪造写入成功。接口接通后本页会自动切换到真实目录。
+            当前显示已加载的内置流程，只能查看。服务恢复后重新读取目录，即可核对可用操作。
           </div>
         </div>
       ) : null}
@@ -471,7 +471,7 @@ export function WorkflowsPage() {
                     disabled={fallbackMode || commandBusy || selectedEntry.archived}
                     disabledReason={
                       fallbackMode
-                        ? '流程写入接口尚未接通（W3-8c 进行中）'
+                        ? '当前服务不支持流程写入'
                         : selectedEntry.archived
                           ? '已归档流程不能复制'
                           : commandBusy
@@ -493,7 +493,7 @@ export function WorkflowsPage() {
                     disabled={fallbackMode || commandBusy || selectedEntry.source !== 'custom'}
                     disabledReason={
                       fallbackMode
-                        ? '流程写入接口尚未接通（W3-8c 进行中）'
+                        ? '当前服务不支持流程写入'
                         : selectedEntry.source !== 'custom'
                           ? '内置流程不能归档'
                           : commandBusy
