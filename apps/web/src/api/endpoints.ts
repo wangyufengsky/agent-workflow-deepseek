@@ -3,6 +3,7 @@ import {
   createRequestKey,
   type BootstrapResponse,
   type ListTasksQuery,
+  type TaskListPage,
   type OpenCodeDetectResponse,
   type OpenCodeRestartRequest,
   type OpenCodeRestartResponse,
@@ -28,6 +29,8 @@ export async function fetchBootstrap(): Promise<BootstrapResponse> {
   const response = await apiGet<BootstrapResponse>(ROUTES.bootstrap);
   return response.data;
 }
+
+export async function fetchTaskPage(query:ListTasksQuery={}):Promise<TaskListPage>{return (await apiGet<TaskListPage>(`${ROUTES.tasks}${toQueryString(query)}`)).data;}
 
 export async function fetchTasks(query: ListTasksQuery = {}): Promise<readonly TaskSummary[]> {
   const response = await apiGet<Page<TaskSummary>>(`${ROUTES.tasks}${toQueryString(query)}`);

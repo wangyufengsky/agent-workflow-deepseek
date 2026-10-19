@@ -371,7 +371,13 @@ export interface TaskArchiveRequest extends CommandRequest {
   readonly confirmArchive: true;
 }
 
+export interface TaskListPage extends Page<TaskSummary> {
+ readonly counts:Readonly<Record<'all'|import('../domain/enums.ts').TaskListGroupValue,number>>;
+}
+
 export interface ListTasksQuery {
+  readonly group?: import('../domain/enums.ts').TaskListGroupValue;
+  readonly ongoing?: boolean;
   readonly archived?: boolean;
   readonly projectId?: string;
   readonly stage?: string;

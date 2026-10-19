@@ -49,6 +49,7 @@ export type WorkflowMutation = {
 
 export type WorkflowSaveResult =
   | { readonly kind: 'ok'; readonly detail: WorkflowCatalogDetail }
+  | { readonly kind:'pending';readonly message:string }
   | { readonly kind: 'conflict'; readonly currentVersion: number; readonly message: string }
   | { readonly kind: 'failed'; readonly message: string };
 
@@ -251,6 +252,8 @@ export async function saveWorkflow(input: {
       method: 'PATCH',
       body: { requestKey: input.requestKey, method: input.draft, expectedVersion: input.expectedVersion, confirmSave: true },
     });
+    const receipt=recordOf(recordOf(response.data)?.receipt);
+    if(receipt?.status==='accepted'||receipt?.status==='unknown')return {kind:'pending',message:receipt.status==='accepted'?'保存已受理，等待原请求结算':'保存结果待核对'};
     const mutation = mutationFromResponse(response.data);
     if (mutation === undefined) return { kind: 'failed', message: '保存响应无法识别（未返回流程详情）。' };
     return { kind: 'ok', detail: mutation.method };

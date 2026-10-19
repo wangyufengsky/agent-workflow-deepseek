@@ -1,4 +1,5 @@
 import {
+  taskListGroup,
   DELIVERY_PROJECTION_LABEL,
   PLANNING_STAGE_LABEL,
   PLANNING_STATUS_LABEL,
@@ -161,25 +162,7 @@ export function taskProgressText(task: TaskSummary): string {
 
 export type TaskGroup = 'attention' | 'active' | 'closed';
 
-export function taskGroup(task: TaskSummary): TaskGroup {
-  if (task.lifecycle !== TaskLifecycle.ACTIVE) return 'closed';
-  if (task.deliveryProjection === 'delivered') return 'closed';
-  if (task.attention !== TaskAttention.NONE) return 'attention';
-  if (
-    task.deliveryProjection === 'awaiting_selection' ||
-    task.deliveryProjection === 'awaiting_confirmation' ||
-    task.deliveryProjection === 'blocked' ||
-    task.deliveryProjection === 'unknown_receipt'
-  ) {
-    return 'attention';
-  }
-  if (task.planning !== undefined) {
-    if (task.planning.status === 'stopped' || task.planning.status === 'failed' || task.planning.status === 'unknown') {
-      return 'attention';
-    }
-  }
-  return 'active';
-}
+export function taskGroup(task:TaskSummary):TaskGroup{return taskListGroup(task);}
 
 /** Planning/confirming tasks open the requirement canvas; later stages open the task canvas. */
 export function taskHref(task: TaskSummary): string {

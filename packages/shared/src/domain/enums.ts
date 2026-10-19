@@ -875,3 +875,5 @@ export const ProjectGitAccountSource = { INHERIT: 'inherit', CUSTOM: 'custom' } 
 export type ProjectGitAccountSourceValue = (typeof ProjectGitAccountSource)[keyof typeof ProjectGitAccountSource];
 export const GitAuthentication = { TOKEN: 'token', PASSWORD: 'password' } as const;
 export type GitAuthenticationValue = (typeof GitAuthentication)[keyof typeof GitAuthentication];
+export const TaskListGroup={ATTENTION:'attention',ACTIVE:'active',CLOSED:'closed'} as const;
+export type TaskListGroupValue=(typeof TaskListGroup)[keyof typeof TaskListGroup];

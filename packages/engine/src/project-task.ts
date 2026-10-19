@@ -1,4 +1,5 @@
 import { assertAllowedProjectRoot } from './project-roots.ts';
+import { taskListGroup, taskSearchText, type TaskListPage } from '@agent-workflow/shared';
 import { normalizeEvidenceSources, projectBindingHash } from './project-evidence.ts';
 import { detectProjectTechnology } from './project-technology.ts';
 import { isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview, isPlanningQuestionAnswered, type RuntimeInteraction } from '@agent-workflow/shared';
@@ -263,17 +264,21 @@ export class TaskService {
 
   allSummaries(): readonly TaskSummary[] { return this.#store.tasks.list().map((task) => this.#summary(task)); }
 
-  list(query: ListTasksQuery = {}): readonly TaskSummary[] {
-    let tasks = this.#store.tasks.list().filter((task) => Boolean(this.#store.settings.getJson<string>(`task.archived.${task.id}`)) === (query.archived === true || String(query.archived) === 'true'));
-    if (query.projectId !== undefined) tasks = tasks.filter((task) => task.projectId === query.projectId);
-    if (query.stage !== undefined) tasks = tasks.filter((task) => task.stage === query.stage);
-    if (query.attention !== undefined) tasks = tasks.filter((task) => task.attention === query.attention);
-    if (query.q !== undefined && query.q.trim() !== '') {
-      const needle = query.q.trim().toLowerCase();
-      tasks = tasks.filter((task) => task.title.toLowerCase().includes(needle));
-    }
-    const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
-    return tasks.slice(0, limit).map((task) => this.#summary(task));
+  list(query:ListTasksQuery={}):readonly TaskSummary[]{return this.listPage(query).items;}
+  listPage(query:ListTasksQuery={}):TaskListPage {
+    let tasks=this.#store.tasks.list().filter(task=>Boolean(this.#store.settings.getJson<string>(`task.archived.${task.id}`))===(query.archived===true||String(query.archived)==='true'));
+    if(query.projectId!==undefined)tasks=tasks.filter(task=>task.projectId===query.projectId);
+    if(query.stage!==undefined)tasks=tasks.filter(task=>task.stage===query.stage);
+    if(query.attention!==undefined)tasks=tasks.filter(task=>task.attention===query.attention);
+    if(query.ongoing===true||String(query.ongoing)==='true')tasks=tasks.filter(task=>task.lifecycle==='active'&&(task.stage!=='draft'||task.attention!=='none'));
+    let rows=tasks.map(task=>this.#summary(task)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)||b.id.localeCompare(a.id));
+    if(query.q?.trim()){const needle=query.q.trim().toLowerCase();rows=rows.filter(task=>taskSearchText(task).includes(needle));}
+    const counts={all:rows.length,attention:0,active:0,closed:0};for(const task of rows)counts[taskListGroup(task)]++;
+    if(query.group!==undefined){if(!['attention','active','closed'].includes(query.group))throw new AppError(ErrorCode.VALIDATION_FAILED,'任务分组无效');rows=rows.filter(task=>taskListGroup(task)===query.group);}
+    const total=rows.length;
+    if(query.cursor){try{const cursor=JSON.parse(Buffer.from(query.cursor,'base64url').toString('utf8'));if(typeof cursor.updatedAt!=='string'||typeof cursor.id!=='string'||query.cursor.length>1000)throw new Error();rows=rows.filter(task=>task.updatedAt<cursor.updatedAt||(task.updatedAt===cursor.updatedAt&&task.id<cursor.id));}catch{throw new AppError(ErrorCode.VALIDATION_FAILED,'任务分页游标无效');}}
+    const requested=Number(query.limit??50);if(!Number.isFinite(requested))throw new AppError(ErrorCode.VALIDATION_FAILED,'任务分页大小无效');const limit=Math.min(Math.max(Math.floor(requested),1),200),items=rows.slice(0,limit),last=items.at(-1);
+    return {items,total,counts,...(rows.length>limit&&last?{nextCursor:Buffer.from(JSON.stringify({updatedAt:last.updatedAt,id:last.id})).toString('base64url')}:{})};
   }
 
   archive(taskId: string, input: import('@agent-workflow/shared').TaskArchiveRequest): CommandResponse<TaskSummary> {

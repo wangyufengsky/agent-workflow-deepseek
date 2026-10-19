@@ -471,7 +471,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   // Tasks
   app.get('/api/tasks', async (request) => {
     const query = request.query as ListTasksQuery;
-    return envelope({ items: engine.tasks.list(query) }, requestId(request));
+    return envelope(engine.tasks.listPage(query), requestId(request));
   });
   app.post('/api/tasks', async (request, reply) => {
     const body = request.body as CreateTaskRequest;

@@ -1,3 +1,4 @@
+import {pendingIdentityForPath,usePendingIdentity} from '../../api/pending-identity.ts';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -125,7 +126,9 @@ export function WorkflowEditorPage() {
   });
 
   const dirty = baseline !== null && draft !== null ? countDraftChanges(baseline, draft) : 0;
-  const locked = saveState.phase === 'unknown' || saveState.phase === 'saving';
+  const durableCommand=usePendingIdentity(ROUTES.workflow(id));
+  const originalKey=durableCommand?.requestKey??(saveState.phase==='unknown'?saveState.requestKey:undefined);
+  const locked = originalKey!==undefined || saveState.phase === 'saving';
   const canEdit = detail !== undefined && readonly !== true && !locked;
   const problems = draft === null ? [] : localProblems(draft, roleIds);
 
@@ -316,6 +319,7 @@ export function WorkflowEditorPage() {
       setSaveState({ phase: 'failed', message: '后端 /api/workflows 写入接口尚未接通（服务当前不可用），本次修改没有提交。' });
       return;
     }
+    if(pendingIdentityForPath(ROUTES.workflow(id)))return;
     const requestKey = createRequestKey();
     setSaveState({ phase: 'saving', requestKey });
     try {
@@ -324,13 +328,14 @@ export function WorkflowEditorPage() {
         queryClient.setQueryData(['workflow', 'detail', detail.id], result.detail);
         loadedMarker.current = '';
         setSaveState({ phase: 'saved', requestKey });
+      } else if(result.kind==='pending'){setSaveState({phase:'unknown',requestKey,message:result.message});
       } else if (result.kind === 'conflict') {
         setSaveState({ phase: 'conflict', requestKey, currentVersion: result.currentVersion, message: result.message });
       } else {
         setSaveState({ phase: 'failed', requestKey, message: result.message });
       }
     } catch (error) {
-      const unknown = error instanceof ApiClientError && (error.kind === 'timeout' || error.kind === 'unavailable');
+      const unknown = error instanceof ApiClientError && (error.kind === 'timeout' || error.kind === 'unavailable' || error.kind==='protocol');
       setSaveState({
         phase: unknown ? 'unknown' : 'failed',
         requestKey,
@@ -342,18 +347,19 @@ export function WorkflowEditorPage() {
   };
 
   const reconcile = async (): Promise<void> => {
-    if (saveState.requestKey === undefined) return;
+    const key=pendingIdentityForPath(ROUTES.workflow(id))?.requestKey??originalKey;
+    if(key===undefined)return;
     setLookupMessage('正在按原请求核对…');
     try {
-      const response = await apiGet<{ operation: { status: string; outcome?: Record<string, unknown> }; stillUnknown: boolean }>(ROUTES.operationsByKey(saveState.requestKey));
+      const response = await apiGet<{ operation: { status: string; outcome?: Record<string, unknown> }; stillUnknown: boolean }>(ROUTES.operationsByKey(key));
       const operation = response.data.operation;
       if (operation.status === 'succeeded') {
         const refreshed = await detailQuery.refetch();
         if (refreshed.data !== undefined) queryClient.setQueryData(['workflow', 'detail', id], refreshed.data);
-        setSaveState({ phase: 'saved', requestKey: saveState.requestKey });
+        setSaveState({ phase: 'saved', requestKey: key });
         setLookupMessage('原请求已结算：版本已刷新。');
       } else if (operation.status === 'failed') {
-        setSaveState({ phase: 'failed', requestKey: saveState.requestKey, message: '按原请求核对：保存失败，未写入新版本。' });
+        setSaveState({ phase: 'failed', requestKey: key, message: '按原请求核对：保存失败，未写入新版本。' });
         setLookupMessage('核对完成：保存失败。');
       } else {
         setLookupMessage(`核对后仍未确认结果（${operation.status}）；不会自动重发。`);
@@ -421,14 +427,14 @@ export function WorkflowEditorPage() {
   const differences = workflowDifferences(comparisonSteps, draft.requiredSteps);
 
   const banner =
-    saveState.phase === 'unknown' ? (
+    originalKey!==undefined && saveState.phase!=='saving' ? (
       <div className="banner unknown" role="alert">
         <Icon name="help" />
         <div className="grow">
-          <b>保存结果未明</b>
+          <b>{durableCommand?.phase==='accepted'?'保存已受理，等待结算':'保存结果未明'}</b>
           <br />
           {saveState.message ?? '请求已发出但没有收到确认。'}画布已锁定为只读，草稿保留。
-          {saveState.requestKey === undefined ? null : <span className="mono"> · requestKey {saveState.requestKey}</span>}
+          {originalKey === undefined ? null : <span className="mono"> · requestKey {originalKey}</span>}
           {lookupMessage === undefined ? null : <div className="hint" style={{ marginTop: 4 }}>{lookupMessage}</div>}
         </div>
         <div className="actions">
@@ -516,8 +522,8 @@ export function WorkflowEditorPage() {
         <span className="wfe-save-state" aria-live="polite">
           {saveState.phase === 'saving'
             ? '正在保存…'
-            : saveState.phase === 'unknown'
-              ? '保存结果未明'
+            : originalKey!==undefined
+              ? (durableCommand?.phase==='accepted'?'保存已受理':'保存结果未明')
               : saveState.phase === 'conflict'
                 ? '版本已变化'
                 : dirty > 0

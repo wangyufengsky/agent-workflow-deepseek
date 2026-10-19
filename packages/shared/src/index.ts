@@ -33,3 +33,5 @@ export * from './domain/project-evidence.ts';
 export * from './domain/model-catalog.ts';
 
 export * from './domain/project-account.ts';
+
+export * from './domain/task-list.ts';

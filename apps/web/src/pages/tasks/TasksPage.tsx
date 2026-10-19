@@ -1,7 +1,9 @@
+import {useInfiniteQuery} from '@tanstack/react-query';
+import {fetchTaskPage} from '../../api/endpoints.ts';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { TaskSummary } from '@agent-workflow/shared';
-import { useTasks, useProjects } from '../../api/hooks.ts';
+import { useProjects } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
@@ -82,30 +84,21 @@ function TaskListBody({ tasks }: { readonly tasks: readonly TaskSummary[] }) {
 }
 
 export function TasksPage() {
-  const [limit, setLimit] = useState(50);
   const [archived, setArchived] = useState(false);
   const [params, setParams] = useSearchParams();
   const project = params.get('projectId') ?? 'all';
-  const setProject = (id: string) => { const next = new URLSearchParams(params); if (id === 'all') next.delete('projectId'); else next.set('projectId', id); setParams(next); setLimit(50); };
+  const setProject = (id: string) => { const next = new URLSearchParams(params); if (id === 'all') next.delete('projectId'); else next.set('projectId', id); setParams(next); };
   const projectsQuery = useProjects();
-  const tasksQuery = useTasks({ limit, archived, ...(project === 'all' ? {} : { projectId: project }) });
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [grouped, setGrouped] = useState(false);
 
-  const tasks = tasksQuery.data ?? [];
-  const loadMoreBlockedReason = limit >= 200
-    ? '服务端单次最多返回 200 条任务；请用搜索或项目筛选缩小范围。'
-    : tasks.length < limit
-      ? '已加载全部任务（列表接口未返回更多分页信息）。'
-      : undefined;
-  const loadMoreDisabledReason = tasksQuery.isFetching ? '正在读取任务…' : loadMoreBlockedReason;
-
-  const counts = useMemo(() => {
-    const base: Record<TaskFilter, number> = { all: tasks.length, attention: 0, active: 0, closed: 0 };
-    for (const task of tasks) base[taskGroup(task)] += 1;
-    return base;
-  }, [tasks]);
+  const listQuery={archived,...(project==='all'?{}:{projectId:project}),...(filter==='all'?{}:{group:filter}),...(keyword.trim()?{q:keyword.trim()}:{}),limit:50};
+  const tasksQuery=useInfiniteQuery({queryKey:['tasks','paged',listQuery],initialPageParam:undefined as string|undefined,queryFn:({pageParam})=>fetchTaskPage({...listQuery,...(pageParam?{cursor:pageParam}:{})}),getNextPageParam:page=>page.nextCursor,retry:false});
+  const tasks=useMemo(()=>[...new Map((tasksQuery.data?.pages.flatMap(page=>page.items)??[]).map(task=>[task.id,task])).values()],[tasksQuery.data]);
+  const counts=tasksQuery.data?.pages[0]?.counts??{all:0,attention:0,active:0,closed:0};
+  const total=tasksQuery.data?.pages[0]?.total;
+  const loadMoreDisabledReason=tasksQuery.isFetching?'正在读取任务…':!tasksQuery.hasNextPage?'已加载全部符合条件的任务':undefined;
 
   const projects = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; rootPath?: string }>((projectsQuery.data ?? []).map((item) => [item.id, { id: item.id, name: item.name, rootPath: item.rootPath }]));
@@ -113,14 +106,7 @@ export function TasksPage() {
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
   }, [tasks, projectsQuery.data]);
 
-  const filtered = useMemo(() => {
-    const rows = tasks.filter((task) => {
-      if (filter !== 'all' && taskGroup(task) !== filter) return false;
-      if (project !== 'all' && task.projectId !== project) return false;
-      return matchesSearch(task, keyword.trim());
-    });
-    return sortByUpdatedDesc(rows);
-  }, [filter, keyword, project, tasks]);
+  const filtered=tasks;
 
   const groupedTasks = useMemo(() => {
     const map = new Map<string, TaskSummary[]>();
@@ -141,10 +127,10 @@ export function TasksPage() {
   );
 
   const filterOptions: readonly SegmentOption<TaskFilter>[] = [
-    { value: 'all', label: '全部', count: counts.all },
-    { value: 'attention', label: FILTER_LABELS.attention, count: counts.attention },
-    { value: 'active', label: FILTER_LABELS.active, count: counts.active },
-    { value: 'closed', label: FILTER_LABELS.closed, count: counts.closed },
+    { value: 'all', label: '全部', count: tasksQuery.data?counts.all:undefined },
+    { value: 'attention', label: FILTER_LABELS.attention, count: tasksQuery.data?counts.attention:undefined },
+    { value: 'active', label: FILTER_LABELS.active, count: tasksQuery.data?counts.active:undefined },
+    { value: 'closed', label: FILTER_LABELS.closed, count: tasksQuery.data?counts.closed:undefined },
   ];
 
   const clearFilters = () => {
@@ -157,7 +143,7 @@ export function TasksPage() {
   let body: ReactNode;
   if (tasksQuery.isLoading) {
     body = <TaskSkeletonRows />;
-  } else if (tasksQuery.isError) {
+  } else if (tasksQuery.isError && tasks.length===0) {
     body = (
       <div style={{ padding: 16 }}>
         <ServiceNotice
@@ -171,7 +157,7 @@ export function TasksPage() {
         </p>
       </div>
     );
-  } else if (tasks.length === 0) {
+  } else if (tasks.length === 0 && !keyword.trim() && filter==='all' && project==='all') {
     body = (
       <EmptyState
         icon="list"
@@ -241,6 +227,7 @@ export function TasksPage() {
 
       {showAttention ? <AttentionStrip tasks={attentionTasks} /> : null}
 
+      {tasksQuery.isFetchNextPageError?<div className="banner danger" role="alert"><Icon name="alert"/><span className="grow">更多任务读取失败，已有列表保留。</span><Button onClick={()=>void tasksQuery.fetchNextPage()}>重试加载更多</Button></div>:null}
       <div className="toolbar">
         <div className="input-wrap">
           <Icon name="search" />
@@ -270,7 +257,7 @@ export function TasksPage() {
       </div>
 
       <p className="hint" style={{ margin: '0 2px 10px' }}>
-        列表接口未提供逐步骤状态，也未返回总数/游标；行内展示阶段胶囊与聚合进度（完成/总数步），计数基于已加载任务。
+        按所选范围搜索和分页；状态计数包含该范围的所有任务。行内显示阶段与完成进度。
       </p>
 
       <section className="card" aria-label="任务列表">
@@ -282,10 +269,10 @@ export function TasksPage() {
           <span />
         </div>
         <div style={{ padding: '4px 6px 6px' }}>{body}</div>
-        {tasksQuery.isSuccess && filtered.length > 0 ? (
+        {filtered.length > 0 ? (
           <div className="task-foot">
             <span className="hint grow">
-              已加载 {String(filtered.length)} 个 · 最近更新优先
+              已加载 {String(filtered.length)} / {total??'未知'} 个 · 最近更新优先
               {tasksQuery.isFetching ? ' · 正在刷新' : ''}
             </span>
             <Button
@@ -307,7 +294,7 @@ export function TasksPage() {
               disabled={loadMoreDisabledReason !== undefined}
               disabledReason={loadMoreDisabledReason}
               onClick={() => {
-                setLimit(Math.min(limit + 50, 200));
+                void tasksQuery.fetchNextPage();
               }}
             >
               加载更多

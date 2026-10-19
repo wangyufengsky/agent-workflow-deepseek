@@ -1,3 +1,4 @@
+import {pendingIdentityForPath,usePendingIdentity} from '../../api/pending-identity.ts';
 import { TemplateArchivePanel } from './TemplateArchivePanel.tsx';
 import { TemplateScopeFields, TemplateBranchField, type ScopeInput } from './TemplateScopeFields.tsx';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
@@ -53,7 +54,7 @@ type CreatePhase = 'idle' | 'submitting' | 'succeeded' | 'failed' | 'unknown';
 interface CreateState {
   readonly phase: CreatePhase;
   readonly requestKey: string;
-  readonly body: CreateTaskRequest;
+  readonly body?: CreateTaskRequest;
   readonly message?: string;
   readonly taskId?: string;
   readonly receiptStatus?: string;
@@ -171,7 +172,9 @@ export function TemplatesPage() {
 
   const effectiveMethodId = methodId.length > 0 ? methodId : (methods[0]?.id ?? '');
   const selectedMethod = methods.find((method) => method.id === effectiveMethodId);
-  const formLocked = state?.phase === 'submitting' || state?.phase === 'unknown';
+  const durableCommand=usePendingIdentity(ROUTES.tasks);
+  const originalKey=durableCommand?.requestKey??(state?.phase==='unknown'?state.requestKey:undefined);
+  const formLocked = state?.phase === 'submitting' || originalKey!==undefined;
 
   const missingFields: string[] = [];
   if (projectId.length === 0) missingFields.push('项目');
@@ -197,7 +200,7 @@ export function TemplatesPage() {
   };
 
   const submit = async (requestKey = createRequestKey(), body?: CreateTaskRequest) => {
-    if (template === undefined) return;
+    if (template === undefined || formLocked || pendingIdentityForPath(ROUTES.tasks)) return;
     const payload: CreateTaskRequest =
       body ?? {
         requestKey,
@@ -244,7 +247,7 @@ export function TemplatesPage() {
     } catch (error) {
       // A connection failure or timeout leaves the outcome unknown on the client:
       // the service may still have created the task. Never silently resubmit.
-      const unknown = error instanceof ApiClientError && (error.kind === 'timeout' || error.kind === 'unavailable');
+      const unknown = error instanceof ApiClientError && (error.kind === 'timeout' || error.kind === 'unavailable' || error.kind==='protocol');
       setState({
         phase: unknown ? 'unknown' : 'failed',
         requestKey,
@@ -255,15 +258,17 @@ export function TemplatesPage() {
   };
 
   const reconcile = async () => {
-    if (state === null) return;
+    const key=pendingIdentityForPath(ROUTES.tasks)?.requestKey??originalKey;
+    if(key===undefined)return;
     try {
-      const response = await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(state.requestKey));
+      const response = await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(key));
       const operation = response.data.operation;
       if (operation.status === 'succeeded') {
         const outcome = operation.outcome ?? {};
         const createdTaskId = typeof outcome.taskId === 'string' ? outcome.taskId : operation.target.taskId;
         setState({
           ...state,
+          requestKey:key,
           phase: 'succeeded',
           receiptStatus: operation.status,
           ...(createdTaskId === undefined ? {} : { taskId: createdTaskId }),
@@ -271,12 +276,12 @@ export function TemplatesPage() {
         });
         await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
       } else if (operation.status === 'failed') {
-        setState({ ...state, phase: 'failed', message: operation.error?.message ?? '按原请求核对：创建失败。' });
+        setState({ ...state, requestKey:key, phase: 'failed', message: operation.error?.message ?? '按原请求核对：创建失败。' });
       } else {
-        setState({ ...state, phase: 'unknown', message: '核对后仍未确认结果；不会自动重复创建。' });
+        setState({ ...state, requestKey:key, phase: 'unknown', message: '核对后仍未确认结果；不会自动重复创建。' });
       }
     } catch (error) {
-      setState({ ...state, message: `核对失败：${errorMessage(error)}` });
+      setState({ ...state,requestKey:key,phase:state?.phase??'unknown', message: `核对失败：${errorMessage(error)}` });
     }
   };
 
@@ -407,7 +412,7 @@ export function TemplatesPage() {
                         anchor.click();
                         URL.revokeObjectURL(url);
                       } catch (error) {
-                        setState({ phase: 'failed', requestKey: createRequestKey(), body: {} as CreateTaskRequest, message: `导出失败：${errorMessage(error)}` });
+                        setCatalogNotice({tone:'danger',title:'模板导出读取失败',detail:errorMessage(error)});
                       }
                     })();
                   }}
@@ -519,15 +524,15 @@ export function TemplatesPage() {
                   </div>
                 </div>
 
-                {state?.phase === 'unknown' ? (
+                {originalKey!==undefined && state?.phase!=='submitting' ? (
                   <div className="banner unknown" role="alert" style={{ marginBottom: 16 }}>
                     <Icon name="help" />
                     <div className="grow">
-                      <b>创建结果未明</b>
+                      <b>{durableCommand?.phase==='accepted'?'创建已受理，等待结算':'创建结果未明'}</b>
                       <br />
-                      {state.message ?? '请求已发出但没有收到确认。'}参数已锁定；按原请求核对，不会创建第二个任务。
+                      {state?.message ?? '原请求尚未结算。'}参数已锁定；按原请求核对，不会创建第二个任务。
                       <div className="hint mono" style={{ marginTop: 4 }}>
-                        requestKey {state.requestKey}
+                        requestKey {originalKey}
                       </div>
                     </div>
                     <div className="actions">
@@ -651,7 +656,7 @@ export function TemplatesPage() {
                 <div className="row wrap" style={{ gap: 8, marginTop: 20, paddingTop: 16, boxShadow: 'inset 0 1px 0 var(--line)' }}>
                   <span className="hint grow">
                     {formLocked
-                      ? '请求处理中，表单已锁定。'
+                      ? (state?.phase==='submitting'?'请求发送中，表单已锁定。':'原请求尚未结算，表单已锁定；请先核对原请求。')
                       : missingFields.length > 0
                         ? `还缺：${missingFields.join('、')}`
                         : '创建后进入需求草稿；确认计划与开始执行在任务画布中另行操作。'}
@@ -661,7 +666,7 @@ export function TemplatesPage() {
                     variant="primary"
                     icon="layers"
                     disabled={!canSubmit}
-                    disabledReason={missingFields.length > 0 ? `还缺：${missingFields.join('、')}` : '请求处理中'}
+                    disabledReason={originalKey!==undefined?'原创建结果待核对，请先按原请求号核对':missingFields.length > 0 ? `还缺：${missingFields.join('、')}` : '请求处理中'}
                   >
                     {state?.phase === 'submitting' ? '正在创建…' : '创建固定模板任务'}
                   </Button>
