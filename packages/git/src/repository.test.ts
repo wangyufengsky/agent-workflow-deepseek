@@ -214,7 +214,10 @@ describe('commitShow', () => {
     const git = await open(repo);
     const root = await git.commitShow(rootSha);
     assert.deepEqual(root.parents, []);
-    assert.equal(root.compareOptions.length, 0);
+    // Root commits are reviewable against Git's well-known empty tree.
+    assert.equal(root.compareOptions.length, 1);
+    assert.equal(root.compareOptions[0]?.kind, 'empty_tree');
+    assert.equal(root.compareOptions[0]?.baseSha, '4b825dc642cb6eb9a060e54bf8d69288fbee4904');
     await expectCode(git.commitShow('HEAD'), ErrorCode.VALIDATION_FAILED);
     await expectCode(git.commitShow('f'.repeat(40)), ErrorCode.REVISION_NOT_FOUND);
   });

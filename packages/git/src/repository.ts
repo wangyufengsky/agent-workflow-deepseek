@@ -35,6 +35,9 @@ import {
 /** Shared status shape reused from the `GitRepo` contract. */
 export type GitRepositoryStatus = NonNullable<GitRepo['status']>;
 
+/** Git's well-known empty tree; the review baseline for a root commit. */
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
 export interface GitRepositoryOptions {
   /** Overridable only for tests. */
   readonly gitBinary?: string;
@@ -516,6 +519,16 @@ export class GitRepository {
       } catch {
         // A missing default branch simply removes the merge-base option.
       }
+    }
+    // A root commit has no parent, but it can still be reviewed against the
+    // empty tree (the same baseline the server diff endpoints use).
+    if (options.length === 0) {
+      options.push({
+        compareId: 'empty-tree',
+        kind: 'empty_tree',
+        label: '根提交（空树基线）',
+        baseSha: EMPTY_TREE_SHA,
+      });
     }
     return options;
   }

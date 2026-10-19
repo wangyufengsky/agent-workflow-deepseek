@@ -43,6 +43,12 @@ test('git read API: repos, commits, commit detail, files, diff, branches', async
     const commit = await app.app.inject({ method: 'GET', url: `/api/git/repos/${projectId}/commits/${sha}` });
     assert.equal(commit.statusCode, 200, commit.body);
     assert.equal(commit.json().data.commit.subject, 'init');
+    // A root commit must still expose a review baseline (empty tree) and real stats.
+    const rootCompareOptions = commit.json().data.commit.compareOptions as readonly { kind: string; baseSha: string }[];
+    assert.equal(rootCompareOptions.length, 1);
+    assert.equal(rootCompareOptions[0]?.kind, 'empty_tree');
+    assert.equal(rootCompareOptions[0]?.baseSha, '4b825dc642cb6eb9a060e54bf8d69288fbee4904');
+    assert.ok((commit.json().data.commit.stats as { files: number }).files >= 1);
 
     const files = await app.app.inject({ method: 'GET', url: `/api/git/repos/${projectId}/commits/${sha}/files` });
     assert.equal(files.statusCode, 200, files.body);

@@ -997,7 +997,7 @@ export interface GitCommitSummary {
 
 export interface GitCompareBase {
   readonly compareId: string;
-  readonly kind: 'parent' | 'merge_base';
+  readonly kind: 'parent' | 'merge_base' | 'empty_tree';
   readonly label: string;
   readonly baseSha: string;
 }

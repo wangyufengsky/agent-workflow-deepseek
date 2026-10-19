@@ -1142,3 +1142,10 @@
 - 最终状态：所有可执行任务 `done`；仅 W2-5/W4-5 因本机无真实 GitLab/PostgreSQL 实例与凭据保持 `blocked`（不伪造 PASS）。
 - 推送：https://github.com/wangyufengsky/agent-workflow-deepseek `main`，远端 HEAD 与本地一致（当前 `74b21cd`，本次结项提交后为新的 HEAD）。
 - 验证基线：403 tests / 54 suites / 392 pass / 11 skipped / 0 fail；163 路由；build:web/server、test:e2e、ui:smoke 均通过。
+
+### 22:52 修复 | Git 工作台 AI 审查无法开始（根提交无对比基线）
+
+- 现象：Git 工作台选择根提交（仓库只有一个 initial commit）后，「AI 审查」抽屉的「开始审查」不可点，提示 compareOptions 为空。
+- 根因：`packages/server/src/adapters/git-cli.ts` 的 `commitShow` 只把父提交作为 compareOptions；根提交 parents=[] → 空；且 root diff stats 用 `${sha}^` 失败显示 0 文件。`packages/git` 同样缺空树基线。
+- 修复：为根提交补 `{compareId:'empty-tree', kind:'empty_tree', baseSha:4b825dc...}` 基线，root stats 用空树对比；shared `GitCompareBase.kind` 增 `empty_tree`；ReviewPanel 标签显示「对比空树（根提交）」；补 `packages/git` 同逻辑与测试。
+- 验证：`tsc` 0 error；`repository.test.ts + git-api.test.ts` 34 pass/0 fail；运行中 5177 实测 commit 返回 stats files=31/additions=1095 + empty_tree 基线；真实发起 review.start（review_0mvfdh2tqax9jvwl317）receipt accepted → stage analyzing（空树 diff 已成功进入模型分析）。

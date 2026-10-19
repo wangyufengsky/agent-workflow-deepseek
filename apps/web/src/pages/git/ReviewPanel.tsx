@@ -498,7 +498,9 @@ export function ReviewPanel({
                     <span>
                       <span className="radio-title">
                         {option.label}
-                        <Badge outline tone="neutral">{option.kind === 'parent' ? '对比父提交' : '对比目标分支'}</Badge>
+                        <Badge outline tone="neutral">
+                          {option.kind === 'parent' ? '对比父提交' : option.kind === 'empty_tree' ? '对比空树（根提交）' : '对比目标分支'}
+                        </Badge>
                       </span>
                       <span className="radio-desc mono-sm">base {option.baseSha}</span>
                     </span>

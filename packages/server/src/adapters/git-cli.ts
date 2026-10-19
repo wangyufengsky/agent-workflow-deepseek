@@ -12,6 +12,9 @@ interface ExecResult {
   readonly code: number;
 }
 
+/** Git's well-known empty tree; the review baseline for a root commit. */
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
 /** Minimal local Git CLI adapter implementing the engine GitPort. */
 export interface GitAuthToken {
   readonly provider: 'github' | 'gitlab';
@@ -181,10 +184,14 @@ export class GitCliAdapter implements GitPort {
     const out = await this.#run(['show', '-s', '--format=%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%cI%x1f%s%x1f%b', sha], rootPath).catch(() => undefined);
     if (out === undefined) return undefined;
     const [full, parents, author, authorEmail, authoredAt, committer, committerEmail, committedAt, subject, body] = out.stdout.split('\x1f');
-    const files = await this.#diffNumStat(rootPath, `${sha}^`, sha).catch(() => ({ files: 0, additions: 0, deletions: 0 }));
+    const parentList = (parents ?? '').split(' ').filter((parent) => parent.length > 0);
+    // Root commits have no parent, but they still have a reviewable diff against
+    // Git's empty tree; `${sha}^` fails for them, so use the empty tree as base.
+    const baseSha = parentList[0] ?? EMPTY_TREE_SHA;
+    const files = await this.#diffNumStat(rootPath, baseSha, sha).catch(() => ({ files: 0, additions: 0, deletions: 0 }));
     return {
       sha: full ?? sha,
-      parents: (parents ?? '').split(' ').filter(Boolean),
+      parents: parentList,
       subject: subject ?? '',
       body: body ?? '',
       author: { name: author ?? '', email: authorEmail ?? '', initials: initials(author ?? '') },
@@ -194,12 +201,19 @@ export class GitCliAdapter implements GitPort {
       refs: [],
       containedIn: { branches: [], truncated: false },
       stats: files,
-      compareOptions: (parents ?? '').split(' ').filter(Boolean).map((parent, index) => ({
-        compareId: `parent:${index}`,
-        kind: 'parent' as const,
-        label: `父提交 ${index + 1}`,
-        baseSha: parent,
-      })),
+      compareOptions: parentList.length > 0
+        ? parentList.map((parent, index) => ({
+            compareId: `parent:${index}`,
+            kind: 'parent' as const,
+            label: `父提交 ${index + 1}`,
+            baseSha: parent,
+          }))
+        : [{
+            compareId: 'empty-tree',
+            kind: 'empty_tree' as const,
+            label: '根提交（空树基线）',
+            baseSha: EMPTY_TREE_SHA,
+          }],
     };
   }
 
