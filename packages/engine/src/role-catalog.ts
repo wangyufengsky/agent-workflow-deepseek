@@ -1,3 +1,5 @@
+import { rolePackageJson } from './role-package-source.ts';
+import { createHash } from 'node:crypto';
 import {
   AppError,
   DEFAULT_CATALOG,
@@ -7,6 +9,7 @@ import {
   RoleCapabilityGroupMeta,
   RoleResourceFileKind,
   RoleResponsibilitySlot,
+  RolePackageNativeTools,
   RoleResourceToolKind,
   createId,
   nowIso,
@@ -28,6 +31,11 @@ import {
   type RoleResourcePermissionsInput,
   type RoleRevisionSnapshot,
   type RoleSaveRequest,
+  type RolePackage,
+  type RolePackagePublishRequest,
+  type RolePackageValidation,
+  type RolePackageBinding,
+  type WorkflowMethod,
   type RoleValidateResponse,
 } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
@@ -90,6 +98,7 @@ type StoredHistoryEntry = StoredRoleFields & {
 export interface RoleCatalogServiceOptions {
   readonly store: Store;
   readonly commands: CommandService;
+  readonly methods?: () => readonly WorkflowMethod[];
   readonly applyRoles: (roles: readonly RoleDefinition[]) => void;
 }
 
@@ -104,14 +113,124 @@ export interface RoleCatalogServiceOptions {
  * and legacy history snapshots keep working without a migration.
  */
 export class RoleCatalogService {
+  readonly #methods: () => readonly WorkflowMethod[];
   readonly #store: Store;
   readonly #commands: CommandService;
   readonly #applyRoles: (roles: readonly RoleDefinition[]) => void;
 
   constructor(options: RoleCatalogServiceOptions) {
+    this.#methods = options.methods ?? (() => DEFAULT_CATALOG.methods);
     this.#store = options.store;
     this.#commands = options.commands;
     this.#applyRoles = options.applyRoles;
+  }
+
+  /** No writes: parse, normalize every role and compare against the exact effective catalog. */
+  validatePackage(source: string): RolePackageValidation {
+    if (typeof source!=='string') throw new AppError(ErrorCode.VALIDATION_FAILED,'配置包正文必须是字符串');
+    const sourceHash = hashPackage(source);
+    const baselineHash = hashPackage(JSON.stringify({ roles: this.list().roles, methods: this.#methods() }));
+    const issues: { path: string; message: string }[] = [];
+    const differences: { path: string; before: unknown; after: unknown }[] = [];
+    const roles: { id: string; name: string; revision?: string; changed: boolean }[] = [];
+    let parsed: RolePackage;
+    try { parsed = this.#parsePackage(source); } catch (error) {
+      return { sourceHash, baselineHash, valid: false, issues: [{path:'配置包',message:error instanceof Error ? error.message : String(error)}], differences, roles };
+    }
+    for (const input of parsed.roles) {
+      try {
+        const role = this.#packageRole(input);
+        const unknownTools=role.resourcePermissions.tools.filter((tool)=>tool.kind==='native' && !(RolePackageNativeTools as readonly string[]).includes(tool.name));
+        if(unknownTools.length)throw new Error(`原生工具不在可识别清单：${unknownTools.map((tool)=>tool.name).join('、')}`);
+        const publishChecks = this.#publishChecks(role.id,{id:role.id,...packageFields(role),revision:'r0',status:'draft',updatedAt:nowIso()},undefined);
+        const errors=publishChecks.filter((item)=>item.state==='error');
+        if(errors.length)throw new Error(errors.map((item)=>item.detail??item.label).join('；'));
+        const current = this.list().roles.find((item) => item.id === input.id);
+        if (current?.hasDraft) throw new Error('此角色已有未发布草稿，请先处理，避免覆盖人工修改');
+        const before = current === undefined ? undefined : packageFields(resolveRole(current));
+        const after = packageFields(role);
+        for (const key of Object.keys(after) as (keyof typeof after)[]) {
+          if (JSON.stringify(before?.[key]) !== JSON.stringify(after[key])) differences.push({path:`roles/${input.id}/${key}`,before:before?.[key] ?? null,after:after[key] ?? null});
+        }
+        roles.push({id:input.id,name:role.name,...(current === undefined ? {} : {revision:current.revision}),changed:differences.some((item)=>item.path.startsWith(`roles/${input.id}/`))});
+      } catch(error) { issues.push({path:`roles/${input.id}`,message:error instanceof Error ? error.message : String(error)}); }
+    }
+    const known = new Set([...this.list().roles.filter((role)=>role.status==='published').map((role)=>role.id),...parsed.roles.map((role)=>role.id)]);
+    const seen = new Set<string>();
+    for (const binding of parsed.bindings ?? []) {
+      const path = `bindings/${binding.methodId}/${binding.stepKey}`;
+      const method = this.#methods().find((item)=>item.id===binding.methodId);
+      const step = method?.requiredSteps.find((item)=>item.key===binding.stepKey);
+      if (seen.has(path)) issues.push({path,message:'重复的激活绑定'});
+      seen.add(path);
+      if (!known.has(binding.roleId) || step === undefined) { issues.push({path,message:'激活绑定引用不存在的角色或流程阶段'}); continue; }
+      if (step.roleId !== binding.roleId) differences.push({path,before:step.roleId ?? null,after:binding.roleId});
+    }
+    return {sourceHash,baselineHash,valid:issues.length===0,issues,differences,roles};
+  }
+
+  publishPackage(input: RolePackagePublishRequest): CommandResponse<RoleCatalogResponse> {
+    if (input?.confirmReviewed !== true) throw new AppError(ErrorCode.VALIDATION_FAILED,'请先核对角色、权限、提示模板和激活差异');
+    const body = {source:input.source,sourceHash:input.sourceHash,baselineHash:input.baselineHash,confirmReviewed:true};
+    const original = this.#commands.replay({requestKey:input.requestKey,operation:'catalog.role.package.publish',body},()=>this.list());
+    if (original) return original;
+    const check = this.validatePackage(input.source);
+    if (!check.valid) throw new AppError(ErrorCode.VALIDATION_FAILED,'配置包校验未通过',{details:{issues:check.issues}});
+    if (check.sourceHash!==input.sourceHash || check.baselineHash!==input.baselineHash) throw new AppError(ErrorCode.CONFLICT,'目录或配置包已变化，请重新校验并核对差异');
+    if (!check.differences.length) throw new AppError(ErrorCode.VALIDATION_FAILED,'没有可核对的字段差异，不能发布');
+    const parsed = this.#parsePackage(input.source);
+    const {record} = this.#commands.begin({requestKey:input.requestKey,operation:'catalog.role.package.publish',body,target:{ref:check.sourceHash}});
+    try {
+      this.#store.transaction(()=>{
+        if(this.validatePackage(input.source).baselineHash!==input.baselineHash) throw new AppError(ErrorCode.CONFLICT,'目录已变化，请重新校验并核对差异');
+        const records = [...this.#records()];
+        for (const roleInput of parsed.roles) {
+          if (!check.roles.find((item)=>item.id===roleInput.id)?.changed) continue;
+          const role = this.#packageRole(roleInput);
+          const previous = this.list().roles.find((item)=>item.id===role.id);
+          const revision = bumpRevision(previous?.revision ?? 'r0');
+          const now = nowIso();
+          const published: StoredRoleRecord = {id:role.id,name:role.name,purpose:role.purpose,responsibilities:role.responsibilities,...extendedFromResolved(role),revision,status:'published',publishedAt:now,updatedAt:now};
+          const index = records.findIndex((item)=>item.id===role.id);
+          if (index<0) records.push(published); else records[index]=published;
+          this.#store.settings.putJson(HISTORY_KEY_PREFIX+role.id,[{...packageFields(role),revision,publishedAt:now},...this.#history(role.id)].slice(0,HISTORY_LIMIT));
+        }
+        this.#saveRecords(records);
+        const bindings = this.#store.settings.getJson<readonly RolePackageBinding[]>('catalog.role.bindings') ?? [];
+        const next = [...bindings.filter((old)=>!(parsed.bindings ?? []).some((item)=>item.methodId===old.methodId && item.stepKey===old.stepKey)),...(parsed.bindings ?? [])];
+        this.#store.settings.putJson('catalog.role.bindings',next);
+        const history=this.#store.settings.getJson<readonly unknown[]>('catalog.role.package.history')??[];
+        this.#store.settings.putJson('catalog.role.package.history',[{sourceHash:check.sourceHash,baselineHash:check.baselineHash,publishedAt:nowIso(),differences:check.differences,roles:check.roles,bindings:parsed.bindings??[]},...history].slice(0,HISTORY_LIMIT));
+        this.#commands.settle(input.requestKey,{sourceHash:check.sourceHash,roles:check.roles.filter((item)=>item.changed).map((item)=>item.id)});
+      });
+      this.applyEffective();
+      this.#publish('role.published','package');
+      return {receipt:this.#commands.toReceipt(this.#commands.get(record.requestKey)!),resource:this.list()};
+    } catch(error) {
+      this.#commands.fail(input.requestKey,error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
+  }
+
+  #parsePackage(source: string): RolePackage {
+    if (typeof source!=='string' || Buffer.byteLength(source)>2_000_000) throw new Error('配置包正文须为 2 MB 以内 JSON');
+    const value = rolePackageJson(source) as RolePackage;
+    if (value?.version!==1 || !Array.isArray(value.roles) || value.roles.length<1 || value.roles.length>100 || (value.bindings!==undefined && (!Array.isArray(value.bindings) || value.bindings.length>200))) throw new Error('需要 version:1、1–100 个 roles 和可选 bindings');
+    const ids = new Set<string>();
+    for (const role of value.roles) { normalizeId(role.id); if(ids.has(role.id)) throw new Error('配置包包含重复角色'); ids.add(role.id); }
+    for (const binding of value.bindings ?? []) { normalizeId(binding.methodId); normalizeId(binding.stepKey); normalizeId(binding.roleId); }
+    return value;
+  }
+
+  #packageRole(input: RolePackage['roles'][number]): RoleDefinitionResolved {
+    const id = normalizeId(input.id);
+    const name = normalizeText(input.name,'职业名称',1,60);
+    const purpose = normalizeText(input.purpose,'职业定位',1,1_000);
+    if (!Array.isArray(input.responsibilities) || input.responsibilities.length<1 || input.responsibilities.length>12) throw new Error('职责需要 1–12 条');
+    const responsibilities = input.responsibilities.map((item,index)=>normalizeText(item,`职责 ${index+1}`,1,200));
+    const fallback = resolveRole({id,name,purpose,responsibilities,revision:'r0',promptRevision:'r0'});
+    const fields = normalizeExtendedFields({...input,requestKey:'validation',confirmSave:true},fallback);
+    return resolveRole({id,name,purpose,responsibilities,...fields,revision:'r0',promptRevision:'r0'});
   }
 
   applyEffective(): readonly RoleDefinition[] {
@@ -370,6 +489,8 @@ export class RoleCatalogService {
     if (!BUILT_IN_ROLES.some((role) => role.id === id) && !this.#records().some((record) => record.id === id)) {
       throw new AppError(ErrorCode.NOT_FOUND, '职业不存在', { details: { roleId: id } });
     }
+    const reason=this.#archiveReason(id);
+    if(reason)throw new AppError(ErrorCode.CONFLICT,reason);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'catalog.role.archive',
@@ -389,12 +510,17 @@ export class RoleCatalogService {
     }
   }
 
+  #archiveReason(id: string): string | undefined {
+    return !BUILT_IN_ROLES.some((role)=>role.id===id) && this.#methods().some((method)=>method.planningStrategy?.roleId===id || method.requiredSteps.some((step)=>step.roleId===id)) ? '此职业仍有流程激活绑定，请先调整绑定再归档。' : undefined;
+  }
+
   #entry(resolved: RoleDefinitionResolved, record: StoredRoleRecord | undefined, isBuiltin: boolean): RoleCatalogEntry {
     const hasDraft = record?.draft !== undefined;
     const draft = hasDraft ? resolveRole(draftDefinition(record!, record!.draft!, bumpRevision(record!.revision))) : undefined;
     const checks = hasDraft ? this.#publishChecks(resolved.id, record, isBuiltin ? BUILT_IN_ROLES.find((role) => role.id === resolved.id) : undefined) : undefined;
     return {
       ...resolved,
+      ...(this.#archiveReason(resolved.id) ? {archiveReason:this.#archiveReason(resolved.id)} : {}),
       status: record?.status ?? 'published',
       ...(record?.baseId === undefined ? {} : { baseId: record.baseId }),
       hasDraft,
@@ -671,7 +797,7 @@ function normalizeExtendedFields(input: RoleSaveRequest, fallback: RoleDefinitio
     : normalizeResourcePermissionsInput(input.resourcePermissions, fallback.resourcePermissions);
   const image = input.image === undefined ? fallback.image : input.image === null ? undefined : normalizeImage(input.image);
   return {
-    allowedSlots: fallback.allowedSlots,
+    allowedSlots: input.allowedSlots === undefined ? fallback.allowedSlots : normalizeAllowedSlots(input.allowedSlots),
     ...(instructions === undefined || instructions.trim() === '' ? {} : { instructions }),
     ...(model === undefined ? {} : { model }),
     ...(maxRuntimeMinutes === undefined ? {} : { maxRuntimeMinutes }),
@@ -960,4 +1086,13 @@ function normalizeOptionalText(value: unknown, field: string, max: number): stri
 function normalizeId(value: unknown): string {
   if (typeof value !== 'string' || !ID_PATTERN.test(value)) throw new AppError(ErrorCode.VALIDATION_FAILED, '职业 id 不合法');
   return value;
+}
+
+function hashPackage(value: string): string { return createHash('sha256').update(value).digest('hex'); }
+function normalizeAllowedSlots(values: readonly string[]): readonly string[] {
+  if (!Array.isArray(values) || !values.length || values.some((value)=>!Object.values(RoleResponsibilitySlot).includes(value as never))) throw new AppError(ErrorCode.VALIDATION_FAILED,'角色职责位置不合法');
+  return [...new Set(values)];
+}
+function packageFields(role: RoleDefinitionResolved) {
+  return {name:role.name,purpose:role.purpose,responsibilities:role.responsibilities,allowedSlots:role.allowedSlots,instructions:role.instructions,model:role.model,maxRuntimeMinutes:role.maxRuntimeMinutes,capabilityGroups:role.capabilityGroups,resourcePermissions:role.resourcePermissions,image:role.image};
 }

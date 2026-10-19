@@ -256,6 +256,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'DELETE /api/workflows/:id',
   'POST /api/catalog/roles',
   'POST /api/catalog/roles/:id/publish',
+  'POST /api/catalog/roles/package/publish',
   'POST /api/catalog/roles/:id/archive',
   'POST /api/catalog/roles/:id/restore/:revision',
   'POST /api/settings/gitlab',
@@ -1097,6 +1098,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     }
   });
 
+  app.post('/api/catalog/roles/package/validate', async (request) => envelope(engine.roleCatalog.validatePackage((request.body as {source:string}).source),requestId(request)));
+  app.post('/api/catalog/roles/package/publish', async (request) => envelope(engine.roleCatalog.publishPackage(request.body as import('@agent-workflow/shared').RolePackagePublishRequest),requestId(request)));
   app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));
   app.post<{ Params: { id: string; revision: string } }>('/api/catalog/roles/:id/restore/:revision', async (request) => {
     const body = request.body as RoleRestoreRequest;

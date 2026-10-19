@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import { RoleUsage, RolePermissionEstimate, RoleImageChoices } from './RoleInsights.tsx';
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -284,7 +285,9 @@ export function RolesPage() {
   const methods = bootstrap.data?.catalog.methods ?? [];
   const modelProfiles = bootstrap.data?.catalog.modelProfiles ?? [];
   const [keyword, setKeyword] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [roleParams] = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(()=>roleParams.get('roleId'));
+  useEffect(()=>{const id=roleParams.get('roleId');if(id)setSelectedId(id);},[roleParams]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tab, setTab] = useState<RoleTab>('overview');
   const [form, setForm] = useState<RoleForm | null>(null);
@@ -827,8 +830,8 @@ export function RolesPage() {
                 variant="ghost"
                 size="sm"
                 icon="trash"
-                disabled={readOnly || dirty || pendingCommand}
-                disabledReason={readOnly ? '结果未明或正在处理，暂不能归档。' : dirty ? '先保存或放弃当前修改。' : pendingCommand ? '先应用或放弃命令参数修改。' : undefined}
+                disabled={readOnly || dirty || pendingCommand || selected.archiveReason!==undefined}
+                disabledReason={selected.archiveReason ?? (readOnly ? '结果未明或正在处理，暂不能归档。' : dirty ? '先保存或放弃当前修改。' : pendingCommand ? '先应用或放弃命令参数修改。' : undefined)}
                 onClick={() => { if (selected !== undefined) { setFailure(undefined); setReceiptState(undefined); archiveMutation.mutate(selected.id); } }}
               >
                 {selected.baseId === undefined && selected.status === 'draft' ? '删除草稿' : '归档/还原'}

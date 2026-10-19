@@ -16,6 +16,7 @@ import {
   type NodeKindValue,
   type TaskMethodSupportValue,
   type WorkflowMethod,
+  type RolePackageBinding,
 } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 
@@ -193,10 +194,10 @@ export class MethodCatalogService {
   get(id: string): MethodCatalogDetail {
     if (typeof id !== 'string' || id === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '流程 id 不能为空');
     const builtin = BUILT_IN_METHODS.find((method) => method.id === id);
-    if (builtin !== undefined) return this.#readDetail(builtinDetail(builtin));
+    if (builtin !== undefined) return this.#readDetail({ ...builtinDetail(builtin), requiredSteps: this.#bound(builtin).requiredSteps });
     const record = this.#customRecord(id);
     if (record === undefined) throw new AppError(ErrorCode.NOT_FOUND, '流程不存在', { details: { methodId: id } });
-    return this.#readDetail(customDetail(record));
+    return this.#readDetail({ ...customDetail(record), requiredSteps: this.#bound(record.method).requiredSteps });
   }
 
   /** Historical snapshots are immutable and read only. Legacy versions absent from disk are not invented. */
@@ -241,9 +242,9 @@ export class MethodCatalogService {
   /** Merged resolution: custom ids win over a built-in with the same id (none today). */
   resolve(id: string): WorkflowMethod | undefined {
     const record = this.#customRecord(id);
-    if (record !== undefined) return cloneMethod(record.method);
+    if (record !== undefined) return this.#bound(record.method);
     const builtin = BUILT_IN_METHODS.find((method) => method.id === id);
-    return builtin === undefined ? undefined : cloneMethod(builtin);
+    return builtin === undefined ? undefined : this.#bound(builtin);
   }
 
   /**
@@ -253,13 +254,22 @@ export class MethodCatalogService {
    */
   instantiate(id: string): MethodInstantiation {
     const builtin = BUILT_IN_METHODS.find((method) => method.id === id);
-    if (builtin !== undefined) return { method: cloneMethod(builtin), source: 'builtin', frozen: true };
+    if (builtin !== undefined) return { method: this.#bound(builtin), source: 'builtin', frozen: true };
     const record = this.#customRecord(id);
     if (record === undefined) throw new AppError(ErrorCode.NOT_FOUND, '流程不存在', { details: { methodId: id } });
     if (record.archived) {
       throw new AppError(ErrorCode.CONFLICT, '该流程已归档，不能用于新任务', { details: { methodId: id, version: record.version } });
     }
-    return { method: cloneMethod(record.method), source: 'custom', customVersion: record.version, frozen: true };
+    return { method: this.#bound(record.method), source: 'custom', customVersion: record.version, frozen: true };
+  }
+
+  #bound(method: WorkflowMethod): WorkflowMethod {
+    const bindings = this.#store.settings.getJson<readonly RolePackageBinding[]>('catalog.role.bindings') ?? [];
+    const copy = cloneMethod(method);
+    return {...copy,requiredSteps:copy.requiredSteps.map((step)=>{
+      const binding = bindings.find((item)=>item.methodId===method.id && item.stepKey===step.key);
+      return binding ? {...step,roleId:binding.roleId} : step;
+    })};
   }
 
   /* ---------------------------------------------------------------- */

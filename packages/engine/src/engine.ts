@@ -100,6 +100,7 @@ export class Engine {
     this.#settings = mergeSettings(DEFAULT_SETTINGS, options.store.settings.getSettings() ?? {}) ?? options.initialSettings ?? DEFAULT_SETTINGS;
     this.commands = new CommandService(this.store);
     this.roleCatalog = new RoleCatalogService({
+      methods: () => this.catalog.methods,
       store: this.store,
       commands: this.commands,
       applyRoles: (roles) => {

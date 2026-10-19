@@ -17,6 +17,7 @@ import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import './roles-legacy.css';
+import { RolePackageImport } from './RolePackageImport.tsx';
 
 function RoleAvatar({ role, size }: { readonly role: { readonly name: string }; readonly size?: 'lg' }) {
   const initial = role.name.trim().slice(0, 1);
@@ -24,23 +25,6 @@ function RoleAvatar({ role, size }: { readonly role: { readonly name: string }; 
     <span className={['tile', size === 'lg' ? 'lg' : ''].filter(Boolean).join(' ')} aria-hidden="true" style={{ fontSize: 14, fontWeight: 600 }}>
       {initial === '' ? '?' : initial}
     </span>
-  );
-}
-
-function UnavailableGroup({ title, detail }: { readonly title: string; readonly detail: string }) {
-  return (
-    <section className="card rl-group-card" aria-label={title}>
-      <div className="row" style={{ gap: 8 }}>
-        <Icon name="lock" size="sm" />
-        <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>{title}</h4>
-        <Badge tone="unknown" icon="help">
-          服务未提供
-        </Badge>
-      </div>
-      <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
-        {detail}
-      </p>
-    </section>
   );
 }
 
@@ -76,6 +60,7 @@ function SnapshotDiff({ base, latest }: { readonly base: RoleRevisionSnapshot; r
             <td className={purposeChanged ? 'rl-old' : ''}>{base.purpose}</td>
             <td className={purposeChanged ? 'rl-new' : ''}>{latest.purpose}</td>
           </tr>
+          {(['instructions','allowedSlots','model','maxRuntimeMinutes','capabilityGroups','resourcePermissions','image'] as const).map((field)=><tr key={field}><th>{({instructions:'Prompt 模板',allowedSlots:'允许位置',model:'模型',maxRuntimeMinutes:'最长运行时间',capabilityGroups:'能力',resourcePermissions:'资源权限',image:'形象'})[field]}</th><td className={JSON.stringify(base[field])!==JSON.stringify(latest[field])?'rl-old':''}><pre>{JSON.stringify(base[field]??'未配置',null,2)}</pre></td><td className={JSON.stringify(base[field])!==JSON.stringify(latest[field])?'rl-new':''}><pre>{JSON.stringify(latest[field]??'未配置',null,2)}</pre></td></tr>)}
           {rows.length === 0 ? (
             <tr>
               <th scope="row">职责</th>
@@ -123,6 +108,7 @@ function RoleHistory({
   const [snapshotRevision, setSnapshotRevision] = useState<string | null>(null);
   const [compareRevision, setCompareRevision] = useState<string | null>(null);
 
+  const [tab,setTab]=useState<'overview'|'perms'|'prompt'|'history'>('overview');
   const latest = history[0];
   const snapshot = history.find((item) => item.revision === snapshotRevision) ?? latest;
   const compareOptions = history.slice(1);
@@ -130,8 +116,9 @@ function RoleHistory({
 
   return (
     <div className="col" style={{ gap: 16 }}>
-      <div className="rl-groups">
-        <section className="card rl-group-card" aria-label="职责">
+      <div role="tablist" aria-label="历史角色详情">{([['overview','描述'],['perms','权限与 MCP'],['prompt','Prompt 模板'],['history','版本历史']] as const).map(([id,label])=><Button key={id} variant={tab===id?'primary':'ghost'} onClick={()=>setTab(id)} role="tab" aria-selected={tab===id}>{label}</Button>)}</div>
+      <div className="rl-groups" hidden={tab==='history'}>
+        <section className="card rl-group-card" aria-label="职责" hidden={tab!=='overview'}>
           <div className="row" style={{ gap: 8 }}>
             <Icon name="users" size="sm" />
             <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>职责</h4>
@@ -167,21 +154,12 @@ function RoleHistory({
           </div>
         </section>
 
-        <UnavailableGroup
-          title="能力"
-          detail="服务未提供角色能力（capabilities）契约；本页不展示能力清单、工具授权或权限推算，也不从职责文本反推能力。"
-        />
-        <UnavailableGroup
-          title="资源权限"
-          detail="服务未提供资源权限（resourcePermissions）契约；本页不展示资源范围、允许/询问/拒绝规则或阶段绑定，避免把旧原型配置当成真实数据。"
-        />
-        <UnavailableGroup
-          title="形象"
-          detail="服务未提供形象/头像（image）配置契约。页面头部的首字母头像只是占位，不是已配置形象，也没有可编辑的形象字段。"
-        />
+        <section className="card rl-group-card" hidden={tab!=='overview'}><h4>能力</h4>{(role.capabilityGroups ?? []).map((group)=><div key={group.id}><b>{group.label}</b><p>{group.items.filter((item)=>item.enabled).map((item)=>item.label).join('、')||'未启用'}</p></div>)}</section>
+        <section className="card rl-group-card" hidden={tab!=='perms'}><h4>资源权限</h4><pre className="rl-text">{JSON.stringify(role.resourcePermissions ?? {},null,2)}</pre></section>
+        <section className="card rl-group-card" hidden={tab!=='prompt'}><h4>形象</h4><p>{role.image ? `${role.image.value} · ${role.image.label??role.image.kind}` : '未配置形象，显示首字母'}</p><h4>Prompt 模板</h4><pre className="rl-text">{role.instructions || '未配置附加指令'}</pre><p>允许位置：{role.allowedSlots?.join('、') || '按服务默认'}</p></section>
       </div>
 
-      <section className="card pad" aria-label="所属流程">
+      <section className="card pad" aria-label="所属流程" hidden={tab!=='overview'}>
         <div className="row" style={{ gap: 8 }}>
           <Icon name="flow" size="sm" />
           <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>所属流程与位置</h4>
@@ -189,7 +167,7 @@ function RoleHistory({
         </div>
         {usage.length === 0 ? (
           <p className="hint" style={{ marginTop: 8 }}>
-            当前流程目录没有把该角色指定为规划职责。
+            当前流程没有绑定这个角色。
           </p>
         ) : (
           <div className="col" style={{ gap: 6, marginTop: 8 }}>
@@ -197,17 +175,17 @@ function RoleHistory({
               <div key={method} className="row" style={{ gap: 8 }}>
                 <Icon name="branch" size="sm" />
                 <span style={{ fontSize: 13.5 }}>{method}</span>
-                <span className="hint">规划职责</span>
+
               </div>
             ))}
           </div>
         )}
         <p className="hint" style={{ marginTop: 8 }}>
-          服务只在流程上提供 planningStrategy.roleId；没有「角色阶段位置 / 阶段绑定」字段，因此这里不显示设计稿中的阶段位置。
+          按实际规划职责及各阶段 roleId 统计；已冻结任务沿用创建时的流程与角色快照。
         </p>
       </section>
 
-      <section className="card pad" aria-label="发布修订历史">
+      <section className="card pad" aria-label="发布修订历史" hidden={tab!=='history'}>
         <div className="row wrap" style={{ gap: 8 }}>
           <Icon name="clock" size="sm" />
           <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>发布修订历史</h4>
@@ -350,10 +328,8 @@ export function RolesLegacyPage() {
     const map = new Map<string, string[]>();
     for (const method of methods) {
       const roleId = method.planningStrategy?.roleId;
-      if (roleId === undefined) continue;
-      const list = map.get(roleId) ?? [];
-      list.push(method.name);
-      map.set(roleId, list);
+      if (roleId !== undefined) { const list=map.get(roleId)??[];list.push(`${method.name} · 规划职责`);map.set(roleId,list); }
+      for(const step of method.requiredSteps) { if(!step.roleId)continue;const list=map.get(step.roleId)??[];list.push(`${method.name} · ${step.title}`);map.set(step.roleId,list); }
     }
     return map;
   }, [methods]);
@@ -366,7 +342,7 @@ export function RolesLegacyPage() {
 
   const inUse = filtered.filter((role) => (usageByRole.get(role.id)?.length ?? 0) > 0);
   const unused = filtered.filter((role) => (usageByRole.get(role.id)?.length ?? 0) === 0);
-  const selected = filtered.find((role) => role.id === selectedId) ?? filtered[0];
+  const selected = filtered.find((role) => role.id === selectedId);
 
   const loading = catalogQuery.isLoading && bootstrap.isLoading;
   const error = catalogQuery.isError ? catalogQuery.error : undefined;
@@ -376,44 +352,16 @@ export function RolesLegacyPage() {
       <PageHeader
         eyebrow="角色管理"
         title="历史角色配置"
-        lede="只读历史视图：查看角色目录的当前定义与发布修订快照，比较两份快照的字段差异。本页不导入、不发布、不编辑，也不伪造旧配置包或历史会话快照。"
+        lede="旧版角色配置包的职责、权限与版本。导入后先校验并核对字段与激活差异，发布只影响之后新建的会话。"
         actions={
           <div className="row wrap" style={{ gap: 8 }}>
             <LinkButton variant="secondary" size="sm" icon="arrowLeft" to="/roles">
               去角色管理
             </LinkButton>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon="upload"
-              disabled
-              disabledReason="服务未提供角色配置包导入接口；本页只读历史视图。"
-            >
-              导入配置包
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="send"
-              disabled
-              disabledReason="本页是只读历史视图；发布草稿请到角色管理页（发布接口只在角色管理页使用）。"
-            >
-              发布草稿
-            </Button>
+            <RolePackageImport />
           </div>
         }
       />
-
-      <div className="banner info rl-readonly">
-        <Icon name="lock" />
-        <div className="grow">
-          <b>只读历史角色配置</b>
-          <br />
-          数据来自 <span className="mono">GET /api/catalog/roles</span> 与 <span className="mono">GET /api/catalog/roles/:id/history</span>。
-          服务只提供职责相关字段；能力、资源权限、形象没有契约，页面明确标注「服务未提供」，不补造配置。
-          修订历史是发布时的静态快照（最多 20 个），不是历史会话快照。
-        </div>
-      </div>
 
       {error !== undefined ? (
         <div style={{ marginTop: 16 }}>
@@ -518,11 +466,11 @@ export function RolesLegacyPage() {
               ),
             )}
             <p className="hint" style={{ padding: '10px 12px', lineHeight: 1.6 }}>
-              服务没有「N 个阶段在使用」字段；分组与数量按流程的 planningStrategy.roleId 统计，仅供参考。
+              按当前流程的规划职责与阶段角色绑定统计。
             </p>
           </aside>
 
-          {selected === undefined ? null : (
+          {selected === undefined ? <section className="card pad"><EmptyState icon="users" title="选择一个角色" description="查看职责、权限、Prompt 和已发布版本；更新配置前先导入并核对差异。"/></section> : (
             <section className="card rl-detail" aria-label="历史角色详情">
               <div className="card-head">
                 <RoleAvatar role={selected} size="lg" />

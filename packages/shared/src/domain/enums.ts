@@ -613,6 +613,7 @@ export const OperationKind = {
   CATALOG_METHOD_ARCHIVE: 'catalog.method.archive',
   CATALOG_ROLE_SAVE: 'catalog.role.save',
   CATALOG_ROLE_PUBLISH: 'catalog.role.publish',
+  CATALOG_ROLE_PACKAGE_PUBLISH: 'catalog.role.package.publish',
   CATALOG_ROLE_ARCHIVE: 'catalog.role.archive',
   CATALOG_ROLE_RESTORE: 'catalog.role.restore',
   CATALOG_TEMPLATE_IMPORT: 'catalog.template.import',
@@ -697,6 +698,7 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'task.delivery.apply': op('task.delivery.apply', 'task', true, '应用到原目录'),
   'task.recovery.create': op('task.recovery.create', 'task', true, '创建恢复草稿'),
   'catalog.role.save': op('catalog.role.save', 'global', true, '保存职业草稿'),
+  'catalog.role.package.publish': op('catalog.role.package.publish', 'global', true, '发布角色配置包'),
   'catalog.role.publish': op('catalog.role.publish', 'global', true, '发布职业'),
   'catalog.role.archive': op('catalog.role.archive', 'global', true, '归档职业'),
   'catalog.role.restore': op('catalog.role.restore', 'global', true, '从历史快照恢复职业草稿'),
@@ -824,6 +826,8 @@ export const PptGenerationStatus = { RUNNING:'running', STOPPING:'stopping', UNK
 export type PptGenerationStatusValue = (typeof PptGenerationStatus)[keyof typeof PptGenerationStatus];
 export const PPT_GENERATION_TERMINAL = [PptGenerationStatus.COMPLETED,PptGenerationStatus.FAILED,PptGenerationStatus.STOPPED] as const;
 
+/** Native tool identifiers recognized by the managed OpenCode role-package format. */
+export const RolePackageNativeTools = ['read','edit','write','apply_patch','patch','bash','glob','grep','list','task','todowrite','todoread','webfetch','websearch','codesearch','skill','question'] as const;
 export const RoleResponsibilitySlot = { EXECUTION: 'execution', READ_ONLY: 'execution_read_only' } as const;
 export type RoleResponsibilitySlotValue = (typeof RoleResponsibilitySlot)[keyof typeof RoleResponsibilitySlot];
 

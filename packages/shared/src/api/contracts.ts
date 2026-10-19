@@ -1145,6 +1145,7 @@ export interface MethodValidateRequest {
 }
 
 export interface RoleSaveRequest extends CommandRequest {
+  readonly allowedSlots?: readonly string[];
   readonly roleId?: string;
   readonly baseId?: string;
   readonly name: string;
@@ -1160,6 +1161,20 @@ export interface RoleSaveRequest extends CommandRequest {
   readonly confirmSave: true;
 }
 
+/** Portable role package; validation is read-only and publishing requires the reviewed baseline. */
+export interface RolePackageRole extends Omit<RoleSaveRequest, 'requestKey'|'confirmSave'|'roleId'|'baseId'> { readonly id: string }
+export interface RolePackageBinding { readonly methodId: string; readonly stepKey: string; readonly roleId: string }
+export interface RolePackage { readonly version: 1; readonly roles: readonly RolePackageRole[]; readonly bindings?: readonly RolePackageBinding[] }
+export interface RolePackageValidation {
+  readonly sourceHash: string;
+  readonly baselineHash: string;
+  readonly valid: boolean;
+  readonly issues: readonly { readonly path: string; readonly message: string }[];
+  readonly roles: readonly { readonly id: string; readonly name: string; readonly revision?: string; readonly changed: boolean }[];
+  readonly differences: readonly { readonly path: string; readonly before: unknown; readonly after: unknown }[];
+}
+export interface RolePackagePublishRequest extends CommandRequest { readonly source: string; readonly sourceHash: string; readonly baselineHash: string; readonly confirmReviewed: true }
+
 export interface RolePublishRequest extends CommandRequest {
   readonly confirmPublish: true;
 }
@@ -1169,6 +1184,7 @@ export interface RoleArchiveRequest extends CommandRequest {
 }
 
 export interface RoleCatalogEntry extends RoleDefinition {
+  readonly archiveReason?: string;
   readonly status: 'published' | 'draft';
   readonly baseId?: string;
   readonly hasDraft: boolean;
@@ -2062,6 +2078,8 @@ export const ROUTES = {
   workflowValidate: '/api/workflows/validate',
   workflowInstantiate: (id: string) => `/api/workflows/${encodeURIComponent(id)}/instantiate`,
   catalogRoleSave: '/api/catalog/roles',
+  catalogRolePackageValidate: '/api/catalog/roles/package/validate',
+  catalogRolePackagePublish: '/api/catalog/roles/package/publish',
   catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,
   catalogRoleValidate: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/validate`,
   templateArchive: '/api/templates/archive',

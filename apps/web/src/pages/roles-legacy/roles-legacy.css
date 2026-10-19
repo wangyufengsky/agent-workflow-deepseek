@@ -263,3 +263,7 @@
   height: 30px;
   font-size: 12.5px;
 }
+.rl-page [hidden] { display: none !important; }
+.rl-package-steps { display:flex; gap:24px; flex-wrap:wrap; padding-left:20px; margin:0 0 24px; color:var(--sub); }
+.rl-package-pending { flex-basis:100%; }
+.rl-compare pre { white-space:pre-wrap; overflow-wrap:anywhere; max-width:100%; font:inherit; }
