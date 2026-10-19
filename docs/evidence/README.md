@@ -1,6 +1,6 @@
 # 界面证据清单（docs/evidence/）
 
-> 首次整理：2026-10-19；本轮刷新：2026-10-19 21:39（Asia/Shanghai）。
+> 首次整理：2026-10-19；本轮刷新：2026-10-19 21:47（Asia/Shanghai，W4-3c 设置导航修复后重拍）。
 > 目录内现有 **30 张 PNG** + 本 README：22 张 Wave 0 前历史截图 + 8 张本轮的当前 UI smoke 截图。
 > 本文件是清单与有效性说明，不是验收记录；验收以 `npm test`、`npm run build:web`、
 > `node scripts/test-e2e.mjs`、`npm run check:docs-routes` 与 `docs/review/execution-log.md` 为准。
@@ -8,31 +8,31 @@
 ## 1. 结论先说
 
 - **本轮的 8 张带 `-2026-10-19` 后缀的截图是当前 UI**：由官方 `npm run ui:smoke`（兼容 flags）
-  在 2026-10-19 21:39 从真实服务 + `apps/web/dist` 渲染，HEAD 为 `449b3ac`。
+  在 2026-10-19 21:47 从真实服务 + `apps/web/dist`（21:47 重新构建）渲染，HEAD 为 `14c9fdd`，
+  并包含本轮未提交的 `settings.css` 导航修复；提交后以新提交哈希为准。
 - 其余 22 张仍产生于 Wave 0 之前（或第 35 轮旧打包）；**不能作为当前 UI 证据**，只作历史实现/设计对照。
 - UI smoke 本轮已通过：13 个截图目标（11 个默认 + roles/ppt 两个显式扩展）+ 2 个交互 smoke；
   脚本 exit 0。它只断言文案存在、主题与关键交互，不是像素级视觉回归。
 - 根目录 `evidence/` 是 smoke 自动产物（本轮 13 张）；本目录是人工整理的当前 8 张 + 历史 22 张，见 §5。
-- **截图中可见一个当前视觉缺陷**：设置页左侧分区导航的组标题 `.cap` 被全局 `.cap` 卡片样式污染
-  （computed `min-height:300px` + `display:flex`），导致“服务/外观”等按钮与分组标题出现约 300px 大间距。
-  截图如实反映现状；本任务写范围不允许改产品代码，需另开设置页样式修复。见 §4。
+- **上一轮发现的设置导航间距缺陷已修复**：`.snav .cap` 不再继承全局首页 `.cap` 的 `min-height:300px`/`display:flex`；
+  本轮 `settings-2026-10-19.png` 已确认导航分组紧凑正常。见 §4。
 
 ## 2. 本轮当前 UI 证据（8 张）
 
-数据源：真实 `.build/server/main.mjs` + `apps/web/dist`，隔离 `AGENT_WORKFLOW_DATA_DIR`
-（`.tmp/ui-task44/ui-data`）与演示 Git 仓库；OpenCode 在该 smoke 中禁用，因此**不包含模型生成内容**。
+数据源：真实 `.build/server/main.mjs` + `apps/web/dist`（21:47 `npm run build:web`），隔离 `AGENT_WORKFLOW_DATA_DIR`
+（`.tmp/ui-task46/ui-data`）与演示 Git 仓库；OpenCode 在该 smoke 中禁用，因此**不包含模型生成内容**。
 截图尺寸均为 1440×900。
 
 | 文件 | 内容 | 来源 root evidence | 时间 | 当前有效？ |
 | --- | --- | --- | --- | --- |
-| `home-deepseek-2026-10-19.png` | 主页（deepseek）：真实项目/任务概览 | `evidence/ui-home-deepseek.png` | 21:39:02 | **是**（当前 dist） |
-| `tasks-2026-10-19.png` | 任务列表：阶段胶囊/聚合进度/行菜单/加载更多 | `evidence/ui-tasks-deepseek.png` | 21:39:05 | **是** |
-| `requirement-canvas-2026-10-19.png` | 需求画布：真实草稿/计划/工作区入口（未调用模型） | `evidence/ui-requirement-canvas.png` | 21:39:08 | **是** |
-| `task-canvas-2026-10-19.png` | 任务画布：执行面板/节点/交付入口 | `evidence/ui-task-canvas.png` | 21:39:10 | **是** |
-| `git-overview-2026-10-19.png` | Git 仓库概览（真实本地 Git） | `evidence/ui-git.png` | 21:39:16 | **是** |
-| `settings-2026-10-19.png` | 设置页：新分区导航/服务页；含 §4 已知导航间距缺陷 | `evidence/ui-settings.png` | 21:39:18 | **是**（但视觉有缺陷） |
-| `roles-2026-10-19.png` | 角色管理：真实角色目录/草稿/发布入口 | `evidence/ui-roles.png` | 21:39:32 | **是** |
-| `ppt-2026-10-19.png` | PPT 制作：真实作品库空态/新建入口 | `evidence/ui-ppt.png` | 21:39:34 | **是** |
+| `home-deepseek-2026-10-19.png` | 主页（deepseek）：真实项目/任务概览 | `evidence/ui-home-deepseek.png` | 21:47:33 | **是**（当前 dist） |
+| `tasks-2026-10-19.png` | 任务列表：阶段胶囊/聚合进度/行菜单/加载更多 | `evidence/ui-tasks-deepseek.png` | 21:47:36 | **是** |
+| `requirement-canvas-2026-10-19.png` | 需求画布：真实草稿/计划/工作区入口（未调用模型） | `evidence/ui-requirement-canvas.png` | 21:47:38 | **是** |
+| `task-canvas-2026-10-19.png` | 任务画布：执行面板/节点/交付入口 | `evidence/ui-task-canvas.png` | 21:47:41 | **是** |
+| `git-overview-2026-10-19.png` | Git 仓库概览（真实本地 Git） | `evidence/ui-git.png` | 21:47:46 | **是** |
+| `settings-2026-10-19.png` | 设置页：分区导航/服务页；`.snav .cap` 修复后导航间距正常 | `evidence/ui-settings.png` | 21:47:49 | **是**（导航已修复） |
+| `roles-2026-10-19.png` | 角色管理：真实角色目录/草稿/发布入口 | `evidence/ui-roles.png` | 21:48:03 | **是** |
+| `ppt-2026-10-19.png` | PPT 制作：真实作品库空态/新建入口 | `evidence/ui-ppt.png` | 21:48:05 | **是** |
 
 补充：根目录另有 `evidence/ui-home-warm/spdb/github-white.png`（四主题首页）、
 `ui-settings-model.png`（模型服务页）、`ui-start.png`（开始任务）共 5 张同批产物；
@@ -69,15 +69,16 @@
 
 ## 4. 本轮 UI smoke 结果
 
-- 命令（兼容 flags 显式开启，默认命令不变）：
+- 命令（先构建，再以兼容 flags 显式开启；默认 smoke 命令不变）：
   ```sh
+  npm run build:web
   CAPTURE_UI_NO_SANDBOX=1 \
-  CAPTURE_UI_PORT=5292 \
-  CAPTURE_UI_TMP_DIR=.tmp/ui-task44 \
+  CAPTURE_UI_PORT=5293 \
+  CAPTURE_UI_TMP_DIR=.tmp/ui-task46 \
   CAPTURE_UI_EXTRA=1 \
   npm run ui:smoke
   ```
-- 结果：**exit 0**。13 个截图目标全部成功：
+- 结果：`build:web` **exit 0**（21:47，Vite 403 modules）；`ui:smoke` **exit 0**。13 个截图目标全部成功：
   `/`、`/tasks`、`/requirement/:id`、`/tasks/:id`、`/start`、`/git`、`/settings`、
   `/settings?section=model`、`/?theme=warm|spdb|github-white`、`/roles`、`/ppt`。
   交互 smoke：数据库抽屉输入保持焦点、项目目录选择器返回 102 项，均通过。
@@ -89,12 +90,14 @@
 - GPU 缓存写入仍打印非致命错误（`Gpu Cache Creation failed` / `SharedImageManager`），
   不影响 11 个默认截图与 2 个扩展截图的写入；不视为 smoke 通过依据，只记录环境事实。
 
-### 已知视觉问题（截图中可见，不在本任务写范围）
+### 已修复视觉问题（W4-3c 验证）
 
-- 设置页左侧分区导航大间距：全局 `.cap`（首页能力卡）规则作用到 `.snav .cap`，实测
-  `min-height: 300px`、`display: flex`，导致组标题与按钮分离。`settings-2026-10-19.png`
-  与 `evidence/ui-settings.png` 如实显示该问题；需设置页样式修复后重新截图，不能把截图当作“导航正常”的证据。
-- 本轮截图来自 `apps/web/dist`（21:31 构建）；若工作树在 21:39 之后仍有未提交前端改动，
+- 上一轮发现设置页左侧分区导航大间距：全局 `.cap`（首页能力卡）规则作用到 `.snav .cap`，
+  实测 `min-height: 300px`、`display: flex`，导致组标题与按钮分离。
+- 本轮在 `apps/web/src/pages/settings/settings.css` 增加 `.snav .cap` 覆盖
+  （`display:block; min-height:0; padding:12px 10px 6px; overflow:visible`），不影响首页 `.cap`；
+  `settings-2026-10-19.png` 与 `evidence/ui-settings.png` 已确认导航紧凑正常。
+- 本轮截图来自 21:47 重新构建的 `apps/web/dist`；若工作树在 21:48 之后仍有未提交前端改动，
   这些截图不代表该后改代码。Lead 整合后应重新 `build:web` + 本 smoke 再更新一次。
 
 ## 5. 根目录 `evidence/` 与 `docs/evidence/` 的区别
@@ -102,7 +105,7 @@
 | 目录 | 生成方式 | 数量/命名 | 内容 | 更新方式 | 当前状态 |
 | --- | --- | --- | --- | --- | --- |
 | `docs/evidence/`（本目录） | 人工挑选 + 从 root smoke 复制 | 30 张：22 历史 + 8 当前 `-2026-10-19` | 当前 8 张关键页 + 历史 22 张 | 本轮手工复制当前 smoke 图；历史不覆盖 | 当前 8 有效；历史 22 过期 |
-| `evidence/`（仓库根） | `npm run ui:smoke` / `ui:capture` 自动写出 | 13 张 `ui-*.png`（11 默认 + roles/ppt 扩展） | 各主要路由的 smoke 画面（含四主题首页） | 重跑脚本覆盖；可复现 | 2026-10-19 21:39 产物，当前 |
+| `evidence/`（仓库根） | `npm run ui:smoke` / `ui:capture` 自动写出 | 13 张 `ui-*.png`（11 默认 + roles/ppt 扩展） | 各主要路由的 smoke 画面（含四主题首页） | 重跑脚本覆盖；可复现 | 2026-10-19 21:47 产物，当前 |
 
 注意：`ui:capture` 与 `ui:smoke` 指向同一个 `scripts/capture-ui.cjs`；根目录文件会被脚本覆盖。
 两者都不是像素级视觉回归（只断言文案存在与 `data-theme`）。
@@ -117,6 +120,7 @@
    不是像素证据。
 2. **自动路由截图（需要桌面环境）**：
    ```sh
+   npm run build:web
    # 普通桌面环境（默认，不追加兼容 flags）
    npm run ui:smoke
    # 沙箱/CI 兼容模式
@@ -134,4 +138,4 @@
 - 没有像素级视觉回归；四主题 × 全状态没有自动覆盖。
 - 模型生成内容、Electron 打包产物、GitLab/数据库连接场景不在本轮 smoke；历史 22 张中的
   Electron/模型场景无法在 CI 复现，有效性只以本 README 标注为准。
-- 设置页导航间距缺陷已记录，修复后必须重新生成对应截图。
+- 设置页导航间距缺陷已在 W4-3c 修复并重拍；`.snav .cap` 覆盖只作用于设置导航，首页 `.cap` 不受影响。

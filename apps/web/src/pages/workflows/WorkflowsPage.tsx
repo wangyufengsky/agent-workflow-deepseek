@@ -1,292 +1,611 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { TaskMethodSupport, type WorkflowMethod } from '@agent-workflow/shared';
+import { useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { ROUTES, createRequestKey, type WorkflowMethod } from '@agent-workflow/shared';
+import { isApiClientError, apiGet, errorMessage } from '../../api/client.ts';
 import { useBootstrap } from '../../api/hooks.ts';
+import { formatRelativeTime } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { Modal } from '../../components/Modal.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+import {
+  archiveWorkflow,
+  builtinCatalogFromBootstrap,
+  copyWorkflow,
+  createWorkflow,
+  fetchWorkflowDetail,
+  fetchWorkflowList,
+  isWorkflowUnavailable,
+  workflowErrorDetail,
+  type WorkflowCatalogDetail,
+  type WorkflowCatalogEntry,
+  type WorkflowDraft,
+} from './workflow-api.ts';
+import { WORKFLOW_STEP_KIND_LABEL, supportLabel } from './workflow-model.ts';
+import './workflows.css';
 
-const EDIT_BLOCKED_REASON = '流程编辑接口尚未接通：服务端目前只提供目录读取（bootstrap.catalog.methods），不提供流程写入。';
+type SourceFilter = 'all' | 'mine' | 'builtin';
 
-type SupportFilter = 'all' | 'ai' | 'skeleton';
-
-function supportBadge(method: WorkflowMethod) {
-  return method.support === TaskMethodSupport.AI_PLANNING ? (
-    <Badge tone="accent" icon="sparkle">
-      AI 规划
-    </Badge>
-  ) : (
-    <Badge tone="idle" icon="layers">
-      仅方法骨架
-    </Badge>
-  );
+interface CommandReceipt {
+  readonly label: string;
+  readonly status: 'accepted' | 'succeeded' | 'failed' | 'unknown';
+  readonly requestKey?: string;
+  readonly message?: string;
+  readonly lookup?: string;
 }
 
-function StepList({ method }: { readonly method: WorkflowMethod }) {
+const LIST_KEY = ['workflows', 'list'] as const;
+
+function hasSteps(entry: WorkflowCatalogEntry | WorkflowCatalogDetail): entry is WorkflowCatalogDetail {
+  return Array.isArray((entry as WorkflowCatalogDetail).requiredSteps);
+}
+
+function builtinEntriesFromBootstrap(methods: readonly WorkflowMethod[]): readonly WorkflowCatalogDetail[] {
+  return builtinCatalogFromBootstrap(methods);
+}
+
+function StepChain({ detail }: { readonly detail: WorkflowCatalogDetail }) {
   return (
-    <ol className="list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-      {method.requiredSteps.map((step, index) => (
-        <li key={step.key} className="list-row" style={{ cursor: 'default' }}>
-          <span className="badge neutral num" aria-hidden="true">
-            {String(index + 1)}
-          </span>
+    <ol className="wf-chain">
+      {detail.requiredSteps.map((step, index) => (
+        <li key={step.key} className="wf-chain-row">
+          <span className="wf-chain-index mono">{String(index + 1).padStart(2, '0')}</span>
           <span className="grow" style={{ minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 13.5 }}>{step.title}</span>
-            <span className="hint mono">{step.key}</span>
+            <span className="wf-chain-title">{step.title}</span>
+            <span className="hint wf-chain-meta">
+              {WORKFLOW_STEP_KIND_LABEL[step.kind]} · {step.group}
+              {step.roleId === undefined ? ' · 未指定职业' : ` · ${step.roleId}`}
+              {step.optional === true ? ' · 可选' : ''}
+            </span>
           </span>
-          <Badge outline>{step.group}</Badge>
-          {step.optional === true ? <Badge tone="idle">可选</Badge> : null}
+          {step.roleId === undefined ? <Badge tone="warn" icon="help">未指定职业</Badge> : null}
         </li>
       ))}
     </ol>
   );
 }
 
-function MethodDetail({ method, roleName, taskTypes }: {
-  readonly method: WorkflowMethod;
-  readonly roleName: string | null;
-  readonly taskTypes: readonly { readonly id: string; readonly name: string }[];
-}) {
-  const strategy = method.planningStrategy;
-  return (
-    <aside className="card solid" aria-label="流程详情" style={{ padding: 20, position: 'sticky', top: 24 }}>
-      <div className="row wrap" style={{ gap: 6 }}>
-        <Badge outline icon="flow">
-          目录流程
-        </Badge>
-        <Badge outline>
-          版本 {method.revision}
-        </Badge>
-        {supportBadge(method)}
-      </div>
-      <h2 style={{ fontSize: 18, fontWeight: 500, marginTop: 10 }}>{method.name}</h2>
-      <p className="sub" style={{ fontSize: 13.5, lineHeight: 1.65, marginTop: 6 }}>
-        {method.description}
-      </p>
-
-      <div className="section" style={{ marginTop: 20 }}>
-        <div className="eyebrow" style={{ marginBottom: 10 }}>
-          必经步骤 · {method.requiredSteps.length} 个
-        </div>
-        <StepList method={method} />
-        <p className="hint" style={{ marginTop: 8 }}>
-          必经步骤由流程版本固定；确认计划、开始执行都在具体任务里操作，本页只读。
-        </p>
-      </div>
-
-      <div className="section">
-        <div className="eyebrow" style={{ marginBottom: 8 }}>
-          {method.support === TaskMethodSupport.AI_PLANNING ? 'AI 规划 · 只读' : '规划能力'}
-        </div>
-        {strategy === undefined ? (
-          <p className="hint">
-            该流程未配置 AI 规划策略，只能使用方法骨架并手动调整步骤；页面不提供替代的模拟规划。
-          </p>
-        ) : (
-          <div className="card pad" style={{ background: 'var(--fill-2)', padding: 14 }}>
-            <dl className="kv" style={{ gridTemplateColumns: '88px minmax(0,1fr)', fontSize: 12.5 }}>
-              <dt>规划策略</dt>
-              <dd>
-                <span className="mono">{strategy.id}</span> · {strategy.version}
-              </dd>
-              <dt>规划职责</dt>
-              <dd>
-                {roleName ?? strategy.roleId}
-                {roleName === null ? <span className="hint">（角色目录未找到）</span> : null}
-              </dd>
-              <dt>可细化分组</dt>
-              <dd>{method.refinableGroups.length === 0 ? '无可细化分组' : method.refinableGroups.join('、')}</dd>
-              <dt>不可弱化</dt>
-              <dd>全部必经步骤，以及交付 / 验收步骤。</dd>
-            </dl>
-          </div>
-        )}
-      </div>
-
-      <div className="section">
-        <div className="eyebrow" style={{ marginBottom: 8 }}>
-          可用的任务类型 · {taskTypes.length} 个
-        </div>
-        {taskTypes.length === 0 ? (
-          <p className="hint">目录里还没有任务类型引用这个流程。</p>
-        ) : (
-          <div className="row wrap" style={{ gap: 6 }}>
-            {taskTypes.map((type) => (
-              <span key={type.id} className="chip">
-                <Icon name="template" size="sm" />
-                {type.name}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="row wrap" style={{ gap: 8, marginTop: 20 }}>
-        <LinkButton to={`/start?methodId=${encodeURIComponent(method.id)}`} variant="primary" icon="play">
-          用这个流程开始任务
-        </LinkButton>
-        <Button variant="secondary" icon="edit" disabled disabledReason={EDIT_BLOCKED_REASON}>
-          编辑流程
-        </Button>
-      </div>
-      <p className="hint" style={{ marginTop: 8 }}>
-        开始任务向导已接通：点「用这个流程开始任务」→ 填写需求并创建任务，随后进入 AI 规划/确认/执行。本页只读流程定义；编辑/导入流程定义尚未开放。
-      </p>
-    </aside>
-  );
-}
-
 export function WorkflowsPage() {
   const bootstrap = useBootstrap();
-  const methods = bootstrap.data?.catalog.methods ?? [];
-  const roles = bootstrap.data?.catalog.roles ?? [];
-  const taskTypes = bootstrap.data?.catalog.taskTypes ?? [];
+  const queryClient = useQueryClient();
+  const [source, setSource] = useState<SourceFilter>('all');
   const [keyword, setKeyword] = useState('');
-  const [support, setSupport] = useState<SupportFilter>('all');
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<CommandReceipt | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createDescription, setCreateDescription] = useState('');
+  const [createSupport, setCreateSupport] = useState<'ai_planning' | 'skeleton_only'>('ai_planning');
+  const [createError, setCreateError] = useState<string | undefined>(undefined);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyName, setCopyName] = useState('');
+  const [copyError, setCopyError] = useState<string | undefined>(undefined);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [commandBusy, setCommandBusy] = useState(false);
 
-  const counts = useMemo(() => {
-    const result = { all: methods.length, ai: 0, skeleton: 0 };
-    for (const method of methods) {
-      if (method.support === TaskMethodSupport.AI_PLANNING) result.ai += 1;
-      else result.skeleton += 1;
-    }
-    return result;
-  }, [methods]);
+  const listQuery = useQuery({
+    queryKey: [...LIST_KEY, includeArchived],
+    queryFn: () => fetchWorkflowList({ includeArchived }),
+    retry: false,
+  });
+  const fallbackMode = listQuery.data === undefined && isWorkflowUnavailable(listQuery.error);
 
+  const fallbackEntries = useMemo(
+    () => (fallbackMode && bootstrap.data !== undefined ? builtinEntriesFromBootstrap(bootstrap.data.catalog.methods) : []),
+    [bootstrap.data, fallbackMode],
+  );
+
+  const entries: readonly (WorkflowCatalogEntry | WorkflowCatalogDetail)[] = listQuery.data ?? fallbackEntries;
   const filtered = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
-    return methods.filter((method) => {
-      if (support === 'ai' && method.support !== TaskMethodSupport.AI_PLANNING) return false;
-      if (support === 'skeleton' && method.support !== TaskMethodSupport.SKELETON_ONLY) return false;
-      if (needle.length === 0) return true;
-      const haystack = [method.name, method.description, method.id, ...method.requiredSteps.map((step) => step.title)].join(' ').toLowerCase();
-      return haystack.includes(needle);
+    return entries.filter((entry) => {
+      if (source === 'mine' && entry.source !== 'custom') return false;
+      if (source === 'builtin' && entry.source !== 'builtin') return false;
+      if (needle === '') return true;
+      return `${entry.name} ${entry.description} ${entry.id}`.toLowerCase().includes(needle);
     });
-  }, [keyword, methods, support]);
+  }, [entries, keyword, source]);
 
-  const selected = filtered.find((method) => method.id === selectedId) ?? filtered[0];
-  const roleNameById = useMemo(() => new Map(roles.map((role) => [role.id, role.name])), [roles]);
+  const selectedEntry = entries.find((entry) => entry.id === selectedId) ?? filtered[0];
+  const selectedHasSteps = selectedEntry !== undefined && hasSteps(selectedEntry);
+  const detailQuery = useQuery({
+    queryKey: ['workflows', 'detail', selectedEntry?.id ?? ''],
+    queryFn: () => fetchWorkflowDetail(selectedEntry?.id ?? ''),
+    enabled: selectedEntry !== undefined && !selectedHasSteps,
+    retry: false,
+  });
+  const fallbackDetail = selectedEntry !== undefined && hasSteps(selectedEntry) ? selectedEntry : undefined;
+  const detail = fallbackDetail ?? detailQuery.data;
 
-  const filterOptions: readonly SegmentOption<SupportFilter>[] = [
-    { value: 'all', label: '全部', count: counts.all },
-    { value: 'ai', label: '支持 AI 规划', count: counts.ai },
-    { value: 'skeleton', label: '仅骨架', count: counts.skeleton },
+  const sourceOptions: readonly SegmentOption<SourceFilter>[] = [
+    { value: 'all', label: '全部', count: entries.length },
+    { value: 'mine', label: '我的流程', count: entries.filter((entry) => entry.source === 'custom').length },
+    { value: 'builtin', label: '程序内置', count: entries.filter((entry) => entry.source === 'builtin').length },
   ];
 
-  let body: ReactNode;
-  if (bootstrap.isLoading) {
-    body = (
-      <div className="card" style={{ padding: 16 }}>
+  const refresh = async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: ['workflows'] });
+    await queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
+  };
+
+  const reconcile = async (requestKey: string): Promise<void> => {
+    setReceipt((current) => (current === null ? current : { ...current, lookup: '正在按原请求核对…' }));
+    try {
+      const response = await apiGet<{ operation: { status: string; error?: { message: string } }; stillUnknown: boolean }>(ROUTES.operationsByKey(requestKey));
+      const status = response.data.operation.status;
+      await refresh();
+      setReceipt((current) => (current === null
+        ? current
+        : {
+            ...current,
+            lookup:
+              status === 'succeeded'
+                ? '核对结果：原操作已成功结算。'
+                : status === 'failed'
+                  ? `核对结果：原操作失败（${response.data.operation.error?.message ?? '未提供原因'}）。`
+                  : '核对结果：仍未结算。',
+          }));
+    } catch (error) {
+      setReceipt((current) => (current === null ? current : { ...current, lookup: `核对失败：${errorMessage(error)}` }));
+    }
+  };
+
+  const showCommandError = (label: string, error: unknown, requestKey: string): void => {
+    const unknown = isApiClientError(error) && (error.kind === 'timeout' || error.kind === 'unavailable');
+    setReceipt({
+      label,
+      status: unknown ? 'unknown' : 'failed',
+      requestKey,
+      message: unknown ? '请求已发出但没有收到回执；不会自动重发，可按原请求号核对。' : workflowErrorDetail(error),
+    });
+  };
+
+  const submitCreate = async (): Promise<void> => {
+    const name = createName.trim();
+    if (name === '') {
+      setCreateError('流程名称不能为空。');
+      return;
+    }
+    if (name.length > 120) {
+      setCreateError('流程名称最多 120 个字符。');
+      return;
+    }
+    const draft: WorkflowDraft = {
+      name,
+      description: createDescription.trim(),
+      support: createSupport,
+      requiredSteps: [
+        { key: 'step.first', title: '第一步', kind: 'implementation', group: '固定步骤' },
+        { key: 'step.delivery', title: '交付', kind: 'delivery', group: '固定步骤' },
+      ],
+      refinableGroups: [],
+    };
+    const requestKey = createRequestKey();
+    setCommandBusy(true);
+    setCreateError(undefined);
+    try {
+      const mutation = await createWorkflow({ draft, requestKey });
+      setReceipt({ label: '新建流程', status: 'succeeded', requestKey });
+      setCreateOpen(false);
+      setCreateName('');
+      setCreateDescription('');
+      await refresh();
+      setSelectedId(mutation.method.id);
+    } catch (error) {
+      showCommandError('新建流程', error, requestKey);
+      setCreateError(workflowErrorDetail(error));
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
+  const submitCopy = async (): Promise<void> => {
+    if (selectedEntry === undefined) return;
+    const name = copyName.trim();
+    if (name === '') {
+      setCopyError('副本名称不能为空。');
+      return;
+    }
+    if (name.length > 120) {
+      setCopyError('副本名称最多 120 个字符。');
+      return;
+    }
+    const requestKey = createRequestKey();
+    setCommandBusy(true);
+    setCopyError(undefined);
+    try {
+      const mutation = await copyWorkflow({ id: selectedEntry.id, name, requestKey });
+      setReceipt({ label: '复制流程', status: 'succeeded', requestKey });
+      setCopyOpen(false);
+      await refresh();
+      setSelectedId(mutation.method.id);
+    } catch (error) {
+      showCommandError('复制流程', error, requestKey);
+      setCopyError(workflowErrorDetail(error));
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
+  const submitArchive = async (): Promise<void> => {
+    if (selectedEntry === undefined) return;
+    const requestKey = createRequestKey();
+    setCommandBusy(true);
+    try {
+      await archiveWorkflow({ id: selectedEntry.id, requestKey });
+      setReceipt({ label: '归档流程', status: 'succeeded', requestKey });
+      setArchiveOpen(false);
+      setSelectedId(null);
+      await refresh();
+    } catch (error) {
+      showCommandError('归档流程', error, requestKey);
+      setArchiveOpen(false);
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+
+  const listBody =
+    listQuery.isLoading && bootstrap.isLoading ? (
+      <div className="col" style={{ gap: 8 }}>
         {[0, 1, 2].map((index) => (
-          <div key={index} className="row" style={{ padding: '12px 0', gap: 12 }}>
-            <Skeleton width={36} height={36} radius={10} />
-            <div className="col grow" style={{ gap: 6 }}>
-              <Skeleton width="38%" height={13} />
-              <Skeleton width="64%" height={11} />
-            </div>
-          </div>
+          <Skeleton key={index} height={44} width="100%" radius={10} />
+        ))}
+      </div>
+    ) : listQuery.isError && !fallbackMode ? (
+      <ServiceNotice error={listQuery.error} onRetry={() => { void listQuery.refetch(); }} title="流程目录读取失败" />
+    ) : filtered.length === 0 ? (
+      <EmptyState
+        icon="flow"
+        title={entries.length === 0 ? '目录里还没有流程' : '没有匹配的流程'}
+        description={entries.length === 0 ? '新建一个流程，或等待内置目录返回。页面不展示示例流程。' : '换个关键词或筛选；筛选只影响展示。'}
+        action={
+          entries.length === 0 ? (
+            <Button
+              variant="primary"
+              size="sm"
+              icon="plus"
+              disabled={fallbackMode}
+              disabledReason={fallbackMode ? '接口未接通，暂不能新建；请等待 W3-8c 接线' : undefined}
+              onClick={() => { setCreateOpen(true); }}
+            >
+              新建流程
+            </Button>
+          ) : undefined
+        }
+      />
+    ) : (
+      <div className="wf-list" role="list">
+        {filtered.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            role="listitem"
+            className="wf-row"
+            aria-selected={selectedEntry?.id === entry.id}
+            onClick={() => {
+              setSelectedId(entry.id);
+            }}
+          >
+            <span className="tile">
+              <Icon name={entry.source === 'builtin' ? 'template' : 'flow'} />
+            </span>
+            <span className="grow" style={{ minWidth: 0 }}>
+              <span className="row" style={{ gap: 8 }}>
+                <span className="wf-row-name ellipsis">{entry.name}</span>
+                {entry.source === 'builtin' ? <Badge outline>内置</Badge> : <Badge tone="accent">我的</Badge>}
+                {entry.archived ? <Badge tone="idle">已归档</Badge> : null}
+              </span>
+              <span className="hint ellipsis wf-row-desc">{entry.description}</span>
+            </span>
+            <span className="wf-row-meta hint">
+              {entry.revision} · {String(entry.stepCount)} 步
+              {entry.updatedAt === undefined ? null : ` · ${formatRelativeTime(entry.updatedAt)}`}
+            </span>
+            <Icon name="chevRight" size="sm" />
+          </button>
         ))}
       </div>
     );
-  } else if (bootstrap.isError) {
-    body = (
-      <ServiceNotice
-        error={bootstrap.error}
-        onRetry={() => {
-          void bootstrap.refetch();
-        }}
-      />
-    );
-  } else if (methods.length === 0) {
-    body = <EmptyState icon="flow" title="目录里还没有流程方法" description="服务已连接，但 catalog.methods 为空。流程方法由共享契约定义，不在此页新增。" />;
-  } else if (filtered.length === 0) {
-    body = <EmptyState icon="search" title="没有匹配的流程" description="换个关键词，或切换到「全部」。" />;
-  } else {
-    body = (
-      <div className="grid-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) 420px', alignItems: 'start' }}>
-        <section className="card" aria-label="流程目录">
-          <div className="list" style={{ padding: 6 }}>
-            {filtered.map((method) => (
-              <button
-                key={method.id}
-                type="button"
-                className="list-row"
-                aria-selected={selected?.id === method.id}
-                onClick={() => {
-                  setSelectedId(method.id);
-                }}
-              >
-                <span className="tile">
-                  <Icon name="flow" />
-                </span>
-                <span className="grow" style={{ minWidth: 0 }}>
-                  <span className="row wrap" style={{ gap: 8 }}>
-                    <span style={{ fontSize: 13.5, fontWeight: 500 }}>{method.name}</span>
-                    {supportBadge(method)}
-                  </span>
-                  <span className="hint" style={{ display: 'block', marginTop: 3, lineHeight: 1.5 }}>
-                    {method.description}
-                  </span>
-                </span>
-                <span className="col" style={{ alignItems: 'flex-end', gap: 4 }}>
-                  <span className="hint mono">{method.revision}</span>
-                  <span className="hint num">{method.requiredSteps.length} 步</span>
-                </span>
-                <Icon name="chevRight" size="sm" />
-              </button>
-            ))}
-          </div>
-          <div className="row" style={{ padding: '10px 14px 12px', boxShadow: 'inset 0 1px 0 var(--line)' }}>
-            <span className="hint grow">共 {String(filtered.length)} 个流程方法 · 目录只读</span>
-            <span className="hint">按目录顺序</span>
-          </div>
-        </section>
-        {selected === undefined ? null : (
-          <MethodDetail
-            method={selected}
-            roleName={selected.planningStrategy === undefined ? null : (roleNameById.get(selected.planningStrategy.roleId) ?? null)}
-            taskTypes={taskTypes.filter((type) => type.methodId === selected.id)}
-          />
-        )}
-      </div>
-    );
-  }
 
   return (
-    <div className="page">
+    <div className="page wf-page">
       <PageHeader
         title="流程"
-        lede="把常用的做事步骤沉淀成流程；开始任务时直接套用。流程方法来自共享契约的目录快照，本页只读。"
+        lede="流程目录：程序内置流程只读，我的流程可以编辑；步骤链、复制、归档都走服务真实接口。流程只定义固定步骤，确认计划与开始执行在具体任务里操作。"
         actions={
-          <Button variant="secondary" size="sm" icon="edit" disabled disabledReason={EDIT_BLOCKED_REASON}>
+          <Button
+            variant="primary"
+            size="sm"
+            icon="plus"
+            disabled={fallbackMode}
+            disabledReason={fallbackMode ? '流程写入接口尚未接通（W3-8c 进行中）' : undefined}
+            onClick={() => {
+              setCreateName('');
+              setCreateDescription('');
+              setCreateError(undefined);
+              setCreateOpen(true);
+            }}
+          >
             新建流程
           </Button>
         }
       />
 
-      <div className="toolbar">
-        <div className="input-wrap">
-          <Icon name="search" />
-          <input
-            className="input ctl"
-            placeholder="搜索名称、说明或步骤"
-            aria-label="搜索流程"
-            value={keyword}
-            onChange={(event) => {
-              setKeyword(event.target.value);
-            }}
-          />
+      {fallbackMode ? (
+        <div className="banner warn" style={{ marginBottom: 14 }}>
+          <Icon name="info" />
+          <div className="grow">
+            <b>/api/workflows 接口尚未接通（W3-8c 进行中）</b>
+            <br />
+            当前显示 bootstrap 目录快照里的程序内置流程（只读）；新建、复制、归档与保存不可用，页面不会伪造写入成功。接口接通后本页会自动切换到真实目录。
+          </div>
         </div>
-        <SegmentedControl ariaLabel="规划支持" options={filterOptions} value={support} onChange={setSupport} />
-        <span className="spacer" />
-        <span className="hint">修订号标识流程版本；任务创建时冻结。</span>
+      ) : null}
+
+      {receipt === null ? null : (
+        <div className={['banner', receipt.status === 'succeeded' ? 'ok' : receipt.status === 'unknown' ? 'unknown' : receipt.status === 'accepted' ? 'info' : 'danger'].join(' ')} style={{ marginBottom: 14 }} role={receipt.status === 'succeeded' ? 'status' : 'alert'}>
+          <Icon name={receipt.status === 'succeeded' ? 'check' : receipt.status === 'unknown' ? 'help' : receipt.status === 'accepted' ? 'clock' : 'alert'} />
+          <div className="grow">
+            <b>
+              {receipt.label} · {receipt.status === 'succeeded' ? '已完成' : receipt.status === 'unknown' ? '结果未明' : receipt.status === 'accepted' ? '已接受，等待结算' : '失败'}
+            </b>
+            {receipt.requestKey === undefined ? null : <span className="mono" style={{ marginLeft: 8 }}>{receipt.requestKey}</span>}
+            {receipt.message === undefined ? null : <div style={{ marginTop: 4 }}>{receipt.message}</div>}
+            {receipt.lookup === undefined ? null : <div className="hint" style={{ marginTop: 4 }}>{receipt.lookup}</div>}
+          </div>
+          <div className="actions">
+            {receipt.status === 'unknown' && receipt.requestKey !== undefined ? (
+              <Button variant="secondary" size="sm" icon="search" onClick={() => { void reconcile(receipt.requestKey!); }}>
+                核对原操作
+              </Button>
+            ) : null}
+            <Button variant="ghost" size="sm" icon="x" onClick={() => { setReceipt(null); }}>收起</Button>
+          </div>
+        </div>
+      )}
+
+      <div className="wf-layout">
+        <section className="card pad wf-catalog" aria-label="流程目录">
+          <div className="toolbar" style={{ marginTop: 0 }}>
+            <div className="input-wrap grow">
+              <Icon name="search" />
+              <input
+                className="input ctl"
+                placeholder="搜索流程名称或说明"
+                aria-label="搜索流程"
+                value={keyword}
+                onChange={(event) => { setKeyword(event.target.value); }}
+              />
+            </div>
+            <SegmentedControl ariaLabel="流程来源" options={sourceOptions} value={source} onChange={setSource} />
+            <label className="row hint" style={{ gap: 6, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={includeArchived}
+                disabled={fallbackMode}
+                onChange={(event) => { setIncludeArchived(event.target.checked); }}
+              />
+              显示已归档
+            </label>
+          </div>
+          <p className="hint" style={{ margin: '6px 0 12px' }}>
+            服务未提供「使用次数」统计字段，因此不在目录展示次数；列表按服务返回顺序。
+          </p>
+          {listBody}
+        </section>
+
+        <aside className="card wf-detail" aria-label="流程详情">
+          {selectedEntry === undefined ? (
+            <div className="card-body">
+              <EmptyState icon="flow" title="选择一个流程" description="左侧选择流程查看步骤链与操作；内置流程只读，可复制后修改。" compact />
+            </div>
+          ) : (
+            <>
+              <div className="card-head" style={{ alignItems: 'flex-start' }}>
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="row wrap" style={{ gap: 6 }}>
+                    <Badge tone={selectedEntry.source === 'builtin' ? 'idle' : 'accent'} icon={selectedEntry.source === 'builtin' ? 'lock' : 'users'}>
+                      {selectedEntry.source === 'builtin' ? '程序内置' : '我的流程'}
+                    </Badge>
+                    <Badge outline>{selectedEntry.revision} · 版本 {String(selectedEntry.version)}</Badge>
+                    <Badge outline>{supportLabel(selectedEntry.support)}</Badge>
+                    {selectedEntry.archived ? <Badge tone="idle">已归档</Badge> : null}
+                  </div>
+                  <h2 className="wf-detail-title" style={{ fontSize: 18, fontWeight: 500 }}>{selectedEntry.name}</h2>
+                  <p className="hint" style={{ lineHeight: 1.7 }}>{selectedEntry.description}</p>
+                  {selectedEntry.updatedAt === undefined ? null : (
+                    <p className="hint">更新于 {formatRelativeTime(selectedEntry.updatedAt)}</p>
+                  )}
+                </div>
+              </div>
+              <div className="card-body" style={{ paddingTop: 0 }}>
+                {detailQuery.isLoading ? (
+                  <div className="col" style={{ gap: 8 }}>
+                    <Skeleton height={14} width="52%" />
+                    <Skeleton height={80} width="100%" radius={10} />
+                  </div>
+                ) : detailQuery.isError && !fallbackMode ? (
+                  <ServiceNotice error={detailQuery.error} onRetry={() => { void detailQuery.refetch(); }} title="流程详情读取失败" compact />
+                ) : detail === undefined ? (
+                  <p className="hint">服务没有返回流程步骤详情。</p>
+                ) : (
+                  <>
+                    <div className="eyebrow" style={{ marginBottom: 8 }}>步骤链 · {String(detail.requiredSteps.length)} 个</div>
+                    <StepChain detail={detail} />
+                    <p className="hint" style={{ marginTop: 8 }}>
+                      步骤链按服务有序列表展示；同一分组的连续步骤在目录里并排展示，但执行仍按顺序推进（服务没有并行分支字段）。
+                    </p>
+                  </>
+                )}
+
+                <div className="row wrap" style={{ gap: 8, marginTop: 18 }}>
+                  <LinkButton
+                    variant="primary"
+                    size="sm"
+                    icon="plus"
+                    to={`/start?methodId=${encodeURIComponent(selectedEntry.id)}`}
+                    className="grow"
+                  >
+                    用这个流程开始任务
+                  </LinkButton>
+                </div>
+                <div className="row wrap" style={{ gap: 8, marginTop: 8 }}>
+                  <LinkButton
+                    variant="secondary"
+                    size="sm"
+                    icon={selectedEntry.source === 'builtin' ? 'eye' : 'edit'}
+                    to={`/workflows/${encodeURIComponent(selectedEntry.id)}/edit`}
+                  >
+                    {selectedEntry.source === 'builtin' ? '查看步骤' : '编辑流程'}
+                  </LinkButton>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon="copy"
+                    disabled={fallbackMode || commandBusy || selectedEntry.archived}
+                    disabledReason={
+                      fallbackMode
+                        ? '流程写入接口尚未接通（W3-8c 进行中）'
+                        : selectedEntry.archived
+                          ? '已归档流程不能复制'
+                          : commandBusy
+                            ? '另一条流程命令正在等待回执'
+                            : undefined
+                    }
+                    onClick={() => {
+                      setCopyName(`${selectedEntry.name} 副本`);
+                      setCopyError(undefined);
+                      setCopyOpen(true);
+                    }}
+                  >
+                    复制
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon="archive"
+                    disabled={fallbackMode || commandBusy || selectedEntry.source !== 'custom'}
+                    disabledReason={
+                      fallbackMode
+                        ? '流程写入接口尚未接通（W3-8c 进行中）'
+                        : selectedEntry.source !== 'custom'
+                          ? '内置流程不能归档'
+                          : commandBusy
+                            ? '另一条流程命令正在等待回执'
+                            : undefined
+                    }
+                    onClick={() => { setArchiveOpen(true); }}
+                  >
+                    归档…
+                  </Button>
+                </div>
+                <p className="hint" style={{ marginTop: 10 }}>
+                  内置流程只读：复制后会得到一份可修改的「我的流程」；归档只影响目录与开始任务，已有任务不受影响、历史保留。
+                </p>
+              </div>
+            </>
+          )}
+        </aside>
       </div>
 
-      {body}
+      <Modal
+        open={createOpen}
+        title="新建流程"
+        onClose={() => { if (!commandBusy) setCreateOpen(false); }}
+        footer={
+          <>
+            <Button variant="ghost" disabled={commandBusy} onClick={() => { setCreateOpen(false); }}>取消</Button>
+            <Button
+              variant="primary"
+              icon="plus"
+              disabled={commandBusy || createName.trim() === ''}
+              disabledReason={commandBusy ? '正在创建…' : createName.trim() === '' ? '流程名称不能为空' : undefined}
+              onClick={() => { void submitCreate(); }}
+            >
+              {commandBusy ? '正在创建…' : '创建并编辑'}
+            </Button>
+          </>
+        }
+      >
+        <div className="col" style={{ gap: 14 }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label" htmlFor="wf-create-name">名称</label>
+            <input id="wf-create-name" className="input" value={createName} maxLength={120} disabled={commandBusy} onChange={(event) => { setCreateName(event.target.value); setCreateError(undefined); }} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label" htmlFor="wf-create-desc">说明</label>
+            <textarea id="wf-create-desc" className="textarea" value={createDescription} disabled={commandBusy} onChange={(event) => { setCreateDescription(event.target.value); }} />
+          </div>
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label" htmlFor="wf-create-support">规划支持</label>
+            <select id="wf-create-support" className="select" value={createSupport} disabled={commandBusy} onChange={(event) => { setCreateSupport(event.target.value === 'skeleton_only' ? 'skeleton_only' : 'ai_planning'); }}>
+              <option value="ai_planning">AI 规划</option>
+              <option value="skeleton_only">仅方法骨架</option>
+            </select>
+            <span className="hint">会先创建两个初始步骤（第一步 + 交付），随后进入编辑器；服务要求至少保留交付或验收步骤。</span>
+          </div>
+          {createError === undefined ? null : <p className="error-text">{createError}</p>}
+        </div>
+      </Modal>
+
+      <Modal
+        open={copyOpen}
+        title="复制流程"
+        onClose={() => { if (!commandBusy) setCopyOpen(false); }}
+        footer={
+          <>
+            <Button variant="ghost" disabled={commandBusy} onClick={() => { setCopyOpen(false); }}>取消</Button>
+            <Button
+              variant="primary"
+              icon="copy"
+              disabled={commandBusy || copyName.trim() === ''}
+              disabledReason={commandBusy ? '正在复制…' : copyName.trim() === '' ? '副本名称不能为空' : undefined}
+              onClick={() => { void submitCopy(); }}
+            >
+              {commandBusy ? '正在复制…' : '复制'}
+            </Button>
+          </>
+        }
+      >
+        <div className="col" style={{ gap: 12 }}>
+          <div className="field" style={{ margin: 0 }}>
+            <label className="label" htmlFor="wf-copy-name">副本名称</label>
+            <input id="wf-copy-name" className="input" value={copyName} maxLength={120} disabled={commandBusy} onChange={(event) => { setCopyName(event.target.value); setCopyError(undefined); }} />
+            <span className="hint">将复制{selectedEntry === undefined ? '' : `「${selectedEntry.name}」版本 ${String(selectedEntry.version)}`}的步骤定义。</span>
+          </div>
+          {copyError === undefined ? null : <p className="error-text">{copyError}</p>}
+        </div>
+      </Modal>
+
+      <Modal
+        open={archiveOpen}
+        title="归档流程？"
+        onClose={() => { if (!commandBusy) setArchiveOpen(false); }}
+        footer={
+          <>
+            <Button variant="ghost" disabled={commandBusy} onClick={() => { setArchiveOpen(false); }}>取消</Button>
+            <Button
+              variant="danger"
+              icon="archive"
+              disabled={commandBusy}
+              disabledReason={commandBusy ? '正在归档…' : undefined}
+              onClick={() => { void submitArchive(); }}
+            >
+              {commandBusy ? '正在归档…' : '归档'}
+            </Button>
+          </>
+        }
+      >
+        <p style={{ lineHeight: 1.7 }}>
+          「{selectedEntry?.name ?? ''}」归档后不再出现在流程目录和开始任务里；已有任务不受影响，历史保留。归档会返回回执；结果未明时可按原请求核对，不会自动重发。
+        </p>
+      </Modal>
     </div>
   );
 }

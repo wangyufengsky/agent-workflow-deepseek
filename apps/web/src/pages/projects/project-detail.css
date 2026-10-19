@@ -199,3 +199,39 @@
   padding-top: 14px;
   box-shadow: inset 0 1px 0 var(--line);
 }
+
+.project-doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-doc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-doc-row .hint {
+  width: 18px;
+  flex: none;
+  text-align: right;
+}
+
+.project-doc-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-charter-file {
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .project-doc-row {
+    align-items: flex-start;
+  }
+}

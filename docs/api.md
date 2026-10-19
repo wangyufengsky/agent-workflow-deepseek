@@ -251,3 +251,8 @@
 | POST | `/api/projects/:id/charter/generate` | （待补说明：projectCharterGenerate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/tasks/:id/planning/proposal` | （待补说明：planningProposal） | 读口；无写回执 |
 | POST | `/api/tasks/:id/planning/refine-preview` | （待补说明：planningRefinePreview） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET / POST | `/api/workflows` | （待补说明：workflows） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET / PATCH / DELETE | `/api/workflows/:id` | （待补说明：workflow） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/workflows/:id/copy` | （待补说明：workflowCopy） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/workflows/:id/instantiate` | （待补说明：workflowInstantiate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/workflows/validate` | （待补说明：workflowValidate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |

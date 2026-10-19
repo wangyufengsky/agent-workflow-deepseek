@@ -1,3 +1,14 @@
+/* The home page uses a global `.cap` capability card class (min-height 300px).
+   Settings nav captions share the name, so restore a compact caption here. */
+.snav .cap {
+  display: block;
+  min-height: 0;
+  height: auto;
+  gap: 0;
+  padding: 12px 10px 6px;
+  overflow: visible;
+}
+
 .field-dirty .input,
 .field-dirty .select,
 .field-dirty .textarea,

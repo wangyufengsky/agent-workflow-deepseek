@@ -129,6 +129,10 @@ export interface MethodStepDefinition {
   readonly kind: NodeKindValue;
   readonly group: string;
   readonly optional?: boolean;
+  /** Custom-method editor: role that owns this step ("谁来做"). */
+  readonly roleId?: string;
+  /** Custom-method editor: explicit step dependencies used for cycle validation. */
+  readonly requires?: readonly string[];
 }
 
 export interface WorkflowMethod {

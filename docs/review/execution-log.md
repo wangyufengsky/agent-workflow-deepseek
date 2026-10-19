@@ -926,3 +926,126 @@
 - **范围审计**：设计稿未改；临时配置已清理；`git diff --check` 通过。
 - **新登记 follow-up**：W3-1c（项目详情接 charter UI）、W3-8c（method catalog HTTP/Engine 接线）、W3-8b（流程编辑器 UI）、W3-5（任务画布扩展/快照评审）、W4-3c（设置页导航样式修复+重拍）。
 - **阻塞**：W4-5/W2-5（真实 PG/GitLab）无本机实例/凭据，保持 blocked。
+
+### 21:47 分派 | Wave 3F
+
+- `be-api` → task-46：W3-8c method catalog HTTP/Engine 接线（/api/workflows*、回执/冲突、内置/自定义合并）。
+- `fe-ppt` → task-47：W3-8b 工作流编辑器前端（目录 + /workflows/:id/edit 画布/检查/冲突）。
+- `design-audit` → task-48：W3-1c 项目详情 UI 接入 charter/docPaths/GitLab。
+- `be-recovery` → task-49：W3-5 任务画布后端核心（冻结/审计/快照评审/运行内容读模型，暂不接 HTTP）。
+- `fe-audit` → task-50：W4-3c 设置页导航 `.cap` 样式冲突修复 + ui:smoke 重拍。
+- `docs-audit` → task-51：W4-1f 文档同步 Wave 3E。
+- 剩余预计：W3-5 HTTP/UI 接线、W3-4b 知识研究步骤/流式、最终整合与 blocked 项确认。
+
+### 21:48 用户新增验收要求 | 推送到 GitHub main
+
+- 目标仓库：https://github.com/wangyufengsky/agent-workflow-deepseek（已确认存在，远端 main 初始提交 8a3d1a3）。
+- 凭据：本机 `gh` 已登录 `wangyufengsky`（repo/workflow scope），HTTPS 可用。
+- 安排：全部任务 done 后，添加 origin（已完成本地配置）、合并/处理远端初始 main、推送本地历史到 main，并用 `git ls-remote` 核对；该动作登记为 W4-6，未完成前不推送。
+
+### 21:50 任务完成 | W4-1f（task-51）| 文档同步 Wave 3E + 证据/阻塞状态
+
+- 负责人：`docs-audit`；写范围：`README.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/design-coverage.md`；未改 review 报告、`docs/task-assignment.md`、`docs/api.md`、产品代码、设计稿。
+- 计数统一：4 个文档均为 **391 tests / 54 suites / 380 pass / 11 skipped / 0 fail**（65.0s，`.tmp/wave3e-verify.log`）；Wave 3E 验收的 `docs:api`/`check:docs-routes`（153 路由）、`build:web`/`build:server`、`test:e2e`、`ui:smoke`（兼容 flags，13 截图 + 2 交互）通过。
+- README：实现状态改为 Wave 0–3E 完成、Wave 3F 进行中；补 Wave 3E 完成项（PE37 HTTP+UI、charter 后端、docPaths/GitLab 覆盖、method catalog 核心、截图刷新、API 153 路由）；「未完成」改为 Wave 3F（W3-1c/W3-8c/W3-8b/W3-5）、W4-3c、W3-4b、W3-10 剩余、W4-5/W2-5 blocked、打包残留、深度项；界面证据更新为 30 张 docs/evidence（8 当前 + 22 历史）+ 13 张根证据、`ui:smoke` 命令、W4-3c 设置页样式缺陷。
+- remaining-work：新增 Wave 3E 完成行（PE37 HTTP+UI、charter/docPaths/GitLab、method catalog、W4-3b 截图、W4-2 153 路由）；缺口重编 1–9，W4-3c/W3-4b/W3-5/W3-8b/8c/W3-10/blocked/打包残留写清。
+- verification：计数 391/380/65.0s；§10 更新 PE37/charter/method catalog/截图/W4-3c/153 路由；新增 **Wave 3E 验收（391 tests）**；历史 Wave 3A–3D 小节标注历史计数并修正「当前 391 见下」。
+- design-coverage：25 页维持 **✅ 3 / 🟡 21 / ⛔ 1**（唯一缺失 `workflow-editor`，W3-8b/8c 进行中）；更新 projects（charter 后端已接、UI W3-1c 进行中）、requirement（PE37 HTTP/UI）、workflows/workflow-editor（method catalog 核心、编辑器进行中）、settings（W4-3c 样式缺陷）、证据口径（30 截图/`ui:smoke` 命令）。
+- 验证：无旧当前计数（379/368/62.4 仅历史验收小节并标注历史计数）；无「Wave 3E 进行中」旧表述；链接 0 broken；`git diff --check` 干净。**当前 `check:docs-routes` 因 Wave 3F 并行落地的 `/api/workflows*` 契约尚无服务端实现而暂时失败**，按要求未改 `docs/api.md`，待 W3-8c 落地后由 Lead 重新 `npm run docs:api`；未跑全量 test（Lead 已验收 391 tests）。
+- 未覆盖：Wave 3F 代码并行落地中（W3-1c/W3-8c/W3-8b/W3-5），文档按「进行中/待验收」记录；W4-5/W2-5 仍 blocked；W4-3c 设置页导航样式与重拍未完成。
+
+### 21:49 任务完成 | W4-3c（task-50）| 设置导航样式修复 + 截图重拍
+
+- 负责人：`fe-audit`；写范围：`apps/web/src/pages/settings/settings.css`、`scripts/capture-ui.cjs`（无需再改）、`evidence/`、`docs/evidence/README.md`。
+- 修复：在 `settings.css` 增加 `.snav .cap { display:block; min-height:0; height:auto; gap:0; padding:12px 10px 6px; overflow:visible; }`，覆盖全局首页 `.cap` 的 `min-height:300px/display:flex`；特异性 `.snav .cap` 高于 `.cap`，首页 `.cap` 不受影响。截图确认设置导航分组紧凑、无 300px 间距；其他设置页全局类（`.row/.card/.grid-2`）未见新的明显冲突。
+- 构建：`npm run build:web` → exit 0（Vite 403 modules，21:47；仅有 errors.ts 重复 case/chunk 大小等既有警告）。
+- 重拍：`CAPTURE_UI_NO_SANDBOX=1 CAPTURE_UI_PORT=5293 CAPTURE_UI_TMP_DIR=.tmp/ui-task46 CAPTURE_UI_EXTRA=1 npm run ui:smoke` → **exit 0**；13 个截图目标 + 2 个交互 smoke 通过，截图 1440×900；GPU 缓存错误仍为非致命环境噪音。
+- 证据：根 `evidence/` 13 张 `ui-*.png` 刷新至 21:47/21:48；`docs/evidence/` 8 张 `*-2026-10-19.png` 已用新产物覆盖（checksum 与 root 一致），settings 截图导航正常。README 更新为：21:47 重拍、`build:web` 21:47、HEAD `14c9fdd`（含本轮未提交 CSS 修复）、命令 5293/`.tmp/ui-task46`，并把“已知视觉问题”改为“已修复验证”。
+- 验证：`npm run build:web` exit 0；`npm run ui:smoke` exit 0；settings 截图 1440×900、导航间距人工核对正常；README 与实际 30 张 PNG 一致。未跑全量 `npm test`/Electron 打包；截图基于 21:47 构建的 dist，工作树后续改动需重新构建/重拍。
+
+### 21:52 任务完成 | W3-5 后端核心（task-49）| 冻结计划 / 审计记录 / 快照评审读模型 / 运行内容
+
+- 负责人：`be-recovery`；写范围：新增 `packages/engine/src/task-extras.ts`、新增 `tests/integration/task-extras.test.ts`；**未改** `engine.ts`、`http.ts`、`shared/**`、`apps/web/**`、storage。服务 `TaskExtrasService` 可独立 `new`（Store 注入 + 可选 templates/actor provider），测试直接实例化。
+- **1) 冻结计划快照**（settings JSON `task.freeze.<taskId>`，每任务最多 20 条）：
+  - `freezePlan(taskId,{requestKey?,planRevisionId?,note?,actor?})` → `{replayed,snapshot}`；快照含 `snapshotId/planRevisionId/revisionNumber/status/planHash(sha256)/frozenAt/actor(本地，默认 local-user)/note/requirementRevision/methodId+methodRevision/template{id,version,name}/summary{nodes,edges,groups,groupLabels,nodeKeys}/executionAtFreeze{executionId,status,progress}`。
+  - 幂等：同 requestKey 同 planHash 重放原快照；同 planRevision 同内容再冻结返回原快照（不重复）；不同 revision 生成新快照（newest first）。requestKey 复用于不同计划 → REQUEST_KEY_REUSED。**只写 settings，不改变计划/执行**（测试对比执行视图前后相等）。
+  - `latestPlanFreeze(taskId)` / `listPlanFreezes(taskId)`；未知任务/无计划 → NOT_FOUND。
+- **2) 审计时间线**（只读，最新在前，分页）：
+  - 来源：持久化事件日志（扫描上限 5000，取 taskId/target 命中）+ operations 台账（最近 500，target.taskId 命中）；`operation.settled` 事件与台账按 requestKey 去重，避免双条。
+  - 映射：task.changed→`任务阶段`、plan.changed→`计划修订 N · status`、planning.changed→`规划轮次 status/stage`、execution.changed→`执行状态`、workspace.updated/changes.updated/delivery.updated + 全部按 requestKey 的命令（plan.confirm/execution.*/node.accept|reject/task.delivery.*/task.recovery.* 等，status/requestKey/refs）。
+  - `audit(taskId,{limit?≤100,cursor?,kinds?})` → `{items,total,limit,cursor,nextCursor?}`；错误：未知任务 404、非法 cursor 400；kinds 前缀过滤（如 `execution.`）。
+- **3) 快照评审运行面板（B-07，固定模板任务）** `snapshotReview(taskId,{limit?,cursor?})`：
+  - `applicable`：仅 `fixedTemplate` 任务；非模板任务返回 `applicable:false + reason`，各分区空。
+  - `scope`（审查范围与版本，只给可核对事实）：planRevisionNumber/status、template{id,version,name}、`baselineSha`（workspace.baseSha）、`targetSha`（delivery push.pushedSha 或 commit.commitSha，`targetShaSource:'delivery'|'none'`）、branch、`versionsFixed:true`；**mode/depth 固定 `unknown` + modeSource='unavailable' + limitations**（审查方式/深度需快照评审服务数据，不伪造）。
+  - `progress`：totalBatches（无执行时 null=待定）、verified/unverified/running/attention/skipped/remaining、phases（按计划分组 label/total/completed）、固定提示「进度不等于完成…」。**verified 只认 attempt result verification=passed 或人工验收 accepted；succeeded 但无验证 → unverified**，不伪造审查结论。
+  - `batches`：按「模板步骤 key ↔ 计划节点 key」分组，输出 batchId/title/purpose(模板步骤·分组)/state(verified|unverified|running|attention|pending|skipped)/source(execution|template)/nodeId/templateStepKey/attemptId/attemptStatus/verificationState/fragmentCount/errorMessage/updatedAt；分页 limit≤50；**无执行时批次为空（总数待定），不预造 pending 批次**。空模板步骤（计划缺失）在无执行时同样不出现。
+  - `partialReport`（阶段报告）：诚实空态 `{available:false, analyzedUnits/pendingUnits/excludedUnits/contentMarkdown:null, download:{available:false, reason:'阶段报告读取后才能下载'}, reason:'快照评审服务尚未提供阶段报告数据；这里如实置空，不生成审查结论'}`。
+- **4) 运行内容入口** `runContent(taskId)`：计划节点 + 最近 attempt + 输出片段（每 attempt 最多 500）→ 分组 documents/source/tests/other（按节点 kind）；节点项含 status/attemptCount/latestAttempt{status,summary,verification,artifactCount,errorCount,fragmentCount}/outputs(声明产出)/writes(声明写资源)/errorMessage；另附 workspace{state,kind,displayRoot,baseSha,retention} 与 deliveryEvidence{projection,commitSha,pushedSha,remoteRef,mrIid,mrWebUrl}；无计划 → `available:false` 诚实空态；未知任务 404。
+- 测试（`tests/integration/task-extras.test.ts`，6 场景全过）：冻结字段/幂等/不变执行/新 revision；冻结错误（未知任务、无计划、恒等）；审计合并+去重+分页+过滤+错误；快照评审分组（verified/unverified/running/pending、版本、模板、分页、partial 空态）；模板任务无执行与普通任务空态；运行内容分组/attempt/fragment/workspace/delivery/空态/404。
+- 验证：`npx tsc -p tsconfig.json --noEmit`（本任务文件 0 error；仓库另有并行前端 `WorkflowEditorPage.tsx` 改动中的 1 个错误，非本任务文件）；`node --import tsx --test --test-force-exit tests/integration/task-extras.test.ts` → 6 pass / 0 fail；未跑全量 npm test/build（Lead 范围）。
+- **下一波接线清单（be-api/fe）**：
+  1. `packages/engine/src/index.ts` 加 `export * from './task-extras.ts'`；Engine 持有 `extras = new TaskExtrasService({store, templates: () => this.catalog.templates})`。
+  2. contracts/routes：`POST /api/tasks/:id/plan/freeze`（回执；requestKey+confirmFreeze 由路由强制）、`GET /api/tasks/:id/plan/freezes`/`latest`、`GET /api/tasks/:id/audit?limit&cursor&kinds`、`GET /api/tasks/:id/snapshot-review?limit&cursor`、`GET /api/tasks/:id/run-content`；DTO 直接镜像 task-extras 的类型（FrozenPlanSnapshot/TaskAuditPage/SnapshotReviewModel/RunContentModel）。
+  3. 前置：`OPERATIONS` 增 `task.plan.freeze`（requestKey 强制）；冻结快照类型写入 contracts；审计分页 cursor 作为不透明字符串透传。
+  4. 快照评审的 mode/depth 与阶段报告字段目前是诚实 unknown/空；若产品要求真实审查报告，需要评审服务提供 snapshot/partial-report 数据源（另一任务），届时替换 `scope.mode/depth` 与 `partialReport`，其余读模型不变。
+  5. 前端：任务画布「⋯」菜单接三类入口（恢复已有路由、冻结弹窗→freeze、审计记录页/抽屉→audit、运行内容→runContent）；B-07 面板用 snapshotReview（执行进度/审查范围/功能批次/阶段报告空态，下载禁用并说明原因）；保留「进度不等于完成」「查看不会改变执行」文案。
+
+### 21:54 任务完成 | W3-8c method catalog HTTP/Engine 接线（task-46）| be-api
+
+- 负责人：`be-api`；写范围（声明）：`packages/engine/src/{engine,index}.ts`、`packages/shared/src/{api/contracts,domain/enums,domain/models}.ts`、`packages/server/src/http.ts`、`tests/integration`。为满足“Planning/Start 读取合并自定义方法”还最小化了 `packages/engine/src/{project-task,planning,plan}.ts` 的 catalog 注入（不再硬编码 `DEFAULT_CATALOG`），并修复 `method-catalog.ts` 的 id 后缀 bug（见下）。未改 `apps/web/**`、其他服务、docs。
+- Engine：
+  - 新增 `Engine.methods: MethodCatalogService`；`engine.catalog` 改为稳定代理对象（roles/templates 仍可被既有 service 原地更新，`methods` 为动态 getter），因此 `/api/bootstrap`（开始任务目录/工作流页）、`TaskService.create`、`PlanningService`、`PlanService` 都能看到内置+自定义方法，且任务创建后可解析自定义 `methodId`。
+  - `TaskService`/`PlanService` 改用注入的 `#catalog`；`PlanningService` 增加可选 `catalog` 参数（默认 DEFAULT_CATALOG）并解析合并目录。
+- shared：
+  - `MethodStepDefinition` 增加可选 `roleId`/`requires`（编辑器“谁来做/依赖”，仅用于校验）。
+  - OPERATIONS 新增 `catalog.method.create/copy/save/archive`（scope global、mutating、requestKey 强制）。
+  - contracts 新增 `MethodDraftDefinition`、`MethodValidationResult`（problems/checks）、`MethodCatalogEntry/Detail`、`MethodCreate/Copy/Save/ArchiveRequest`、`MethodValidateRequest`、`MethodInstantiateResponse` 与 ROUTES（workflows/workflow/workflowCopy/workflowValidate/workflowInstantiate）。
+- HTTP：
+  - `GET /api/workflows`（includeArchived/source/q，默认隐藏归档）、`GET /api/workflows/:id`、`POST /api/workflows/validate`（非变更、无 requestKey）、`POST /api/workflows/:id/instantiate`（非变更、深拷贝）。
+  - 写操作 `POST /api/workflows`、`POST /:id/copy`、`PATCH /:id`（expectedVersion）、`DELETE /:id`（archive）全部经 `commands.begin/settle/fail` + `{receipt, resource:{method}}`；同 requestKey 重放返回原回执；`/api/operations/:key` 可核对。
+  - 错误透传：400 `VALIDATION_FAILED` + `details.problems[]`；409 `CONFLICT` + `details.currentVersion/expectedVersion/methodId`；内置只读 400 + `details.builtIn=true`；缺 requestKey 400；不存在 404。
+- 修复（method-catalog.ts，1 行）：`randomSuffix()` 原先取 `createId` 前缀后的前 8 字符（9 字符时钟的前 8 位），同 slug 方法在时间窗内生成相同 id，导致同 id 多条记录、复制结果的 `copiedFrom` 读丢；改为取随机尾巴。属原 W3-8a 交付缺陷，已同步 Lead。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（前端 agent 收尾后复跑）。
+  - 新增 `tests/integration/workflow-catalog.test.ts` → 连续 3 次 1 pass / 0 fail：内置列表/详情、非变更 validate（problems/checks）、缺 requestKey 400、创建回执+by-key、自定义出现在 `/api/workflows`/`/api/bootstrap` 且可创建任务、复制 copiedFrom+重放、save 版本 r1→r2 与 409 currentVersion、save-mode 校验 DELIVERY_STEP_REMOVED、内置 save/archive 只读 details.builtIn、instantiate builtin/custom、归档默认隐藏/includeArchived/归档后 instantiate 409。
+  - 回归：`routes-contract + api-contract + server-smoke + method-catalog + pe37-scope-planning + pe37-http + plan-edit-dependencies + template-import + roles-api + role-catalog-extended + workflow-catalog` → 33 pass / 0 fail。
+  - 运行中 5177 探针：GET list（5 个内置）、GET detail（r12/11 步/planningStrategy）、POST validate（结构化 problems）、POST instantiate（builtin/frozen）均正常。
+- 未覆盖 / 说明：
+  1. 契约 DTO 里的 `MethodStepDefinition.roleId/requires` 是可选扩展；既有内置方法不含这些字段。
+  2. instantiate 不创建任务本身（返回冻结定义）；前端仍用 `POST /api/tasks` 传 methodId，已加集成覆盖。
+  3. 归档是软删除（列表隐藏、不可实例化/编辑），没有物理删除路由。
+  4. 未跑 `build:web`/全量 `npm test`/浏览器点击（Lead 整合范围）。
+
+### 22:00 任务完成 | W3-1c（task-48）| 项目详情 charter/docPaths/GitLab
+
+- 负责人：`design-audit`；写范围：`apps/web/src/pages/projects/**`。改 `ProjectDetailPage.tsx`、`project-detail.css`；未改 backend/shared/其他页面。
+- 契约匹配（task-41 最终 shared）：`GET /api/projects/:id/charter` → `{charter}`；`PATCH /charter`（requestKey/content/expectedVersion）与 `POST /charter/confirm`（requestKey/confirmWrite/expectedVersion）；`POST /charter/generate`（requestKey/confirmGenerate）按真实 501 `CHARTER_GENERATION_UNAVAILABLE` 处理；`ProjectSettings.docPaths` 与 `settings.gitlab` 通过现有 `PATCH /api/projects/:id` 保存。类型全部使用 shared `ProjectCharterView/ProjectCharterResponse/UpdateProjectRequest`。
+- 项目公约页签：真实读取 none/draft/generating/written/unknown；手动编辑草稿 + 保存（expectedVersion）+ ReceiptNotice；生成按钮真实调用 generate，原地显示 501/错误码/服务原因（不伪造成功）；确认写入 AGENTS.md 二次确认、回执、失败错误；unknown/needsReconcile 显示「重新读取 AGENTS.md」且禁止自动重试/重复写入，核对后可重新编辑草稿恢复；当前文件正文只读、版本列表只读（不提供不存在的恢复接口）。
+- 文档路径页签：从 shared docPaths 读取（缺失视为空，不再假禁用）；多行路径列表逐个输入/添加/删除，前端校验绝对路径、反斜杠、`..`、控制字符、重复、空行、500 字/20 条；保存空列表=清空；保存走项目 PATCH + receipt/unknown 锁定 + 刷新；实际位置预览。
+- Git 与 GitLab 页签：项目级覆盖表单读取/保存 inheritGlobal/baseUrl/projectPath/enabled；继承时地址路径禁用并展示全局地址，非继承时校验 http(s) URL 与 group/repo；保存项目 PATCH + receipt/error；常驻说明「运行时仍使用全局 GitLab 配置」，不伪造项目级远程调用。
+- 概览配置状态：charter 真实状态/读取失败、docPaths 条数/未配置、GitLab 全局状态 + 项目覆盖摘要，均可跳转对应页签。
+- 验证：`npx tsc -p tsconfig.json --noEmit` exit 0；本范围 `--noUnusedLocals --noUnusedParameters` 0；`git diff --check` 通过；Vite 5173 对 ProjectDetailPage/项目 CSS 转译 HTTP 200；5177 只读 GET charter（status=none、generate reasonCode=CHARTER_GENERATION_UNAVAILABLE、AGENTS.md 不存在）与 project settings 成功。未执行 charter PATCH/confirm/generate 或项目 PATCH 写操作；未跑 build:web/全量 test，未做浏览器点击。
+- 未覆盖/降级：
+  1. `generate` 只展示真实 501 与手动编辑 fallback；模型生成未接线是后端事实。
+  2. GitLab 项目级覆盖只保存非敏感配置；运行时、凭据、证据来源仍使用全局/未提供，页面已明确。
+  3. charter 版本列表只读；没有版本恢复接口，不补造。
+  4. 未做真实写入 AGENTS.md 的 smoke（避免改本机项目文件）；建议 Lead 用临时项目验证 draft→confirm→unknown/重新读取。
+
+### 21:57 任务完成 | W3-8b（task-47）| 工作流目录升级 + 编辑器（画布/检查/保存冲突）
+
+- 负责人：`fe-ppt`；写范围：`apps/web/src/pages/workflows/**`、`apps/web/src/app/App.tsx`（仅 +1 import、+1 路由 `/workflows/:id/edit`）。未改后端/shared/其他页面。临时 Vite 冒烟配置 `apps/web/src/pages/workflows/vite.smoke.config.mts` 已删除（find 无残留）；临时 5194 服务 / 5287 Vite 已关闭。
+- 文件：改写 `WorkflowsPage.tsx`；新增 `WorkflowEditorPage.tsx`、`workflow-api.ts`（HTTP 适配）、`workflow-model.ts`（草稿/检查/布局辅助）、`workflows.css`（令牌驱动，无硬编码颜色）。
+- 契约匹配（按 be-api task-46 最终契约）：GET `/api/workflows` → `{items}`；GET `/:id` → `{method}`；POST `/validate`（无 requestKey）→ `{ok,problems,checks}`；写操作 POST/POST copy/PATCH（`method`+`expectedVersion`）/DELETE 归档，data `{receipt,resource:{method}}`；409 `CONFLICT.details.currentVersion` → 冲突横幅；400 `VALIDATION_FAILED.details.problems` / `builtIn` → 具体原因展示。类型直接使用 shared 的 `MethodCatalogEntry/Detail/DraftDefinition/ValidationResult` 与 `ROUTES.workflows/workflow/workflowCopy/workflowValidate`，本地只做容错解包；接口未接通时降级到 bootstrap 内置目录（只读，新建/复制/归档禁用并写原因）。
+- 目录：搜索 + 全部/我的流程/程序内置分段（真实计数）；行显示来源/修订/步骤数/更新时间；详情读取 `GET /:id`（加载/错误态），步骤链（按分组并排展示，注明执行仍按顺序、服务无并行分支字段）；操作：用这个流程开始任务（/start?methodId=）、编辑流程/查看步骤（/workflows/:id/edit）、复制（对话框+回执）、归档（确认+回执+归档后默认隐藏，可勾选显示已归档）、新建（对话框 → POST → 选中）；复制/归档/新建结果未明时显示 unknown 横幅 +「核对原操作」(`/api/operations/:key`)，不自动重发。
+- 编辑器：工具条（面包屑/可改名/来源版本/未保存 N 处/撤销重做/添加步骤/检查 N/保存）；画布横向有序步骤链（开始/步骤/交付节点、连线、插入“+”按钮、空流程“添加第一步”引导、步骤计数）；内置流程只读并给「复制后修改」（真实 copy → 新流程编辑器）；步骤面板（名称/职业（角色目录）/类型/分组/之后/高级设置=可选+requires 依赖/删除二次确认）并明确“服务未提供「这一步做什么/产出与验收」字段，不伪造”；检查浮层（优先 `/validate`，接口不可用时明确“前端规则”，问题可定位并选中步骤）；保存前本地+服务检查（未指定职业阻止保存并说明为前端规则）；保存走 PATCH `expectedVersion`，成功刷新版本并清历史；409 冲突横幅「已被更新为版本 N」+「查看版本 N」（重新 GET 最新 detail 弹窗）+「导出我的修改」（下载 JSON）；网络超时/不可用 → 保存结果未明，画布锁定只读、保留草稿，按原 requestKey 核对 `/api/operations/:key`，不自动重发；“并行步骤 / 连接到”按钮禁用并写明服务模型只有有序步骤列表。
+- 验证：`npx tsc -p tsconfig.json --noEmit` → 0 error；`--noUnusedLocals` 过滤 workflows 与 App → 0；Electron UI 冒烟（隔离真实服务 5194 + 临时 Vite 5287，关 HMR）全部 PASS：目录列表/筛选/详情/复制/新建/归档/显示已归档；编辑器添加步骤→面板→设职业→检查→保存（服务版本 1→2、步骤落库）→改名撤销→服务端升级到版本 3 后保存触发冲突横幅+查看版本弹窗；内置流程只读且无保存按钮、显示「复制后修改」。临时数据/服务已清理；未跑 build:web/全量测试。
+- 未覆盖：并行分支/任意连线（服务无字段）；画布拖拽平移/缩放、步骤模板抽屉（设计稿中的 400 抽屉）、视觉 diff 未实现（冲突只给最新版本快照与导出）；编辑器内不能编辑流程描述（仅在新建对话框设置）；保存 unknown 只做了代码路径与锁定，未构造线上断网故障；复制/归档 unknown 核对路径同样未做故障注入。
+
+### 21:58 整合 | Wave 3F 验收通过
+
+- **验收范围**：W3-8c method catalog HTTP/Engine 接线、W3-8b 工作流编辑器 UI、W3-1c 项目详情 charter/docPaths/GitLab UI、W3-5 后端核心（冻结/审计/快照评审/运行内容）、W4-3c 设置导航修复+截图重拍、W4-1f 文档同步。
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **398 tests / 54 suites / 387 pass / 11 skipped / 0 fail**（69.6s）。
+- **构建/脚本**：`docs:api` 重生成（158 路由）、`check:docs-routes` OK、`build:web`、`build:server`、`test-e2e --skip-build` 通过。
+- **功能证据**：流程目录内置/我的、创建/复制/归档/版本冲突、编辑器画布/检查/保存/冲突横幅；项目公约手动编辑/确认写入 AGENTS.md/501 生成/unknown、docPaths、GitLab 覆盖；任务扩展读模型（冻结 6 测试）；method catalog 7 测试；ui:smoke 设置导航修复后 13 截图通过。
+- **剩余**：W3-5b（HTTP/UI 接线）、W3-4b（知识研究步骤/工具轨迹/流式）、W4-6 推送 main；W4-5/W2-5 blocked（真实 PG/GitLab）。

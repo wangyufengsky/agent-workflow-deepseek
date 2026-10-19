@@ -19,6 +19,7 @@ import { RecoveryPage } from '../pages/recovery/RecoveryPage.tsx';
 import { RuntimePage } from '../pages/runtime/RuntimePage.tsx';
 import { InsightsPage } from '../pages/insights/InsightsPage.tsx';
 import { WorkflowsPage } from '../pages/workflows/WorkflowsPage.tsx';
+import { WorkflowEditorPage } from '../pages/workflows/WorkflowEditorPage.tsx';
 import { GitPage } from '../pages/git/GitPage.tsx';
 import { StartPage } from '../pages/start/index.ts';
 import { RequirementCanvasPage } from '../pages/requirement/index.ts';
@@ -48,6 +49,7 @@ export function App() {
         <Route path="git" element={<GitPage />} />
         <Route path="git/:projectId" element={<GitPage />} />
         <Route path="workflows" element={<WorkflowsPage />} />
+        <Route path="workflows/:id/edit" element={<WorkflowEditorPage />} />
         <Route path="knowledge" element={<KnowledgePage />} />
         <Route path="knowledge/history" element={<KnowledgeHistoryPage />} />
         <Route path="ppt" element={<PptPage />} />

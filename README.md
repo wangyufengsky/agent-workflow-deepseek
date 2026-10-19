@@ -65,13 +65,14 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 
 ## 已验证（离线）
 
-- `npm test`（最近一次：2026-10-19）：**379 tests / 54 suites / 368 pass / 11 skipped / 0 fail**，约 62.4s
-  （日志 `.tmp/wave3d-test.log`）。覆盖共享状态机、存储/JSONL/密钥、规划图与校验、HTTP 集成、Git 读模型、
+- `npm test`（最近一次：2026-10-19）：**391 tests / 54 suites / 380 pass / 11 skipped / 0 fail**，约 65.0s
+  （日志 `.tmp/wave3e-verify.log`）。覆盖共享状态机、存储/JSONL/密钥、规划图与校验、HTTP 集成、Git 读模型、
   worktree 合并/冲突回退、MCP 工具、数据库只读守卫、启动恢复、API 契约与回执、执行控制/验收 gating、非 Git 清理、
-  恢复只读、interactions、远端 UNKNOWN、diff 回归、角色四页签、节点详情子视图、PE37 作用域规划、打包评估等
-  （详见 `docs/verification.md`）。
-- `npx tsc -p tsconfig.json --noEmit` 0 errors；`npm run build:web`/`build:server` 成功；`npm run check:docs-routes`
-  （148 路由）与 `npm run test:e2e -- --skip-build` 通过（Wave 0–3D 验收；CI 配置见 `.github/workflows/ci.yml`）。
+  恢复只读、interactions、远端 UNKNOWN、diff 回归、角色四页签、节点详情子视图、PE37 作用域规划、项目公约后端、
+  方法目录核心、打包评估等（详见 `docs/verification.md`）。
+- `npx tsc -p tsconfig.json --noEmit` 0 errors；`npm run docs:api` / `check:docs-routes`（**153 路由**）、`build:web`/
+  `build:server`、`test:e2e -- --skip-build`、`ui:smoke`（兼容 flags，13 截图 + 2 交互）通过（Wave 0–3E 验收；
+  CI 配置见 `.github/workflows/ci.yml`）。
 
 ## 已验证（真实环境）
 
@@ -97,36 +98,39 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 
 ## 未完成 / 下一步
 
-- **Wave 3E 进行中**（不要当作已完成）：W3-1b 项目详情后端（charter/docPaths/GitLab 绑定）、W3-6b PE37 HTTP/UI
-  接线、W3-8a 工作流编辑器后端核心、W4-3b `ui:smoke` 兼容 flags/截图刷新。
+- **Wave 3F 进行中**（不要当作已完成）：W3-1c 项目详情 UI 接入 charter/docPaths/GitLab、W3-8c method catalog
+  HTTP/Engine 接线、W3-8b 工作流编辑器 UI、W3-5 任务画布后端核心（冻结/审计/快照评审/运行内容读模型）。
+- **W4-3c 设置页导航样式**：`.snav .cap` 命中全局首页 `.cap` 样式（min-height:300px/display:flex），分组导航出现
+  约 300px 间距；`docs/evidence/settings-2026-10-19.png` 与 `evidence/ui-settings.png` 如实显示。需修样式并重拍。
 - **W3-4b 知识库研究体验**：研究步骤、工具轨迹、流式/轮询回答、命中相关度等 DTO 未提供；W3-4a 已完成来源选择/
   引用原文 520/研究员面板。
 - **W3-5 任务画布扩展**：冻结计划、审计记录、运行内容入口、快照评审 B-07（`/runs/:taskId`、待验收情况条与节点
   面板推进入口已有）。
-- **W3-8a/W3-8b 工作流编辑器**：method CRUD/复制/归档/校验 + 画布编辑；当前唯一整页缺失（`workflow-editor`）。
+- **W3-8b/W3-8c 工作流编辑器**：method catalog 后端核心已完成（7 测试），HTTP/Engine 与画布编辑 UI 进行中；
+  当前仍无 `/workflows/:id/edit` 页面（唯一整页缺失）。
+- **W3-10 剩余降级项**：平移到节点未实现；服务无产物正文/工具增量读取/完整补读接口，子视图按真实错误降级。
 - **W4-5/W2-5 真实环境（blocked）**：本机无 PostgreSQL/GitLab 实例或凭据，仓库也无 PG/GitLab live 测试。需提供
   PG 连接串 + 只读账号、GitLab base/API URL + api scope PAT + 测试项目；环境变量与补测步骤见 `docs/packaging.md` §7。
   GitHub 远端关闭/合并/删分支产品边界仍待确认（W2-8）。
 - **打包分发（W4-4）**：2026-10-19 21:20 已用当前代码重建 346MB `.app`，但未签名/未公证、无 dmg/zip 安装包、仅 arm64、
   默认 Electron 图标、asar 关闭；本沙箱默认 GUI 启动被 Chromium sandbox/GPU 拦截（兼容 flags 离屏捕获 PASS）。
   签名/公证、桌面默认参数验收、Windows/Linux、自动更新、CI 打包未做，见 `docs/packaging.md` §5/§8/§9。
-- **视觉回归（W4-3b）**：CI/e2e 已接入，但 `docs/evidence/` 22 张截图仍为 Wave 0 前历史证据（见 `docs/evidence/README.md`）；
-  无像素级视觉回归，需桌面环境 + 真实 OpenCode/模型重拍或补自动截图。
 - **剩余结构/深度项**：数据库授权/多 schema、工具项目级配置/单工具策略、模板分支/时间/文档/B-06、角色权限预估/
   形象目录、审查并排代码差异、恢复不复制执行上下文/阶段图、PPT 高级视觉（品牌模板/PDF/逐页视觉检查）。
-- **文档/证据体系**：`docs/design-coverage.md` 已更新到 Wave 3D；`docs/api.md` 由 `ROUTES + 服务端注册` 生成（148 路由）；
-  `test:e2e` + 最小 CI + 证据清单已在 W4-3a 落地；live 日志摘要与像素级视觉回归仍待 W4-3b。
+- **文档/证据体系**：`docs/design-coverage.md` 已更新到 Wave 3E；`docs/api.md` 由 `ROUTES + 服务端注册` 生成
+  （153 路由）；`test:e2e` + 最小 CI + 截图/证据清单已在 W4-3a/3b 落地；live 日志摘要与像素级视觉回归仍待后续。
 
 ## 界面证据
 
-`docs/evidence/` 是 Wave 0 之前的手工截图（真实服务 + 真实 Git 仓库 + 真实模型），覆盖主页、任务列表、开始任务、
-需求画布（模型候选）、任务执行画布、节点执行现场、Git 工作台、四主题与 1024 宽度；`evidence/` 是 `npm run ui:smoke`
-输出的路由截图。Wave 3A–3D 页面验收使用的是 agent 一次性 Electron 冒烟（未入库/未进 CI）；当前沙箱 UI smoke 仍未成功，
-截图与页面文案可能落后于新实现。`docs/evidence/README.md` 已列出 22 张 PNG 的轮次/数据源/有效性（全部标注为 Wave 0 前
-历史证据），并区分两个证据目录；CI 与 e2e 见 `.github/workflows/ci.yml`、`scripts/test-e2e.mjs`。
+`docs/evidence/` 现有 **30 张 PNG**：22 张 Wave 0 前历史截图 + 8 张 `*-2026-10-19.png` 当前 UI smoke 截图；
+`evidence/` 是本轮 `ui:smoke` 的 13 张（11 默认 + `ui-roles`/`ui-ppt`）。当前截图由
+`CAPTURE_UI_NO_SANDBOX=1 CAPTURE_UI_PORT=5292 CAPTURE_UI_TMP_DIR=.tmp/ui-task44 CAPTURE_UI_EXTRA=1 npm run ui:smoke`
+在 HEAD `449b3ac` 的 `apps/web/dist` 上生成：13 截图目标 + 2 交互 smoke 通过，但**不是像素级视觉回归**。
+注意设置页左侧导航 `.snav .cap` 与全局 `.cap` 样式冲突（分组间距约 300px），截图如实显示，W4-3c 待修并重拍。
+清单/有效性/命令见 `docs/evidence/README.md`；CI 与 e2e 见 `.github/workflows/ci.yml`、`scripts/test-e2e.mjs`。
 
-协议与设计细节见 `docs/architecture.md`、`docs/design-system.md`、`docs/api.md`、`docs/design-coverage.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/packaging.md`、`AGENTS.md`。
-设计覆盖现状见 `docs/design-coverage.md`：2026-10-19 更新到 Wave 3A–3D 的 25 页覆盖矩阵（当前 **✅ 3 / 🟡 21 / ⛔ 1**，
+协议与设计细节见 `docs/architecture.md`、`docs/design-system.md`、`docs/api.md`、`docs/design-coverage.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/packaging.md`、`docs/evidence/README.md`、`AGENTS.md`。
+设计覆盖现状见 `docs/design-coverage.md`：2026-10-19 更新到 Wave 3A–3E 的 25 页覆盖矩阵（当前 **✅ 3 / 🟡 21 / ⛔ 1**，
 唯一整页缺失 `workflow-editor`），不是验证记录。打包与真实环境 blocked 状态见 `docs/packaging.md`。
 
 ## 品牌与命名（2026-10-19 决策）
@@ -139,9 +143,9 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 
 ## 实现状态
 
-截至 2026-10-19（Wave 0–3D 完成，Wave 3E 进行中）：核心链路（Electron/主题/画布/后端/存储/
+截至 2026-10-19（Wave 0–3E 完成，Wave 3F 进行中）：核心链路（Electron/主题/画布/后端/存储/
 MySQL/Git/MCP/受管 OpenCode/规划/执行/审查/修复/交付/恢复）均已真实运行；离线测试
-**379 tests / 54 suites / 368 pass / 11 skipped / 0 fail**（约 62.4s，`.tmp/wave3d-test.log`）。
+**391 tests / 54 suites / 380 pass / 11 skipped / 0 fail**（约 65.0s，`.tmp/wave3e-verify.log`）。
 
 Wave 0–2 已补齐：`restart` / `git fetch` 合法回执与前端按回执读取、未知 `/api/*` JSON 404、缺 `requestKey` 400、
 真实 terminal/MCP 工具数/数据库连接状态、execution/planning/workspace 启动恢复、PPT 页完整闭环、模板可视化/JSON
@@ -160,8 +164,14 @@ readOnly 投影与 `updateDraft` 守卫、`changes` diff 修复、`fetch`/fix pu
 Wave 3D 已补齐：角色管理四页签（后端字段/校验/发布核对/历史 + 前端四页签/资源权限/形象/发布检查）、待验收情况条
 （去验收/驳回重试）、节点详情工具/产物/引用/宽阅读子视图、数据库/工具/模板结构诚实降级、PE37 分组细化引擎
 （proposal/refinePreview/作用域合并/confirm 前置）、W4-4 打包重建与评估（346MB 未签名 `.app`，`docs/packaging.md`）、
-文档同步。**W3-6b、W3-1b、W3-8a 与上列「未完成 / 下一步」仍未完成**，详见 `docs/remaining-work.md`、`docs/packaging.md`
-与 `docs/design-coverage.md`。
+文档同步。
+
+Wave 3E 已补齐：PE37 HTTP + UI（proposal/refine-preview/scoped start/组候选/确认拦截）、项目公约后端
+（GET/PATCH/confirm 原子写 AGENTS.md、unknown 恢复、generate 诚实 501）、`docPaths` 与项目级 GitLab 覆盖契约/读回、
+方法目录（method catalog）后端核心（合并视图/CRUD/校验/版本冲突/复制/归档，7 测试）、W4-3b 视觉回归兼容 flags +
+截图刷新（13 截图 + 2 交互 smoke，`docs/evidence/README.md` 30 张清单）、W4-2 API 文档重生成（153 路由）与文档同步。
+**W3-1c、W3-8b/W3-8c、W3-5、W4-3c 与上列「未完成 / 下一步」仍未完成**，详见 `docs/remaining-work.md`、
+`docs/packaging.md` 与 `docs/design-coverage.md`。
 
 > 若从某些工具终端启动桌面应用时只见日志、不开窗，检查是否继承了 `ELECTRON_RUN_AS_NODE=1`；桌面主进程需要普通 Electron 模式（可 `unset ELECTRON_RUN_AS_NODE` 后再启动）。
 

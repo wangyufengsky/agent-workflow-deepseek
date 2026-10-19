@@ -250,7 +250,7 @@ export class TaskService {
       if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
       if (input.title.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '任务标题不能为空');
       if (input.requirementText.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '需求原文不能为空');
-      const method = findMethod(DEFAULT_CATALOG, input.methodId);
+      const method = findMethod(this.#catalog, input.methodId);
       if (method === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '流程方法不存在');
       if (method.support === 'skeleton_only' && input.template === undefined) {
         // Skeleton-only methods are still accepted; the UI shows the AI-planning marker.
@@ -423,7 +423,7 @@ export class TaskService {
     const round = task.currentPlanningRoundId === undefined ? this.#store.planning.latest(task.id) : this.#store.planning.get(task.currentPlanningRoundId);
     const execution = task.executionId === undefined ? this.#store.executions.byTask(task.id) : this.#store.executions.get(task.executionId);
     const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(task.id) : this.#store.deliveries.get(task.deliveryId);
-    const method = findMethod(DEFAULT_CATALOG, task.methodId);
+    const method = findMethod(this.#catalog, task.methodId);
     const progress = execution?.progress ?? { done: 0, total: this.#store.plans.get(task.currentPlanRevisionId ?? '')?.graph.nodes.length ?? 0, running: 0, failed: 0 };
     return {
       id: task.id,

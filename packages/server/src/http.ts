@@ -56,6 +56,12 @@ import type {
   GitFetchRequest,
   OpenCodeRestartRequest,
   TemplateArchiveRequest,
+  MethodArchiveRequest,
+  MethodCopyRequest,
+  MethodCreateRequest,
+  MethodSaveRequest,
+  MethodValidateRequest,
+  MethodCatalogDetail,
   NodeAcceptRequest,
   NodeRejectRequest,
   NodeStatusValue,
@@ -235,6 +241,10 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/catalog/templates/import',
   'PATCH /api/catalog/templates/:id',
   'DELETE /api/catalog/templates/:id',
+  'POST /api/workflows',
+  'POST /api/workflows/:id/copy',
+  'PATCH /api/workflows/:id',
+  'DELETE /api/workflows/:id',
   'POST /api/catalog/roles',
   'POST /api/catalog/roles/:id/publish',
   'POST /api/catalog/roles/:id/archive',
@@ -961,6 +971,79 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/catalog/roles/:id/archive', async (request) => {
     const body = request.body as RoleArchiveRequest;
     return envelope(engine.roleCatalog.archive(request.params.id, body), requestId(request));
+  });
+
+  // Workflow (method) catalog: built-ins are read-only, custom methods are
+  // versioned and every mutation carries a requestKey receipt.
+  app.get<{ Querystring: { includeArchived?: string; source?: string; q?: string } }>('/api/workflows', async (request) => {
+    const source = request.query.source === 'builtin' || request.query.source === 'custom' ? request.query.source : 'all';
+    return envelope({
+      items: engine.methods.list({
+        includeArchived: request.query.includeArchived === '1',
+        source,
+        ...(request.query.q === undefined ? {} : { q: request.query.q }),
+      }),
+    }, requestId(request));
+  });
+  app.post('/api/workflows/validate', async (request) => {
+    const body = (request.body ?? {}) as Partial<MethodValidateRequest>;
+    if (body.draft === null || typeof body.draft !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 draft');
+    return envelope(engine.methods.validate({ draft: body.draft, ...(typeof body.id === 'string' ? { id: body.id } : {}) }), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/workflows/:id/instantiate', async (request) => {
+    return envelope({ ...engine.methods.instantiate(request.params.id) }, requestId(request));
+  });
+  app.get<{ Params: { id: string } }>('/api/workflows/:id', async (request) => {
+    return envelope({ method: engine.methods.get(request.params.id) }, requestId(request));
+  });
+
+  /**
+   * Wrap a MethodCatalogService mutation in a command receipt. The service has
+   * its own request replay; this keeps `/api/operations/:key` truthful too.
+   */
+  const workflowMutation = (
+    requestKey: string,
+    operation: import('@agent-workflow/shared').OperationKindValue,
+    body: unknown,
+    target: Record<string, string>,
+    action: () => { readonly method: MethodCatalogDetail },
+  ): ReturnType<typeof envelope> => {
+    const { record, replayed } = engine.commands.begin({ requestKey, operation, body, target });
+    if (replayed && record.status !== 'accepted') {
+      const methodId = typeof record.outcome?.['methodId'] === 'string' ? record.outcome['methodId'] : undefined;
+      return envelope(
+        { receipt: engine.commands.toReceipt(record), ...(methodId === undefined ? {} : { resource: { method: engine.methods.get(methodId) } }) },
+        requestKey,
+      );
+    }
+    try {
+      const result = action();
+      engine.commands.settle(requestKey, { methodId: result.method.id, version: result.method.version });
+      return envelope({ receipt: engine.commands.toReceipt(engine.commands.get(requestKey)!), resource: { method: engine.methods.get(result.method.id) } }, requestKey);
+    } catch (error) {
+      engine.commands.fail(requestKey, error instanceof Error ? error : new Error('流程操作失败'));
+      throw error;
+    }
+  };
+
+  app.post('/api/workflows', async (request) => {
+    const body = request.body as MethodCreateRequest;
+    if (body.draft === null || typeof body.draft !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 draft');
+    return workflowMutation(body.requestKey, 'catalog.method.create', { draft: body.draft }, {}, () => engine.methods.create({ requestKey: body.requestKey, draft: body.draft, confirmCreate: body.confirmCreate }));
+  });
+  app.post<{ Params: { id: string } }>('/api/workflows/:id/copy', async (request) => {
+    const body = request.body as MethodCopyRequest;
+    return workflowMutation(body.requestKey, 'catalog.method.copy', { id: request.params.id, name: body.name ?? null }, { ref: request.params.id }, () => engine.methods.copy(request.params.id, { requestKey: body.requestKey, ...(body.name === undefined ? {} : { name: body.name }), confirmCopy: body.confirmCopy }));
+  });
+  app.patch<{ Params: { id: string } }>('/api/workflows/:id', async (request) => {
+    const body = request.body as MethodSaveRequest;
+    if (body.method === null || typeof body.method !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 method');
+    return workflowMutation(body.requestKey, 'catalog.method.save', { id: request.params.id, method: body.method, expectedVersion: body.expectedVersion }, { ref: request.params.id }, () => engine.methods.save(request.params.id, { requestKey: body.requestKey, method: body.method, expectedVersion: body.expectedVersion, confirmSave: body.confirmSave }));
+  });
+  app.delete<{ Params: { id: string } }>('/api/workflows/:id', async (request) => {
+    const body = commandBody<MethodArchiveRequest>(request);
+    if (body.confirmArchive !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '归档流程需要 confirmArchive=true 确认');
+    return workflowMutation(body.requestKey, 'catalog.method.archive', { id: request.params.id }, { ref: request.params.id }, () => engine.methods.archive(request.params.id, { requestKey: body.requestKey, confirmArchive: true }));
   });
 
   // Task recovery (derived draft only; the parent task is never mutated)

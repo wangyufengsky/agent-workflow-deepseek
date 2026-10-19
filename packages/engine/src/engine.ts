@@ -4,6 +4,7 @@ import type { Store } from '@agent-workflow/storage';
 import { CommandService } from './operations.ts';
 import { RecoveryService } from './recovery.ts';
 import { RoleCatalogService } from './role-catalog.ts';
+import { MethodCatalogService } from './method-catalog.ts';
 import { InsightsService } from './insights.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { PptService } from './ppt.ts';
@@ -55,6 +56,7 @@ export class Engine {
   readonly inbox: InboxService;
   readonly recoveries: RecoveryService;
   readonly roleCatalog: RoleCatalogService;
+  readonly methods: MethodCatalogService;
   readonly insights: InsightsService;
   readonly knowledge: KnowledgeService;
   readonly ppt: PptService;
@@ -66,11 +68,31 @@ export class Engine {
   readonly executions: ExecutionService;
   readonly deliveries: DeliveryService;
   #settings: AppSettings;
+  readonly #baseCatalog: CatalogSnapshot;
 
   constructor(options: EngineOptions) {
     this.store = options.store;
     this.ports = options.ports;
-    this.catalog = options.catalog ?? DEFAULT_CATALOG;
+    this.#baseCatalog = options.catalog ?? DEFAULT_CATALOG;
+    // The method catalog service is constructed before the effective catalog so
+    // the live `catalog.methods` getter can merge built-ins with user methods.
+    this.methods = new MethodCatalogService({
+      store: this.store,
+      roleIds: () => this.catalog.roles.map((role) => role.id),
+    });
+    const listMergedMethods = (): readonly import('@agent-workflow/shared').WorkflowMethod[] =>
+      this.methods
+        .list()
+        .map((entry) => this.methods.resolve(entry.id))
+        .filter((method): method is import('@agent-workflow/shared').WorkflowMethod => method !== undefined);
+    this.catalog = {
+      ...this.#baseCatalog,
+      // Services capture this object once; a getter keeps custom methods visible
+      // to task creation / planning / plan skeletons without rebuilding services.
+      get methods() {
+        return listMergedMethods();
+      },
+    };
     this.#settings = mergeSettings(DEFAULT_SETTINGS, options.store.settings.getSettings() ?? {}) ?? options.initialSettings ?? DEFAULT_SETTINGS;
     this.commands = new CommandService(this.store);
     this.roleCatalog = new RoleCatalogService({
@@ -100,7 +122,7 @@ export class Engine {
     this.charters = new CharterService(this.store, this.commands);
     this.inbox = new InboxService(this.store, this.tasks);
     this.recoveries = new RecoveryService({ store: this.store, commands: this.commands });
-    this.planning = new PlanningService(this.store, this.commands, this.context, this.ports.opencode, () => this.tasks);
+    this.planning = new PlanningService(this.store, this.commands, this.context, this.ports.opencode, () => this.tasks, this.catalog);
     this.plans = new PlanService(this.store, this.commands, this.context, this.ports.git, () => this.tasks, this.catalog, () => this.executions);
     this.workspaces = new WorkspaceService(this.store, this.commands, this.context, this.ports.git);
     this.executions = new ExecutionService(this.store, this.commands, this.context, this.ports.opencode);

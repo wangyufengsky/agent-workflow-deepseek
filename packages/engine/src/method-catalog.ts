@@ -724,5 +724,9 @@ function slug(name: string): string {
 }
 
 function randomSuffix(): string {
-  return createId('m').split('_').at(-1)?.slice(0, 8) ?? String(Date.now()).slice(-8);
+  // createId is `<prefix>_<9-char base36 time><10 random chars>`; taking the
+  // first 8 chars after the prefix made the suffix depend on the clock only and
+  // two methods with the same slug could collide inside one time window. Use
+  // the random tail instead.
+  return createId('m').split('_').at(-1)?.slice(-8) ?? String(Date.now()).slice(-8);
 }

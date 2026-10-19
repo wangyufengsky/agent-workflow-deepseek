@@ -9,6 +9,7 @@ import type {
   RoleResourceFileKindValue,
   RoleResourceToolKindValue,
   SeverityValue,
+  TaskMethodSupportValue,
   ThemeIdValue,
 } from '../domain/enums.ts';
 import type { AppEventEnvelope } from '../domain/events.ts';
@@ -31,6 +32,7 @@ import type {
   GitMergeRequest,
   GitRepo,
   MethodStepDefinition,
+  WorkflowMethod,
   ModelProfile,
   NodeDetail,
   OperationReceipt,
@@ -620,6 +622,106 @@ export interface RoleImageInput {
   readonly kind: 'initials' | 'emoji';
   readonly value: string;
   readonly label?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Workflow (method) catalog                                          */
+/* ------------------------------------------------------------------ */
+
+/** Editor draft for a workflow method (built-in methods are read-only). */
+export interface MethodDraftDefinition {
+  readonly name: string;
+  readonly description?: string;
+  readonly support?: TaskMethodSupportValue;
+  readonly requiredSteps: readonly MethodStepDefinition[];
+  readonly refinableGroups?: readonly string[];
+  readonly planningStrategy?: { readonly id: string; readonly version: string; readonly roleId: string };
+}
+
+export interface MethodValidationProblem {
+  readonly code: string;
+  readonly message: string;
+  readonly field?: 'name' | 'description' | 'support' | 'requiredSteps' | 'refinableGroups' | 'planningStrategy';
+  readonly stepKey?: string;
+}
+
+export interface MethodValidationCheck {
+  readonly id: string;
+  readonly label: string;
+  readonly state: 'passed' | 'failed';
+}
+
+/** Non-mutating `POST /api/workflows/validate` result (no requestKey). */
+export interface MethodValidationResult {
+  readonly ok: boolean;
+  readonly problems: readonly MethodValidationProblem[];
+  readonly checks: readonly MethodValidationCheck[];
+}
+
+export interface MethodCatalogEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly source: 'builtin' | 'custom';
+  readonly support: TaskMethodSupportValue;
+  readonly version: number;
+  readonly revision: string;
+  readonly stepCount: number;
+  readonly archived: boolean;
+  readonly updatedAt?: IsoDateTime;
+  readonly copiedFrom?: { readonly id: string; readonly version: number };
+}
+
+export interface MethodCatalogDetail extends MethodCatalogEntry {
+  readonly requiredSteps: readonly MethodStepDefinition[];
+  readonly refinableGroups: readonly string[];
+  readonly planningStrategy?: { readonly id: string; readonly version: string; readonly roleId: string };
+}
+
+export interface MethodCatalogListResponse {
+  readonly items: readonly MethodCatalogEntry[];
+}
+
+export interface MethodDetailResponse {
+  readonly method: MethodCatalogDetail;
+}
+
+export interface MethodMutationResponse {
+  readonly method: MethodCatalogDetail;
+}
+
+export interface MethodInstantiateResponse {
+  readonly method: WorkflowMethod;
+  readonly source: 'builtin' | 'custom';
+  readonly customVersion?: number;
+  /** Deep copy: editing the catalog later never changes an instantiated method. */
+  readonly frozen: boolean;
+}
+
+export interface MethodCreateRequest extends CommandRequest {
+  readonly draft: MethodDraftDefinition;
+  readonly confirmCreate: true;
+}
+
+export interface MethodCopyRequest extends CommandRequest {
+  readonly name?: string;
+  readonly confirmCopy: true;
+}
+
+export interface MethodSaveRequest extends CommandRequest {
+  readonly method: MethodDraftDefinition;
+  readonly expectedVersion: number;
+  readonly confirmSave: true;
+}
+
+export interface MethodArchiveRequest extends CommandRequest {
+  readonly confirmArchive: true;
+}
+
+export interface MethodValidateRequest {
+  readonly draft: MethodDraftDefinition;
+  /** Editing an existing method keeps its delivery steps during save-mode validation. */
+  readonly id?: string;
 }
 
 export interface RoleSaveRequest extends CommandRequest {
@@ -1492,6 +1594,11 @@ export const ROUTES = {
   projectCharterConfirm: (id: string) => `/api/projects/${encodeURIComponent(id)}/charter/confirm`,
   templateDetail: (id: string) => `/api/templates/${encodeURIComponent(id)}`,
   templateTasks: (id: string) => `/api/templates/${encodeURIComponent(id)}/tasks`,
+  workflows: '/api/workflows',
+  workflow: (id: string) => `/api/workflows/${encodeURIComponent(id)}`,
+  workflowCopy: (id: string) => `/api/workflows/${encodeURIComponent(id)}/copy`,
+  workflowValidate: '/api/workflows/validate',
+  workflowInstantiate: (id: string) => `/api/workflows/${encodeURIComponent(id)}/instantiate`,
   catalogRoleSave: '/api/catalog/roles',
   catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,
   catalogRoleValidate: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/validate`,

@@ -575,16 +575,10 @@ export class PlanService {
   }
 
   #method(task: ReturnType<Store['tasks']['get']> & object) {
-    const { DEFAULT_CATALOG, findMethod } = requireCatalog();
-    const method = findMethod(DEFAULT_CATALOG, task.methodId);
+    const method = this.#catalog.methods.find((item) => item.id === task.methodId);
     if (method === undefined) throw new AppError(ErrorCode.NOT_FOUND, '流程方法不存在');
     return method;
   }
-}
-
-import * as sharedCatalog from '@agent-workflow/shared';
-function requireCatalog(): typeof sharedCatalog {
-  return sharedCatalog;
 }
 
 

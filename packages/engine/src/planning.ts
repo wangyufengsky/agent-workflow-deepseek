@@ -11,6 +11,7 @@ import type {
   PlanNode,
   PlanValidation,
   Project,
+  CatalogSnapshot,
   SaveAnswerRequest,
   Task,
   WorkflowMethod,
@@ -90,18 +91,20 @@ export class PlanningService {
   readonly #context: EngineContext;
   readonly #opencode: OpenCodePort;
   readonly #tasks: () => TaskService;
+  readonly #catalog: CatalogSnapshot;
   readonly #previews = new Map<string, PreviewRecord>();
   readonly #refinePreviews = new Map<string, RefinePreviewRecord>();
   readonly #activeSessions = new Map<string, string>();
   readonly #stopKeys = new Map<string, string>();
   readonly #startKeys = new Map<string, string>();
 
-  constructor(store: Store, commands: CommandService, context: EngineContext, opencode: OpenCodePort, tasks: () => TaskService) {
+  constructor(store: Store, commands: CommandService, context: EngineContext, opencode: OpenCodePort, tasks: () => TaskService, catalog: CatalogSnapshot = DEFAULT_CATALOG) {
     this.#store = store;
     this.#commands = commands;
     this.#context = context;
     this.#opencode = opencode;
     this.#tasks = tasks;
+    this.#catalog = catalog;
   }
 
   /**
@@ -1385,7 +1388,7 @@ export class PlanningService {
   }
 
   #method(task: Task): WorkflowMethod {
-    const method = findMethod(DEFAULT_CATALOG, task.methodId);
+    const method = findMethod(this.#catalog, task.methodId);
     if (method === undefined) throw new AppError(ErrorCode.NOT_FOUND, '流程方法不存在');
     return method;
   }

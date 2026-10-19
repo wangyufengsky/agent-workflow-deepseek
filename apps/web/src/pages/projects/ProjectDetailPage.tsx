@@ -11,16 +11,21 @@ import {
   type IntegrationStatus,
   type OperationReceipt,
   type Project,
+  type ProjectCharterResponse,
+  type ProjectCharterStatusValue,
+  type ProjectCharterView,
   type ProjectDetailResponse,
   type ProjectSettings,
   type RepoGitStateValue,
   type TaskSummary,
+  type UpdateProjectRequest,
 } from '@agent-workflow/shared';
-import { apiGet, errorMessage, isApiClientError, request } from '../../api/client.ts';
+import { apiGet, apiPost, errorMessage, isApiClientError, request } from '../../api/client.ts';
 import { classifyGitFailure, fetchGitRepo, gitKeys } from '../../api/git.ts';
 import { queryKeys, useBootstrap } from '../../api/hooks.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
+import { Modal } from '../../components/Modal.tsx';
 import { EmptyState, Skeleton, SkeletonText } from '../../components/EmptyState.tsx';
 import { Icon, type IconName } from '../../components/Icon.tsx';
 import { IconButton } from '../../components/IconButton.tsx';
@@ -103,22 +108,47 @@ async function recheckProject(projectId: string): Promise<CommandResponse<Projec
   return response.data;
 }
 
-/**
- * `docPaths` is not part of the current shared ProjectSettings contract. Read it
- * defensively so a future/back-end extension can be shown without inventing data.
- */
-function readDocPaths(settings: ProjectSettings): readonly string[] | undefined {
-  const record = settings as unknown as Record<string, unknown>;
-  const raw = record.docPaths;
-  if (typeof raw === 'string') return raw.trim().length === 0 ? [] : [raw];
-  if (!Array.isArray(raw)) return undefined;
-  return raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+function readDocPaths(settings: ProjectSettings): readonly string[] {
+  return [...(settings.docPaths ?? [])];
 }
 
 async function patchDocPaths(projectId: string, paths: readonly string[]): Promise<CommandResponse<ProjectDetailResponse>> {
   const response = await request<CommandResponse<ProjectDetailResponse>>(ROUTES.project(projectId), {
     method: 'PATCH',
     body: { requestKey: createRequestKey(), settings: { docPaths: [...paths] } },
+  });
+  return response.data;
+}
+
+function charterKey(projectId: string) {
+  return ['project', projectId, 'charter'] as const;
+}
+
+async function fetchCharter(projectId: string): Promise<ProjectCharterView> {
+  const response = await apiGet<ProjectCharterResponse>(ROUTES.projectCharter(projectId));
+  return response.data.charter;
+}
+
+async function updateCharter(projectId: string, content: string, expectedVersion: number | undefined): Promise<CommandResponse<ProjectCharterResponse>> {
+  const response = await request<CommandResponse<ProjectCharterResponse>>(ROUTES.projectCharter(projectId), {
+    method: 'PATCH',
+    body: { requestKey: createRequestKey(), content, ...(expectedVersion === undefined ? {} : { expectedVersion }) },
+  });
+  return response.data;
+}
+
+async function generateCharter(projectId: string): Promise<CommandResponse<ProjectCharterResponse>> {
+  const response = await apiPost<CommandResponse<ProjectCharterResponse>>(ROUTES.projectCharterGenerate(projectId), {
+    requestKey: createRequestKey(),
+    confirmGenerate: true,
+  });
+  return response.data;
+}
+
+async function confirmCharter(projectId: string, expectedVersion: number | undefined): Promise<CommandResponse<ProjectCharterResponse>> {
+  const response = await request<CommandResponse<ProjectCharterResponse>>(ROUTES.projectCharterConfirm(projectId), {
+    method: 'POST',
+    body: { requestKey: createRequestKey(), confirmWrite: true, ...(expectedVersion === undefined ? {} : { expectedVersion }) },
   });
   return response.data;
 }
@@ -227,6 +257,150 @@ function GitAccountFacts({ integration, loading }: { readonly integration?: Inte
         {git.gitlab.authState.trim().length === 0 ? '' : ` · ${git.gitlab.authState}`}
       </dd>
     </dl>
+  );
+}
+
+function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Project; readonly globalBaseUrl?: string }) {
+  const queryClient = useQueryClient();
+  const override = project.settings.gitlab;
+  const [inheritGlobal, setInheritGlobal] = useState(override?.inheritGlobal ?? true);
+  const [baseUrl, setBaseUrl] = useState(override?.baseUrl ?? '');
+  const [projectPath, setProjectPath] = useState(override?.projectPath ?? '');
+  const [enabled, setEnabled] = useState(override?.enabled ?? true);
+  const [receipt, setReceipt] = useState<OperationReceipt | undefined>(undefined);
+  const [error, setError] = useState<unknown>(null);
+  const overrideKey = JSON.stringify(override ?? null);
+
+  useEffect(() => {
+    const next = project.settings.gitlab;
+    setInheritGlobal(next?.inheritGlobal ?? true);
+    setBaseUrl(next?.baseUrl ?? '');
+    setProjectPath(next?.projectPath ?? '');
+    setEnabled(next?.enabled ?? true);
+  }, [project.id, overrideKey]);
+
+  useEffect(() => {
+    setReceipt(undefined);
+    setError(null);
+  }, [project.id]);
+
+  const initial = JSON.stringify({
+    inheritGlobal: override?.inheritGlobal ?? true,
+    baseUrl: override?.baseUrl ?? '',
+    projectPath: override?.projectPath ?? '',
+    enabled: override?.enabled ?? true,
+  });
+  const current = JSON.stringify({ inheritGlobal, baseUrl, projectPath, enabled });
+  const dirty = initial !== current;
+  const urlValid = inheritGlobal || /^https?:\/\/[^\s]+$/iu.test(baseUrl.trim());
+  const pathValid = inheritGlobal || /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/u.test(projectPath.trim());
+  const locked = receipt !== undefined && (receipt.status === 'unknown' || receipt.status === 'accepted');
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const body: UpdateProjectRequest = {
+        requestKey: createRequestKey(),
+        settings: {
+          gitlab: {
+            inheritGlobal,
+            ...(inheritGlobal ? {} : {
+              ...(baseUrl.trim() === '' ? {} : { baseUrl: baseUrl.trim() }),
+              ...(projectPath.trim() === '' ? {} : { projectPath: projectPath.trim() }),
+            }),
+            enabled,
+          },
+        },
+      };
+      const response = await request<CommandResponse<ProjectDetailResponse>>(ROUTES.project(project.id), { method: 'PATCH', body });
+      return response.data;
+    },
+    onSuccess: async (data) => {
+      setReceipt(data.receipt);
+      setError(null);
+      if (data.resource !== undefined) queryClient.setQueryData(projectDetailKey(project.id), data.resource);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: projectDetailKey(project.id) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
+      ]);
+    },
+    onError: (caught) => { setError(caught); },
+  });
+
+  const disabledReason = locked
+    ? '保存结果未明或已受理；按原请求号核对后再修改。'
+    : !dirty
+      ? '没有修改。'
+      : !inheritGlobal && baseUrl.trim() === ''
+        ? '不继承全局 GitLab 时，地址不能为空。'
+        : !urlValid
+          ? 'GitLab 地址必须是 http(s) URL。'
+          : !inheritGlobal && projectPath.trim() === ''
+            ? '不继承全局 GitLab 时，项目路径不能为空。'
+            : !pathValid
+              ? '项目路径需要是 group/repo 形式。'
+              : mutation.isPending ? '正在保存 GitLab 覆盖…' : undefined;
+
+  return (
+    <div className="section" style={{ marginTop: 16 }}>
+      <div className="sec-h"><h3 className="grow">项目级 GitLab 覆盖</h3><Badge tone={override === undefined ? 'idle' : 'ok'}>{override === undefined ? '未保存' : override.inheritGlobal ? '继承全局' : '项目覆盖'}</Badge></div>
+      <div className="banner info">
+        <Icon name="info" />
+        <div className="grow">
+          <b>运行时仍使用全局 GitLab 配置。</b>
+          <br />
+          这里保存的是项目级非敏感覆盖（地址与 projectPath）；当前远程调用和凭据仍由全局 GitLab 设置提供，项目级覆盖不会改变运行时连接。
+        </div>
+      </div>
+      <label className="check" style={{ marginTop: 10 }}>
+        <input type="checkbox" checked={inheritGlobal} disabled={mutation.isPending || locked} onChange={(event) => { setInheritGlobal(event.target.checked); }} />
+        <span>继承全局 GitLab 配置（不保存项目地址/路径）</span>
+      </label>
+      <div className="grid-2" style={{ gap: 10, marginTop: 10 }}>
+        <div className="field" style={{ margin: 0 }}>
+          <label className="label" htmlFor="project-gitlab-base">GitLab 地址</label>
+          <input
+            id="project-gitlab-base"
+            className="input mono"
+            value={inheritGlobal ? (globalBaseUrl ?? '') : baseUrl}
+            disabled={inheritGlobal || mutation.isPending || locked}
+            placeholder={globalBaseUrl ?? 'https://gitlab.example.com'}
+            onChange={(event) => { setBaseUrl(event.target.value); }}
+          />
+          <span className="hint">{inheritGlobal ? '来自全局设置（只读展示）' : '必须为 http(s) URL'}</span>
+        </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label className="label" htmlFor="project-gitlab-path">Project Path</label>
+          <input
+            id="project-gitlab-path"
+            className="input mono"
+            value={projectPath}
+            disabled={inheritGlobal || mutation.isPending || locked}
+            placeholder="group/repo"
+            onChange={(event) => { setProjectPath(event.target.value); }}
+          />
+          <span className="hint">group/repo 形式；不是 URL。</span>
+        </div>
+      </div>
+      <label className="check" style={{ marginTop: 8 }}>
+        <input type="checkbox" checked={enabled} disabled={mutation.isPending || locked} onChange={(event) => { setEnabled(event.target.checked); }} />
+        <span>启用项目级 GitLab 覆盖</span>
+      </label>
+      <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+        <span className="hint grow">非敏感配置；不保存 token。当前服务仍以全局 GitLab 连接为准。</span>
+        <Button
+          variant="primary"
+          size="sm"
+          icon="check"
+          disabled={disabledReason !== undefined}
+          disabledReason={disabledReason}
+          onClick={() => { setReceipt(undefined); setError(null); mutation.mutate(); }}
+        >
+          {mutation.isPending ? '保存中…' : '保存 GitLab 覆盖'}
+        </Button>
+      </div>
+      <ReceiptNotice receipt={receipt} successMessage="项目级 GitLab 覆盖已保存；运行时仍使用全局配置。" />
+      {error === null ? null : <CommandErrorNotice error={error} title="GitLab 覆盖未保存" />}
+    </div>
   );
 }
 
@@ -368,7 +542,7 @@ function GitTab({
       ) : (
         <DetailSection
           title="GitLab 与证据"
-          subtitle="仓库事实来自服务端 Git 读取接口；项目级仓库绑定与证据来源尚无接口。"
+          subtitle="仓库事实来自服务端 Git 读取接口；项目级 GitLab 覆盖可保存，但运行时仍使用全局配置。"
           className="project-section"
           aside={repo === undefined ? <Badge tone="idle">未读取</Badge> : <Badge tone={GITLAB_STATE_TONE[gitlabState]} icon={gitlabState === 'connected' ? 'check' : gitlabState === 'auth_failed' || gitlabState === 'unreachable' ? 'alert' : 'help'}>{GITLAB_STATE_LABEL[gitlabState]}</Badge>}
         >
@@ -424,12 +598,13 @@ function GitTab({
             </>
           )}
 
-          <div className="banner warn" style={{ marginTop: 12 }}>
-            <Icon name="lock" />
+          <ProjectGitlabForm project={project} {...(gitlabBaseUrl === undefined ? {} : { globalBaseUrl: gitlabBaseUrl })} />
+          <div className="banner info" style={{ marginTop: 12 }}>
+            <Icon name="info" />
             <div className="grow">
-              <b>项目级 GitLab 仓库绑定与证据来源暂未提供接口。</b>
+              <b>证据来源（JUnit 报告 / 日志目录）仍未提供接口。</b>
               <br />
-              证据来源（JUnit 报告 / 日志目录）需要服务端项目集成 / 证据来源契约；本页不展示可保存的表单，也不伪造绑定结果。
+              本页不展示可保存的测试报告/日志目录表单，也不伪造绑定结果；GitLab 连接状态以上方服务事实为准。
             </div>
           </div>
 
@@ -447,91 +622,129 @@ function GitTab({
   );
 }
 
+function validateDocPath(value: string, index: number): string | undefined {
+  const path = value.trim();
+  if (path.length === 0) return `第 ${String(index + 1)} 行为空；留空请删除该行。`;
+  if (path.length > 500) return `第 ${String(index + 1)} 行超过 500 字符。`;
+  if (path.startsWith('/')) return `第 ${String(index + 1)} 行不能是绝对路径。`;
+  if (path.includes('\\')) return `第 ${String(index + 1)} 行不能包含反斜杠。`;
+  if (/(^|\/)\.\.(\/|$)/u.test(path)) return `第 ${String(index + 1)} 行不能包含 ..。`;
+  if (/[\u0000-\u001f\u007f]/u.test(path)) return `第 ${String(index + 1)} 行包含控制字符。`;
+  return undefined;
+}
+
 function DocumentPathsTab({ project }: { readonly project: Project }) {
   const queryClient = useQueryClient();
   const docPaths = useMemo(() => readDocPaths(project.settings), [project.settings]);
-  const initial = docPaths?.join('\n') ?? '';
-  const [draft, setDraft] = useState(initial);
+  const initialKey = JSON.stringify(docPaths);
+  const [paths, setPaths] = useState<readonly string[]>(docPaths);
   const [receipt, setReceipt] = useState<OperationReceipt | undefined>(undefined);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    setDraft(initial);
-  }, [initial, project.id]);
+    setPaths(docPaths);
+  }, [initialKey, project.id]);
+
+  useEffect(() => {
+    setReceipt(undefined);
+    setError(null);
+  }, [project.id]);
 
   const mutation = useMutation({
-    mutationFn: async (paths: readonly string[]) => patchDocPaths(project.id, paths),
+    mutationFn: async (next: readonly string[]) => patchDocPaths(project.id, next),
     onSuccess: async (data) => {
       setReceipt(data.receipt);
       setError(null);
+      if (data.resource !== undefined) {
+        queryClient.setQueryData(projectDetailKey(project.id), data.resource);
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: projectDetailKey(project.id) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
         queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
       ]);
     },
-    onError: (caught) => { setError(caught); },
+    onError: (caught) => {
+      setError(caught);
+    },
   });
 
-  const lines = draft.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
-  const preview = lines.map((line) => (line.startsWith('/') ? line : `${project.rootPath.replace(/\/+$/u, '')}/${line}`));
-  const configured = docPaths !== undefined;
-  const disabledReason = !configured
-    ? '服务未在项目 settings 返回 docPaths；当前 PATCH 契约也不包含该字段，需要后端补充后才能保存。'
+  const trimmed = paths.map((path) => path.trim());
+  const lines = trimmed.filter((path) => path.length > 0);
+  const pathError = paths.map((path, index) => validateDocPath(path, index)).find((message) => message !== undefined);
+  const duplicate = lines.find((path, index) => lines.indexOf(path) !== index);
+  const dirty = JSON.stringify(trimmed) !== JSON.stringify(docPaths);
+  const locked = receipt !== undefined && (receipt.status === 'unknown' || receipt.status === 'accepted');
+  const validationError = pathError ?? (duplicate === undefined ? undefined : `路径重复：${duplicate}`);
+  const disabledReason = locked
+    ? '文档路径保存结果未明或已受理；按原请求号核对后再修改。'
     : mutation.isPending
       ? '正在保存文档路径，等待服务回执…'
-      : draft === initial
+      : !dirty
         ? '没有修改。'
-        : undefined;
+        : validationError;
+  const preview = lines.map((line) => `${project.rootPath.replace(/\/+$/u, '')}/${line}`);
 
   return (
     <DetailSection
       title="文档路径"
       subtitle="任务产出的设计文档、变更说明会写到这里；相对路径基于项目目录，留空表示不生成。"
-      aside={<Badge tone={configured ? 'ok' : 'idle'}>{configured ? '已配置' : '未配置'}</Badge>}
+      aside={<Badge tone={docPaths.length === 0 ? 'idle' : 'ok'}>{docPaths.length === 0 ? '未配置' : `已配置 ${String(docPaths.length)} 条`}</Badge>}
     >
-      {!configured ? (
-        <div className="banner warn">
-          <Icon name="help" />
-          <div className="grow">
-            <b>服务未提供文档路径字段。</b>
-            <br />
-            当前项目 settings 没有 docPaths，上传/保存入口保持禁用；页面不会伪造保存成功。需要后端在项目设置契约中补充该字段。
+      <div className="project-doc-list">
+        {paths.length === 0 ? (
+          <p className="hint">还没有文档路径。添加一条相对路径，或保存空列表表示不生成项目文档。</p>
+        ) : paths.map((path, index) => (
+          <div className="project-doc-row" key={`${String(index)}:${path}`}>
+            <span className="mono hint">{String(index + 1)}</span>
+            <input
+              className="input mono"
+              value={path}
+              disabled={mutation.isPending || locked}
+              placeholder="例如 docs 或 docs/design"
+              aria-label={`文档路径 ${String(index + 1)}`}
+              onChange={(event) => {
+                const next = [...paths];
+                next[index] = event.target.value;
+                setPaths(next);
+              }}
+            />
+            <IconButton
+              icon="trash"
+              label={`删除文档路径 ${String(index + 1)}`}
+              disabled={mutation.isPending || locked}
+              onClick={() => { setPaths(paths.filter((_, position) => position !== index)); }}
+            />
           </div>
-        </div>
-      ) : null}
-
-      <div className="field" style={{ margin: 0 }}>
-        <label className="label" htmlFor="project-doc-paths">文档目录</label>
-        <textarea
-          id="project-doc-paths"
-          className="textarea mono"
-          rows={4}
-          value={draft}
-          disabled={!configured || mutation.isPending}
-          placeholder="每行一个目录，例如 docs"
-          onChange={(event) => { setDraft(event.target.value); }}
-        />
-        <span className="hint">每行一个路径；相对路径基于项目目录，留空表示不生成。</span>
+        ))}
       </div>
-
-      {configured ? (
-        <div className="project-doc-preview">
-          实际位置：{preview.length === 0 ? '不生成项目文档' : preview.join('、')}
-        </div>
-      ) : null}
-
+      <div className="row wrap" style={{ marginTop: 8, gap: 8 }}>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon="plus"
+          disabled={mutation.isPending || locked || paths.length >= 20}
+          disabledReason={paths.length >= 20 ? '文档路径最多 20 条。' : undefined}
+          onClick={() => { setPaths([...paths, '']); }}
+        >
+          添加路径
+        </Button>
+        <span className="hint">相对路径；不能以 / 开头、不能包含 .. 或反斜杠；保存空列表表示不生成。</span>
+      </div>
+      {validationError === undefined ? null : <p className="hint" style={{ color: 'var(--danger)', marginTop: 6 }}>{validationError}</p>}
+      <div className="project-doc-preview">
+        实际位置：{preview.length === 0 ? '不生成项目文档' : preview.join('、')}
+      </div>
       <ReceiptNotice receipt={receipt} successMessage="文档路径已保存。" />
       {error === null ? null : <CommandErrorNotice error={error} title="文档路径未保存" />}
-
       <div className="project-doc-actions">
         <span className="hint grow">服务只保存路径，不会创建或移动目录。</span>
         <Button
           variant="ghost"
           size="sm"
-          disabled={draft === initial || mutation.isPending}
+          disabled={!dirty || mutation.isPending}
           disabledReason={mutation.isPending ? '正在保存文档路径，等待服务回执…' : '没有修改。'}
-          onClick={() => { setDraft(initial); }}
+          onClick={() => { setPaths(docPaths); setReceipt(undefined); setError(null); }}
         >
           放弃修改
         </Button>
@@ -541,7 +754,7 @@ function DocumentPathsTab({ project }: { readonly project: Project }) {
           icon="check"
           disabled={disabledReason !== undefined}
           disabledReason={disabledReason}
-          onClick={() => { mutation.mutate(lines); }}
+          onClick={() => { setReceipt(undefined); setError(null); mutation.mutate(lines); }}
         >
           {mutation.isPending ? '保存中…' : '保存文档路径'}
         </Button>
@@ -550,54 +763,315 @@ function DocumentPathsTab({ project }: { readonly project: Project }) {
   );
 }
 
-function CharterTab() {
+const CHARTER_STATUS_META: Record<ProjectCharterStatusValue, { readonly label: string; readonly tone: BadgeTone; readonly icon: IconName }> = {
+  none: { label: '尚未创建', tone: 'idle', icon: 'file' },
+  draft: { label: '草稿待写入', tone: 'wait', icon: 'edit' },
+  generating: { label: '生成中', tone: 'run', icon: 'play' },
+  written: { label: '已写入 AGENTS.md', tone: 'ok', icon: 'check' },
+  unknown: { label: '状态未明', tone: 'unknown', icon: 'help' },
+};
+
+function CharterTab({
+  project,
+  charter,
+  loading,
+  error,
+  onRetry,
+}: {
+  readonly project: Project;
+  readonly charter?: ProjectCharterView;
+  readonly loading: boolean;
+  readonly error: unknown;
+  readonly onRetry: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const sourceContent = charter?.draft?.content ?? charter?.current.content ?? '';
+  const sourceKey = `${project.id}:${charter?.draft?.version === undefined ? 'none' : String(charter.draft.version)}:${charter?.status ?? 'none'}:${String(charter?.current.content?.length ?? 0)}`;
+  const [content, setContent] = useState(sourceContent);
+  const [baseline, setBaseline] = useState(sourceContent);
+  const [receipt, setReceipt] = useState<OperationReceipt | undefined>(undefined);
+  const [receiptKind, setReceiptKind] = useState<'save' | 'generate' | 'confirm' | undefined>(undefined);
+  const [errorState, setErrorState] = useState<unknown>(null);
+  const [generateError, setGenerateError] = useState<unknown>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    setContent(sourceContent);
+    setBaseline(sourceContent);
+  }, [sourceKey]);
+
+  useEffect(() => {
+    setReceipt(undefined);
+    setReceiptKind(undefined);
+    setErrorState(null);
+    setGenerateError(null);
+    setConfirmOpen(false);
+  }, [project.id]);
+
+  const dirty = content !== baseline;
+  const locked = receipt !== undefined && (receipt.status === 'unknown' || receipt.status === 'accepted');
+  const unknownState = charter?.needsReconcile === true || charter?.status === 'unknown';
+  const canEdit = charter?.capabilities.edit.allowed !== false;
+  const expectedVersion = charter?.draft?.version ?? charter?.written?.version;
+  const currentStatus = charter?.status;
+  const statusMeta = currentStatus === undefined ? { label: '读取中', tone: 'idle' as BadgeTone, icon: 'clock' as IconName } : CHARTER_STATUS_META[currentStatus];
+  const refreshCharter = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: charterKey(project.id) }),
+      queryClient.invalidateQueries({ queryKey: projectDetailKey(project.id) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
+    ]);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const response = await updateCharter(project.id, content, expectedVersion);
+      return response;
+    },
+    onSuccess: async (data) => {
+      setReceiptKind('save');
+      setReceipt(data.receipt);
+      setErrorState(null);
+      if (data.resource !== undefined) queryClient.setQueryData(charterKey(project.id), data.resource.charter);
+      await refreshCharter();
+    },
+    onError: (caught) => {
+      setErrorState(caught);
+    },
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: async () => generateCharter(project.id),
+    onSuccess: async (data) => {
+      setGenerateError(null);
+      setReceiptKind('generate');
+      setReceipt(data.receipt);
+      if (data.resource !== undefined) queryClient.setQueryData(charterKey(project.id), data.resource.charter);
+      await refreshCharter();
+    },
+    onError: async (caught) => {
+      setGenerateError(caught);
+      setErrorState(null);
+      await refreshCharter();
+    },
+  });
+
+  const confirmMutation = useMutation({
+    mutationFn: async () => confirmCharter(project.id, charter?.draft?.version),
+    onSuccess: async (data) => {
+      setReceiptKind('confirm');
+      setReceipt(data.receipt);
+      setErrorState(null);
+      setConfirmOpen(false);
+      if (data.resource !== undefined) queryClient.setQueryData(charterKey(project.id), data.resource.charter);
+      await refreshCharter();
+    },
+    onError: async (caught) => {
+      setErrorState(caught);
+      await refreshCharter();
+    },
+  });
+
+  const saveDisabledReason = loading
+    ? '正在读取项目公约…'
+    : error !== null && error !== undefined
+      ? '项目公约读取失败，先重试读取。'
+      : !canEdit
+        ? charter?.capabilities.edit.reason ?? '服务不允许编辑公约草稿。'
+        : locked
+          ? '保存结果未明或已受理；按原请求号核对后再修改。'
+          : saveMutation.isPending
+            ? '正在保存公约草稿…'
+            : content.trim().length === 0
+              ? '公约内容不能为空。'
+              : content.length > 64_000
+                ? '公约内容不能超过 64000 字符。'
+                : !dirty
+                  ? '没有修改。'
+                  : undefined;
+  const confirmReason = loading
+    ? '正在读取项目公约…'
+    : charter === undefined
+      ? '服务没有返回项目公约。'
+      : unknownState
+        ? '上次写入状态未明；请先核对 AGENTS.md 或重新编辑草稿，不能自动重试。'
+        : dirty
+          ? '有未保存的公约修改；先保存草稿再确认写入。'
+          : charter.capabilities.confirmWrite.allowed !== true
+          ? charter.capabilities.confirmWrite.reason ?? '服务不允许写入 AGENTS.md。'
+          : locked
+            ? '结果待核对；按原请求号核对后再写入。'
+            : confirmMutation.isPending
+              ? '正在写入 AGENTS.md…'
+              : undefined;
+
+  const generateErrorView = generateError === null || generateError === undefined ? null : (
+    <div className="banner warn" role="alert">
+      <Icon name="alert" />
+      <div className="grow">
+        <b>生成公约草稿未完成{isApiClientError(generateError) && generateError.code === 'CHARTER_GENERATION_UNAVAILABLE' ? '（服务返回 501）' : ''}。</b>
+        <br />
+        {errorMessage(generateError)}
+        {isApiClientError(generateError) && generateError.code !== null ? <span className="mono"> · {generateError.code}</span> : null}
+        <br />
+        服务没有生成草稿；可继续手动编辑后保存。不会把 501 当作成功。
+      </div>
+    </div>
+  );
+
   return (
     <DetailSection
       title="项目公约"
-      subtitle="AGENTS.md 告诉执行中的智能体这个项目的约定；当前服务没有读取或生成接口。"
-      aside={<Badge tone="unknown" icon="help">服务未提供</Badge>}
+      subtitle="AGENTS.md 告诉执行中的智能体这个项目的约定；读、手动保存草稿、确认写入都来自服务，模型生成当前未接线。"
+      aside={<Badge tone={statusMeta.tone} icon={statusMeta.icon}>{statusMeta.label}</Badge>}
     >
-      <div className="banner unknown">
-        <Icon name="lock" />
-        <div className="grow">
-          <b>服务未提供项目公约生成接口。</b>
-          <br />
-          本页不会生成草稿、不会写入 AGENTS.md，也不会展示示例公约内容。生成、审阅与写入需要后端 charter 契约。
-        </div>
-      </div>
-
-      <div className="project-charter-steps" aria-label="项目公约步骤（当前不可执行）">
-        {[
-          ['生成草稿', '根据项目结构与约定生成 AGENTS.md 草稿'],
-          ['审阅差异', '对比当前公约，确认要写入的内容'],
-          ['写入项目', '确认后才写入项目目录'],
-        ].map(([title, description], index, all) => (
-          <div className="project-charter-step pending" key={title}>
-            <div className="rail" aria-hidden="true">
-              <i>{String(index + 1)}</i>
-              {index < all.length - 1 ? <b /> : null}
-            </div>
-            <div className="tx">
-              <div className="t">{title}</div>
-              <div className="hint">{description}</div>
-            </div>
-            <Badge tone="idle" icon="lock">待后端</Badge>
+      {loading ? <SkeletonText lines={6} /> : null}
+      {error !== null && error !== undefined ? <ServiceNotice error={error} title="项目公约读取失败" onRetry={onRetry} /> : null}
+      {unknownState ? (
+        <div className="banner unknown" role="alert">
+          <Icon name="help" />
+          <div className="grow">
+            <b>上次写入状态未明（needsReconcile）。</b>
+            <br />
+            进程可能在上次写入 AGENTS.md 时中断；本页不会自动重试。请重新读取当前文件核对内容，再决定是否重新编辑草稿。
+            {charter?.current.readError === undefined ? null : <><br />读取错误：{charter.current.readError}</>}
           </div>
-        ))}
-      </div>
+          <div className="actions">
+            <Button variant="secondary" size="sm" icon="refresh" disabled={loading} disabledReason={loading ? '正在读取项目公约…' : undefined} onClick={onRetry}>
+              重新读取 AGENTS.md
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {charter === undefined ? null : (
+        <>
+          <div className="banner info">
+            <Icon name="info" />
+            <div className="grow">
+              <b>当前公约文件：{charter.current.path}</b>
+              <br />
+              {charter.current.exists ? '文件存在；正文只读展示在下方的「当前文件」中。' : '文件当前不存在；保存草稿不会写入文件，确认写入才会创建/覆盖 AGENTS.md。'}
+              {charter.written === undefined ? '' : ` 最近写入版本 v${String(charter.written.version)} · ${formatDateTime(charter.written.writtenAt)}。`}
+            </div>
+          </div>
 
-      <div className="row" style={{ marginTop: 8, gap: 8, flexWrap: 'wrap' }}>
-        <Button
-          variant="primary"
-          size="sm"
-          icon="sparkle"
-          disabled
-          disabledReason="后端尚未提供项目公约（charter）生成接口；本页不会伪造生成结果。"
-        >
-          生成公约草稿
-        </Button>
-        <span className="hint">接口就绪前不会写入任何文件。</span>
-      </div>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label className="label" htmlFor="project-charter-content">公约草稿</label>
+            <textarea
+              id="project-charter-content"
+              className="textarea mono"
+              rows={14}
+              maxLength={64_000}
+              value={content}
+              disabled={loading || !canEdit || locked}
+              placeholder="手动编写 AGENTS.md 的内容；保存后形成公约草稿，确认写入才会写入项目文件。"
+              onChange={(event) => { setContent(event.target.value); }}
+            />
+            <span className="hint">
+              {charter.draft === undefined
+                ? (charter.current.exists ? '当前编辑区基于现有 AGENTS.md 内容；保存后形成草稿。' : '服务没有草稿；保存后形成草稿。')
+                : `草稿 v${String(charter.draft.version)} · ${charter.draft.source === 'manual' ? '手动保存' : charter.draft.source === 'model' ? '模型生成' : '现有文件'} · ${formatDateTime(charter.draft.savedAt)}`}
+            </span>
+          </div>
+
+          <div className="row wrap" style={{ marginTop: 10, gap: 8 }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="sparkle"
+              disabled={loading || charter === undefined || generateMutation.isPending || locked}
+              disabledReason={loading ? '正在读取项目公约…' : charter === undefined ? '服务没有返回项目公约。' : locked ? '结果待核对。' : undefined}
+              onClick={() => { setGenerateError(null); setReceipt(undefined); setReceiptKind(undefined); generateMutation.mutate(); }}
+            >
+              {generateMutation.isPending ? '生成中…' : '生成公约草稿'}
+            </Button>
+            <span className="hint">
+              服务声明生成能力未接通{charter.capabilities.generate.reason === undefined ? '' : `（${charter.capabilities.generate.reason}）`}；点击会返回真实 501，不会创建草稿。
+            </span>
+          </div>
+          {generateErrorView}
+          <div className="row wrap" style={{ marginTop: 10, gap: 8 }}>
+            <Button
+              variant="primary"
+              size="sm"
+              icon="check"
+              disabled={saveDisabledReason !== undefined}
+              disabledReason={saveDisabledReason}
+              onClick={() => { setReceipt(undefined); setReceiptKind(undefined); saveMutation.mutate(); }}
+            >
+              {saveMutation.isPending ? '保存中…' : '保存草稿'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="upload"
+              disabled={confirmReason !== undefined}
+              disabledReason={confirmReason}
+              onClick={() => { setConfirmOpen(true); }}
+            >
+              确认写入 AGENTS.md
+            </Button>
+            <span className="hint">保存只形成草稿；确认写入才会覆盖项目根 AGENTS.md。</span>
+          </div>
+          {confirmReason === undefined ? null : <p className="hint" style={{ marginTop: 6 }}>确认写入不可用：{confirmReason}</p>}
+          <ReceiptNotice receipt={receipt} successMessage={receiptKind === 'confirm' ? '已写入项目根 AGENTS.md。' : receiptKind === 'generate' ? '服务返回了生成结果。' : '公约草稿已保存；尚未写入项目文件。'} />
+          {errorState === null ? null : <CommandErrorNotice error={errorState} title="公约操作未完成" />}
+
+          <div className="section" style={{ marginTop: 18 }}>
+            <div className="sec-h"><h3 className="grow">当前文件（只读）</h3><Badge tone={charter.current.exists ? 'ok' : 'idle'}>{charter.current.exists ? '存在' : '不存在'}</Badge></div>
+            <p className="hint mono">{charter.current.path}</p>
+            {charter.current.readError === undefined ? null : <div className="banner warn"><Icon name="alert" /><div className="grow">{charter.current.readError}</div></div>}
+            {charter.current.content === undefined ? <p className="hint">服务没有返回文件正文。</p> : <pre className="code project-charter-file">{charter.current.content}</pre>}
+          </div>
+
+          <div className="section" style={{ marginTop: 16 }}>
+            <div className="sec-h"><h3 className="grow">版本列表（只读）</h3><span className="hint">{String(charter.versions.length)} 个版本</span></div>
+            {charter.versions.length === 0 ? <p className="hint">还没有草稿/写入版本。</p> : (
+              <div className="col" style={{ gap: 6 }}>
+                {charter.versions.map((version) => (
+                  <div className="row wrap" key={`${String(version.version)}:${version.status}`}>
+                    <Badge outline>v{String(version.version)}</Badge>
+                    <Badge tone={version.status === 'written' ? 'ok' : 'wait'}>{version.status === 'written' ? '已写入' : '草稿'}</Badge>
+                    <span className="hint">{version.source === 'manual' ? '手动' : version.source === 'model' ? '模型' : '现有文件'}</span>
+                    <span className="hint">{formatDateTime(version.savedAt)}</span>
+                    {version.writtenAt === undefined ? null : <span className="hint">写入 {formatDateTime(version.writtenAt)}</span>}
+                    {version.path === undefined ? null : <span className="hint mono">{version.path}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <Modal
+        open={confirmOpen}
+        title="确认写入 AGENTS.md？"
+        onClose={() => { if (!confirmMutation.isPending) setConfirmOpen(false); }}
+        footer={
+          <>
+            <Button variant="ghost" disabled={confirmMutation.isPending} onClick={() => { setConfirmOpen(false); }}>取消</Button>
+            <span className="spacer" />
+            <Button
+              variant="primary"
+              icon="upload"
+              disabled={confirmReason !== undefined}
+              disabledReason={confirmReason}
+              onClick={() => { setReceipt(undefined); setReceiptKind(undefined); confirmMutation.mutate(); }}
+            >
+              {confirmMutation.isPending ? '写入中…' : '确认写入'}
+            </Button>
+          </>
+        }
+      >
+        {errorState === null ? null : <CommandErrorNotice error={errorState} title="公约写入未完成" />}
+        <p>将把草稿写入项目根目录的 AGENTS.md，覆盖当前文件。写入前会再次校验草稿版本；写入中断后不会自动重试，会显示状态未明。</p>
+        <dl className="kv-list" style={{ marginTop: 10 }}>
+          <dt>目标</dt><dd className="mono">AGENTS.md</dd>
+          <dt>草稿版本</dt><dd>{charter?.draft === undefined ? '服务未返回草稿' : `v${String(charter.draft.version)}`}</dd>
+          <dt>当前文件</dt><dd>{charter?.current.exists === true ? '存在，将覆盖' : '不存在，将创建'}</dd>
+        </dl>
+      </Modal>
     </DetailSection>
   );
 }
@@ -608,17 +1082,41 @@ function ConfigStatusCard({
   integrationLoading,
   docPaths,
   gitlabState,
+  charter,
+  charterLoading,
+  charterError,
   onSelect,
 }: {
   readonly project: Project;
   readonly integration?: IntegrationStatus;
   readonly integrationLoading: boolean;
-  readonly docPaths: readonly string[] | undefined;
+  readonly docPaths: readonly string[];
   readonly gitlabState: GitConnectionStateValue | undefined;
+  readonly charter?: ProjectCharterView;
+  readonly charterLoading: boolean;
+  readonly charterError: boolean;
   readonly onSelect: (tab: ProjectTab, gitSection?: GitSection) => void;
 }) {
   const isGit = project.gitState === RepoGitState.GIT;
   const gitlabConfigured = integration?.git.gitlab.configured === true;
+  const charterMeta = charterError
+    ? { label: '读取失败', tone: 'danger' as BadgeTone }
+    : charter === undefined
+    ? { label: charterLoading ? '读取中' : '未知', tone: 'idle' as BadgeTone }
+    : charter.needsReconcile || charter.status === 'unknown'
+      ? { label: '状态未明', tone: 'unknown' as BadgeTone }
+      : { label: CHARTER_STATUS_META[charter.status].label, tone: CHARTER_STATUS_META[charter.status].tone };
+  const charterDetail = charterError
+    ? '公约状态读取失败；打开页签可重试'
+    : charter === undefined
+    ? (charterLoading ? '正在读取公约状态' : '服务未返回公约状态')
+    : charter.needsReconcile
+      ? '上次写入中断，需要核对 AGENTS.md'
+      : charter.status === 'written'
+        ? `已写入 AGENTS.md${charter.written === undefined ? '' : ` · v${String(charter.written.version)}`}`
+        : charter.draft === undefined
+          ? charter.current.exists ? '当前文件存在；尚无草稿' : '尚无草稿或文件'
+          : `草稿 v${String(charter.draft.version)} · 待确认写入`;
   const gitlabTone: BadgeTone = integrationLoading
     ? 'idle'
     : !isGit
@@ -639,11 +1137,15 @@ function ConfigStatusCard({
         : gitlabState === 'not_configured' && gitlabConfigured
           ? '未绑定'
           : GITLAB_STATE_LABEL[gitlabState];
+  const projectGitlab = project.settings.gitlab;
+  const gitlabOverride = projectGitlab === undefined
+    ? '未保存项目覆盖'
+    : projectGitlab.inheritGlobal
+      ? '项目覆盖：继承全局'
+      : `项目覆盖：${projectGitlab.baseUrl ?? '未填地址'} · ${projectGitlab.projectPath ?? '未填路径'}`;
   const gitlabDetail = !isGit
-    ? '非 Git 项目'
-    : gitlabState === 'not_configured' && gitlabConfigured
-      ? '全局 GitLab 已配置 · 证据来源未提供'
-      : '证据来源配置服务未提供';
+    ? `非 Git 项目 · ${gitlabOverride} · 运行时仍用全局配置`
+    : `${gitlabState === 'not_configured' && gitlabConfigured ? '全局 GitLab 已配置' : '证据来源配置服务未提供'} · ${gitlabOverride} · 运行时仍用全局配置`;
 
   const projectProvider = project.settings.gitProvider ?? integration?.git.provider;
   const providerState = integration === undefined || projectProvider === undefined
@@ -699,17 +1201,17 @@ function ConfigStatusCard({
         <ConfigItem
           icon="file"
           label="文档路径"
-          detail={docPaths === undefined ? '服务未提供 docPaths 字段' : docPaths.length === 0 ? '已配置但为空' : docPaths.join('、')}
-          tone={docPaths === undefined || docPaths.length === 0 ? 'idle' : 'ok'}
-          status={docPaths === undefined || docPaths.length === 0 ? '未配置' : '已配置'}
+          detail={docPaths.length === 0 ? '未配置；保存空列表表示不生成项目文档' : docPaths.join('、')}
+          tone={docPaths.length === 0 ? 'idle' : 'ok'}
+          status={docPaths.length === 0 ? '未配置' : `已配置 ${String(docPaths.length)} 条`}
           onSelect={() => { onSelect('docs'); }}
         />
         <ConfigItem
           icon="doc"
           label="项目公约"
-          detail="待后端 charter 接口"
-          tone="unknown"
-          status="服务未提供"
+          detail={charterDetail}
+          tone={charterMeta.tone}
+          status={charterMeta.label}
           onSelect={() => { onSelect('charter'); }}
         />
       </div>
@@ -732,6 +1234,14 @@ export function ProjectDetailPage() {
     queryFn: () => fetchProjectDetail(projectId!),
     enabled: projectId !== undefined && projectId.length > 0,
     retry: false,
+  });
+
+  const charterQuery = useQuery({
+    queryKey: charterKey(projectId ?? ''),
+    queryFn: () => fetchCharter(projectId!),
+    enabled: projectId !== undefined && projectId.length > 0,
+    retry: false,
+    staleTime: 30_000,
   });
 
   const recheckMutation = useMutation({
@@ -941,7 +1451,7 @@ export function ProjectDetailPage() {
             onClick={() => { selectTab(item.id); }}
           >
             {item.label}
-            {item.id === 'charter' ? <span className="project-tab-dot" title="服务未提供接口" aria-label="服务未提供接口" /> : null}
+            {item.id === 'charter' && charterQuery.data?.needsReconcile === true ? <span className="project-tab-dot" title="公约写入状态未明" aria-label="公约写入状态未明" /> : null}
           </button>
         ))}
       </nav>
@@ -994,6 +1504,9 @@ export function ProjectDetailPage() {
               integrationLoading={integrationLoading}
               docPaths={docPaths}
               gitlabState={detail.repos?.gitlab}
+              charter={charterQuery.data}
+              charterLoading={charterQuery.isLoading}
+              charterError={charterQuery.isError}
               onSelect={(next, section) => { selectTab(next, section); }}
             />
             <DetailSection title="相关入口" subtitle="项目配置之外，常用目录与设置。">
@@ -1026,7 +1539,15 @@ export function ProjectDetailPage() {
       ) : null}
 
       {tab === 'docs' ? <DocumentPathsTab project={project} /> : null}
-      {tab === 'charter' ? <CharterTab /> : null}
+      {tab === 'charter' ? (
+        <CharterTab
+          project={project}
+          charter={charterQuery.data}
+          loading={charterQuery.isLoading}
+          error={charterQuery.error}
+          onRetry={() => { void charterQuery.refetch(); }}
+        />
+      ) : null}
     </div>
   );
 }
