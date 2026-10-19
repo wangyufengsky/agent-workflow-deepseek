@@ -979,6 +979,13 @@ export interface PptSlide {
   readonly bullets: readonly string[];
 }
 
+export interface PptAttachment {
+  readonly name: string;
+  readonly size: number;
+  readonly content: string;
+  readonly addedAt: IsoDateTime;
+}
+
 export interface PptWork {
   readonly id: string;
   readonly projectId?: ProjectId;
@@ -987,6 +994,7 @@ export interface PptWork {
   readonly status: PptWorkStatusValue;
   readonly outline: readonly string[];
   readonly slides: readonly PptSlide[];
+  readonly attachments: readonly PptAttachment[];
   readonly usage?: TokenUsage;
   readonly createdAt: IsoDateTime;
   readonly updatedAt: IsoDateTime;

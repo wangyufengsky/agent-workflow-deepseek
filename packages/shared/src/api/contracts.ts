@@ -306,6 +306,12 @@ export interface PptWorkGenerateContentRequest extends CommandRequest {
   readonly confirmGenerate: true;
 }
 
+export interface PptAttachmentRequest extends CommandRequest {
+  readonly name: string;
+  readonly content: string;
+  readonly confirmAttach: true;
+}
+
 export interface PptWorkUpdateRequest extends CommandRequest {
   readonly title?: string;
   readonly topic?: string;
@@ -942,6 +948,8 @@ export const ROUTES = {
   pptWork: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
   pptWorkGenerateSlides: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate-slides`,
   pptWorkExport: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/export`,
+  pptWorkAttachments: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/attachments`,
+  pptWorkAttachment: (id: string, name: string) => `/api/ppt/works/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`,
   pptWorkUpdate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
   pptWorkGenerate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate`,
   taskPlanFromTemplate: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/from-template`,

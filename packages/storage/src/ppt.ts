@@ -1,4 +1,4 @@
-import { createId, nowIso, type PptSlide, type PptWork, type PptWorkStatusValue } from '@agent-workflow/shared';
+import { createId, nowIso, type PptAttachment, type PptSlide, type PptWork, type PptWorkStatusValue } from '@agent-workflow/shared';
 import type { SqliteDatabase } from './db.ts';
 
 interface Row {
@@ -10,6 +10,7 @@ interface Row {
   outline_json: string;
   slides_json: string;
   usage_json: string | null;
+  attachments_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -37,12 +38,13 @@ export class PptWorkRepository {
       status: 'draft',
       outline: [],
       slides: [],
+      attachments: [],
       createdAt: at,
       updatedAt: at,
     };
     this.#db
-      .prepare('INSERT INTO ppt_works (id, project_id, title, topic, status, outline_json, slides_json, created_at, updated_at, usage_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(work.id, work.projectId ?? null, work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), work.createdAt, work.updatedAt, work.usage === undefined ? null : JSON.stringify(work.usage));
+      .prepare('INSERT INTO ppt_works (id, project_id, title, topic, status, outline_json, slides_json, created_at, updated_at, usage_json, attachments_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(work.id, work.projectId ?? null, work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), work.createdAt, work.updatedAt, work.usage === undefined ? null : JSON.stringify(work.usage), JSON.stringify(work.attachments));
     return work;
   }
 
@@ -58,8 +60,8 @@ export class PptWorkRepository {
 
   update(work: PptWork): PptWork {
     this.#db
-      .prepare('UPDATE ppt_works SET title = ?, topic = ?, status = ?, outline_json = ?, slides_json = ?, updated_at = ?, usage_json = ? WHERE id = ?')
-      .run(work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), nowIso(), work.usage === undefined ? null : JSON.stringify(work.usage), work.id);
+      .prepare('UPDATE ppt_works SET title = ?, topic = ?, status = ?, outline_json = ?, slides_json = ?, updated_at = ?, usage_json = ?, attachments_json = ? WHERE id = ?')
+      .run(work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), nowIso(), work.usage === undefined ? null : JSON.stringify(work.usage), JSON.stringify(work.attachments), work.id);
     return this.get(work.id) ?? work;
   }
 
@@ -98,7 +100,24 @@ function mapRow(row: Row): PptWork {
     outline,
     slides,
     usage: row.usage_json === null ? undefined : JSON.parse(row.usage_json) as PptWork['usage'],
+    attachments: parseAttachments(row.attachments_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+
+function parseAttachments(raw: string | null): readonly PptAttachment[] {
+  try {
+    const parsed = JSON.parse(raw ?? '[]') as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is PptAttachment => item !== null && typeof item === 'object' && typeof (item as { name?: unknown }).name === 'string' && typeof (item as { content?: unknown }).content === 'string').map((item) => ({
+      name: item.name.slice(0, 120),
+      size: typeof item.size === 'number' ? item.size : item.content.length,
+      content: item.content.slice(0, 200_000),
+      addedAt: typeof item.addedAt === 'string' ? item.addedAt : nowIso(),
+    })).slice(0, 10);
+  } catch {
+    return [];
+  }
 }

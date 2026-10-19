@@ -537,6 +537,8 @@ export const OperationKind = {
   PPT_WORK_GENERATE: 'ppt.work.generate',
   PPT_WORK_UPDATE: 'ppt.work.update',
   PPT_WORK_SLIDES: 'ppt.work.slides',
+  PPT_ATTACHMENT_ADD: 'ppt.attachment.add',
+  PPT_ATTACHMENT_REMOVE: 'ppt.attachment.remove',
 } as const;
 export type OperationKindValue = (typeof OperationKind)[keyof typeof OperationKind];
 
@@ -601,6 +603,8 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'ppt.work.generate': op('ppt.work.generate', 'project', true, '生成 PPT 大纲（只读模型）'),
   'ppt.work.update': op('ppt.work.update', 'project', true, '编辑 PPT 草稿/大纲'),
   'ppt.work.slides': op('ppt.work.slides', 'project', true, '生成 PPT 逐页内容（只读模型）'),
+  'ppt.attachment.add': op('ppt.attachment.add', 'project', true, '添加 PPT 文本附件'),
+  'ppt.attachment.remove': op('ppt.attachment.remove', 'project', true, '移除 PPT 文本附件'),
   'git.fetch': op('git.fetch', 'git', true, '获取远端更新'),
   'review.start': op('review.start', 'git', true, '开始 AI 审查'),
   'review.stop': op('review.stop', 'git', true, '停止 AI 审查'),

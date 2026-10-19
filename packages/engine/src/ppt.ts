@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { AppError, ErrorCode, nowIso, type CommandResponse, type PptWork, type PptWorkCreateRequest, type PptWorkGenerateRequest,
   type PptWorkUpdateRequest,
   type PptWorkGenerateContentRequest,
+  type PptAttachmentRequest,
   type PptSlide, type PptWorksResponse } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { CommandService } from './operations.ts';
@@ -86,6 +87,41 @@ export class PptService {
     };
   }
 
+  attach(id: string, input: PptAttachmentRequest): CommandResponse<PptWork> {
+    if (input?.confirmAttach !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '添加附件需要显式确认');
+    const work = this.#store.pptWorks.get(id);
+    if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    const name = typeof input.name === 'string' ? input.name.trim() : '';
+    if (name === '' || name.length > 120) throw new AppError(ErrorCode.VALIDATION_FAILED, '附件名长度需要在 1–120 之间');
+    if (typeof input.content !== 'string' || input.content.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '附件内容为空');
+    if (input.content.length > 200_000) throw new AppError(ErrorCode.VALIDATION_FAILED, '附件内容超过 200KB；当前仅支持文本/Markdown');
+    if (work.attachments.length >= 10) throw new AppError(ErrorCode.VALIDATION_FAILED, '最多 10 个附件');
+    if (work.attachments.some((attachment) => attachment.name === name)) throw new AppError(ErrorCode.CONFLICT, '同名附件已存在', { details: { name } });
+    const { replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'ppt.attachment.add',
+      body: { workId: id, name, size: input.content.length },
+      target: { ref: id },
+    });
+    if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    const attachment = { name, size: input.content.length, content: input.content, addedAt: nowIso() };
+    const updated = this.#store.pptWorks.update({ ...work, attachments: [...work.attachments, attachment] });
+    this.#commands.settle(input.requestKey, { workId: id, name });
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
+  }
+
+  detach(id: string, name: string): CommandResponse<PptWork> {
+    const work = this.#store.pptWorks.get(id);
+    if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    if (!work.attachments.some((attachment) => attachment.name === name)) throw new AppError(ErrorCode.NOT_FOUND, '附件不存在');
+    const requestKey = `req_ppt_detach_${id}_${String(Date.now())}`.slice(0, 60);
+    const { replayed } = this.#commands.begin({ requestKey, operation: 'ppt.attachment.remove', body: { workId: id, name }, target: { ref: id } });
+    if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    const updated = this.#store.pptWorks.update({ ...work, attachments: work.attachments.filter((attachment) => attachment.name !== name) });
+    this.#commands.settle(requestKey, { workId: id, name });
+    return { receipt: this.#commands.toReceipt(this.#commands.get(requestKey)!), resource: updated };
+  }
+
   update(id: string, input: PptWorkUpdateRequest): CommandResponse<PptWork> {
     if (input?.confirmUpdate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '编辑 PPT 需要显式确认');
     const work = this.#store.pptWorks.get(id);
@@ -124,7 +160,7 @@ export class PptService {
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
     this.#store.pptWorks.update({ ...work, status: 'generating' });
     try {
-      const documents = work.projectId === undefined ? [] : this.#documents(work.projectId);
+      const documents = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
       const result = await this.#opencode.runSession({
         kind: 'review',
         metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.slides' },
@@ -166,7 +202,7 @@ export class PptService {
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
     this.#store.pptWorks.update({ ...work, status: 'generating' });
     try {
-      const context = work.projectId === undefined ? [] : this.#documents(work.projectId);
+      const context = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
       const result = await this.#opencode.runSession({
         kind: 'review',
         metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.outline' },

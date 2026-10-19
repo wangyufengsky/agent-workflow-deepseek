@@ -42,6 +42,15 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     assert.match(exported.json().data.content as string, /## 1\. 开场/);
     assert.equal((await app.app.inject({ method: 'GET', url: '/api/ppt/works/ppt_unknown/export' })).statusCode, 404);
 
+    const attached = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/attachments`, payload: { requestKey: requestKey('att'), name: 'notes.md', content: '# 资料\n关键结论', confirmAttach: true } });
+    assert.equal(attached.statusCode, 200, attached.body);
+    assert.equal((attached.json().data.resource.attachments as unknown[]).length, 1);
+    const duplicateAttachment = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/attachments`, payload: { requestKey: requestKey('att2'), name: 'notes.md', content: 'x', confirmAttach: true } });
+    assert.equal(duplicateAttachment.statusCode, 409, duplicateAttachment.body);
+    const detached = await app.app.inject({ method: 'DELETE', url: `/api/ppt/works/${id}/attachments/${encodeURIComponent('notes.md')}` });
+    assert.equal(detached.statusCode, 200, detached.body);
+    assert.equal((detached.json().data.resource.attachments as unknown[]).length, 0);
+
     const pptx = await app.app.inject({ method: 'GET', url: `/api/ppt/works/${id}/pptx` });
     assert.equal(pptx.statusCode, 200, pptx.body);
     assert.match(String(pptx.headers['content-type']), /presentationml/);

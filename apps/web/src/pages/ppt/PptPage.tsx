@@ -31,6 +31,18 @@ export function PptPage() {
     },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
   });
+  const addAttachment = useMutation({
+    mutationFn: async (input: { id: string; name: string; content: string }) => {
+      await apiPost(ROUTES.pptWorkAttachments(input.id), { requestKey: createRequestKey(), name: input.name, content: input.content, confirmAttach: true });
+    },
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
+  });
+  const removeAttachment = useMutation({
+    mutationFn: async (input: { id: string; name: string }) => {
+      await request(ROUTES.pptWorkAttachment(input.id, input.name), { method: 'DELETE' });
+    },
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
+  });
   const generateSlides = useMutation({
     mutationFn: async (id: string) => {
       await apiPost(ROUTES.pptWorkGenerateSlides(id), { requestKey: createRequestKey(), confirmGenerate: true });
@@ -176,7 +188,7 @@ export function PptPage() {
             </div>
           ) : null}
           <p className="hint">
-            表单校验：{valid ? '已具备项目与说明，可以保存为演示草稿；页面生成仍未接通。' : '需要选择项目，并至少填写 6 个字说明。'}草稿可生成大纲与逐页内容（只读模型）；PPTX 导出仍未接通。
+            表单校验：{valid ? '已具备项目与说明，可以保存为演示草稿；页面生成仍未接通。' : '需要选择项目，并至少填写 6 个字说明。'}草稿可生成大纲与逐页内容（只读模型）、添加文本附件；PPTX 导出已接通。
           </p>
         </div>
 

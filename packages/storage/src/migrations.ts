@@ -357,4 +357,11 @@ ALTER TABLE fixes ADD COLUMN usage_json TEXT;
 ALTER TABLE ppt_works ADD COLUMN usage_json TEXT;
 `,
   },
+  {
+    version: 8,
+    name: 'ppt_attachments',
+    sql: `
+ALTER TABLE ppt_works ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]';
+`,
+  },
 ];
