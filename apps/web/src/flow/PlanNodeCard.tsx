@@ -1,5 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { NODE_STATUS_LABEL, TASK_ATTENTION_LABEL } from '@agent-workflow/shared';
+import { NODE_STATUS_LABEL } from '@agent-workflow/shared';
 import { Badge, type BadgeTone } from '../components/Badge.tsx';
 import { Icon, type IconName } from '../components/Icon.tsx';
 import type { PositionedFlowFrame } from './layout.ts';
@@ -169,11 +169,3 @@ export function GroupSummaryNode({ data }: NodeProps<GroupSummaryType>) {
     </div>
   );
 }
-
-/** Shared label used by the right panel when it lists locked nodes. */
-export function nodeLockReason(view: FlowNodeView): string {
-  return view.lockReason ?? '该步骤已锁定，不能修改';
-}
-
-export const FLOW_STATUS_TEXT = NODE_STATUS_LABEL;
-export const FLOW_ATTENTION_TEXT = TASK_ATTENTION_LABEL;

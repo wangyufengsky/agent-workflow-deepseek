@@ -11,6 +11,7 @@ import { GitCliAdapter } from './adapters/git-cli.ts';
 import { OpenCodeAdapter } from './adapters/opencode.ts';
 import { registerCors, registerErrorHandler, registerRoutes } from './http.ts';
 import { registerInternalRoutes } from './internal.ts';
+import { registerProviderGateway } from './opencode-gateway.ts';
 import { mcpCommand, resolveRuntime, type RuntimePaths } from './runtime.ts';
 
 export interface CreateApplicationOptions {
@@ -45,6 +46,9 @@ export async function createApplication(options: CreateApplicationOptions = {}):
     ...(options.settings ?? {}),
   }) as AppSettings;
   const internalToken = options.internalToken ?? randomBytes(24).toString('base64url');
+  const gatewaySecret = randomBytes(18).toString('base64url');
+  const gatewaySettings = baseSettings.opencode.providerGateway;
+  let gateway: ReturnType<typeof registerProviderGateway> | undefined;
 
   let adapter: OpenCodeAdapter | undefined;
   const opencodeRef: { current?: OpenCodeAdapter | undefined } = {};
@@ -81,6 +85,15 @@ export async function createApplication(options: CreateApplicationOptions = {}):
 
   const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024, disableRequestLogging: true });
   const startedAt = nowIso();
+  if (gatewaySettings.enabled) {
+    gateway = registerProviderGateway(app, {
+      secret: gatewaySecret,
+      upstreamBaseUrl: gatewaySettings.upstreamBaseUrl,
+      stripToolChoiceForModels: gatewaySettings.stripToolChoiceForModels,
+      requestTimeoutMs: gatewaySettings.requestTimeoutMs,
+      logPath: `${dataDir}/logs/provider-gateway.jsonl`,
+    });
+  }
   registerCors(app, baseSettings.server.corsOrigins);
   registerErrorHandler(app, (error) => {
     if (process.env.AGENT_WORKFLOW_DEBUG === '1') console.error('[http]', error);
@@ -90,6 +103,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
     store,
     opencodeRef,
     databaseService,
+    gateway,
     paths: { ...paths, dataDir },
     internalToken,
     appVersion: APP_VERSION,
@@ -145,6 +159,17 @@ export async function createApplication(options: CreateApplicationOptions = {}):
         logPath: `${dataDir}/logs/opencode.log`,
         configPath: `${dataDir}/opencode/opencode.json`,
         cwd: paths.repoRoot,
+        ...(gatewaySettings.enabled
+          ? {
+              providerOverrides: {
+                'opencode-go': {
+                  options: {
+                    baseURL: `${url}/api/opencode/gateway/${gatewaySecret}/v1`,
+                  },
+                },
+              },
+            }
+          : {}),
       });
       opencodeRef.current = adapter;
       // Start in the background: the HTTP API must be reachable immediately.

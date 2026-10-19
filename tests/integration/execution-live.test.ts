@@ -76,19 +76,20 @@ test('live: execution runs a node through MCP workspace tools and submits a resu
 
     let execution: any;
     let succeeded = 0;
-    const deadline = Date.now() + 180000;
+    let files: { path: string }[] = [];
+    const deadline = Date.now() + 240000;
     while (Date.now() < deadline) {
       await new Promise((resolveWait) => setTimeout(resolveWait, 3000));
       const detail = await app.app.inject({ method: 'GET', url: `/api/tasks/${taskId}/detail` });
       execution = detail.json().data.execution;
       succeeded = execution?.nodes.filter((node: { status: string }) => node.status === 'succeeded').length ?? 0;
-      if (succeeded >= 1 || execution?.status === 'failed' || execution?.status === 'completed') break;
+      const changes = await app.app.inject({ method: 'GET', url: `/api/tasks/${taskId}/changes` });
+      files = changes.json().data?.changes?.files ?? [];
+      if (files.length > 0 && succeeded >= 1) break;
+      if (execution?.status === 'failed' || execution?.status === 'completed' || execution?.status === 'stopped') break;
     }
     console.log('[live-exec] execution:', JSON.stringify({ status: execution?.status, succeeded, nodes: execution?.nodes?.map((node: { status: string }) => node.status) }));
-
-    const changes = await app.app.inject({ method: 'GET', url: `/api/tasks/${taskId}/changes` });
-    const files = changes.json().data?.changes?.files ?? [];
-    console.log('[live-exec] changed files:', JSON.stringify(files.map((file: { path: string }) => file.path)));
+    console.log('[live-exec] changed files:', JSON.stringify(files.map((file) => file.path)));
     assert.ok(succeeded >= 1, `at least one node should succeed; execution=${JSON.stringify(execution?.nodes)}`);
     assert.ok(files.length > 0, 'worktree should contain changes written through MCP file tools');
 

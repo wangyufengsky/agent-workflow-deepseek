@@ -524,7 +524,7 @@ export function ActionReason({ action, className }: { readonly action: ActionAva
   );
 }
 
-/** 回执条：accepted / succeeded / failed / unknown 分开显示；UNKNOWN 只给「核对原操作」。 */
+/** 回执条：accepted / succeeded / failed / unknown 分开显示；只有 UNKNOWN 给「核对原操作」。 */
 export function ReceiptBanner({
   receipt,
   onVerify,
@@ -536,15 +536,16 @@ export function ReceiptBanner({
   readonly verifying?: boolean;
   readonly onDismiss?: () => void;
 }) {
-  const unknown = receipt.status === 'unknown' || receipt.status === 'accepted';
+  const unknown = receipt.status === 'unknown';
+  const accepted = receipt.status === 'accepted';
   const succeeded = receipt.status === 'succeeded';
-  const tone = unknown ? 'unknown' : succeeded ? 'ok' : 'danger';
+  const tone = unknown ? 'unknown' : accepted ? 'info' : succeeded ? 'ok' : 'danger';
   return (
     <div className={['banner', tone, 'receipt-banner'].join(' ')} role={unknown || !succeeded ? 'alert' : 'status'}>
-      <Icon name={unknown ? 'help' : succeeded ? 'check' : 'alert'} />
+      <Icon name={unknown ? 'help' : accepted ? 'clock' : succeeded ? 'check' : 'alert'} />
       <div className="grow">
         <b>
-          {succeeded ? '已完成' : unknown ? '回执未知 · 结果待核对' : '操作失败'}
+          {accepted ? '已接受 · 等待结算' : succeeded ? '已完成' : unknown ? '回执未知 · 结果待核对' : '操作失败'}
         </b>
         <span className="receipt-meta mono">{receipt.operation} · {receipt.requestKey}</span>
         {receipt.error === undefined ? null : (
@@ -554,6 +555,9 @@ export function ReceiptBanner({
             {receipt.error.output === undefined ? null : <code className="receipt-output">{receipt.error.output}</code>}
           </span>
         )}
+        {accepted ? (
+          <span className="receipt-note">服务已接受，尚未结算；以读口为准，不要重复发起同一操作。</span>
+        ) : null}
         {unknown ? (
           <span className="receipt-note">保持原记录，只核对原操作；不会自动重发。</span>
         ) : null}

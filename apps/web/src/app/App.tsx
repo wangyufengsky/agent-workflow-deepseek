@@ -15,14 +15,12 @@ import { RecoveryPage } from '../pages/recovery/RecoveryPage.tsx';
 import { RuntimePage } from '../pages/runtime/RuntimePage.tsx';
 import { InsightsPage } from '../pages/insights/InsightsPage.tsx';
 import { WorkflowsPage } from '../pages/workflows/WorkflowsPage.tsx';
+import { GitPage } from '../pages/git/GitPage.tsx';
+import { StartPage } from '../pages/start/index.ts';
+import { RequirementCanvasPage } from '../pages/requirement/index.ts';
+import { TaskCanvasPage } from '../pages/task/index.ts';
 import { Shell } from './Shell.tsx';
-import {
-  GitPlaceholder,
-  NotFoundPlaceholder,
-  RequirementCanvasPlaceholder,
-  StartPlaceholder,
-  TaskCanvasPlaceholder,
-} from './placeholders.tsx';
+import { NotFoundPlaceholder } from './placeholders.tsx';
 
 /**
  * Application routes. The canvas pages (/start, /requirement/:id, /tasks/:id)
@@ -34,14 +32,15 @@ export function App() {
       <Route element={<Shell />}>
         <Route index element={<HomePage />} />
         <Route path="tasks" element={<TasksPage />} />
-        <Route path="tasks/:taskId" element={<TaskCanvasPlaceholder />} />
+        <Route path="tasks/:taskId" element={<TaskCanvasPage />} />
         <Route path="tasks/:taskId/recovery" element={<RecoveryPage />} />
         <Route path="requirements" element={<RequirementsPage />} />
-        <Route path="requirement/:requirementId" element={<RequirementCanvasPlaceholder />} />
-        <Route path="start" element={<StartPlaceholder />} />
+        <Route path="requirement/:requirementId" element={<RequirementCanvasPage />} />
+        <Route path="start" element={<StartPage />} />
         <Route path="inbox" element={<InboxPage />} />
         <Route path="projects" element={<ProjectsPage />} />
-        <Route path="git" element={<GitPlaceholder />} />
+        <Route path="git" element={<GitPage />} />
+        <Route path="git/:projectId" element={<GitPage />} />
         <Route path="workflows" element={<WorkflowsPage />} />
         <Route path="knowledge" element={<KnowledgePage />} />
         <Route path="ppt" element={<PptPage />} />

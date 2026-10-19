@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FileChange, GitBranch, GitCommit, GitRepo, ReviewFinding } from '@agent-workflow/shared';
 import { GIT_EMPTY_TREE_SHA, classifyGitFailure, fetchGitCommit, fetchGitCommitFiles, fetchReview, gitKeys } from '../../api/git.ts';

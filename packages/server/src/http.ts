@@ -42,6 +42,7 @@ export interface HttpDependencies {
   readonly store: Store;
   readonly opencodeRef: { current?: OpenCodeAdapter | undefined };
   readonly databaseService?: DatabaseService;
+  readonly gateway?: { stats(): { readonly enabled: boolean; readonly requests: number; readonly normalized: number; readonly lastRequestAt?: string; readonly lastError?: string } };
   readonly paths: RuntimePaths;
   readonly internalToken: string;
   readonly appVersion: string;
@@ -412,6 +413,40 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     throw new AppError(ErrorCode.NOT_IMPLEMENTED, '远端获取尚未接通：GitHub/GitLab 适配已实现，凭据配置与注入待接线');
   });
 
+  // AI review / fix: storage and UI contracts exist; the runner wiring lands in a later batch.
+  app.get<{ Params: { projectId: string; reviewRunId: string } }>('/api/git/repos/:projectId/reviews/:reviewRunId', async (request) => {
+    const review = store.reviews.get(request.params.reviewRunId);
+    if (review === undefined) throw new AppError(ErrorCode.NOT_FOUND, '审查记录不存在');
+    return envelope({ review }, requestId(request));
+  });
+  app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId/reviews', async (request) => {
+    requireProject(engine, request.params.projectId);
+    return envelope({ reviews: store.reviews.listByProject(request.params.projectId) }, requestId(request));
+  });
+  for (const route of ['/api/git/repos/:projectId/reviews/start', '/api/git/repos/:projectId/fixes/start']) {
+    app.post(route, async () => {
+      throw new AppError(ErrorCode.NOT_IMPLEMENTED, 'AI 审查/修复运行接线尚未完成：设计、存储与回执已就绪，执行引擎会话待下一批接通');
+    });
+  }
+  app.get<{ Params: { projectId: string; fixRunId: string } }>('/api/git/repos/:projectId/fixes/:fixRunId', async (request) => {
+    const fix = store.fixes.get(request.params.fixRunId);
+    if (fix === undefined) throw new AppError(ErrorCode.NOT_FOUND, '修复记录不存在');
+    return envelope({ fix }, requestId(request));
+  });
+  app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId/fixes', async (request) => {
+    requireProject(engine, request.params.projectId);
+    return envelope({ fixes: store.fixes.listByProject(request.params.projectId) }, requestId(request));
+  });
+  app.post('/api/git/repos/:projectId/reviews/:reviewRunId/stop', async () => {
+    throw new AppError(ErrorCode.NOT_IMPLEMENTED, 'AI 审查停止尚未接通');
+  });
+  app.post('/api/git/repos/:projectId/findings/:findingId', async () => {
+    throw new AppError(ErrorCode.NOT_IMPLEMENTED, '审查问题状态更新尚未接通');
+  });
+  app.post('/api/git/repos/:projectId/fixes/:fixRunId/*', async () => {
+    throw new AppError(ErrorCode.NOT_IMPLEMENTED, '修复提交/推送/合并等写命令尚未接通');
+  });
+
   // Operations
   app.get<{ Params: { key: string } }>('/api/operations/:key', async (request) => {
     const operation = engine.commands.get(request.params.key);
@@ -497,10 +532,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
           mcp: {
             name: setting.opencode.mcpServerName,
             connected: diagnostics === undefined ? false : Object.values(diagnostics.mcp).some((item) => item.status === 'connected'),
-            tools: 0,
+            tools: diagnostics !== undefined && Object.values(diagnostics.mcp).some((item) => item.status === 'connected') ? 13 : 0,
           },
           startedAt: status.startedAt,
           lastError: status.lastError,
+          gateway: deps.gateway?.stats() ?? { enabled: false, requests: 0, normalized: 0 },
         },
       },
       requestId(request),

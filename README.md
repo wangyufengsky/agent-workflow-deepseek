@@ -83,4 +83,9 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 - 非 Git 目录三方应用、工作区清理确认、恢复工作台的完整实现。
 - 打包后的 Electron 分发（签名、跨平台构建）。
 
+## 界面证据
+
+`docs/evidence/` 有真实服务 + 真实 Git 仓库 + 真实模型运行下的截图：主页、任务列表、开始任务、需求画布（模型候选）、
+任务执行画布、节点执行现场、Git 工作台、四主题与 1024 宽度。说明见 `docs/verification.md`。
+
 协议与设计细节见 `docs/architecture.md`、`docs/design-system.md`、`docs/api.md`、`AGENTS.md`。

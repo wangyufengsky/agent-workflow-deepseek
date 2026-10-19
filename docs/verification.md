@@ -75,7 +75,41 @@ node scripts/build-desktop.mjs  # .build/desktop/{main,preload}.mjs
 
 结果：均成功。MCP 产物通过 SDK stdio 冒烟：13 个工具、stdout 仅 JSON-RPC、错误返回结构化 code。
 
-## 5. 已知限制 / 未验证
+## 5. 界面证据（docs/evidence/）
+
+以下截图由真实构建产物 + 受管服务（`AGENT_WORKFLOW_DATA_DIR=.tmp/run-data`，端口 5288）生成，数据为真实 SQLite +
+真实 Git 仓库 + 真实模型规划：
+
+| 文件 | 内容 |
+| --- | --- |
+| `home-deepseek.png` | 主页（deepseek，真实项目/任务/统计） |
+| `tasks.png` | 任务列表（五段阶段胶囊、规划状态、筛选） |
+| `start-task.png` | 开始任务（方法卡、项目选择） |
+| `requirement-candidate.png` | 需求画布：真实模型候选（13 步/13 依赖/6 组）、检查、规划记录、用量 |
+| `task-execution-running.png` | 任务画布：执行中（1 步完成、1 步运行、自动推进只读） |
+| `node-execution-detail.png` | 节点执行现场：事实条 + 模型正文实时记录 + 工具记录 |
+| `git-workbench.png` | Git 工作台：真实提交列表/详情/diff |
+| `task-warm-1440.png` / `task-spdb-1440.png` / `task-github-white-1440.png` | 同一任务画布其余三主题 |
+| `task-warm-1024.png` | 1024 宽度响应式（侧栏收成图标） |
+| `settings.png` / `inbox.png` | 设置 / 待处理中心 |
+| `electron-task-warm.png` | 真实 Electron 产物（bundled server）+ warm 主题的任务画布 |
+| `electron-requirements-spdb.png` | 真实 Electron + SPDB 主题的需求目录 |
+| `electron-selfhosted-home.png` | 无预启服务时 Electron 自行拉起 bundled server（GitHub White、空项目冷启动） |
+
+截图获取方式：`node scripts/build-*` 后启动 `.build/server/main.mjs`，再以 Electron offscreen
+`capturePage()` 加载 `http://127.0.0.1:5288/<route>?theme=<theme>`。
+
+## 6. Electron 生产链路
+
+```sh
+npm run build   # typecheck + mcp + web + server + desktop
+ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build/desktop/main.mjs
+```
+
+结果：应用启动后若本地服务未运行，主进程用 `.build/server/main.mjs` 拉起受管服务（Electron RUN_AS_NODE），
+等待 `/api/health` 后加载本地 Web；截图见 `electron-selfhosted-home.png`。退出时子进程收到 SIGTERM 并正常关闭。
+
+## 7. 已知限制 / 未验证
 
 - 未在本机验证真实 MySQL 查询（需要 `opencode-workflow-java-test` 的本地凭据，环境未注入）；
   只读守卫与错误映射已用 fake driver 覆盖。

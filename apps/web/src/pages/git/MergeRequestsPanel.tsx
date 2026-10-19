@@ -2,8 +2,14 @@ import type { GitMergeRequest } from '@agent-workflow/shared';
 import { Badge } from '../../components/Badge.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
-import { CopyText } from './git-shared.tsx';
-import { FailureNotice, MR_STATE_LABEL, formatTime, formatAbsolute, mrStateTone } from './git-shared.tsx';
+import {
+  CopyText,
+  FailureNotice,
+  MR_STATE_LABEL,
+  formatAbsolute,
+  formatTime,
+  mrStateTone,
+} from './git-shared.tsx';
 
 export interface MergeRequestsPanelProps {
   readonly mergeRequests: readonly GitMergeRequest[];

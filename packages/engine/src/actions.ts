@@ -109,9 +109,13 @@ export function computeTaskActions(input: {
     : workspaceReady
       ? denied(Rationale.WORKSPACE_NOT_READY, '工作区已准备')
       : denied(Rationale.WORKSPACE_NOT_READY, '计划尚未确认');
-  actions.startExecution = planConfirmed && workspaceReady
+  const executionStartable = execution === undefined || ['idle', 'ready', 'paused'].includes(execution.status);
+  actions.startExecution = planConfirmed && workspaceReady && executionStartable
     ? allowed()
-    : denied(Rationale.WORKSPACE_NOT_READY, workspaceReady ? '计划尚未确认' : '准备成功前不能开始执行');
+    : denied(
+        Rationale.WORKSPACE_NOT_READY,
+        !workspaceReady ? '准备成功前不能开始执行' : !planConfirmed ? '计划尚未确认' : `当前执行状态为 ${execution?.status ?? '未知'}，不能开始`,
+      );
   actions.pauseExecution = execution?.status === 'running' ? allowed() : denied(Rationale.OPERATION_IN_PROGRESS, '当前没有运行中的执行');
   actions.resumeExecution = execution?.status === 'paused' ? allowed() : denied(Rationale.OPERATION_IN_PROGRESS, '当前没有暂停的执行');
   actions.cancelExecution = execution !== undefined && (execution.status === 'running' || execution.status === 'paused' || execution.status === 'pausing')

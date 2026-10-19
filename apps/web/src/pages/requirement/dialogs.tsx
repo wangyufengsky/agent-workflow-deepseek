@@ -235,6 +235,10 @@ export interface ApplyCandidateDialogProps {
 
 export function ApplyCandidateDialog({ open, taskId, round, candidateRevision, acceptedDecisionIds, onClose, onApplied }: ApplyCandidateDialogProps) {
   const command = useDialogCommand();
+
+  useEffect(() => {
+    if (open) command.reset();
+  }, [open]);
   const decisions = round?.candidate?.validation.humanReview.items ?? [];
   const canRun = round !== undefined && candidateRevision !== undefined;
 
@@ -318,6 +322,10 @@ export interface RejectCandidateDialogProps {
 
 export function RejectCandidateDialog({ open, taskId, round, onClose, onRejected }: RejectCandidateDialogProps) {
   const command = useDialogCommand();
+
+  useEffect(() => {
+    if (open) command.reset();
+  }, [open]);
   const [reason, setReason] = useState('');
 
   useEffect(() => {
@@ -389,6 +397,10 @@ export interface StopPlanningDialogProps {
 
 export function StopPlanningDialog({ open, taskId, round, onClose, onStopped }: StopPlanningDialogProps) {
   const command = useDialogCommand();
+
+  useEffect(() => {
+    if (open) command.reset();
+  }, [open]);
   return (
     <Modal
       open={open}
@@ -445,6 +457,10 @@ export interface ConfirmPlanDialogProps {
 
 export function ConfirmPlanDialog({ open, taskId, detail, plan, onClose, onConfirmed }: ConfirmPlanDialogProps) {
   const command = useDialogCommand();
+
+  useEffect(() => {
+    if (open) command.reset();
+  }, [open]);
   const nodes = plan?.graph.nodes ?? [];
   const edges = plan?.graph.edges ?? [];
   const coverage = plan?.validation?.requirementCoverage ?? [];

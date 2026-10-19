@@ -323,10 +323,6 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
     [branches, mergeTarget, targetTip],
   );
 
-  const selectedFiles = useMemo(
-    () => (changes?.files ?? []).filter((file) => selectedFileIds.has(file.fileId)),
-    [changes, selectedFileIds],
-  );
   const stepsStarted = delivery !== undefined && delivery.steps.some((step) => step.state !== 'not_started');
   const delivered = delivery?.projection === 'delivered';
   const hasUnknown = (delivery !== undefined && delivery.projection === 'unknown_receipt')

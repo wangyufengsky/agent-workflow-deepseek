@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   PLANNING_STAGE_LABEL,
-  PLAN_REVISION_STATUS_LABEL,
   TASK_ATTENTION_LABEL,
   TASK_STAGE_LABEL,
   TaskStage,
@@ -68,7 +67,7 @@ const TAB_ORDER: readonly PanelTab[] = ['input', 'plan', 'check', 'records', 'dr
 
 type DialogKind = 'preview' | 'apply' | 'reject' | 'stop' | 'confirm' | null;
 
-function deriveTabs(detail: TaskDetailResponse, round: PlanningRound | undefined): readonly PanelTab[] {
+function deriveTabs(detail: TaskDetailResponse, round: PlanningRound | undefined, historical: boolean): readonly PanelTab[] {
   const tabs = new Set<PanelTab>(['input']);
   const plan = detail.plan;
   if (plan !== undefined || round?.candidate !== undefined) tabs.add('plan');
@@ -84,10 +83,12 @@ function deriveTabs(detail: TaskDetailResponse, round: PlanningRound | undefined
       tabs.add('draft');
     }
   }
-  if (detail.task.stage === TaskStage.PREPARING || detail.task.stage === TaskStage.EXECUTING || detail.workspace?.state === 'ready' || plan?.status === 'confirmed') {
-    tabs.add('workspace');
+  if (!historical) {
+    if (detail.task.stage === TaskStage.PREPARING || detail.task.stage === TaskStage.EXECUTING || detail.workspace?.state === 'ready' || plan?.status === 'confirmed') {
+      tabs.add('workspace');
+    }
+    if (detail.task.stage === TaskStage.EXECUTING) tabs.add('tracking');
   }
-  if (detail.task.stage === TaskStage.EXECUTING) tabs.add('tracking');
   return TAB_ORDER.filter((tab) => tabs.has(tab));
 }
 
@@ -177,7 +178,7 @@ export function RequirementCanvasPage() {
     [setSearchParams],
   );
 
-  const tabs: readonly PanelTab[] = detail === undefined ? ['input'] : deriveTabs(detail, round);
+  const tabs: readonly PanelTab[] = detail === undefined ? ['input'] : deriveTabs(detail, round, historical);
   const requestedTab = searchParams.get('tab');
   const tab: PanelTab =
     requestedTab !== null && (tabs as readonly string[]).includes(requestedTab) ? (requestedTab as PanelTab) : detail === undefined ? 'input' : defaultTab(detail, round);
@@ -216,20 +217,13 @@ export function RequirementCanvasPage() {
 
   const graph = useMemo(() => {
     if (detail === undefined) return EMPTY_FLOW_GRAPH;
-    const lockAll = isFixed
-      ? {
-          lockedNodeIds: [] as string[],
-          lockedReason: fixedReason,
-        }
-      : undefined;
-
     if (layer === 'partial') {
       if (checkpointRevision === undefined) return EMPTY_FLOW_GRAPH;
       return planRevisionToFlow(checkpointRevision, {
         layer,
         missingGroups: candidate?.checkpoint?.missingGroups,
         badge: { label: '部分草稿 · 检查点 · 尚未完成，不能执行', tone: 'unknown', icon: 'help' },
-        ...(lockAll === undefined ? {} : lockAll),
+        ...(isFixed ? { lockedNodeIds: checkpointRevision.graph.nodes.map((node) => node.id), lockedReason: fixedReason } : {}),
       });
     }
     if (layer === 'candidate' || layer === 'compare') {
@@ -239,9 +233,9 @@ export function RequirementCanvasPage() {
         diff: candidate?.diff,
         dimUnchanged: layer === 'compare',
         ...(layer === 'candidate'
-          ? { badge: { label: `候选 · 第 ${String(round?.ordinal ?? '?')} 轮 · 未应用（只读）`, tone: 'accent', icon: 'eye' } }
+          ? { badge: { label: `候选 · 第 ${String(round?.ordinal ?? '?')} 轮 · 只读`, tone: 'accent', icon: 'eye' } }
           : {}),
-        ...(lockAll === undefined ? {} : lockAll),
+        ...(isFixed ? { lockedNodeIds: candidateRevision.graph.nodes.map((node) => node.id), lockedReason: fixedReason } : {}),
       });
     }
     if (plan !== undefined) {
@@ -249,11 +243,7 @@ export function RequirementCanvasPage() {
       return planRevisionToFlow(plan, {
         layer: 'current',
         execution: detail.execution,
-        badge: {
-          label: `当前草稿 · 计划修订 ${String(plan.revisionNumber)} · ${PLAN_REVISION_STATUS_LABEL[plan.status]}`,
-          tone: plan.status === 'confirmed' ? 'done' : plan.status === 'draft' ? 'unknown' : 'wait',
-          icon: plan.status === 'confirmed' ? 'check' : 'edit',
-        },
+        badge: undefined,
         ...(isFixed
           ? { lockedNodeIds: nodeIds, lockedReason: fixedReason }
           : historical

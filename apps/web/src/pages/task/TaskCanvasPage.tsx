@@ -29,6 +29,7 @@ import { FlowCanvas, type FlowLegendItem } from '../../flow/FlowCanvas.tsx';
 import { EMPTY_FLOW_GRAPH, planRevisionToFlow } from '../../flow/index.ts';
 import { CommandErrorNotice, ConnectionBanner, ReceiptNotice } from '../../flow/workflow-ui.tsx';
 import { NodeDetailPanel } from '../node/NodeDetailPanel.tsx';
+import { TaskDeliveryPanel } from '../delivery/TaskDeliveryPanel.tsx';
 import { ExecutionPanel } from './ExecutionPanel.tsx';
 import { PlanEditPanel } from './PlanEditPanel.tsx';
 import './task.css';
@@ -55,6 +56,7 @@ export function TaskCanvasPage() {
   const isFixed = detail?.task.fixedTemplate !== undefined;
   const actions: Record<string, ActionAvailability> = detail?.capabilities ?? {};
   const nodeId = searchParams.get('node') ?? undefined;
+  const deliveryOpen = searchParams.get('delivery') === '1';
 
   useEffect(() => {
     if (execution?.editSession !== undefined && (execution.editSession.state === 'editing' || execution.editSession.state === 'conflict' || execution.editSession.state === 'saved')) {
@@ -82,9 +84,6 @@ export function TaskCanvasPage() {
     return planRevisionToFlow(plan, {
       layer: 'current',
       execution,
-      ...(execution === undefined
-        ? { badge: { label: `计划修订 ${String(plan.revisionNumber)} · ${PLAN_REVISION_STATUS_LABEL[plan.status]}`, tone: plan.status === 'confirmed' ? 'done' : 'wait', icon: plan.status === 'confirmed' ? 'check' : 'clock' } }
-        : {}),
       ...(isFixed ? { lockedNodeIds: nodeIds, lockedReason: FIXED_TEMPLATE_REASON } : {}),
     });
   }, [execution, isFixed, plan]);
@@ -255,6 +254,11 @@ export function TaskCanvasPage() {
               继续
             </Button>
           ) : null}
+          {detail?.delivery !== undefined || execution?.status === 'completed' ? (
+            <Button variant="secondary" size="sm" icon="doc" onClick={() => patchParams({ delivery: '1', node: undefined })}>
+              查看变更并交付
+            </Button>
+          ) : null}
           <Button variant="secondary" size="sm" icon="file" onClick={openRequirement}>
             需求画布
           </Button>
@@ -356,6 +360,8 @@ export function TaskCanvasPage() {
 
         {nodeId !== undefined ? (
           <NodeDetailPanel taskId={taskId} nodeId={nodeId} connection={live.connection} pollInterval={live.refetchInterval} onClose={closeNode} onOpenPlan={openRequirement} />
+        ) : deliveryOpen ? (
+          <TaskDeliveryPanel taskId={taskId} onClose={() => patchParams({ delivery: undefined })} onOpenChanges={() => patchParams({ delivery: '1', node: undefined })} />
         ) : editMode ? (
           <aside className="side task-side" aria-label="调整待执行计划">
             <div className="side-head task-side-head">

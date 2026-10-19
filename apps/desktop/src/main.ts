@@ -72,7 +72,8 @@ async function createWindow(): Promise<void> {
     if (target.startsWith('https://')) void shell.openExternal(target);
     return { action: 'deny' };
   });
-  await mainWindow.loadURL(url);
+  const targetUrl = url + (process.env.AGENT_WORKFLOW_START_PATH ?? '');
+  await mainWindow.loadURL(targetUrl);
   const capturePath = process.env.AGENT_WORKFLOW_CAPTURE;
   if (capturePath !== undefined) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 2500));

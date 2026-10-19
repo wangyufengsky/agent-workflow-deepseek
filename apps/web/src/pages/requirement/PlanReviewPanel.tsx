@@ -172,7 +172,7 @@ export function PlanReviewPanel(props: PlanReviewPanelProps) {
         )}
       </Section>
 
-      <Section title="需人工判断" aside={<Badge tone={allAccepted ? 'ok' : 'wait'}>{missingAccepted === 0 ? '已全部核对' : `还有 ${missingAccepted} 项`}</Badge>}>
+      <Section title="需人工判断" aside={decisions.length === 0 ? <Badge tone="idle">无需人工判断</Badge> : <Badge tone={allAccepted ? 'ok' : 'wait'}>{missingAccepted === 0 ? '已全部核对' : `还有 ${missingAccepted} 项`}</Badge>}>
         {decisions.length === 0 ? (
           <p className="hint">服务没有要求人工判断项；这表示检查没有产出需要你确认的条目，不代表模型结论一定正确。</p>
         ) : (

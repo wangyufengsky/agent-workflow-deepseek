@@ -36,7 +36,8 @@ export interface PlanEditPanelProps {
  */
 export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onOpenNode }: PlanEditPanelProps) {
   const command = useWorkflowCommand(taskId);
-  const editSession = execution?.editSession;
+  const rawSession = execution?.editSession;
+  const editSession = rawSession !== undefined && (rawSession.state === 'editing' || rawSession.state === 'conflict' || rawSession.state === 'saved') ? rawSession : undefined;
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(undefined);
   const [localChanges, setLocalChanges] = useState<Record<string, LocalChange>>({});
   const [confirming, setConfirming] = useState(false);

@@ -249,6 +249,47 @@ export class ExecutionService {
     const resultPromise = new Promise<AttemptResult>((resolve) => this.#resultWaiters.set(attempt.id, { resolve }));
     const model = this.#coderModel();
     const prompt = this.#executionPrompt(task, plan, node, attempt.id, workspace.displayRoot);
+    let outputSeq = 0;
+    let textBuffer = '';
+    let textBlock = '';
+    let flushTimer: NodeJS.Timeout | undefined;
+    const appendFragment = (category: 'model_text' | 'tool_activity', text: string, blockId: string | undefined, extra: { callId?: string; status?: string; tool?: string } = {}) => {
+      outputSeq += 1;
+      const fragmentId = `${attempt.id}:${outputSeq}`;
+      this.#store.executions.appendOutput({
+        attemptId: attempt.id,
+        seq: outputSeq,
+        fragment: {
+          fragmentId,
+          seq: outputSeq,
+          category,
+          text,
+          blockId,
+          recordedAt: nowIso(),
+          ...(category === 'tool_activity' ? { toolCallRef: { callId: extra.callId ?? '', status: extra.status ?? '', source: 'opencode' as const } } : {}),
+        },
+      });
+      this.#store.events.publish('node.output.appended', {
+        taskId: task.id,
+        executionId: execution.id,
+        nodeId: node.id,
+        attemptId: attempt.id,
+        seq: outputSeq,
+        fragmentId,
+        category,
+        text,
+        blockId,
+      });
+    };
+    const flushText = () => {
+      if (flushTimer !== undefined) {
+        clearTimeout(flushTimer);
+        flushTimer = undefined;
+      }
+      if (textBuffer === '') return;
+      appendFragment('model_text', textBuffer, textBlock);
+      textBuffer = '';
+    };
     let outcome;
     try {
       outcome = await this.#opencode.runSession({
@@ -258,40 +299,22 @@ export class ExecutionService {
         prompt,
         model,
         permission: 'workspace_write',
+        onSessionId: (id) => {
+          this.#activeSessions.set(execution.id, id);
+        },
         sink: {
           onTextDelta: (delta, info) => {
-            const seq = (this.#store.executions.listOutput(attempt.id).at(-1)?.seq ?? 0) + 1;
-            this.#store.executions.appendOutput({
-              attemptId: attempt.id,
-              seq,
-              fragment: { fragmentId: `${info.messageId}:${info.partId}:${seq}`, seq, category: 'model_text', text: delta, blockId: info.partId, recordedAt: nowIso() },
-            });
-            this.#store.events.publish('node.output.appended', {
-              taskId: task.id,
-              executionId: execution.id,
-              nodeId: node.id,
-              attemptId: attempt.id,
-              seq,
-              fragmentId: `${info.messageId}:${info.partId}:${seq}`,
-              category: 'model_text',
-              text: delta,
-              blockId: info.partId,
-            });
+            textBuffer += delta;
+            textBlock = info.partId;
+            if (textBuffer.length >= 600) flushText();
+            else if (flushTimer === undefined) flushTimer = setTimeout(flushText, 400);
+          },
+          onTextEnded: () => {
+            flushText();
           },
           onTool: (part, status) => {
-            const seq = (this.#store.executions.listOutput(attempt.id).at(-1)?.seq ?? 0) + 1;
-            this.#store.executions.appendOutput({
-              attemptId: attempt.id,
-              seq,
-              fragment: {
-                fragmentId: `${part.callID ?? createId('tool')}:${status}:${seq}`,
-                seq,
-                category: 'tool_activity',
-                text: `${part.tool ?? '工具'} · ${status}`,
-                toolCallRef: { callId: part.callID ?? '', status, source: 'managed_opencode' as 'opencode' },
-                recordedAt: nowIso(),
-              },
-            });
+            flushText();
+            appendFragment('tool_activity', `${part.tool ?? '工具'} · ${status}`, undefined, { callId: part.callID ?? '', status, tool: part.tool });
           },
           onPermission: (permission) => {
             if (['webfetch', 'websearch', 'external_directory'].includes(permission.permission)) return 'reject';
@@ -308,11 +331,13 @@ export class ExecutionService {
       });
       this.#activeSessions.set(execution.id, outcome.sessionId);
     } catch (error) {
+      flushText();
       const message = error instanceof Error ? error.message : '执行失败';
       this.#finishNode(execution.id, node.id, attempt.id, NodeStatus.FAILED, undefined, { code: 'OPENCODE_NOT_READY', message });
       return;
     }
 
+    flushText();
     const settled = await Promise.race([
       resultPromise,
       new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2500)),

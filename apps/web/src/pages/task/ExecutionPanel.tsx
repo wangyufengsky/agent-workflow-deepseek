@@ -75,7 +75,6 @@ export function ExecutionPanel(props: ExecutionPanelProps) {
           <FactPill label="计划" value={`修订 ${String(plan.revisionNumber)} · ${PLAN_REVISION_STATUS_LABEL[plan.status]}`} />
           <FactPill label="工作区" value={workspace === undefined ? '未创建' : WORKSPACE_STATE_LABEL[workspace.state]} tone={workspace?.state === 'ready' ? 'ok' : 'neutral'} />
           <FactPill label="自动推进" value={execution === undefined ? '—' : execution.autoAdvance ? '开启' : '关闭'} />
-          <FactPill label="进度" value={execution === undefined ? '—' : `${String(execution.progress.done)} / ${String(execution.progress.total)} 步`} />
         </FactsBar>
       </div>
 

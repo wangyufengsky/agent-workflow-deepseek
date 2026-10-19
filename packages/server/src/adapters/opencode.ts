@@ -22,6 +22,7 @@ export interface OpenCodeAdapterOptions {
   readonly logPath: string;
   readonly configPath: string;
   readonly cwd?: string;
+  readonly providerOverrides?: Record<string, unknown>;
 }
 
 export function readOnlyPermission(): unknown[] {
@@ -97,7 +98,10 @@ export class OpenCodeAdapter implements OpenCodePort {
         agent: {
           build: { model: `${options.model.provider}/${options.model.model}` },
         },
-        extra: { autoupdate: false },
+        extra: {
+          autoupdate: false,
+          ...(options.providerOverrides === undefined ? {} : { provider: options.providerOverrides }),
+        },
       },
     });
   }

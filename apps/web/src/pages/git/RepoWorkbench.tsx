@@ -547,6 +547,18 @@ export function RepoWorkbench({ projectId }: { readonly projectId: string }) {
             </Button>
           </div>
           <div className="git-mid-scroll">
+            {tab === 'branches' && branchesQuery.isError && branches.length > 0 ? (
+              <div style={{ padding: '0 12px 8px' }}>
+                <FailureNotice error={branchesQuery.error} onRetry={() => { void branchesQuery.refetch(); }} compact />
+                <p className="muted-note" style={{ marginTop: 4 }}>已加载的分支保留在下方；读取失败只影响这一块。</p>
+              </div>
+            ) : null}
+            {tab === 'mergeRequests' && mergeRequestsQuery.isError && mergeRequests.length > 0 ? (
+              <div style={{ padding: '0 12px 8px' }}>
+                <FailureNotice error={mergeRequestsQuery.error} onRetry={() => { void mergeRequestsQuery.refetch(); }} compact />
+                <p className="muted-note" style={{ marginTop: 4 }}>已加载的合并请求保留在下方；读取失败只影响这一块。</p>
+              </div>
+            ) : null}
             {tab === 'commits' && commitsQuery.isError && commits.length > 0 ? (
               <div style={{ padding: '0 12px 8px' }}>
                 <FailureNotice error={commitsQuery.error} onRetry={() => { void commitsQuery.refetch(); }} compact />
@@ -573,7 +585,7 @@ export function RepoWorkbench({ projectId }: { readonly projectId: string }) {
               <BranchesPanel
                 branches={branches}
                 loading={branchesQuery.isPending}
-                error={branchesQuery.isError ? branchesQuery.error : null}
+                error={branchesQuery.isError && branches.length === 0 ? branchesQuery.error : null}
                 onRetry={() => { void branchesQuery.refetch(); }}
                 activeRef={null}
                 gitlabConfigured={gitlabConfigured}
@@ -586,7 +598,7 @@ export function RepoWorkbench({ projectId }: { readonly projectId: string }) {
               <MergeRequestsPanel
                 mergeRequests={mergeRequests}
                 loading={mergeRequestsQuery.isPending}
-                error={mergeRequestsQuery.isError ? mergeRequestsQuery.error : null}
+                error={mergeRequestsQuery.isError && mergeRequests.length === 0 ? mergeRequestsQuery.error : null}
                 onRetry={() => { void mergeRequestsQuery.refetch(); }}
                 selectedIid={selectedMrIid}
                 onSelect={(mr) => { setSelectedMrIid(mr.iid); setMobileDetailOpen(true); }}

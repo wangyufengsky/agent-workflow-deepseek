@@ -35,6 +35,18 @@ export interface OpenCodeSettings {
   readonly toolsets: readonly string[];
   readonly maxSessions: number;
   readonly baseUrl?: string;
+  /**
+   * Local OpenAI-compatible gateway in front of the provider. Some OpenCode Go
+   * models (deepseek-v4.1-flash, thinking mode) reject tool_choice even when it
+   * is "auto"; stripping that field keeps MCP tools working. The gateway is
+   * loopback-only, forwards auth headers untouched, and never logs prompts.
+   */
+  readonly providerGateway: {
+    readonly enabled: boolean;
+    readonly upstreamBaseUrl: string;
+    readonly stripToolChoiceForModels: readonly string[];
+    readonly requestTimeoutMs: number;
+  };
 }
 
 export interface GitSettings {
@@ -118,12 +130,15 @@ export interface AppSettings {
 export type PublicSettings = AppSettings;
 
 export const DEFAULT_MODEL_PROFILES: readonly ModelProfile[] = [
-  { id: 'planner-go-pro', label: '规划 · opencode-go/deepseek-v4-pro', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: ['planner'], enabled: true },
-  { id: 'coder-go-pro', label: '开发 · opencode-go/deepseek-v4-pro', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: ['coder'], enabled: true },
-  { id: 'reviewer-go-pro', label: '审查 · opencode-go/deepseek-v4-pro', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: ['reviewer'], enabled: true },
-  { id: 'repairer-go-pro', label: '修复 · opencode-go/deepseek-v4-pro', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: ['repairer'], enabled: true },
-  // deepseek-v4.1-flash rejects tool_choice while thinking; keep it only for tool-free calls.
-  { id: 'planner-go-flash', label: '规划（无工具）· opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: [], enabled: false },
+  // deepseek-v4.1-flash is the only model deployed in the target environment.
+  // The managed provider gateway strips unsupported tool_choice so MCP tools work.
+  { id: 'planner-go-flash', label: '规划 · opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: ['planner'], enabled: true },
+  { id: 'coder-go-flash', label: '开发 · opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: ['coder'], enabled: true },
+  { id: 'reviewer-go-flash', label: '审查 · opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: ['reviewer'], enabled: true },
+  { id: 'repairer-go-flash', label: '修复 · opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: ['repairer'], enabled: true },
+  // Optional higher-quality profiles for environments where these models exist.
+  { id: 'planner-go-pro', label: '规划 · opencode-go/deepseek-v4-pro（可选）', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: [], enabled: false },
+  { id: 'coder-go-pro', label: '开发 · opencode-go/deepseek-v4-pro（可选）', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: [], enabled: false },
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -143,6 +158,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     mcpServerName: 'agent-workflow',
     toolsets: ['workflow', 'git', 'database', 'workspace'],
     maxSessions: 8,
+    providerGateway: {
+      enabled: true,
+      upstreamBaseUrl: 'https://opencode.ai/inference/go/openai/v1',
+      stripToolChoiceForModels: ['deepseek-v4.1-flash'],
+      requestTimeoutMs: 600000,
+    },
   },
   git: {
     author: { name: 'Agent Workflow', email: 'agent-workflow@localhost' },
