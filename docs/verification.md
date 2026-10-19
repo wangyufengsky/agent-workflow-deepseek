@@ -460,3 +460,5 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 第五轮整合离线测试：503项 / 492通过 / 11跳过 / 0失败。完整设计状态矩阵仍未全部验收，不能据此宣称全部功能完成。
 - 原生Electron产物读取、macOS保存/取消、文件哈希核对通过；发现并修复沙箱preload的ESM产物加载问题。四主题有真实原生截图，详见 `review/node-artifacts-2026-10-20.md`。
 - 真实最小模型测试：受管OpenCode 1.19.0、MCP connected，opencode-go模型返回OK，idle=true/timedOut=false。首次沙箱运行在写OpenCode自身日志前退出，没有派发模型；放行后使用全新临时数据验证成功。知识/规划完整模型链路继续验证。
+- 第六轮整合（`c06b515`，工具页后续改动前）：521项 / 510通过 / 11项live门控跳过 / 0失败，耗时113.7秒。类型检查和Web/Server/Desktop构建通过。
+- 单独启用真实模型：知识问答与精确引用、规划提交→应用→确认→准备工作区共2项通过；执行节点真实修改README、提交评审、隔离修复生成提交并丢弃共3项通过。均使用新建临时项目及opencode-go配置，没有外部仓库推送或MR写入。此证据不替代完整页面/中间态GUI验收。

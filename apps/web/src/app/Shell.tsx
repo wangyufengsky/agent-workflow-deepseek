@@ -137,8 +137,10 @@ export function Shell() {
               ))}
             </span>
           </h1>
+          <div id="page-header-context" className="row" />
           <span className="spacer" />
           <div className="header-actions">
+            <div id="page-header-actions" className="row" />
             <Link className="project-chip" to="/projects" title="项目">
               <Icon name="folder" size="sm" />
               <span>{bootstrap.data === undefined ? '项目' : `${formatCount(bootstrap.data.projects.length)} 个项目`}</span>

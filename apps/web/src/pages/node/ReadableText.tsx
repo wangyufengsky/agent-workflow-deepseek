@@ -26,7 +26,7 @@ function highlighted(line: string, search: string): ReactNode {
   return result;
 }
 
-export function ReadableText({ text, mediaType }: { readonly text: string; readonly mediaType?: string }) {
+export function ReadableText({ text, mediaType, markdownText = text }: { readonly text: string; readonly mediaType?: string; readonly markdownText?: string }) {
   const [search, setSearch] = useState('');
   const [raw, setRaw] = useState(false);
   const [wrap, setWrap] = useState(true);
@@ -44,6 +44,6 @@ export function ReadableText({ text, mediaType }: { readonly text: string; reado
     </div>
     {copyState ? <p role="status">{copyState}</p> : null}
     {search ? <p role="status">已加载内容中有{hits}行匹配。搜索期间显示原文。</p> : null}
-    {text === '' ? <p className="hint">（空内容）</p> : !raw && !search && parsed.valid ? <JsonTree value={parsed.value} /> : !raw && !search && markdown ? <article className="reader-markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: ({ alt }) => <span>[图片：{alt ?? '未命名'}]</span>, a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{text}</Markdown></article> : <pre className={`reader-code ${wrap ? 'wrap' : ''}`}>{lines.map((line, index) => <div key={index}><span className="reader-line-number" aria-hidden="true">{index + 1}</span><code>{highlighted(line, search)}{'\n'}</code></div>)}</pre>}
+    {text === '' ? <p className="hint">（空内容）</p> : !raw && !search && parsed.valid ? <JsonTree value={parsed.value} /> : !raw && !search && markdown ? <article className="reader-markdown"><Markdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: ({ alt }) => <span>[图片：{alt ?? '未命名'}]</span>, a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a> }}>{markdownText}</Markdown></article> : <pre className={`reader-code ${wrap ? 'wrap' : ''}`}>{lines.map((line, index) => <div key={index}><span className="reader-line-number" aria-hidden="true">{index + 1}</span><code>{highlighted(line, search)}{'\n'}</code></div>)}</pre>}
   </div>;
 }

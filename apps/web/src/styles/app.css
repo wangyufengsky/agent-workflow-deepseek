@@ -1387,3 +1387,5 @@
     padding: 22px 16px 48px;
   }
 }
+
+#page-header-context:empty, #page-header-actions:empty { display: none; }

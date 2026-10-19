@@ -8,7 +8,7 @@ import { createApplication } from '../../packages/server/src/index.ts';
 import { createSessionScope } from '../../packages/server/src/session-scope.ts';
 import { sessionPolicy } from '../../packages/server/src/tool-policy.ts';
 
-test('tool policies persist source/global/project inheritance and reject revoked or newly expanded live calls', async () => {
+test('tool policies persist inheritance and freeze switches for existing sessions until session revocation', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aw-tool-policy-')); writeFileSync(join(root, 'readme.txt'), 'read');
   const dataDir = join(root, 'data');
   const app = await createApplication({ dataDir, disableOpenCode: true, disableListen: true });
@@ -26,7 +26,7 @@ test('tool policies persist source/global/project inheritance and reject revoked
     const read = () => app.app.inject({ method: 'GET', url: '/internal/mcp/workspace/file?taskId=fix_policy&path=readme.txt', headers: { authorization: `Bearer ${app.internalToken}`, 'x-agent-workflow-scope': frozen.token } });
     assert.equal((await read()).statusCode, 200);
     await update({ projectId, toolName: 'workspace.file.read', enabled: false });
-    assert.equal((await read()).statusCode, 403, 'revocation affects the next call');
+    assert.equal((await read()).statusCode, 200, 'design tools.html: a running session retains its original tool grant');
     const restricted = createSessionScope(sessionPolicy(app.store, app.engine, { kind: 'fix', metadata: { projectId, fixRunId: 'fix_policy' }, cwd: root, prompt: '', permission: 'workspace_write', model: DEFAULT_MODEL_PROFILES[0]!, sink: {}, timeoutMs: 60000 }));
     await update({ projectId, toolName: 'workspace.file.read', enabled: true });
     const expanded = await app.app.inject({ method: 'GET', url: '/internal/mcp/workspace/file?taskId=fix_policy&path=readme.txt', headers: { authorization: `Bearer ${app.internalToken}`, 'x-agent-workflow-scope': restricted.token } });
@@ -34,6 +34,7 @@ test('tool policies persist source/global/project inheritance and reject revoked
     assert.equal((await update({ sourceId: 'workflow', enabled: false })).statusCode, 403, 'protocol is service owned');
     assert.equal((await update({ sourceId: 'workspace', enabled: false })).statusCode, 200);
     frozen.revoke(); restricted.revoke();
+    assert.equal((await read()).statusCode, 403, 'revoking the session itself still rejects all further calls');
   } finally { await app.close(); }
   const restarted = await createApplication({ dataDir, disableOpenCode: true, disableListen: true });
   try {

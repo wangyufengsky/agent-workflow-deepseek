@@ -1,5 +1,4 @@
 import { assertDatabaseQueryAccess } from '@agent-workflow/database';
-import { toolPolicyView } from './tool-policy.ts';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
@@ -492,7 +491,8 @@ function authorizeSessionRequest(request: FastifyRequest, deps: InternalDependen
   const tool = ROUTE_TO_TOOL[route];
   if (dispatch.allowedTools !== undefined && !dispatch.allowedTools.includes(tool ?? '')) throw new AppError(ErrorCode.FORBIDDEN, '此会话的项目/来源/单工具策略禁止此工具');
   if (tool === undefined) throw new AppError(ErrorCode.FORBIDDEN, '会话未授权此工具');
-  if (dispatch.allowedTools !== undefined && !toolPolicyView(deps.store, deps.engine, projectId).sources.flatMap((source) => source.tools).some((item) => item.name === tool && item.enabled)) throw new AppError(ErrorCode.FORBIDDEN, '工具许可已收紧或撤销');
+  // Tool switches apply to new sessions; a running session keeps its frozen tool grant.
+  // Session revocation, task identity, role and database boundaries remain independently enforced.
   if (dispatch.kind === 'execution') {
     if (task?.executionId === undefined || task.executionId !== metadata.executionId) throw new AppError(ErrorCode.FORBIDDEN, '执行授权已失效');
     const execution = deps.store.executions.get(task.executionId);
