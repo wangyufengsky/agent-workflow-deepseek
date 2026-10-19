@@ -195,10 +195,13 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     const response = await performRequest<T>(path, options);
     const data = response.data as { receipt?: { status?: string }; operation?: { requestKey: string; status: string } };
     if (tracked && data?.receipt?.status === 'accepted') rememberCommand({ scope, path, requestKey: key, phase: 'accepted' });
-    if (tracked && data?.receipt?.status !== 'accepted' && data?.receipt?.status !== 'unknown') settleCommand(key);
-    if (options.method === undefined || options.method === 'GET') {
+    if (tracked && (data?.receipt?.status === 'succeeded' || data?.receipt?.status === 'failed')) settleCommand(key);
+    else if (tracked && data?.receipt?.status !== 'accepted' && data?.receipt?.status !== 'unknown') {
+      throw new ApiClientError({ kind: 'protocol', message: '写操作响应缺少确定回执，保留原请求号。' });
+    }
+    if ((options.method === undefined || options.method === 'GET') && path.startsWith('/api/operations/')) {
       const operation = data?.operation;
-      if (operation !== undefined && (operation.status === 'succeeded' || operation.status === 'failed')) settleCommand(operation.requestKey);
+      if (operation !== undefined && path === ROUTES.operationsByKey(operation.requestKey) && (operation.status === 'succeeded' || operation.status === 'failed')) settleCommand(operation.requestKey);
     }
     return response;
   } catch (error) {

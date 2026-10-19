@@ -41,3 +41,22 @@ test('accepted PPT deletion prevents duplicate deletion but permits another oper
   await assert.rejects(request('/api/ppt/works/w1', { method: 'DELETE', body: { requestKey: 'another-delete' } }), /delete-key/);
   await request('/api/ppt/works/w2', { method: 'PATCH', body: { requestKey: 'edit-key' } });
 });
+
+test('valid envelope without receipt retains key; create project and task are tracked too', async () => {
+  globalThis.fetch = async () => envelope({});
+  await assert.rejects(request('/api/projects', { method: 'POST', body: { requestKey: 'missing-receipt' } }), /missing-receipt/);
+  assert.equal(pendingCommands()[0]?.requestKey, 'missing-receipt');
+  globalThis.fetch = async () => { throw new TypeError('lost'); };
+  await assert.rejects(request('/api/tasks', { method: 'POST', body: { requestKey: 'create-task-key' } }), /create-task-key/);
+  assert.ok(pendingCommands().some((item) => item.requestKey === 'create-task-key'));
+});
+test('failed durable storage prevents dispatch', async () => {
+  const storage = globalThis.localStorage;
+  let writes = 0;
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => '[]', setItem: () => { throw new Error('quota'); } } });
+  globalThis.fetch = async () => { writes++; return envelope({ receipt: { status: 'succeeded' } }); };
+  try {
+    await assert.rejects(request('/api/settings', { method: 'PATCH', body: { requestKey: 'no-storage' } }), /尚未发送/);
+    assert.equal(writes, 0);
+  } finally { Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage }); }
+});
