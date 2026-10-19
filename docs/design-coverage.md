@@ -8,7 +8,7 @@
 | 设计页面 | 路由 | 后端 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | home.html | `/` | `/api/bootstrap` | ✅ | 真实统计、进行中、待处理、最近活动、空态/未连接态 |
-| start.html | `/start` | catalog + `/api/tasks` | ✅ | 方法卡、项目选择、需求草稿（不调用模型） |
+| start.html | `/start` | catalog + `/api/tasks` | ✅ | 方法卡、项目选择（项目默认方法生效）、需求草稿（不调用模型） |
 | tasks.html | `/tasks` | `/api/tasks` | ✅ | 阶段胶囊、规划状态、筛选、搜索 |
 | task.html | `/tasks/:id` | execution/plan/node | ✅ | 执行画布、执行面板、节点现场、调整计划、交付面板入口 |
 | requirement.html | `/requirement/:id` | planning/plan/workspace | ✅ | 五段胶囊、规划状态条、候选/对照图层、检查、应用/确认、准备工作区 |

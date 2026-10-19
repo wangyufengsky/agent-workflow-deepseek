@@ -107,7 +107,12 @@ export function StartPage() {
   const templates: readonly TaskTemplate[] = bootstrap.data?.catalog.templates ?? [];
   const opencodeStatus = bootstrap.data?.integration.opencode.status;
   const effectiveProjectId = projectId.length > 0 ? projectId : (projects[0]?.id ?? '');
-  const effectiveMethodId = methodId.length > 0 ? methodId : (methods[0]?.id ?? '');
+  const effectiveProject = projects.find((project) => project.id === effectiveProjectId);
+  const projectDefaultMethod = effectiveProject?.settings.defaultMethodId;
+  const defaultMethodId = projectDefaultMethod !== undefined && methods.some((method) => method.id === projectDefaultMethod)
+    ? projectDefaultMethod
+    : (methods[0]?.id ?? '');
+  const effectiveMethodId = methodId.length > 0 ? methodId : defaultMethodId;
   const selectedMethod = methods.find((method) => method.id === effectiveMethodId);
   const selectedProject = projects.find((project) => project.id === effectiveProjectId);
 
