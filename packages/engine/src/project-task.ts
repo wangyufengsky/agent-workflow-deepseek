@@ -1,3 +1,4 @@
+import { freezeCodeReviewSnapshot } from './snapshot-review.ts';
 import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import type {
@@ -202,13 +203,15 @@ export class TaskService {
   readonly #context: EngineContext;
   readonly #projects: ProjectService;
   readonly #catalog: CatalogSnapshot;
+  readonly #snapshotGit: GitPort | undefined;
 
-  constructor(store: Store, commands: CommandService, context: EngineContext, projects: ProjectService, catalog: CatalogSnapshot) {
+  constructor(store: Store, commands: CommandService, context: EngineContext, projects: ProjectService, catalog: CatalogSnapshot, snapshotGit?: GitPort) {
     this.#store = store;
     this.#commands = commands;
     this.#context = context;
     this.#projects = projects;
     this.#catalog = catalog;
+    this.#snapshotGit = snapshotGit;
   }
 
   listByTemplate(templateId: string): readonly TaskSummary[] {
@@ -237,7 +240,21 @@ export class TaskService {
     return task;
   }
 
-  create(input: CreateTaskRequest): CommandResponse<TaskDetailResponse> {
+  async createForRequest(input: CreateTaskRequest): Promise<CommandResponse<TaskDetailResponse>> {
+    const existing = this.#commands.get(input.requestKey);
+    if (existing !== undefined && existing.status !== 'accepted') return this.create(input);
+    const template = input.template === undefined ? undefined : this.#catalog.templates.find((item) => item.id === input.template!.templateId);
+    if (template?.kind !== 'snapshot_review') return this.create(input);
+    const project = this.#store.projects.get(input.projectId);
+    if (project?.gitState !== 'git' || this.#snapshotGit?.snapshotInventory === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '快照代码评审需要可读取固定源码版本的 Git 仓库');
+    const parameters = input.template!.parameters;
+    if (parameters === null || typeof parameters !== 'object' || Array.isArray(parameters) || Object.values(parameters).some((value) => typeof value !== 'string')) throw new AppError(ErrorCode.VALIDATION_FAILED, '快照模板参数必须是字符串配置');
+    if (parameters.mode === 'incremental' && !parameters.baselineRef?.trim()) throw new AppError(ErrorCode.VALIDATION_FAILED, '增量审查必须填写源码基线');
+    const snapshot = freezeCodeReviewSnapshot(await this.#snapshotGit.snapshotInventory({ repoRoot: project.rootPath, targetRef: parameters.targetRef?.trim() || 'HEAD', ...(parameters.mode === 'incremental' ? { baselineRef: parameters.baselineRef?.trim() || undefined } : {}) }), parameters);
+    return this.create(input, snapshot);
+  }
+
+  create(input: CreateTaskRequest, snapshot?: import('@agent-workflow/shared').CodeReviewSnapshot): CommandResponse<TaskDetailResponse> {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: input.template === undefined ? 'task.create' : 'template.task.create',
@@ -257,6 +274,9 @@ export class TaskService {
       if (method.support === 'skeleton_only' && input.template === undefined) {
         // Skeleton-only methods are still accepted; the UI shows the AI-planning marker.
       }
+      const selectedTemplate = input.template === undefined ? undefined : this.#catalog.templates.find((template) => template.id === input.template!.templateId);
+      if (input.template !== undefined && selectedTemplate === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '任务模板不存在');
+      if (selectedTemplate?.kind === 'snapshot_review' && snapshot === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '快照模板需要先固定源码版本');
       const fixedTemplate = input.template === undefined
         ? undefined
         : {
@@ -264,6 +284,7 @@ export class TaskService {
             templateVersion: this.#catalog.templates.find((template) => template.id === input.template!.templateId)?.version ?? 1,
             locked: true as const,
             parameters: input.template.parameters,
+            ...(snapshot === undefined ? {} : { snapshot }),
           };
       const task = this.#store.tasks.create({
         projectId: input.projectId,
@@ -355,6 +376,7 @@ export class TaskService {
     return {
       task,
       project,
+      ...(task.fixedTemplate?.snapshot === undefined ? {} : { templateProgress: { snapshot: task.fixedTemplate.snapshot } }),
       plan,
       planning,
       execution,

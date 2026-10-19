@@ -13,3 +13,5 @@ export * from './config/themes.ts';
 export * from './api/contracts.ts';
 
 export * from './domain/access.ts';
+
+export * from './domain/snapshot.ts';

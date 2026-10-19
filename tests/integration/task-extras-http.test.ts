@@ -167,21 +167,14 @@ test('W3-5b: audit paging/kinds, snapshot review empty/panel states and run cont
     assert.equal(plainReview.statusCode, 200, plainReview.body);
     assert.equal(plainReview.json().data.applicable, false);
     assert.equal(plainReview.json().data.readOnly, true);
-    assert.match(String(plainReview.json().data.reason), /固定模板/);
+    assert.match(String(plainReview.json().data.reason), /snapshot/);
     assert.equal(plainReview.json().data.partialReport.available, false);
 
     const fixedReview = await app.app.inject({ method: 'GET', url: `/api/tasks/${fixed.taskId}/snapshot-review?limit=2` });
     assert.equal(fixedReview.statusCode, 200, fixedReview.body);
     const fixedModel = fixedReview.json().data as { applicable: boolean; readOnly: boolean; batches: { total: number; items: unknown[]; limit: number }; progress: { available: boolean; totalBatches: number | null }; scope: { versionsFixed: boolean; mode: string } };
-    assert.equal(fixedModel.applicable, true);
+    assert.equal(fixedModel.applicable, false, 'ordinary unit-test template has no source snapshot domain');
     assert.equal(fixedModel.readOnly, true);
-    assert.equal(fixedModel.batches.total, 0, 'no execution yet means no invented batches');
-    assert.deepEqual(fixedModel.batches.items, []);
-    assert.equal(fixedModel.batches.limit, 2);
-    assert.equal(fixedModel.progress.available, false);
-    assert.equal(fixedModel.progress.totalBatches, null);
-    assert.equal(fixedModel.scope.versionsFixed, true);
-    assert.equal(fixedModel.scope.mode, 'unknown');
 
     const runContent = await app.app.inject({ method: 'GET', url: `/api/tasks/${taskId}/run-content` });
     assert.equal(runContent.statusCode, 200, runContent.body);

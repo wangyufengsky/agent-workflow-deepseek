@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { snapshotReport } from './snapshot-review.ts';
 import { createHash } from 'node:crypto';
 import type {
   Attempt,
@@ -181,16 +184,17 @@ export interface SnapshotReviewProgress {
 }
 
 export interface SnapshotReviewScope {
+  readonly outputDirectory?: string;
   readonly planRevisionNumber?: number;
   readonly planStatus?: string;
   readonly template?: { readonly id: string; readonly version: number; readonly name: string };
   /** Review mode/depth require review-run data that does not exist yet → honest unknown. */
   readonly mode: 'full' | 'incremental' | 'unknown';
   readonly depth: 'full' | 'lightweight' | 'unknown';
-  readonly modeSource: 'unavailable';
+  readonly modeSource: 'unavailable' | 'frozen_snapshot';
   readonly baselineSha?: string;
   readonly targetSha?: string;
-  readonly targetShaSource: 'delivery' | 'none';
+  readonly targetShaSource: 'delivery' | 'snapshot' | 'none';
   readonly branch?: string;
   readonly versionsFixed: true;
   readonly limitations: readonly string[];
@@ -205,6 +209,7 @@ export interface SnapshotReviewBatchesPage {
 }
 
 export interface SnapshotPartialReport {
+  readonly reportId?: string;
   readonly available: boolean;
   readonly readAt?: IsoDateTime;
   readonly analyzedUnits: number | null;
@@ -510,13 +515,13 @@ export class TaskExtrasService {
    */
   snapshotReview(taskId: string, query: SnapshotReviewQuery = {}): SnapshotReviewModel {
     const task = this.#requireTask(taskId);
-    const partialReport = this.#emptyPartialReport();
+    const partialReport = task.fixedTemplate?.snapshot === undefined ? this.#emptyPartialReport() : { ...this.#emptyPartialReport(), available: task.lifecycle !== 'completed', reason: task.lifecycle === 'completed' ? '任务已完成，请查看最终报告' : '阶段报告尚未读取，可读取已分析/未完成/排除的真实单元范围' };
     const template = this.#templateFor(task);
-    if (task.fixedTemplate === undefined) {
+    if (task.fixedTemplate?.snapshot === undefined) {
       return {
         taskId,
         applicable: false,
-        reason: '快照评审面板仅对固定模板任务开放',
+        reason: '此任务没有 templateProgress.snapshot，仅快照代码评审模板提供此面板',
         readOnly: true,
         note: '查看进度和报告不会启动、暂停或改变执行。',
         partialReport,
@@ -550,12 +555,40 @@ export class TaskExtrasService {
     };
   }
 
+  readSnapshotReport(taskId: string): SnapshotPartialReport {
+    const task = this.#requireTask(taskId);
+    if (task.lifecycle === 'completed') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '任务已完成，请查看最终报告');
+    const report = snapshotReport(this.#store, taskId);
+    const directory = join(this.#store.dataDir, 'snapshot-reports', taskId);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, `${report.reportId}.md`), report.contentMarkdown, 'utf8');
+    this.#store.settings.putJson(`snapshot.report.read.${taskId}`, report);
+    return report;
+  }
+
+  downloadSnapshotReport(taskId: string, reportId: string): { markdown: string; filename: string } {
+    this.#requireTask(taskId);
+    const report = this.#store.settings.getJson<SnapshotPartialReport>(`snapshot.report.read.${taskId}`);
+    if (report === undefined || report.reportId !== reportId || report.contentMarkdown === null) throw new AppError(ErrorCode.STALE_TARGET, '请先读取对应版本的阶段报告，再下载');
+    const markdown = readFileSync(join(this.#store.dataDir, 'snapshot-reports', taskId, `${reportId}.md`), 'utf8');
+    if (createHash('sha256').update(markdown).digest('hex') !== reportId) throw new AppError(ErrorCode.STALE_TARGET, '报告文件与读取版本不符，请重新读取');
+    return { markdown, filename: `snapshot-review-${taskId}.md` };
+  }
+
   #templateFor(task: Task): TaskTemplate | undefined {
     if (task.fixedTemplate === undefined) return undefined;
     return this.#templates().find((template) => template.id === task.fixedTemplate!.templateId);
   }
 
   #snapshotScope(task: Task, plan: PlanRevision | undefined, workspace: TaskWorkspace | undefined, delivery: TaskDelivery | undefined): SnapshotReviewScope {
+    const snapshot = task.fixedTemplate?.snapshot;
+    if (snapshot !== undefined) return {
+      ...(plan === undefined ? {} : { planRevisionNumber: plan.revisionNumber, planStatus: plan.status }),
+      template: { id: task.fixedTemplate!.templateId, version: task.fixedTemplate!.templateVersion, name: this.#templateFor(task)?.name ?? task.fixedTemplate!.templateId },
+      outputDirectory: join(this.#store.dataDir, 'snapshot-reports', task.id),
+      mode: snapshot.mode, depth: snapshot.depth, modeSource: 'frozen_snapshot', baselineSha: snapshot.baselineSha, targetSha: snapshot.targetSha, targetShaSource: 'snapshot', branch: workspace?.branch, versionsFixed: true,
+      limitations: snapshot.depth === 'lightweight' ? ['分析单元固定；只有含候选问题的单元调用独立复核'] : [],
+    };
     const pushStep = delivery?.steps.find((step) => step.step === 'push');
     const commitStep = delivery?.steps.find((step) => step.step === 'commit');
     const targetSha = pushStep?.pushedSha ?? commitStep?.commitSha;
@@ -592,7 +625,7 @@ export class TaskExtrasService {
     const batchFromNode = (node: PlanNode, templateStepKey: string | undefined, groupLabel: string | undefined): SnapshotReviewBatch => {
       const state = executionNodes.get(node.id);
       const attempts = attemptsByNode.get(node.id) ?? [];
-      const latest = attempts[0];
+      const latest = state?.currentAttemptId === undefined ? attempts[0] : attempts.find((item) => item.id === state.currentAttemptId);
       const acceptance = execution === undefined ? undefined : this.#acceptance(execution.id, node.id);
       const fragmentCount = latest === undefined ? 0 : this.#store.executions.listOutput(latest.id, 0, OUTPUT_FRAGMENT_SCAN_LIMIT).length;
       const errorMessage = state?.error?.message
@@ -619,6 +652,14 @@ export class TaskExtrasService {
       };
     };
 
+    if (planNodes.some((node) => node.snapshotStage !== undefined)) return planNodes.filter((node) => node.snapshotStage === 'analysis').map((node) => {
+      const batch = batchFromNode(node, undefined, '源码分析批次');
+      const verifier = planNodes.find((item) => item.key === node.key.replace('snapshot.analyze.', 'snapshot.verify.'));
+      const verifyStatus = verifier === undefined ? undefined : executionNodes.get(verifier.id)?.status;
+      const analyzed = executionNodes.get(node.id)?.status === 'succeeded';
+      const state = !analyzed ? batch.state : verifyStatus === 'succeeded' || verifyStatus === 'skipped' ? 'verified' : verifyStatus === 'running' ? 'running' : verifyStatus === 'failed' || verifyStatus === 'unknown' ? 'attention' : 'unverified';
+      return { ...batch, state, ...(verifier === undefined || executionNodes.get(verifier.id)?.error?.message === undefined ? {} : { errorMessage: executionNodes.get(verifier.id)!.error!.message }), purpose: `固定源码 ${(node.snapshotUnitIds ?? []).length} 个文件单元；独立复核 ${verifyStatus ?? '待执行'}` };
+    });
     const batches: SnapshotReviewBatch[] = [];
     const matchedNodeIds = new Set<string>();
     for (const step of template?.steps ?? []) {
@@ -662,7 +703,7 @@ export class TaskExtrasService {
       ? []
       : plan.graph.groups.map((group) => {
           const nodes = plan.graph.nodes.filter((node) => node.groupId === group.id);
-          return { label: group.label, total: nodes.length, completed: nodes.filter((node) => execution?.nodes.find((state) => state.nodeId === node.id)?.status === NodeStatus.SUCCEEDED).length };
+          return { label: group.label, total: nodes.length, completed: nodes.filter((node) => execution?.nodes.find((state) => state.nodeId === node.id)?.status === NodeStatus.SUCCEEDED || execution?.nodes.find((state) => state.nodeId === node.id)?.status === NodeStatus.SKIPPED).length };
         });
     return {
       available: execution !== undefined,
@@ -672,7 +713,7 @@ export class TaskExtrasService {
       runningBatches: count('running'),
       attentionBatches: count('attention'),
       skippedBatches: count('skipped'),
-      remainingBatches: total === null ? null : count('pending'),
+      remainingBatches: total === null ? null : count('pending') + count('unverified'),
       phases,
       note: execution === undefined
         ? '尚未创建执行，批次总数待定；查看进度不会启动执行。'
@@ -743,7 +784,7 @@ export class TaskExtrasService {
     const nodes: RunContentNode[] = plan.graph.nodes.map((node) => {
       const state = executionNodes.get(node.id);
       const attempts = attemptsByNode.get(node.id) ?? [];
-      const latest = attempts[0];
+      const latest = state?.currentAttemptId === undefined ? attempts[0] : attempts.find((item) => item.id === state.currentAttemptId);
       const fragmentCount = latest === undefined ? 0 : this.#store.executions.listOutput(latest.id, 0, OUTPUT_FRAGMENT_SCAN_LIMIT).length;
       totalAttempts += attempts.length;
       totalFragments += fragmentCount;

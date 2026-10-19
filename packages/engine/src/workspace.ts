@@ -116,7 +116,7 @@ export class WorkspaceService {
       taskId,
       kind: project.gitState === 'git' ? 'git_worktree' : 'directory_copy',
       originalRootDisplay: project.rootPath,
-      baseRef: project.defaultBranch,
+      baseRef: task.fixedTemplate?.snapshot?.targetSha ?? project.defaultBranch,
     });
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -179,8 +179,8 @@ export class WorkspaceService {
       }
 
       const status = await this.#git.status(project.rootPath);
-      const baseSha = status?.head.sha ?? input.expectedBaseTip;
-      const baseRef = project.defaultBranch ?? 'main';
+      const baseSha = task.fixedTemplate?.snapshot?.targetSha ?? status?.head.sha ?? input.expectedBaseTip;
+      const baseRef = task.fixedTemplate?.snapshot?.targetSha ?? project.defaultBranch ?? 'main';
       if (baseSha === undefined) {
         throw new AppError(ErrorCode.WORKSPACE_PREPARE_FAILED, '无法解析基线提交（可能是空仓库或 HEAD 不可用）', {
           details: { baseRef, empty: status?.isEmpty ?? false },

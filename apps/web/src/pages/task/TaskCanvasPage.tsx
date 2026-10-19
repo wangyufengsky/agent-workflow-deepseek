@@ -417,10 +417,10 @@ export function TaskCanvasPage() {
                   <Icon name="clock" size="sm" />
                   审计记录
                 </button>
-                <button type="button" role="menuitem" onClick={() => { openExtras('snapshot-review'); }}>
+                {task.fixedTemplate?.snapshot === undefined ? null : <button type="button" role="menuitem" onClick={() => { openExtras('snapshot-review'); }}>
                   <Icon name="eye" size="sm" />
                   快照评审
-                </button>
+                </button>}
                 <button type="button" role="menuitem" onClick={openRunContent}>
                   <Icon name="terminal" size="sm" />
                   运行内容

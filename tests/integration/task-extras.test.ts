@@ -263,87 +263,22 @@ test('audit timeline merges events and the operation ledger, newest first, with 
   }
 });
 
-test('snapshot review groups template steps by execution facts and reports an honest empty partial report', () => {
-  const store = newStore('snapshot');
-  try {
-    const seeded = seed(store, { withExecution: true, withWorkspace: true, withDelivery: true });
-    const service = serviceFor(store);
-    const model = service.snapshotReview(seeded.taskId, { limit: 2 });
-    assert.equal(model.applicable, true);
-    assert.equal(model.readOnly, true);
-    assert.equal(model.scope?.template?.id, TEMPLATE.id);
-    assert.equal(model.scope?.template?.version, 2);
-    assert.equal(model.scope?.planRevisionNumber, 1);
-    assert.equal(model.scope?.baselineSha, 'b71e04c');
-    assert.equal(model.scope?.targetSha, '9f3c2a7bb');
-    assert.equal(model.scope?.targetShaSource, 'delivery');
-    assert.equal(model.scope?.mode, 'unknown');
-    assert.equal(model.scope?.depth, 'unknown');
-    assert.equal(model.scope?.modeSource, 'unavailable');
-    assert.equal(model.scope?.versionsFixed, true);
-    assert.ok((model.scope?.limitations.length ?? 0) > 0);
-
-    assert.equal(model.progress?.available, true);
-    assert.equal(model.progress?.totalBatches, 4);
-    assert.equal(model.progress?.verifiedBatches, 1, 'verification passed → verified');
-    assert.equal(model.progress?.unverifiedBatches, 1, 'succeeded without verification → unverified, never "verified"');
-    assert.equal(model.progress?.runningBatches, 1);
-    assert.equal(model.progress?.remainingBatches, 1);
-    assert.equal(model.progress?.attentionBatches, 0);
-    assert.equal(model.progress?.phases.length, 4);
-    assert.match(model.progress?.note ?? '', /进度不等于完成/);
-
-    assert.equal(model.batches?.total, 4);
-    assert.equal(model.batches?.items.length, 2);
-    assert.ok(model.batches?.nextCursor !== undefined);
-    assert.equal(model.batches?.items[0]?.state, 'verified');
-    assert.equal(model.batches?.items[0]?.verificationState, 'passed');
-    assert.equal(model.batches?.items[0]?.attemptId !== undefined, true);
-    assert.equal(model.batches?.items[0]?.fragmentCount, 1);
-    assert.equal(model.batches?.items[1]?.state, 'unverified');
-    const rest = service.snapshotReview(seeded.taskId, { limit: 2, cursor: model.batches?.nextCursor });
-    assert.equal(rest.batches?.items.length, 2);
-    assert.ok(rest.batches?.items.some((batch) => batch.state === 'running'));
-
-    // The partial phase report is honestly unavailable — no invented conclusions.
-    assert.equal(model.partialReport.available, false);
-    assert.equal(model.partialReport.analyzedUnits, null);
-    assert.equal(model.partialReport.pendingUnits, null);
-    assert.equal(model.partialReport.excludedUnits, null);
-    assert.equal(model.partialReport.contentMarkdown, null);
-    assert.equal(model.partialReport.download.available, false);
-    assert.match(model.partialReport.reason, /不生成审查结论/);
-
-    assert.throws(() => service.snapshotReview('task_missing'), (error: unknown) => (error as { code?: string }).code === 'NOT_FOUND');
-  } finally {
-    store.close();
-  }
-});
-
-test('snapshot review is an honest empty state for template tasks without execution and for non-template tasks', () => {
-  const store = newStore('snapshot-empty');
+test('ordinary fixed templates never acquire snapshot-review applicability from execution facts', () => {
+  const store = newStore('ordinary-template');
   try {
     const service = serviceFor(store);
-    const templateTask = seed(store, { withPlan: false });
-    const empty = service.snapshotReview(templateTask.taskId);
-    assert.equal(empty.applicable, true);
-    assert.equal(empty.progress?.available, false);
-    assert.equal(empty.progress?.totalBatches, null, 'batch total undetermined before execution');
-    assert.equal(empty.progress?.remainingBatches, null);
-    assert.deepEqual(empty.progress?.phases, []);
-    assert.equal(empty.batches?.total, 0);
-    assert.equal(empty.partialReport.available, false);
-
-    const plainTask = seed(store, { fixedTemplate: false, withExecution: true });
-    const plain = service.snapshotReview(plainTask.taskId);
-    assert.equal(plain.applicable, false);
-    assert.match(plain.reason ?? '', /固定模板任务/);
-    assert.equal(plain.progress, undefined);
-    assert.equal(plain.batches, undefined);
-    assert.equal(plain.partialReport.available, false);
-  } finally {
-    store.close();
-  }
+    for (const options of [{ withExecution: true, withWorkspace: true, withDelivery: true }, { withPlan: false }, { fixedTemplate: false, withExecution: true }]) {
+      const task = seed(store, options);
+      const model = service.snapshotReview(task.taskId);
+      assert.equal(model.applicable, false);
+      assert.equal(model.readOnly, true);
+      assert.equal(model.scope, undefined);
+      assert.equal(model.progress, undefined);
+      assert.equal(model.batches, undefined);
+      assert.equal(model.partialReport.available, false);
+      assert.match(model.reason ?? '', /snapshot/);
+    }
+  } finally { store.close(); }
 });
 
 test('run content aggregates plan nodes, latest attempts and outputs into honest category groups', () => {

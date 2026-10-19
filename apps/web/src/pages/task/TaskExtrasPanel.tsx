@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ROUTES,
   type OperationReceipt,
   type PlanRevision,
   type SnapshotBatchState,
@@ -10,6 +11,7 @@ import {
   type TaskAuditEntry,
   type FrozenPlanSnapshot,
 } from '@agent-workflow/shared';
+import { apiGet, errorMessage } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { EmptyState, SkeletonText } from '../../components/EmptyState.tsx';
@@ -537,6 +539,7 @@ function SnapshotReviewPanel({ taskId }: { readonly taskId: string }) {
           </div>
           <div className="sec-t" style={{ marginTop: 4 }}>审查范围</div>
           <ScopeCard review={review} />
+          {review.scope?.outputDirectory === undefined ? null : <div className="row" style={{ gap: 8 }}><span className="hint">输出目录</span><code className="grow" style={{ overflowWrap: 'anywhere' }}>{review.scope.outputDirectory}</code><Button size="sm" icon="copy" onClick={() => { void navigator.clipboard.writeText(review.scope!.outputDirectory!); }}>复制</Button></div>}
           <button
             type="button"
             className="tx-toggle"
@@ -566,57 +569,52 @@ function SnapshotReviewPanel({ taskId }: { readonly taskId: string }) {
               <b>阶段报告只读。</b>已分析 / 未完成 / 排除范围分别标注；查看或下载都不会启动、暂停或改变执行。
             </div>
           </div>
-          <PartialReport report={review.partialReport} />
+          {review.partialReport.available ? <PartialReport key={taskId} taskId={taskId} report={review.partialReport} /> : <EmptyState compact icon="doc" title="阶段报告不可用" description={review.partialReport.reason} />}
         </>
       )}
     </div>
   );
 }
 
-function PartialReport({ report }: { readonly report: SnapshotPartialReport }) {
-  const analyzed = report.analyzedUnits ?? 0;
-  const pending = report.pendingUnits ?? 0;
-  const excluded = report.excludedUnits ?? 0;
-  const total = analyzed + pending + excluded;
-  return (
-    <div className="col" style={{ gap: 12 }}>
-      <div className="row wrap" style={{ gap: 8 }}>
-        <Button variant="secondary" size="sm" icon="eye" disabled disabledReason={report.reason}>
-          读取阶段报告
-        </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          icon="download"
-          disabled={report.download.available !== true}
-          disabledReason={report.download.available ? '前端尚未接入阶段报告下载接口' : report.download.reason}
-        >
-          下载 Markdown
-        </Button>
-        <span className="hint grow">{report.download.available ? '服务字段允许下载，但前端尚无导出端点。' : report.download.reason}</span>
-      </div>
+function SnapshotMarkdown({ text }: { readonly text: string }) {
+  const inline = (line: string) => line.split(/(`[^`]+`)/).map((part, index) => part.startsWith('`') && part.endsWith('`') ? <code key={index}>{part.slice(1, -1)}</code> : part);
+  return <article className="tx-report-doc">{text.split('\n').map((line, index) => line.startsWith('# ') ? <h3 key={index}>{inline(line.slice(2))}</h3> : line.startsWith('## ') ? <h4 key={index}>{inline(line.slice(3))}</h4> : line.startsWith('- ') ? <div key={index} style={{ paddingLeft: 12 }}>• {inline(line.slice(2))}</div> : line === '' ? <br key={index} /> : <p key={index}>{inline(line)}</p>)}</article>;
+}
 
-      {report.available ? (
-        <>
-          <div className="tx-report-bar" role="img" aria-label={`已分析 ${String(analyzed)}，未完成 ${String(pending)}，排除 ${String(excluded)}`}>
-            <i className="analyzed" style={{ flex: Math.max(analyzed, 0) + 1 }} />
-            <i className="pending" style={{ flex: Math.max(pending, 0) + 1 }} />
-            <i className="excluded" style={{ flex: Math.max(excluded, 0) + 1 }} />
-          </div>
-          <div className="row wrap" style={{ gap: 14 }}>
-            <span className="hint"><span className="tx-dot analyzed" /> 已分析 <b className="num">{report.analyzedUnits === null ? '—' : String(report.analyzedUnits)}</b></span>
-            <span className="hint"><span className="tx-dot pending" /> 未完成 <b className="num">{report.pendingUnits === null ? '—' : String(report.pendingUnits)}</b></span>
-            <span className="hint"><span className="tx-dot excluded" /> 排除 <b className="num">{report.excludedUnits === null ? '—' : String(report.excludedUnits)}</b></span>
-            <span className="hint">按分析单元计，共 {String(total)} 个{report.readAt === undefined ? '' : ` · 读取于 ${formatDateTime(report.readAt)}`}</span>
-          </div>
-          {report.contentMarkdown === null ? <p className="hint">服务未返回阶段报告正文。</p> : <pre className="tx-report-doc">{report.contentMarkdown}</pre>}
-        </>
-      ) : (
-        <EmptyState compact icon="doc" title="还没有可读取的阶段报告" description={report.reason} />
-      )}
-      <p className="hint">{report.note}</p>
+function PartialReport({ taskId, report: metadata }: { readonly taskId: string; readonly report: SnapshotPartialReport }) {
+  const [report, setReport] = useState<SnapshotPartialReport | null>(null);
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error' | 'downloading'>('idle');
+  const [error, setError] = useState('');
+  const read = async () => {
+    setReport(null); setError(''); setPhase('loading');
+    try { const value = (await apiGet<SnapshotPartialReport>(ROUTES.taskSnapshotReport(taskId))).data; setReport(value); setPhase('ready'); }
+    catch (error) { setReport(null); setPhase('error'); setError(errorMessage(error)); }
+  };
+  const download = async () => {
+    if (report?.reportId === undefined) return;
+    setPhase('downloading'); setError('');
+    try {
+      const data = (await apiGet<{ markdown: string; filename: string }>(ROUTES.taskSnapshotReportDownload(taskId, report.reportId))).data;
+      const url = URL.createObjectURL(new Blob([data.markdown], { type: 'text/markdown;charset=utf-8' }));
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = data.filename; anchor.click(); setTimeout(() => { URL.revokeObjectURL(url); }, 1000); setPhase('ready');
+    } catch (error) { setReport(null); setPhase('error'); setError(errorMessage(error)); }
+  };
+  const analyzed = report?.analyzedUnits ?? 0; const pending = report?.pendingUnits ?? 0; const excluded = report?.excludedUnits ?? 0; const total = analyzed + pending + excluded;
+  return <div className="col" style={{ gap: 12 }}>
+    <div className="row wrap" style={{ gap: 8 }}>
+      <Button variant={report === null ? 'primary' : 'secondary'} size="sm" icon="eye" disabled={!metadata.available || phase === 'loading' || phase === 'downloading'} disabledReason={!metadata.available ? metadata.reason : '正在读取报告'} onClick={() => { void read(); }}>{phase === 'loading' ? '读取中…' : report === null ? '读取阶段报告' : '重新读取'}</Button>
+      <Button variant="primary" size="sm" icon="download" disabled={report?.download.available !== true || phase !== 'ready'} disabledReason={report === null ? '读取后才能下载' : '报告正在处理'} onClick={() => { void download(); }}>{phase === 'downloading' ? '下载中…' : '下载 Markdown'}</Button>
+      <span className="hint">{report === null ? '读取后才能下载；取消或失败后仍可读取阶段证据。' : '下载本次读取的报告版本'}</span>
     </div>
-  );
+    {phase === 'loading' ? <SkeletonText lines={8} /> : null}
+    {error === '' ? null : <div className="banner warn" role="alert"><Icon name="alert" /><div>报告读取或下载失败：{error}。旧内容已清空，请重新读取。</div></div>}
+    {report === null ? phase === 'loading' || error !== '' ? null : <EmptyState compact icon="doc" title="阶段报告尚未读取" description={metadata.reason} /> : <>
+      <div className="tx-report-bar" role="img" aria-label={`已分析 ${analyzed}，未完成 ${pending}，排除 ${excluded}`}>{total === 0 ? null : <><i className="analyzed" style={{ flex: analyzed }} /><i className="pending" style={{ flex: pending }} /><i className="excluded" style={{ flex: excluded }} /></>}</div>
+      <div className="row wrap" style={{ gap: 14 }}><span className="hint"><span className="tx-dot analyzed" /> 已分析 <b className="num">{analyzed}</b></span><span className="hint"><span className="tx-dot pending" /> 未完成 <b className="num">{pending}</b></span><span className="hint"><span className="tx-dot excluded" /> 排除 <b className="num">{excluded}</b></span><span className="hint">按源码文件分析单元计，共 {total} 个 · 读取于 {report.readAt === undefined ? '未知' : formatDateTime(report.readAt)}</span></div>
+      {report.contentMarkdown === null ? null : <SnapshotMarkdown text={report.contentMarkdown} />}
+    </>}
+    <p className="hint">{metadata.note}</p>
+  </div>;
 }
 
 /** Right-side panel for the task canvas "⋯" extras (freeze / audit / B-07). */

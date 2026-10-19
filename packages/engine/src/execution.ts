@@ -1,6 +1,7 @@
 import { toolEvidence } from './tool-evidence.ts';
 import { projectDocumentInstructions } from './project-documents.ts';
 import { canShareWorkspace, executionPolicy, executionTimeoutMs, retryClass, retryDelayMs } from './execution-policy.ts';
+import { snapshotEvidenceState, snapshotExpectedUnitIds, snapshotReport, validateSnapshotUnitEvidence } from './snapshot-review.ts';
 import type {
   AttemptResult,
   CommandResponse,
@@ -746,9 +747,22 @@ export class ExecutionService {
     if (this.#stops.has(attempt.executionId)) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行停止中，不能提交迟到结果');
     if (attempt.status !== 'running') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '该尝试已结束，不能再提交结果');
     if (attempt.nodeId !== input.nodeId) throw new AppError(ErrorCode.STALE_TARGET, '尝试不属于当前节点');
+    const task = this.#requireTask(input.taskId);
+    if (task.fixedTemplate?.snapshot !== undefined) {
+      const plan = this.#store.plans.get(this.get(task.id)!.planRevisionId);
+      const node = plan?.graph.nodes.find((item) => item.id === input.nodeId);
+      if (node === undefined || node.snapshotStage === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '快照结果没有绑定分析步骤');
+      const evidence = snapshotEvidenceState(this.#store, task.id);
+      const units = validateSnapshotUnitEvidence(task.fixedTemplate.snapshot, node, input.payload, snapshotExpectedUnitIds(task.fixedTemplate.snapshot, node, evidence), evidence.analyzed);
+      for (const unit of units) {
+        const read = this.#store.settings.getJson<{ blobSha: string; totalLines: number }>(`snapshot.read.${input.attemptId}.${unit.unitId}`);
+        if (read?.blobSha !== unit.blobSha) throw new AppError(ErrorCode.VALIDATION_FAILED, '此尝试尚未完整读取该冻结源码单元，不能提交已分析证据');
+        if (unit.findings.some((finding) => finding.line > read.totalLines)) throw new AppError(ErrorCode.VALIDATION_FAILED, '问题引用的行号超出冻结源码');
+      }
+
+    }
     const waiter = this.#resultWaiters.get(input.attemptId);
     if (waiter === undefined) throw new AppError(ErrorCode.STALE_TARGET, '结果等待器不存在');
-    const task = this.#requireTask(input.taskId);
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(task.id) : this.#store.workspaces.get(task.workspaceId);
     const execution = this.get(task.id)!;
     const role = this.#store.plans.get(execution.planRevisionId)?.graph.nodes.find((node) => node.id === input.nodeId)?.roleSnapshot;
@@ -1044,6 +1058,14 @@ export class ExecutionService {
     const isCurrent = () => !this.#closed && this.#store.executions.get(execution.id)?.nodes.find((item) => item.nodeId === node.id)?.currentAttemptId === attempt.id
       && this.#store.executions.getAttempt(attempt.id)?.status === NodeStatus.RUNNING;
     const stopped = () => this.#stops.get(execution.id)?.attemptIds.includes(attempt.id) === true;
+    if (task.fixedTemplate?.snapshot !== undefined && (node.snapshotStage === 'report' || node.snapshotStage === 'verification' && snapshotExpectedUnitIds(task.fixedTemplate.snapshot, node, snapshotEvidenceState(this.#store, task.id)).length === 0)) {
+      const report = snapshotReport(this.#store, task.id);
+      const skipped = node.snapshotStage === 'verification';
+      const passed = skipped || report.pendingUnits === 0 && report.unverifiedUnits === 0;
+      if (!skipped && passed) this.#store.settings.putJson(`snapshot.report.final.${task.id}`, report);
+      this.#finishNode(execution.id, node.id, attempt.id, skipped ? NodeStatus.SKIPPED : passed ? NodeStatus.SUCCEEDED : NodeStatus.FAILED, { resultRevision: createId('res'), summary: skipped ? '上游没有候选问题，无需调用独立复核模型' : `服务汇总已分析 ${report.analyzedUnits} 个真实源码单元，未分析 ${report.pendingUnits}，待复核 ${report.unverifiedUnits}`, payload: { generatedBy: 'service', reportId: report.reportId, contentMarkdown: report.contentMarkdown }, artifacts: [], verification: { state: passed ? 'passed' : 'failed', summary: '按冻结源码单元与已提交证据校验覆盖范围' }, errors: [], warnings: [] });
+      return;
+    }
     const resultPromise = new Promise<AttemptResult>((resolve) => this.#resultWaiters.set(attempt.id, { resolve }));
     const role = node.roleSnapshot;
     let model: ModelProfile;
@@ -1253,7 +1275,11 @@ export class ExecutionService {
       .map((edge) => plan.graph.nodes.find((item) => item.id === edge.from))
       .filter((item): item is PlanNode => item !== undefined)
       .map((item) => `- ${item.title}（${item.key}）`);
-    return `# 任务
+    const snapshot = task.fixedTemplate?.snapshot;
+    const evidence = snapshot === undefined ? undefined : snapshotEvidenceState(this.#store, task.id);
+    const unitIds = snapshot === undefined || evidence === undefined ? [] : snapshotExpectedUnitIds(snapshot, node, evidence);
+    const snapshotPrompt = snapshot === undefined ? '' : `\n# 固定源码审查\n目标 ${snapshot.targetSha}；${snapshot.mode}/${snapshot.depth}；当前阶段 ${node.snapshotStage}。只读分析，禁止修改任何源码。\n逐个使用 workspace.file.read 读取下列冻结blob；工具返回的是固定版本而非当前工作树。\n${JSON.stringify(snapshot.units.filter((unit) => unitIds.includes(unit.id)))}\n${node.snapshotStage === 'verification' ? `独立检查以下上游候选，逐项给出 confirmed/rejected 与 rationale，不能遗漏候选：${JSON.stringify(unitIds.map((id) => evidence?.analyzed.get(id)))}` : ''}\n结果 payload 必须包含 snapshotUnits: [{unitId, blobSha, summary, findings:[{id,title,detail,line,severity:'high'|'medium'|'low'${node.snapshotStage === 'verification' ? ",verdict:'confirmed'|'rejected',rationale" : ''}}]}]；每个分配单元都必须出现。没有问题的单元 findings 为[]。不得给未读取的单元生成证据。\n`;
+    return `${snapshotPrompt}\n# 任务
 ${task.title}
 
 # 项目与工作区

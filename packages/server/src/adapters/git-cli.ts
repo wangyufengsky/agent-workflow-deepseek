@@ -53,6 +53,39 @@ export class GitCliAdapter implements GitPort {
     };
   }
 
+  async snapshotInventory(input: { repoRoot: string; targetRef: string; baselineRef?: string }): Promise<import('@agent-workflow/shared').GitSnapshotInventory> {
+    const commit = async (ref: string) => {
+      if (ref.trim() === '' || ref.startsWith('-') || /[\0\r\n]/.test(ref)) throw new AppError(ErrorCode.VALIDATION_FAILED, '源码版本无效');
+      const result = await this.#run(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`], input.repoRoot);
+      const sha = result.stdout.trim(); if (!/^[a-f0-9]{40}$/.test(sha)) throw new AppError(ErrorCode.VALIDATION_FAILED, '源码版本无法固定为完整提交'); return sha;
+    };
+    const targetSha = await commit(input.targetRef); const baselineSha = input.baselineRef === undefined ? undefined : await commit(input.baselineRef);
+    const tree = await this.#run(['ls-tree', '-r', '-z', '--long', targetSha], input.repoRoot);
+    const parseTree = (output: string) => output.split('\0').filter(Boolean).map((entry) => {
+      const match = /^(\d+) blob ([a-f0-9]{40})\s+(\d+)\t([\s\S]+)$/.exec(entry);
+      return match === null ? undefined : { mode: match[1]!, blobSha: match[2]!, sizeBytes: Number(match[3]), path: match[4]! };
+    }).filter((file): file is NonNullable<typeof file> => file !== undefined);
+    const files: import('@agent-workflow/shared').GitSnapshotInventory['files'][number][] = parseTree(tree.stdout);
+    if (files.length > 5000) throw new AppError(ErrorCode.VALIDATION_FAILED, '快照文件超过5000个，请缩小仓库范围后重试');
+    const diff = baselineSha === undefined ? undefined : await this.#run(['diff', '--no-renames', '--name-only', '-z', '--diff-filter=ACMRD', baselineSha, targetSha, '--'], input.repoRoot);
+    if (baselineSha !== undefined && diff !== undefined) {
+      const existing = new Set(files.map((file) => file.path)); const changed = new Set(diff.stdout.split('\0').filter(Boolean));
+      const baselineTree = await this.#run(['ls-tree', '-r', '-z', '--long', baselineSha], input.repoRoot);
+      files.push(...parseTree(baselineTree.stdout).filter((file) => !existing.has(file.path) && changed.has(file.path)).map((file) => ({ ...file, deletedAtTarget: true })));
+    }
+    if (files.length > 5000) throw new AppError(ErrorCode.VALIDATION_FAILED, '快照分析与删除单元超过5000个，请缩小范围');
+    return { targetSha, baselineSha, files, ...(diff === undefined ? {} : { changedPaths: diff.stdout.split('\0').filter(Boolean) }) };
+  }
+
+  async snapshotFile(repoRoot: string, blobSha: string): Promise<string> {
+    if (!/^[a-f0-9]{40}$/.test(blobSha)) throw new AppError(ErrorCode.VALIDATION_FAILED, '源码blob版本无效');
+    const size = await this.#run(['cat-file', '-s', blobSha], repoRoot);
+    if (Number(size.stdout.trim()) > 256 * 1024) throw new AppError(ErrorCode.TRUNCATED, '冻结源码超过读取上限');
+    const blob = await this.#run(['cat-file', 'blob', blobSha], repoRoot);
+    if (blob.stdout.includes('\0')) throw new AppError(ErrorCode.VALIDATION_FAILED, '二进制源码单元不能按文本读取');
+    return blob.stdout;
+  }
+
   async fetch(input: { repoRoot: string; remote?: string; prune?: boolean }): Promise<{ fetchedAt: string }> {
     const args = ['fetch'];
     if (input.prune !== false) args.push('--prune');

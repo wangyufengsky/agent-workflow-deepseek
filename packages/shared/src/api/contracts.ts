@@ -682,15 +682,16 @@ export interface SnapshotReviewProgress {
 }
 
 export interface SnapshotReviewScope {
+  readonly outputDirectory?: string;
   readonly planRevisionNumber?: number;
   readonly planStatus?: string;
   readonly template?: { readonly id: string; readonly version: number; readonly name: string };
   readonly mode: 'full' | 'incremental' | 'unknown';
   readonly depth: 'full' | 'lightweight' | 'unknown';
-  readonly modeSource: 'unavailable';
+  readonly modeSource: 'unavailable' | 'frozen_snapshot';
   readonly baselineSha?: string;
   readonly targetSha?: string;
-  readonly targetShaSource: 'delivery' | 'none';
+  readonly targetShaSource: 'delivery' | 'snapshot' | 'none';
   readonly branch?: string;
   readonly versionsFixed: true;
   readonly limitations: readonly string[];
@@ -705,6 +706,7 @@ export interface SnapshotReviewBatchesPage {
 }
 
 export interface SnapshotPartialReport {
+  readonly reportId?: string;
   readonly available: boolean;
   readonly readAt?: IsoDateTime;
   readonly analyzedUnits: number | null;
@@ -895,6 +897,7 @@ export interface TemplateTasksResponse {
 }
 
 export interface TaskDetailResponse {
+  readonly templateProgress?: { readonly snapshot: import('../domain/snapshot.ts').CodeReviewSnapshot };
   readonly task: Task;
   readonly project: ProjectSummary;
   readonly plan?: PlanRevision;
@@ -1848,6 +1851,8 @@ export const ROUTES = {
   taskPlanFreeze: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/freeze`,
   taskPlanFreezes: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/freezes`,
   taskAudit: (id: string) => `/api/tasks/${encodeURIComponent(id)}/audit`,
+  taskSnapshotReport: (id: string) => `/api/tasks/${encodeURIComponent(id)}/snapshot-review/report`,
+  taskSnapshotReportDownload: (id: string, reportId: string) => `/api/tasks/${encodeURIComponent(id)}/snapshot-review/report/${encodeURIComponent(reportId)}/download`,
   taskSnapshotReview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/snapshot-review`,
   taskArtifact: (id: string, attemptId: string, artifactId: string) => `/api/tasks/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/artifacts/${encodeURIComponent(artifactId)}`,
   taskRunContent: (id: string) => `/api/tasks/${encodeURIComponent(id)}/run-content`,

@@ -1,4 +1,5 @@
 import { executionPolicy } from './execution-policy.ts';
+import { snapshotPlanGraph } from './snapshot-review.ts';
 import type {
   ActionAvailability,
   CommandResponse,
@@ -109,7 +110,7 @@ export class PlanService {
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     const base = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
     const method = this.#method(task);
-    const graph = methodToGraph({
+    const templateGraph = methodToGraph({
       ...method,
       id: template.id,
       name: template.name,
@@ -117,6 +118,7 @@ export class PlanService {
       requiredSteps: template.steps.map((step) => ({ ...step })),
       refinableGroups: [],
     });
+    const graph = task.fixedTemplate?.snapshot === undefined ? templateGraph : snapshotPlanGraph(templateGraph, task.fixedTemplate.snapshot, template);
     const plan = this.#store.plans.create({ taskId, source: 'template', graph, status: 'unconfirmed', baseRevisionId: base?.id });
     this.#store.tasks.update(taskId, { stage: TaskStage.CONFIRMING, attention: TaskAttention.NONE, currentPlanRevisionId: plan.id });
     this.#store.events.publish('plan.changed', { taskId, planRevisionId: plan.id, revisionNumber: plan.revisionNumber, status: 'unconfirmed' });
@@ -196,7 +198,7 @@ export class PlanService {
         taskId,
         kind: project.gitState === 'git' ? 'git_worktree' : 'directory_copy',
         originalRootDisplay: project.rootPath,
-        baseRef: project.defaultBranch,
+        baseRef: task.fixedTemplate?.snapshot?.targetSha ?? project.defaultBranch,
       });
     this.#store.tasks.update(taskId, {
       stage: TaskStage.PREPARING,

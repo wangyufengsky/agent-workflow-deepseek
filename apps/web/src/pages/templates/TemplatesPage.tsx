@@ -103,16 +103,16 @@ function ParameterField({ template, parameters, disabled, onChange }: {
               {parameter.label}
               {parameter.required ? <span className="req">*</span> : <span className="opt">可选</span>}
             </label>
-            <input
+            {template.kind === 'snapshot_review' && (parameter.key === 'mode' || parameter.key === 'depth') ? <select id={`tpl-param-${parameter.key}`} className="select" value={value} disabled={disabled} onChange={(event) => { onChange(parameter.key, event.target.value); }}><option value="">选择{parameter.key === 'mode' ? '审查方式' : '审查深度'}</option>{(parameter.key === 'mode' ? [['full', '全面审查'], ['incremental', '增量审查']] : [['full', '全量审查'], ['lightweight', '轻量审查']]).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select> : <input
               id={`tpl-param-${parameter.key}`}
               className="input mono"
               value={value}
               disabled={disabled}
-              placeholder={index === 0 ? '相对项目目录或绝对路径' : ''}
+              placeholder={template.kind === 'snapshot_review' ? parameter.key === 'targetRef' ? 'HEAD' : parameter.key === 'baselineRef' ? '增量基线提交或分支' : '相对项目路径，逗号分隔' : index === 0 ? '相对项目目录或绝对路径' : ''}
               onChange={(event) => {
                 onChange(parameter.key, event.target.value);
               }}
-            />
+            />}
             <span className="hint mono">
               {parameter.key}
               {parameter.required ? ' · 必填' : ' · 可留空'}

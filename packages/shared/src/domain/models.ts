@@ -251,6 +251,7 @@ export interface RoleImageHistoryEntry {
 }
 
 export interface TaskTemplate {
+  readonly kind?: 'standard' | 'snapshot_review';
   readonly id: string;
   readonly name: string;
   readonly version: number;
@@ -287,6 +288,7 @@ export interface ModelProfile {
 /* ------------------------------------------------------------------ */
 
 export interface FixedTemplateBinding {
+  readonly snapshot?: import('./snapshot.ts').CodeReviewSnapshot;
   readonly templateId: string;
   readonly templateVersion: number;
   readonly locked: true;
@@ -391,6 +393,8 @@ export interface PlanNode {
   readonly roleId?: string;
   /** Published occupation frozen when the plan is confirmed. */
   readonly roleSnapshot?: RoleDefinition;
+  readonly snapshotUnitIds?: readonly string[];
+  readonly snapshotStage?: import('./enums.ts').SnapshotReviewStageValue;
   readonly templateRevision?: string;
   /** Position stored by the service so restarts and re-reads keep the same canvas view. */
   readonly position?: { readonly x: number; readonly y: number };

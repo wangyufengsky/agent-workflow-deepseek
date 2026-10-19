@@ -455,7 +455,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   app.post('/api/tasks', async (request, reply) => {
     const body = request.body as CreateTaskRequest;
-    const result = engine.tasks.create(body);
+    const result = await engine.tasks.createForRequest(body);
     reply.status(201);
     return envelope(result, requestId(request));
   });
@@ -585,6 +585,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       requestId(request),
     );
   });
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/snapshot-review/report', async (request) => envelope(engine.extras.readSnapshotReport(request.params.id), requestId(request)));
+  app.get<{ Params: { id: string; reportId: string } }>('/api/tasks/:id/snapshot-review/report/:reportId/download', async (request) => envelope(engine.extras.downloadSnapshotReport(request.params.id, request.params.reportId), requestId(request)));
   app.get<{ Params: { id: string }; Querystring: { limit?: string; cursor?: string } }>('/api/tasks/:id/snapshot-review', async (request) => {
     const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
     return envelope(

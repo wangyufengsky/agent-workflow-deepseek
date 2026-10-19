@@ -84,6 +84,8 @@ export interface RemotePort {
 }
 
 export interface GitPort {
+  snapshotInventory?(input: { readonly repoRoot: string; readonly targetRef: string; readonly baselineRef?: string }): Promise<import('@agent-workflow/shared').GitSnapshotInventory>;
+  snapshotFile?(repoRoot: string, blobSha: string): Promise<string>;
   detect(rootPath: string): Promise<GitRepoDetection>;
   status(rootPath: string): Promise<GitRepo['status'] | undefined>;
   listCommits(input: { readonly rootPath: string; readonly ref?: string; readonly limit?: number; readonly cursor?: string; readonly query?: string; readonly author?: string }): Promise<{ readonly commits: readonly GitCommitSummary[]; readonly nextCursor?: string }>;

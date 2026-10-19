@@ -98,6 +98,19 @@ export const UNIT_TEST_TEMPLATE = {
   ],
 } as const;
 
+export const SNAPSHOT_REVIEW_TEMPLATE = {
+  id: 'template.snapshot-code-review', name: '快照代码评审', kind: 'snapshot_review' as const, version: 1, lockedAfterCreate: true as const,
+  steps: [step('snapshot.analysis', '按冻结源码分析', 'verify', '分析'), step('snapshot.verification', '独立复核候选问题', 'verify', '复核'), step('snapshot.report', '汇总并校验报告', 'delivery', '报告')],
+  parameters: [
+    { key: 'targetRef', label: '目标版本（默认 HEAD）', required: false },
+    { key: 'mode', label: '审查方式：full / incremental', required: true },
+    { key: 'depth', label: '审查深度：full / lightweight', required: true },
+    { key: 'baselineRef', label: '增量基线（增量审查必填）', required: false },
+    { key: 'scopePaths', label: '代码范围（逗号分隔，默认全部）', required: false },
+    { key: 'excludedPaths', label: '排除路径（逗号分隔）', required: false },
+  ],
+};
+
 export const UNIT_TEST_METHOD: WorkflowMethod = {
   id: 'method.unit-test-development',
   name: '单元测试开发',
@@ -163,7 +176,7 @@ export const DEFAULT_MODELS: readonly ModelProfile[] = DEFAULT_MODEL_PROFILES;
 export const DEFAULT_CATALOG: CatalogSnapshot = {
   methods: DEFAULT_METHODS,
   roles: DEFAULT_ROLES.map((role) => ({ ...role, responsibilities: [...role.responsibilities] })),
-  templates: [UNIT_TEST_TEMPLATE],
+  templates: [UNIT_TEST_TEMPLATE, SNAPSHOT_REVIEW_TEMPLATE],
   taskTypes: DEFAULT_TASK_TYPES.map((type) => ({ ...type })),
   modelProfiles: DEFAULT_MODELS,
 };

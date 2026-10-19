@@ -797,3 +797,9 @@ export const ExecutionRetryClass = {
   OTHER: 'other',
 } as const;
 export type ExecutionRetryClassValue = (typeof ExecutionRetryClass)[keyof typeof ExecutionRetryClass];
+export const SnapshotReviewMode = { FULL: 'full', INCREMENTAL: 'incremental' } as const;
+export type SnapshotReviewModeValue = (typeof SnapshotReviewMode)[keyof typeof SnapshotReviewMode];
+export const SnapshotReviewDepth = { FULL: 'full', LIGHTWEIGHT: 'lightweight' } as const;
+export type SnapshotReviewDepthValue = (typeof SnapshotReviewDepth)[keyof typeof SnapshotReviewDepth];
+export const SnapshotReviewStage = { ANALYSIS: 'analysis', VERIFICATION: 'verification', REPORT: 'report' } as const;
+export type SnapshotReviewStageValue = (typeof SnapshotReviewStage)[keyof typeof SnapshotReviewStage];

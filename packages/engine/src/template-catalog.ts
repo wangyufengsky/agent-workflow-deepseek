@@ -86,6 +86,7 @@ function validate(raw: TaskTemplate): TaskTemplate {
   if (!Array.isArray(raw.parameters)) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板参数必须是数组');
   return {
     id: raw.id,
+    ...(raw.kind === 'snapshot_review' ? { kind: 'snapshot_review' as const } : {}),
     name: raw.name.trim(),
     version: raw.version,
     lockedAfterCreate: true,
@@ -93,7 +94,7 @@ function validate(raw: TaskTemplate): TaskTemplate {
       if (step === null || typeof step !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} 不合法`);
       if (typeof step.key !== 'string' || step.key.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} 缺少 key`);
       if (typeof step.title !== 'string' || step.title.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} 缺少标题`);
-      if (step.kind !== 'implementation' && step.kind !== 'test' && step.kind !== 'delivery') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} kind 不合法`);
+      if (step.kind !== 'implementation' && step.kind !== 'test' && step.kind !== 'delivery' && step.kind !== 'verify') throw new AppError(ErrorCode.VALIDATION_FAILED, `步骤 ${index + 1} kind 不合法`);
       return { key: step.key.trim(), title: step.title.trim(), kind: step.kind, group: typeof step.group === 'string' && step.group.trim() !== '' ? step.group.trim() : '固定步骤' };
     }),
     parameters: raw.parameters.map((parameter, index) => {
