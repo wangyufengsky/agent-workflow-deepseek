@@ -1,3 +1,4 @@
+import { RuntimeItem, RuntimeReceipt, useRuntimeInteractions } from './RuntimeInbox.tsx';
 import { QuestionInput, questionDraft, hasQuestionAnswer, type QuestionDraft } from '../../components/QuestionInput.tsx';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -7,7 +8,6 @@ import {
   InteractionKind,
   InteractionState,
   type InboxItem,
-  type InteractionCapabilitiesView,
   type InteractionDetail,
   type InteractionKindValue,
   type InteractionQuestion,
@@ -177,67 +177,6 @@ function InteractionSkeleton() {
         </div>
       </div>
     </div>
-  );
-}
-
-function PermissionsUnavailable({ capabilities }: { readonly capabilities?: InteractionCapabilitiesView }) {
-  const reason = capabilities?.reason
-    ?? '受管 OpenCode + 内部 MCP 架构没有权限/策略请求来源；服务不会伪造此类事项。';
-  return (
-    <section className="card solid" aria-label="权限与策略请求不可用">
-      <div className="inbox-detail-card">
-        <div className="row wrap" style={{ gap: 8 }}>
-          <Badge tone="unknown" icon="help">服务未提供</Badge>
-          <h2 style={{ fontSize: 19, fontWeight: 500, margin: 0 }}>权限与策略请求</h2>
-        </div>
-        <p className="sub" style={{ marginTop: 10, lineHeight: 1.7 }}>
-          {reason}
-        </p>
-
-        <div className="inbox-scope-grid">
-          <div className="card pad inbox-scope-card">
-            <div className="row" style={{ gap: 8 }}>
-              <span className="grow" style={{ fontSize: 13.5, fontWeight: 500 }}>仅这一次</span>
-              <Badge tone="idle" icon="lock">不可用</Badge>
-            </div>
-            <p className="hint" style={{ marginTop: 4, lineHeight: 1.6 }}>只允许当前这一次写入；服务没有权限请求来源，无法提交。</p>
-          </div>
-          <div className="card pad inbox-scope-card">
-            <div className="row" style={{ gap: 8 }}>
-              <span className="grow" style={{ fontSize: 13.5, fontWeight: 500 }}>本次会话内都允许</span>
-              <Badge tone="idle" icon="lock">不可用</Badge>
-            </div>
-            <p className="hint" style={{ marginTop: 4, lineHeight: 1.6 }}>会话内同类操作自动允许；服务没有权限请求来源，无法提交。</p>
-          </div>
-        </div>
-
-        <div className="banner danger" style={{ marginTop: 14 }}>
-          <Icon name="shield" />
-          <div className="grow">
-            <b>策略禁止也需要真实来源。</b>
-            <br />
-            当前没有策略禁止事项；这里只显示能力原因，不伪造「知道了」结果。
-          </div>
-          <div className="actions">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled
-              disabledReason="服务未提供策略禁止事项来源。"
-            >
-              知道了
-            </Button>
-          </div>
-        </div>
-
-        <div className="inbox-foot" style={{ margin: '18px -22px 0', paddingLeft: 22, paddingRight: 22 }}>
-          <Button variant="ghost" disabled disabledReason="服务未提供权限/策略请求来源。">拒绝</Button>
-          <span className="grow" />
-          <Button variant="secondary" disabled disabledReason="服务未提供权限/策略请求来源。">本次会话都允许</Button>
-          <Button variant="primary" disabled disabledReason="服务未提供权限/策略请求来源。">允许这一次</Button>
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -511,8 +450,11 @@ function InteractionDetailPanel({
 
 export function InboxPage() {
   const bootstrap = useBootstrap();
+  const runtimeQuery = useRuntimeInteractions();
+  const runtimeItems = (runtimeQuery.data?.items ?? []).filter((item) => item.state !== 'resolved');
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<InboxFilter>('all');
+  const [selectedRuntimeId, setSelectedRuntimeId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<DraftMap>({});
   const [pendingSelect, setPendingSelect] = useState<string | null>(null);
@@ -534,7 +476,10 @@ export function InboxPage() {
     return items.filter((item) => item.kind === filter);
   }, [filter, items]);
 
-  const selectedSummary = filter === 'permissions'
+  const runtimeFiltered = runtimeItems.filter((item) => filter === 'all' || (filter === 'planning_reconcile' && item.state === 'unknown') || (filter === 'permissions' ? item.kind !== 'question' : filter === 'planning_question' && item.kind === 'question'));
+  const selectedRuntime = runtimeFiltered.find((item) => item.id === selectedRuntimeId) ?? (filter === 'permissions' || filtered.length === 0 ? runtimeFiltered[0] : undefined);
+
+  const selectedSummary = filter === 'permissions' || selectedRuntime !== undefined
     ? undefined
     : filtered.find((item) => item.id === selectedId) ?? filtered[0];
 
@@ -642,11 +587,11 @@ export function InboxPage() {
   const noProjects = bootstrap.data !== undefined && bootstrap.data.projects.length === 0;
 
   const counts: Record<InboxFilter, number | undefined> = {
-    all: listQuery.isLoading || listQuery.isError ? undefined : items.length,
-    planning_question: listQuery.isLoading || listQuery.isError ? undefined : items.filter((item) => item.kind === InteractionKind.PLANNING_QUESTION).length,
+    all: listQuery.isLoading || listQuery.isError || runtimeQuery.isPending || runtimeQuery.isError ? undefined : items.length + runtimeItems.length,
+    planning_question: listQuery.isLoading || listQuery.isError || runtimeQuery.isPending || runtimeQuery.isError ? undefined : items.filter((item) => item.kind === InteractionKind.PLANNING_QUESTION).length + runtimeItems.filter((item) => item.kind === 'question').length,
     planning_review: listQuery.isLoading || listQuery.isError ? undefined : items.filter((item) => item.kind === InteractionKind.PLANNING_REVIEW).length,
-    planning_reconcile: listQuery.isLoading || listQuery.isError ? undefined : items.filter((item) => item.kind === InteractionKind.PLANNING_RECONCILE).length,
-    permissions: listQuery.isLoading || listQuery.isError ? undefined : 0,
+    planning_reconcile: listQuery.isLoading || listQuery.isError || runtimeQuery.isPending || runtimeQuery.isError ? undefined : items.filter((item) => item.kind === InteractionKind.PLANNING_RECONCILE).length + runtimeItems.filter((item) => item.state === 'unknown').length,
+    permissions: runtimeQuery.isPending || runtimeQuery.isError ? undefined : runtimeItems.filter((item) => item.kind !== 'question').length,
   };
 
   let leftBody: ReactNode;
@@ -680,7 +625,7 @@ export function InboxPage() {
     leftBody = (
       <div className="inbox-empty-hint">
         <p className="hint" style={{ margin: 0 }}>
-          服务未提供权限/策略请求来源；没有可列出的此类事项。
+          权限与策略来自真实运行时请求；在右侧处理。
         </p>
       </div>
     );
@@ -701,15 +646,22 @@ export function InboxPage() {
             item={item}
             selected={item.id === selectedSummary?.id}
             draft={drafts[item.id] !== undefined && Object.keys(drafts[item.id] ?? {}).length > 0}
-            onSelect={() => { requestSelect(item.id); }}
+            onSelect={() => { setSelectedRuntimeId(null); requestSelect(item.id); }}
           />
         ))}
       </div>
     );
   }
 
+  if (runtimeFiltered.length > 0) {
+    leftBody = <><div className="list" style={{ padding: '4px 6px 8px' }}>{runtimeFiltered.map((item) => <button className="list-row inbox-row" type="button" key={item.id} aria-selected={selectedRuntime?.id === item.id} onClick={() => setSelectedRuntimeId(item.id)}><Icon name={item.hard ? 'lock' : 'help'} /><span className="grow"><b>{item.kind === 'question' ? '需要你回答' : item.hard ? '策略已阻止' : '需要只读授权'} · {item.stepName}</b><span className="hint">{item.taskTitle} · {item.state === 'unknown' ? '待核对' : '待处理'}</span></span></button>)}</div>{filtered.length > 0 ? leftBody : null}</>;
+  }
   let detailBody: ReactNode;
-  if (filter === 'permissions') {
+  if (runtimeQuery.isError && (selectedRuntime !== undefined || selectedSummary === undefined)) {
+    detailBody = <ServiceNotice error={runtimeQuery.error} onRetry={() => { void runtimeQuery.refetch(); }} />;
+  } else if (selectedRuntime !== undefined) {
+    detailBody = <RuntimeItem key={selectedRuntime.id} item={selectedRuntime} />;
+  } else if (filter === 'permissions') {
     if (listQuery.isLoading) {
       detailBody = <InteractionSkeleton />;
     } else if (listQuery.isError) {
@@ -722,7 +674,7 @@ export function InboxPage() {
         </section>
       );
     } else {
-      detailBody = <PermissionsUnavailable capabilities={capabilities} />;
+      detailBody = <section className="card solid" style={{ padding: 20 }}><p className="hint">{runtimeQuery.isError ? '运行时事项读取失败，请重新读取。' : '当前没有运行时权限或策略事项。'}</p></section>;
     }
   } else if (selectedSummary === undefined) {
     detailBody = (
@@ -769,7 +721,7 @@ export function InboxPage() {
     <div className="page wide">
       <PageHeader
         title="待处理中心"
-        lede="任务需要你回答、审阅或核对时会停在这里。问题可直接回答并提交；权限与策略事项如实标注服务未提供，不会伪造。"
+        lede="任务需要你回答、审阅或核对时会停在这里。问题可直接回答；权限请求按冻结的只读范围处理，策略禁止只能知晓。"
         actions={
           <Button
             variant="ghost"
@@ -778,6 +730,7 @@ export function InboxPage() {
             disabled={listQuery.isFetching}
             disabledReason={listQuery.isFetching ? '正在刷新待处理事项…' : undefined}
             onClick={() => {
+              void runtimeQuery.refetch();
               void listQuery.refetch();
               if (selectedSummary !== undefined) void detailQuery.refetch();
               void bootstrap.refetch();
@@ -794,6 +747,7 @@ export function InboxPage() {
         </div>
       )}
 
+      <RuntimeReceipt />
       <div className="inbox-split">
         <div className="col" style={{ gap: 16 }}>
           <section className="card inbox-list-card" aria-label="待处理事项列表">
@@ -804,7 +758,7 @@ export function InboxPage() {
                     key={item.value}
                     type="button"
                     aria-pressed={filter === item.value}
-                    title={item.value === 'permissions' ? capabilities?.reason ?? '服务未提供权限/策略事项' : undefined}
+                    title={item.value === 'permissions' ? capabilities?.reason ?? '运行时权限与策略事项' : undefined}
                     onClick={() => { setFilter(item.value); }}
                   >
                     {item.label}
@@ -818,9 +772,9 @@ export function InboxPage() {
               <span className="hint grow">
                 {listQuery.data === undefined
                   ? '数量未知'
-                  : `打开 ${String(listQuery.data.counts.open)} · 待核对 ${String(listQuery.data.counts.unknown)}`}
+                  : `打开 ${String(listQuery.data.counts.open + runtimeItems.filter((item) => item.state === 'open').length)} · 待核对 ${String(listQuery.data.counts.unknown + runtimeItems.filter((item) => item.state === 'unknown').length)}`}
               </span>
-              <span className="hint">列表来自 /api/interactions</span>
+              <span className="hint">规划与原运行时事件</span>
             </div>
             {capabilities !== undefined && (!capabilities.permissions || !capabilities.policy) ? (
               <div className="inbox-unavailable">

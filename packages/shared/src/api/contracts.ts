@@ -143,7 +143,7 @@ export interface BootstrapResponse {
 
 export interface InboxItem {
   readonly id: string;
-  readonly kind: 'planning_answer' | 'planning_review' | 'planning_reconcile' | 'delivery_confirm' | 'execution_failed';
+  readonly kind: import('../domain/enums.ts').InboxKindValue;
   readonly projectId: string;
   readonly taskId: string;
   readonly taskTitle: string;
@@ -1943,6 +1943,9 @@ export const ROUTES = {
   bootstrap: '/api/bootstrap',
   events: '/api/events',
   operationsByKey: (requestKey: string) => `/api/operations/${encodeURIComponent(requestKey)}`,
+  runtimeInteractions: '/api/runtime-interactions',
+  runtimeInteraction: (id: string) => `/api/runtime-interactions/${encodeURIComponent(id)}`,
+  runtimeInteractionResolve: (id: string) => `/api/runtime-interactions/${encodeURIComponent(id)}/resolve`,
   interactions: '/api/interactions',
   interaction: (id: string) => `/api/interactions/${encodeURIComponent(id)}`,
   interactionResolve: (id: string) => `/api/interactions/${encodeURIComponent(id)}/resolve`,

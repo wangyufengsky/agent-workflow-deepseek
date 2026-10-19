@@ -140,6 +140,11 @@ export interface OpenCodeRunResult {
 }
 
 export interface OpenCodePort {
+  runtimeRequests?(sessionId: string, kind: 'permission' | 'question', protocol: 'legacy' | 'v2'): Promise<readonly Record<string, unknown>[]>;
+  replyRuntimePermission?(sessionId: string, requestId: string, reply: 'once' | 'reject', protocol: 'legacy' | 'v2'): Promise<void>;
+  replyRuntimeQuestion?(sessionId: string, requestId: string, answers: readonly (readonly string[])[] | undefined, protocol: 'legacy' | 'v2'): Promise<void>;
+  runtimePermissionAllowed?(sessionId: string, permission: import('@agent-workflow/opencode').PermissionRequest): boolean;
+
   status(): OpenCodeManagerStatus;
   ensureReady(): Promise<void>;
   runSession(request: OpenCodeRunRequest): Promise<OpenCodeRunResult>;

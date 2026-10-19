@@ -137,15 +137,15 @@ async function detailOf(app: App, id: string): Promise<InteractionDetail> {
   return response.json().data as InteractionDetail;
 }
 
-test('W3-2: interactions list derives real planning items and honestly reports missing permission/policy sources', async () => {
+test('W3-2: interactions list derives real planning items and reports the runtime permission/policy bridge without fabricating items', async () => {
   const { app, questionTaskId, reviewInteractionId, unknownInteractionId } = await seed();
   try {
     const list = await listInteractions(app);
     assert.equal(list.capabilities.planningQuestions, true);
     assert.equal(list.capabilities.planningReview, true);
-    assert.equal(list.capabilities.permissions, false);
-    assert.equal(list.capabilities.policy, false);
-    assert.match(String(list.capabilities.reason), /没有权限\/策略请求来源/);
+    assert.equal(list.capabilities.permissions, true);
+    assert.equal(list.capabilities.policy, true);
+    assert.match(String(list.capabilities.reason), /真实|原运行时事件/);
     assert.equal(list.counts.open, 2);
     assert.equal(list.counts.unknown, 1);
 
@@ -338,5 +338,28 @@ test('choice questions preserve model options, validate exact selections and rep
       assert.equal(app.store.tasks.get(questionTaskId)!.requirement.revision, revision + 1);
     }
     assert.throws(() => app.engine.planning.appendQuestion({ taskId: questionTaskId, roundId: round.id, question: '重复选项', required: true, options: [options[0]!, options[0]!] }), /选项格式/);
+  } finally { await app.close(); }
+});
+
+test('planning list, sidebar and task attention agree after answers, applied/rejected candidates and UNKNOWN priority', async () => {
+  const seeded = await seed(); const { app, questionTaskId } = seeded;
+  try {
+    const round = app.store.planning.latest(questionTaskId)!;
+    app.store.planning.update(round.id, { questions: round.questions.map((question) => ({ ...question, answer: '真实已保存答复', answeredAt: new Date().toISOString() })) });
+    app.engine.tasks.recomputeAttention(questionTaskId);
+    assert.equal(app.engine.inbox.list().some((item) => item.taskId === questionTaskId), false);
+    assert.equal(app.engine.tasks.get(questionTaskId).attention, 'none');
+    assert.equal((await listInteractions(app)).items.some((item) => item.taskId === questionTaskId), false);
+    const review = app.store.planning.list(app.store.tasks.list().find((task) => task.title === '候选待审阅的任务')!.id)[0]!;
+    for (const applyStatus of ['applied','rejected'] as const) {
+      app.store.planning.update(review.id, { applyStatus }); app.engine.tasks.recomputeAttention(review.taskId);
+      assert.equal(app.engine.inbox.list().some((item) => item.taskId === review.taskId), false);
+      assert.equal(app.engine.tasks.get(review.taskId).attention, 'none');
+      assert.equal((await listInteractions(app)).items.some((item) => item.taskId === review.taskId), false);
+    }
+    app.store.planning.update(round.id, { status: 'unknown', stage: 'needs_answer', questions: round.questions });
+    app.engine.tasks.recomputeAttention(questionTaskId);
+    assert.equal(app.engine.tasks.get(questionTaskId).attention, 'unknown');
+    assert.equal(app.engine.inbox.list().find((item) => item.taskId === questionTaskId)?.kind, 'planning_reconcile');
   } finally { await app.close(); }
 });

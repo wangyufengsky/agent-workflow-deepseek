@@ -1,3 +1,4 @@
+import { isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview } from '@agent-workflow/shared';
 import type {
   ActionAvailability,
   AppSettings,
@@ -326,6 +327,7 @@ export function computePlanningActions(input: {
 
 export function computeTaskAttention(input: {
   readonly task: Task;
+  readonly runtimeAttention?: 'waiting_user' | 'unknown';
   readonly round?: PlanningRound;
   readonly execution?: ExecutionView;
   readonly workspace?: TaskWorkspace;
@@ -334,9 +336,11 @@ export function computeTaskAttention(input: {
   const { task, round, execution, workspace, delivery } = input;
   if (task.lifecycle !== TaskLifecycle.ACTIVE) return { attention: TaskAttention.NONE };
   if (task.readOnly === true) return { attention: TaskAttention.WAITING_USER, reason: '只读验证草稿待人工核对' };
-  if (round?.status === 'unknown' || round?.stage === 'unknown') return { attention: TaskAttention.UNKNOWN, reason: '规划结果待核对' };
-  if (round?.stage === 'needs_answer') return { attention: TaskAttention.WAITING_USER, reason: '有必须答复的问题' };
-  if (round?.stage === 'awaiting_review') return { attention: TaskAttention.WAITING_USER, reason: '候选待审阅' };
+  if (round !== undefined && isPlanningRoundUnknown(round)) return { attention: TaskAttention.UNKNOWN, reason: '规划结果待核对' };
+  if (round !== undefined && hasPendingPlanningQuestions(round)) return { attention: TaskAttention.WAITING_USER, reason: '有必须答复的问题' };
+  if (round !== undefined && hasPendingPlanningReview(round)) return { attention: TaskAttention.WAITING_USER, reason: '候选待审阅' };
+  if (input.runtimeAttention === 'unknown') return { attention: TaskAttention.UNKNOWN, reason: '运行时互动结果待核对' };
+  if (input.runtimeAttention === 'waiting_user') return { attention: TaskAttention.WAITING_USER, reason: '运行时正在等待答复' };
   if (execution?.status === 'failed') return { attention: TaskAttention.FAILED, reason: '执行失败' };
   if (execution?.status === 'unknown') return { attention: TaskAttention.UNKNOWN, reason: '执行结果待核对' };
   if (execution?.notice?.kind === 'race') return { attention: TaskAttention.WAITING_USER, reason: '待执行计划调整遇到领取竞态' };

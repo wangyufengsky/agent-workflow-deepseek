@@ -441,6 +441,9 @@ export const AgentKind = {
 } as const;
 
 export const InboxKind = {
+  RUNTIME_QUESTION: 'runtime_question',
+  RUNTIME_PERMISSION: 'runtime_permission',
+  RUNTIME_POLICY: 'runtime_policy',
   PLANNING_ANSWER: 'planning_answer',
   PLANNING_REVIEW: 'planning_review',
   PLANNING_RECONCILE: 'planning_reconcile',
@@ -491,9 +494,9 @@ export const RoleResourceFileKind = { READ: 'read', WRITE: 'write' } as const;
 export type RoleResourceFileKindValue = (typeof RoleResourceFileKind)[keyof typeof RoleResourceFileKind];
 
 /**
- * Inbox interactions the server can actually serve. Permissions/policy are not
- * listed because the managed-OpenCode + internal-MCP architecture has no source
- * for them; `capabilities` reports that absence instead of inventing items.
+ * Planning interaction DTO kinds. Native permission/question/policy events use
+ * RuntimeInteraction with session/request identity; they never pretend to be a
+ * planning round. InboxKind above includes their bootstrap summaries.
  */
 export const InteractionKind = {
   PLANNING_QUESTION: 'planning_question',
@@ -534,12 +537,14 @@ export const EventType = {
   REVIEW_CHANGED: 'review.changed',
   FIX_CHANGED: 'fix.changed',
   CATALOG_CHANGED: 'catalog.changed',
+  INBOX_CHANGED: 'inbox.changed',
   OPENCODE_STATUS_CHANGED: 'opencode.status.changed',
 } as const;
 export type EventTypeValue = (typeof EventType)[keyof typeof EventType];
 
 /** Every mutating command. Kept in shared so MCP, server and UI agree. */
 export const OperationKind = {
+  RUNTIME_INTERACTION_RESOLVE: 'runtime.interaction.resolve',
   PROJECT_CREATE: 'project.create',
   PROJECT_UPDATE: 'project.update',
   PROJECT_RECHECK: 'project.recheck',
@@ -646,6 +651,7 @@ export interface OperationDefinition {
 }
 
 export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
+  'runtime.interaction.resolve': op('runtime.interaction.resolve', 'task', true, '答复原运行时权限或问题请求'),
   'project.create': op('project.create', 'global', true, '登记项目'),
   'project.update': op('project.update', 'project', true, '更新项目设置'),
   'project.recheck': op('project.recheck', 'project', true, '重新检测项目路径与 Git 状态'),

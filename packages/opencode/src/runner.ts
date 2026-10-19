@@ -1,7 +1,11 @@
 import type { OpenCodeClient, OpenCodeHttpError } from './client.ts';
 import type { OpenCodeMessage, OpenCodePart, PromptInput } from './types.ts';
 
-export type PermissionDecision = 'once' | 'always' | 'reject';
+export type PermissionDecision = 'once' | 'always' | 'reject' | 'defer';
+
+export interface RuntimeQuestion { readonly question: string; readonly header: string; readonly options: readonly { readonly label: string; readonly description: string }[]; readonly multiple?: boolean; readonly custom?: boolean }
+export interface QuestionRequest { readonly id: string; readonly sessionID: string; readonly questions: readonly RuntimeQuestion[]; readonly protocol: 'legacy' | 'v2' }
+export interface InteractionConfirmation { readonly kind: 'permission' | 'question'; readonly sessionID: string; readonly requestID: string; readonly reply?: 'once' | 'always' | 'reject'; readonly answers?: readonly (readonly string[])[]; readonly rejected?: boolean }
 
 export interface SessionSink {
   onTextDelta?(delta: string, info: { messageId: string; partId: string }): void;
@@ -9,11 +13,15 @@ export interface SessionSink {
   onReasoningDelta?(delta: string): void;
   onTool?(part: OpenCodePart, status: 'called' | 'success' | 'failed' | 'progress'): void;
   onPermission?(permission: PermissionRequest): PermissionDecision | Promise<PermissionDecision>;
+  onQuestion?(question: QuestionRequest): void | Promise<void>;
+  onInteractionConfirmed?(confirmation: InteractionConfirmation): void;
+  onInteractionReplyError?(request: PermissionRequest, message: string): void;
   onError?(message: string): void;
   onIdle?(): void;
 }
 
 export interface PermissionRequest {
+  readonly protocol?: 'legacy' | 'v2';
   readonly id: string;
   readonly sessionID: string;
   readonly permission: string;
@@ -139,11 +147,21 @@ export class SessionRunner {
             this.#sink.onTool?.(toPart(properties), 'progress');
           } else if (event.type === 'permission.asked' || event.type === 'permission.v2.asked') {
             const request = toPermission(properties, this.#sessionId, event.type === 'permission.v2.asked');
-            const decision = request === undefined ? 'reject' : ((await this.#sink.onPermission?.(request)) ?? 'reject');
-            try {
-              await this.#client.replyPermission(request!.id, decision);
-            } catch {
-              // A missing permission request is not fatal for the session.
+            if (request !== undefined && request.sessionID === this.#sessionId) {
+              // Human decisions must never block this stream: confirmations and
+              // idle/error events are delivered on the same connection.
+              void Promise.resolve().then(() => this.#sink.onPermission?.(request) ?? 'reject').then(async (decision) => {
+                if (!abort.signal.aborted && this.#running && decision !== 'defer') await this.#client.replyRuntimePermission(request.sessionID, request.id, decision, request.protocol ?? 'legacy');
+              }).catch((caught: unknown) => this.#sink.onInteractionReplyError?.(request, caught instanceof Error ? caught.message : String(caught)));
+            }
+          } else if (event.type === 'question.asked' || event.type === 'question.v2.asked') {
+            if (properties.sessionID === this.#sessionId && typeof properties.id === 'string' && Array.isArray(properties.questions)) {
+              const request: QuestionRequest = { id: properties.id, sessionID: this.#sessionId, questions: properties.questions as unknown as readonly RuntimeQuestion[], protocol: event.type === 'question.v2.asked' ? 'v2' : 'legacy' };
+              void Promise.resolve().then(() => this.#sink.onQuestion === undefined ? this.#client.replyRuntimeQuestion(request.sessionID, request.id, undefined, request.protocol) : this.#sink.onQuestion(request)).catch((caught: unknown) => this.#sink.onError?.(caught instanceof Error ? caught.message : String(caught)));
+            }
+          } else if (/^(permission|question)(\.v2)?\.(replied|rejected)$/.test(event.type)) {
+            if (properties.sessionID === this.#sessionId && typeof properties.requestID === 'string') {
+              this.#sink.onInteractionConfirmed?.({ kind: event.type.startsWith('permission') ? 'permission' : 'question', sessionID: this.#sessionId, requestID: properties.requestID, ...(typeof properties.reply === 'string' ? { reply: properties.reply as 'once' | 'always' | 'reject' } : {}), ...(Array.isArray(properties.answers) ? { answers: properties.answers as readonly (readonly string[])[] } : {}), ...(event.type.endsWith('rejected') ? { rejected: true } : {}) });
             }
           } else if (event.type === 'session.error') {
             const info = properties.error as { message?: string; name?: string } | undefined;
@@ -215,12 +233,14 @@ export class SessionRunner {
 
 function toPermission(properties: Record<string, unknown>, sessionId: string, v2: boolean): PermissionRequest | undefined {
   const id = typeof properties.id === 'string' ? properties.id : typeof properties.permissionID === 'string' ? properties.permissionID : undefined;
-  if (id === undefined) return undefined;
-  const patterns = Array.isArray(properties.patterns) ? properties.patterns.filter((value): value is string => typeof value === 'string') : [];
+  if (id === undefined || typeof properties.sessionID !== 'string' || properties.sessionID !== sessionId) return undefined;
+  const resources = v2 ? properties.resources : properties.patterns;
+  const patterns = Array.isArray(resources) ? resources.filter((value): value is string => typeof value === 'string') : [];
   return {
     id,
+    protocol: v2 ? 'v2' : 'legacy',
     sessionID: typeof properties.sessionID === 'string' ? properties.sessionID : sessionId,
-    permission: typeof properties.permission === 'string' ? properties.permission : v2 ? 'unknown' : 'unknown',
+    permission: typeof (v2 ? properties.action : properties.permission) === 'string' ? String(v2 ? properties.action : properties.permission) : 'unknown',
     patterns,
     metadata: typeof properties.metadata === 'object' && properties.metadata !== null ? (properties.metadata as Record<string, unknown>) : undefined,
   };

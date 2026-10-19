@@ -1,3 +1,4 @@
+import { isPlanningQuestionAnswered, isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview } from '@agent-workflow/shared';
 import { normalizeQuestionAnswer, questionChoices } from '@agent-workflow/shared';
 import { readableOutput } from '@agent-workflow/engine';
 import { registerRuntimeOperationRoutes } from './runtime-operations.ts';
@@ -266,6 +267,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'PATCH /api/knowledge/projects/:id/permissions',
   'POST /api/knowledge/runs/:key/stop',
   'POST /api/interactions/:id/resolve',
+  'POST /api/runtime-interactions/:id/resolve',
   'POST /api/opencode/start',
   'POST /api/opencode/restart',
 ]);
@@ -1208,6 +1210,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
 
   // Operations
   app.get<{ Params: { key: string } }>('/api/operations/:key', async (request) => {
+    await engine.runtimeInteractions.reconcileOperation(request.params.key);
     engine.tasks.reconcileCreate(request.params.key);
     engine.recoveries.reconcileOperation(request.params.key);
     await engine.executions.reconcileOperation(request.params.key);
@@ -1218,6 +1221,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     if (operation === undefined) throw new AppError(ErrorCode.NOT_FOUND, '操作记录不存在');
     return envelope({ operation, stillUnknown: operation.status === 'unknown' || operation.status === 'accepted' }, requestId(request));
   });
+
+  app.get('/api/runtime-interactions', async (request) => envelope({ items: engine.runtimeInteractions.list().map((item) => engine.runtimeInteractions.view(item)) }, requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/runtime-interactions/:id', async (request) => envelope(engine.runtimeInteractions.view(engine.runtimeInteractions.get(request.params.id)), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/runtime-interactions/:id/resolve', async (request) => envelope(await engine.runtimeInteractions.resolve(request.params.id, request.body as import('@agent-workflow/shared').RuntimeInteractionResolveRequest), requestId(request)));
 
   // Inbox interactions (待处理中心就地处理)
   app.get('/api/interactions', async (request) => envelope(listInboxInteractions(store), requestId(request)));
@@ -1657,38 +1664,36 @@ function parseInteractionId(id: string): { readonly kind: 'planning_question' | 
 }
 
 /**
- * Honest capability snapshot: planning questions/review are derived from stored
- * rounds; permissions/policy have no source in the managed OpenCode + internal
- * MCP architecture, so the server reports them unavailable instead of inventing
- * inbox items.
+ * Planning items derive from saved rounds; runtime permissions/policy use the
+ * independent persisted runtime-interaction bridge. Capability does not invent
+ * pending requests when the runtime has not emitted one.
  */
 function interactionCapabilities(): InteractionCapabilitiesView {
   return {
     planningQuestions: true,
     planningReview: true,
-    permissions: false,
-    policy: false,
-    reason: '受管 OpenCode + 内部 MCP 架构下没有权限/策略请求来源；Inbox 只列真实存在的事项，不伪造 permission/policy。',
+    permissions: true,
+    policy: true,
+    reason: '权限与策略来自原运行时事件；仅在冻结的只读授权上限内答复。',
   };
 }
 
 function questionAnswered(question: PlanningQuestion): boolean {
-  return typeof question.answer === 'string' && question.answer.trim() !== '';
+  return isPlanningQuestionAnswered(question);
 }
 
 function planningRoundIsUnknown(round: PlanningRound): boolean {
-  return round.status === 'unknown' || round.stage === PlanningStage.UNKNOWN || round.reconcile?.state === 'still_unknown';
+  return isPlanningRoundUnknown(round);
 }
 
 function planningRoundInteractionState(round: PlanningRound, kind: 'planning_question' | 'planning_review' | 'planning_reconcile'): InteractionStateValue {
   if (planningRoundIsUnknown(round)) return InteractionState.UNKNOWN;
   if (kind === InteractionKind.PLANNING_RECONCILE) return InteractionState.RESOLVED;
   if (kind === InteractionKind.PLANNING_QUESTION) {
-    const hasUnansweredRequired = round.questions.some((question) => question.required && !questionAnswered(question));
-    return round.stage === PlanningStage.NEEDS_ANSWER && hasUnansweredRequired ? InteractionState.OPEN : InteractionState.RESOLVED;
+    return hasPendingPlanningQuestions(round) ? InteractionState.OPEN : InteractionState.RESOLVED;
   }
   if (kind === InteractionKind.PLANNING_REVIEW) {
-    return round.stage === PlanningStage.AWAITING_REVIEW && round.candidate !== undefined ? InteractionState.OPEN : InteractionState.RESOLVED;
+    return hasPendingPlanningReview(round) ? InteractionState.OPEN : InteractionState.RESOLVED;
   }
   return InteractionState.UNKNOWN;
 }

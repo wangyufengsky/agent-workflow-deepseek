@@ -57,6 +57,7 @@ export function rolePermission(role: RoleDefinition, mcpServerName: string): unk
   const names = tools.filter((tool) => tool.kind === 'mcp' && enabled('external_mcp')).map((tool) => tool.name);
   return [
     { permission: '*', pattern: '*', action: 'deny' },
+    { permission: 'question', pattern: '*', action: 'allow' },
     ...['workflow.context.get', 'workflow.result.submit', ...names].map((name) => ({ permission: `${mcpServerName}_${name.replaceAll('.', '_')}`, pattern: '*', action: 'allow' })),
   ];
 }
@@ -66,7 +67,7 @@ export function sessionPermission(request: OpenCodeRunRequest, mcpServerName: st
   if (request.allowedTools === undefined) return request.rolePolicy === undefined ? request.permission === 'read_only' ? readOnlyPermission() : workspacePermission() : rolePermission(request.rolePolicy, mcpServerName);
   const roleTools = request.rolePolicy?.resourcePermissions?.tools.filter((tool) => tool.kind === 'mcp').map((tool) => tool.name);
   const allowed = request.allowedTools.filter((name) => (roleTools === undefined || name === 'workflow.context.get' || name === 'workflow.result.submit' || roleTools.includes(name)) && (request.permission !== 'read_only' || !['workspace.exec', 'workspace.file.write'].includes(name)));
-  return [{ permission: '*', pattern: '*', action: 'deny' }, ...allowed.map((name) => ({ permission: `${mcpServerName}_${name.replaceAll('.', '_')}`, pattern: '*', action: 'allow' }))];
+  return [{ permission: '*', pattern: '*', action: 'deny' }, { permission: 'question', pattern: '*', action: 'allow' }, ...allowed.map((name) => ({ permission: `${mcpServerName}_${name.replaceAll('.', '_')}`, pattern: '*', action: 'allow' }))];
 }
 
 /**
@@ -80,6 +81,7 @@ export class OpenCodeAdapter implements OpenCodePort {
   #activeSessions = 0;
   #pendingSessions = 0;
   #maintenance = false;
+  readonly #interactionSessions = new Map<string, OpenCodeRunRequest>();
   #starting: Promise<void> | undefined;
 
   constructor(options: OpenCodeAdapterOptions) {
@@ -178,6 +180,7 @@ export class OpenCodeAdapter implements OpenCodePort {
     request = this.#options.sessionPolicy?.(request) ?? request;
     this.#activeSessions += 1;
     const scope = createSessionScope(request);
+    let interactionSessionId: string | undefined;
     try {
     const client = this.#manager.client;
     const session = await client.createSession({
@@ -187,6 +190,8 @@ export class OpenCodeAdapter implements OpenCodePort {
       model: { id: request.model.model, providerID: request.model.provider },
       permission: sessionPermission(request, this.#options.mcpServerName),
     });
+    interactionSessionId = session.id;
+    this.#interactionSessions.set(session.id, structuredClone({ ...request, sink: {}, onSessionId: undefined }));
     request.onSessionId?.(session.id);
     const runner = new SessionRunner(client, session.id, request.sink);
     const outcome: PromptOutcome = await runner.run(
@@ -210,8 +215,30 @@ export class OpenCodeAdapter implements OpenCodePort {
     return { sessionId: session.id, outcome };
     } finally {
       scope.revoke();
+      if (interactionSessionId !== undefined) this.#interactionSessions.delete(interactionSessionId);
       this.#activeSessions = Math.max(0, this.#activeSessions - 1);
     }
+  }
+
+  runtimeRequests(sessionId: string, kind: 'permission' | 'question', protocol: 'legacy' | 'v2') { return this.#manager.client.runtimeRequests(sessionId, kind, protocol); }
+  replyRuntimePermission(sessionId: string, requestId: string, reply: 'once' | 'reject', protocol: 'legacy' | 'v2') { return this.#manager.client.replyRuntimePermission(sessionId, requestId, reply, protocol); }
+  replyRuntimeQuestion(sessionId: string, requestId: string, answers: readonly (readonly string[])[] | undefined, protocol: 'legacy' | 'v2') { return this.#manager.client.replyRuntimeQuestion(sessionId, requestId, answers, protocol); }
+  runtimePermissionAllowed(sessionId: string, permission: import('@agent-workflow/opencode').PermissionRequest): boolean {
+    const frozen = this.#interactionSessions.get(sessionId);
+    if (frozen === undefined || permission.sessionID !== sessionId || permission.patterns.length === 0) return false;
+    const current = this.#options.sessionPolicy?.(frozen) ?? frozen;
+    // Only guarded, read-only MCP tools are eligible. Native file/command and
+    // unknown permissions never gain access through this interaction surface.
+    const readTools = ['workflow.context.get', 'workspace.file.read', 'workspace.file.list', 'git.repo.status', 'git.log', 'git.diff.files', 'git.commit.show', 'database.query'];
+    const tool = readTools.find((name) => permission.permission === `${this.#options.mcpServerName}_${name.replaceAll('.', '_')}`);
+    if (tool === undefined) return false;
+    const includes = (request: OpenCodeRunRequest) => {
+      if (request.toolPolicy === 'none' || request.allowedTools?.includes(tool) === false) return false;
+      if (request.rolePolicy !== undefined && tool !== 'workflow.context.get' && request.rolePolicy.capabilityGroups?.flatMap((group) => group.items).find((item) => item.id === 'external_mcp')?.enabled !== true) return false;
+      const roleTools = request.rolePolicy?.resourcePermissions?.tools.filter((item) => item.kind === 'mcp').map((item) => item.name);
+      return roleTools === undefined || tool === 'workflow.context.get' || roleTools.includes(tool);
+    };
+    return includes(frozen) && includes(current);
   }
 
   async abortSession(sessionId: string): Promise<void> {

@@ -23,3 +23,5 @@ export * from './acceptance.ts';
 export * from "./role-runtime.ts";
 
 export { boundAttempt, readableAttempt, readableOutput } from './node-read.ts';
+
+export * from './runtime-interactions.ts';

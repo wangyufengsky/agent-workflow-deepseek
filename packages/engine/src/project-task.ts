@@ -1,3 +1,5 @@
+import { isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview, isPlanningQuestionAnswered, type RuntimeInteraction } from '@agent-workflow/shared';
+import { runtimeTaskAttention } from './runtime-interactions.ts';
 import { taskArchiveAction } from './task-archive-policy.ts';
 import { freezeTemplateScope } from './template-scope.ts';
 import { freezeCodeReviewSnapshot } from './snapshot-review.ts';
@@ -560,7 +562,7 @@ export class TaskService {
     const execution = task.executionId === undefined ? this.#store.executions.byTask(taskId) : this.#store.executions.get(task.executionId);
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
     const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(taskId) : this.#store.deliveries.get(task.deliveryId);
-    const { attention } = computeTaskAttention({ task, round, execution, workspace, delivery });
+    const { attention } = computeTaskAttention({ task, round, execution, workspace, delivery, runtimeAttention: runtimeTaskAttention(this.#store, task) });
     if (attention !== task.attention) {
       const updated = this.#store.tasks.update(taskId, { attention });
       this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: task.stage, revision: 1 });
@@ -594,12 +596,12 @@ export class InboxService {
         createdAt: task.updatedAt,
         returnTo: `/requirement/${task.id}`,
       };
-      if (round?.stage === 'needs_answer') {
-        items.push({ id: `inbox_${task.id}_answer`, kind: 'planning_answer', title: '有必须答复的规划问题', detail: round.questions.filter((question) => question.required).map((question) => question.question).join('；'), ...base });
-      } else if (round?.stage === 'awaiting_review') {
-        items.push({ id: `inbox_${task.id}_review`, kind: 'planning_review', title: '候选计划待审阅', detail: round.candidate?.summary ?? '候选已生成', ...base });
-      } else if (round?.status === 'unknown' || round?.stage === 'unknown') {
+      if (round !== undefined && isPlanningRoundUnknown(round)) {
         items.push({ id: `inbox_${task.id}_reconcile`, kind: 'planning_reconcile', title: '规划结果待核对', detail: '只按原请求号核对，不会重新生成', ...base });
+      } else if (round !== undefined && hasPendingPlanningQuestions(round)) {
+        items.push({ id: `inbox_${task.id}_answer`, kind: 'planning_answer', title: '有必须答复的规划问题', detail: round.questions.filter((question) => question.required && !isPlanningQuestionAnswered(question)).map((question) => question.question).join('；'), ...base });
+      } else if (round !== undefined && hasPendingPlanningReview(round)) {
+        items.push({ id: `inbox_${task.id}_review`, kind: 'planning_review', title: '候选计划待审阅', detail: round.candidate?.summary ?? '候选已生成', ...base });
       }
       if (delivery?.projection === 'awaiting_selection' || delivery?.projection === 'awaiting_confirmation') {
         items.push({
@@ -611,6 +613,13 @@ export class InboxService {
           returnTo: `/tasks/${task.id}`,
         });
       }
+    }
+    for (const item of this.#store.settings.getJson<readonly RuntimeInteraction[]>('runtime.interactions') ?? []) {
+      if (item.state === 'resolved') continue;
+      const task = this.#store.tasks.get(item.binding.taskId);
+      if (task?.lifecycle !== TaskLifecycle.ACTIVE) continue;
+      const project = this.#store.projects.get(task.projectId);
+      items.push({ id: item.id, kind: item.kind === 'question' ? 'runtime_question' : item.hard ? 'runtime_policy' : 'runtime_permission', title: item.kind === 'question' ? '运行时需要答复' : item.hard ? '策略已阻止' : '运行时请求只读授权', detail: item.state === 'unknown' ? '原请求待核对' : item.stepName, taskId: task.id, taskTitle: task.title, projectId: task.projectId, projectName: project?.name ?? '未知项目', createdAt: item.createdAt, returnTo: `/inbox` });
     }
     return items
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))

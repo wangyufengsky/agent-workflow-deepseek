@@ -1,6 +1,7 @@
 import type { AppSettings, CatalogSnapshot, PublicSettings } from '@agent-workflow/shared';
 import { DEFAULT_CATALOG, DEFAULT_SETTINGS, mergeSettings } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
+import { RuntimeInteractionService } from './runtime-interactions.ts';
 import { CommandService } from './operations.ts';
 import { RecoveryService } from './recovery.ts';
 import { RoleCatalogService } from './role-catalog.ts';
@@ -50,6 +51,7 @@ export class Engine {
   readonly ports: EnginePorts;
   readonly catalog: CatalogSnapshot;
   readonly commands: CommandService;
+  readonly runtimeInteractions: RuntimeInteractionService;
   readonly context: EngineContext;
   readonly projects: ProjectService;
   readonly tasks: TaskService;
@@ -99,6 +101,18 @@ export class Engine {
     };
     this.#settings = mergeSettings(DEFAULT_SETTINGS, options.store.settings.getSettings() ?? {}) ?? options.initialSettings ?? DEFAULT_SETTINGS;
     this.commands = new CommandService(this.store);
+    this.runtimeInteractions = new RuntimeInteractionService(this.store, this.commands, options.ports.opencode, (taskId) => this.tasks.recomputeAttention(taskId));
+    const runtimeInteractions = this.runtimeInteractions;
+    const originalPort = options.ports.opencode;
+    this.ports = { ...options.ports, opencode: new Proxy(originalPort, { get(target, key) {
+      if (key === 'runSession') return async (request: import('./ports.ts').OpenCodeRunRequest) => {
+        let sessionId: string | undefined;
+        const wrapped = runtimeInteractions.wrap(request);
+        try { return await originalPort.runSession({ ...wrapped, onSessionId: (id) => { sessionId = id; wrapped.onSessionId?.(id); } }); }
+        finally { if (sessionId !== undefined) runtimeInteractions.sessionEnded(sessionId); }
+      };
+      const value = Reflect.get(target, key, target); return typeof value === 'function' ? value.bind(target) : value;
+    } }) };
     this.roleCatalog = new RoleCatalogService({
       methods: () => this.catalog.methods,
       store: this.store,
@@ -152,6 +166,7 @@ export class Engine {
    * blocked. Safe to call more than once (the second pass finds nothing).
    */
   recoverOnStartup(): StartupRecoverySummary {
+    this.runtimeInteractions.recoverOnStartup();
     const affected = new Set<string>();
     const failures: { scope: string; message: string }[] = [];
     const run = (scope: string, recover: () => readonly string[], count: (value: number) => void): void => {

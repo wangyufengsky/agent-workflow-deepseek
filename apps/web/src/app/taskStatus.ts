@@ -207,6 +207,9 @@ export function taskStageIcon(stage: TaskStageValue): IconName {
 }
 
 const INBOX_KIND_LABEL: Record<InboxKindValue, string> = {
+  runtime_question: '运行时问题',
+  runtime_permission: '只读授权',
+  runtime_policy: '策略已阻止',
   planning_answer: '规划问题',
   planning_review: '候选审阅',
   planning_reconcile: '停止核对',
@@ -215,6 +218,9 @@ const INBOX_KIND_LABEL: Record<InboxKindValue, string> = {
 };
 
 const INBOX_KIND_ICON: Record<InboxKindValue, IconName> = {
+  runtime_question: 'help',
+  runtime_permission: 'shield',
+  runtime_policy: 'lock',
   planning_answer: 'help',
   planning_review: 'eye',
   planning_reconcile: 'refresh',

@@ -76,6 +76,28 @@ export class OpenCodeClient {
     }
   }
 
+  async replyRuntimePermission(sessionId: string, requestId: string, reply: 'once' | 'always' | 'reject', protocol: 'legacy' | 'v2'): Promise<void> {
+    if (protocol === 'v2') await this.request(`/api/session/${encodeURIComponent(sessionId)}/permission/${encodeURIComponent(requestId)}/reply`, { method: 'POST', body: JSON.stringify({ reply }) });
+    else if (await this.replyPermission(requestId, reply) !== true) throw new Error('运行时未确认权限答复');
+  }
+
+  async runtimeRequests(sessionId: string, kind: 'permission' | 'question', protocol: 'legacy' | 'v2'): Promise<readonly Record<string, unknown>[]> {
+    if (protocol === 'v2') {
+      const response = await this.request<{ data: readonly Record<string, unknown>[] }>(`/api/session/${encodeURIComponent(sessionId)}/${kind}`);
+      if (!Array.isArray(response.data)) throw new Error('运行时请求列表格式不合法');
+      return response.data.filter((item) => item.sessionID === sessionId);
+    }
+    const response = await this.request<readonly Record<string, unknown>[]>(`/${kind}`);
+    if (!Array.isArray(response)) throw new Error('运行时请求列表格式不合法');
+    return response.filter((item) => item.sessionID === sessionId);
+  }
+
+  async replyRuntimeQuestion(sessionId: string, requestId: string, answers: readonly (readonly string[])[] | undefined, protocol: 'legacy' | 'v2'): Promise<void> {
+    const path = protocol === 'v2' ? `/api/session/${encodeURIComponent(sessionId)}/question/${encodeURIComponent(requestId)}` : `/question/${encodeURIComponent(requestId)}`;
+    const result = await this.request<boolean | undefined>(`${path}/${answers === undefined ? 'reject' : 'reply'}`, { method: 'POST', ...(answers === undefined ? {} : { body: JSON.stringify({ answers }) }) });
+    if (protocol === 'legacy' && result !== true) throw new Error('运行时未确认问题答复');
+  }
+
   health(): Promise<{ healthy: boolean; version: string }> {
     return this.request('/global/health');
   }

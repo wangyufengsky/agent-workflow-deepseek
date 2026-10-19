@@ -72,6 +72,10 @@ export async function createApplication(options: CreateApplicationOptions = {}):
       if (adapter === undefined) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 服务未启用，无法确认停止');
       await adapter.abortSession(sessionId);
     },
+    runtimeRequests: async (sessionId, kind, protocol) => { if (adapter === undefined) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '运行时尚未就绪'); return adapter.runtimeRequests(sessionId, kind, protocol); },
+    replyRuntimePermission: async (sessionId, requestId, reply, protocol) => { if (adapter === undefined) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '运行时尚未就绪'); return adapter.replyRuntimePermission(sessionId, requestId, reply, protocol); },
+    replyRuntimeQuestion: async (sessionId, requestId, answers, protocol) => { if (adapter === undefined) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '运行时尚未就绪'); return adapter.replyRuntimeQuestion(sessionId, requestId, answers, protocol); },
+    runtimePermissionAllowed: (sessionId, permission) => adapter?.runtimePermissionAllowed(sessionId, permission) ?? false,
     sessionMessages: async (sessionId: string) => { if (adapter === undefined) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '运行时尚未就绪'); return adapter.sessionMessages(sessionId); },
     inspectSession: async (sessionId: string) => adapter?.inspectSession(sessionId) ?? 'unknown',
     findSessions: async (metadata: Record<string, string>): Promise<readonly OpenCodeSession[]> => {
