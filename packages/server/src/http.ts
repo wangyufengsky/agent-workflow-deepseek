@@ -41,6 +41,7 @@ import type { DatabaseService } from '@agent-workflow/database';
 import type { RemoteService } from './remote.ts';
 import { fileIdFor } from './adapters/git-cli.ts';
 import { detectOpenCodeBinaries } from './opencode-detect.ts';
+import { readOpenCodeLogTail } from './opencode-logs.ts';
 import { discoverSkills } from './skills.ts';
 import { listKnowledgeSources, readKnowledgeSource, searchKnowledgeSources } from './knowledge.ts';
 import type { Engine } from '@agent-workflow/engine';
@@ -651,6 +652,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       },
       requestId(request),
     );
+  });
+  app.get<{ Querystring: { lines?: string } }>('/api/opencode/logs', async (request) => {
+    const lines = Number(request.query.lines ?? 100);
+    return envelope(readOpenCodeLogTail(paths.dataDir, Number.isFinite(lines) ? lines : 100), requestId(request));
   });
   app.get('/api/opencode/detect', async (request) => {
     return envelope(await detectOpenCodeBinaries(engine.publicSettings().opencode.binaryPath), requestId(request));

@@ -28,7 +28,7 @@
 | ppt*.html | `/ppt` | — | ⛔ | 页面结构；制作/导入/作品未接通 |
 | recovery.html | `/recovery`、`/tasks/:id/recovery` | `/recovery` API、`/execution/retry` | ✅/🟡 | 派生草稿创建/历史、执行继续/重试失败步骤/停止已接线；单节点放弃未开放 |
 | insights.html | `/insights` | bootstrap + `/api/insights` | ✅/🟡 | 任务/规划/执行/审查/修复/交付真实计数；规划成本累计（tokens 仍未采集） |
-| runtime.html | `/runtime` | opencode status/data | ✅/🟡 | 受管服务状态/重启/数据路径；历史与启动控制未接通 |
+| runtime.html | `/runtime` | opencode status/data/logs | ✅/🟡 | 状态/重启/数据路径/最近日志（脱敏）；启动历史未接通 |
 | run.html / index.html | — | — | ⛔ | 未被菜单引用（设计留档） |
 
 ## 2. 规划与执行（sources/planning，PE01–PE38 + B01–B08）

@@ -929,6 +929,7 @@ export const ROUTES = {
   opencodeStatus: '/api/opencode/status',
   opencodeRestart: '/api/opencode/restart',
   opencodeDetect: '/api/opencode/detect',
+  opencodeLogs: '/api/opencode/logs',
   insights: '/api/insights',
   skills: '/api/skills',
   knowledgeSources: '/api/knowledge/sources',

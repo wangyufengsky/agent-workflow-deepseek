@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createRequestKey } from '@agent-workflow/shared';
 import { OpencodeServiceStatus, type IntegrationStatus, type OpencodeServiceStatusValue } from '@agent-workflow/shared';
-import { isServiceUnavailable, request } from '../../api/client.ts';
+import { apiGet, isServiceUnavailable, request } from '../../api/client.ts';
 import { useBootstrap, useOpenCodeDetect, useOpenCodeStatus, useRestartOpenCode } from '../../api/hooks.ts';
 import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
@@ -51,6 +51,13 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
   const bootstrap = useBootstrap();
   const statusQuery = useOpenCodeStatus();
   const [scanEnabled, setScanEnabled] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const logsQuery = useQuery({
+    queryKey: ['opencode', 'logs'],
+    queryFn: async () => (await apiGet<{ path: string; lines: readonly string[]; truncated: boolean }>('/api/opencode/logs?lines=120')).data,
+    enabled: showLogs,
+    retry: false,
+  });
   const detectQuery = useOpenCodeDetect(scanEnabled);
   const currentBinary = bootstrap.data?.settings.opencode.binaryPath ?? detectQuery.data?.current ?? '';
   const alertThreshold = bootstrap.data?.settings.monitoring.sessionAlertThreshold ?? 8;
@@ -206,6 +213,29 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
         </div>
       )}
 
+        <div style={{ marginTop: 20 }}>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <div className="grow">
+              <div className="section-title">最近日志</div>
+              <p className="hint" style={{ marginTop: 4 }}>读取受管 OpenCode 日志尾部并脱敏（令牌/PAT/密码形态）；最多 120 行。</p>
+            </div>
+            <Button variant="secondary" size="sm" icon="doc" onClick={() => { setShowLogs((value) => !value); }}>
+              {showLogs ? '收起日志' : '查看最近日志'}
+            </Button>
+            {showLogs ? <Button variant="ghost" size="sm" icon="refresh" onClick={() => { void logsQuery.refetch(); }}>刷新</Button> : null}
+          </div>
+          {showLogs ? (
+            logsQuery.isLoading ? <p className="hint" style={{ marginTop: 8 }}>正在读取…</p>
+              : logsQuery.isError ? <ServiceNotice className="inline-banner" error={logsQuery.error} />
+                : logsQuery.data === undefined ? null
+                  : logsQuery.data.lines.length === 0 ? <p className="hint" style={{ marginTop: 8 }}>日志文件还不存在或为空。</p>
+                    : (
+                      <pre className="code" style={{ marginTop: 8, maxHeight: 260, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+                        {logsQuery.data.lines.join('\n')}
+                      </pre>
+                    )
+          ) : null}
+        </div>
         <div style={{ marginTop: 20 }}>
           <div className="row wrap" style={{ gap: 8 }}>
             <div className="grow">
