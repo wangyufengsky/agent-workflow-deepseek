@@ -133,6 +133,10 @@ export class OpenCodeClient {
     return this.request(`/session/${encodeURIComponent(sessionId)}/message${limit === undefined ? '' : `?limit=${limit}`}`);
   }
 
+  sessionStatuses(): Promise<Record<string, { readonly type?: string }>> {
+    return this.request('/session/status');
+  }
+
   abort(sessionId: string): Promise<boolean> {
     return this.request(`/session/${encodeURIComponent(sessionId)}/abort`, { method: 'POST', body: '{}' }, 15000);
   }

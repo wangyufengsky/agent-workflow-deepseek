@@ -246,6 +246,7 @@ export const executionMachine: StateMachineDef<ExecutionStatusValue> = {
     t([ExecutionStatus.RUNNING], ExecutionStatus.PAUSING, 'execution.pause', '请求暂停新增领取'),
     t([ExecutionStatus.PAUSING], ExecutionStatus.PAUSED, 'execution.paused', '暂停生效'),
     t([ExecutionStatus.PAUSED], ExecutionStatus.RUNNING, 'execution.resume', '继续执行'),
+    t([ExecutionStatus.STOPPED, ExecutionStatus.FAILED], ExecutionStatus.RUNNING, 'execution.retry', '停稳后显式重试未完成步骤'),
     t([ExecutionStatus.RUNNING], ExecutionStatus.WAITING_CONFIRMATION, 'plan.edit.saved', '语义变更后等待重新确认'),
     t([ExecutionStatus.WAITING_CONFIRMATION], ExecutionStatus.RUNNING, 'plan.reconfirmed', '重新确认并继续'),
     t([ExecutionStatus.RUNNING], ExecutionStatus.STOPPING, 'execution.cancel', '请求停止执行'),

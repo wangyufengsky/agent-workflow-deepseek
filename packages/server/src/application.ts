@@ -66,8 +66,10 @@ export async function createApplication(options: CreateApplicationOptions = {}):
       return adapter.runSession(request);
     },
     abortSession: async (sessionId: string) => {
-      await adapter?.abortSession(sessionId);
+      if (adapter === undefined) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 服务未启用，无法确认停止');
+      await adapter.abortSession(sessionId);
     },
+    inspectSession: async (sessionId: string) => adapter?.inspectSession(sessionId) ?? 'unknown',
     findSessions: async (metadata: Record<string, string>): Promise<readonly OpenCodeSession[]> => {
       if (adapter === undefined) return [];
       return adapter.findSessions(metadata);

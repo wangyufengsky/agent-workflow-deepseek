@@ -138,6 +138,8 @@ export interface OpenCodePort {
   ensureReady(): Promise<void>;
   runSession(request: OpenCodeRunRequest): Promise<OpenCodeRunResult>;
   abortSession(sessionId: string): Promise<void>;
+  /** Explicit runtime state only; unsupported/missing state remains unknown. */
+  inspectSession?(sessionId: string): Promise<'idle' | 'running' | 'unknown'>;
   findSessions(metadata: Record<string, string>): Promise<readonly OpenCodeSession[]>;
 }
 

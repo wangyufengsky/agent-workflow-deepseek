@@ -285,8 +285,8 @@ export class WorkspaceService {
       const issue = this.#directoryCopyPathIssue(taskId, project, workspace);
       if (issue !== undefined) blockers.push({ kind: 'workspace_unmanaged', label: issue });
     }
-    if (execution !== undefined && ['running', 'starting', 'pausing', 'stopping'].includes(execution.status)) {
-      blockers.push({ kind: 'execution_active', label: '执行仍在进行，先停止执行再清理工作区', ref: execution.id });
+    if (execution !== undefined && (['running', 'starting', 'pausing', 'stopping', 'unknown'].includes(execution.status) || execution.nodes.some((node) => node.status === 'running' || node.status === 'unknown'))) {
+      blockers.push({ kind: 'execution_active', label: '执行仍在进行或停稳待核对，确认停止后才能清理工作区', ref: execution.id });
     }
     if (planning !== undefined && ['queued', 'running', 'stopping'].includes(planning.status)) {
       blockers.push({ kind: 'planning_active', label: '规划仍在进行，先停止规划再清理工作区', ref: planning.id });

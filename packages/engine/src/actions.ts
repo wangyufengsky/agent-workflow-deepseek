@@ -258,7 +258,10 @@ export function computeTaskActions(input: {
     : deliveryProjection === 'awaiting_confirmation'
       ? allowed()
       : denied(Rationale.DELIVERY_BLOCKED, '当前没有待交付的变更');
-  actions.cleanupWorkspace = workspace?.state === 'ready' ? allowed() : denied(Rationale.WORKSPACE_NOT_READY, '没有可清理的工作区');
+  const executionUnsettled = execution !== undefined && (['running', 'pausing', 'stopping', 'unknown'].includes(execution.status) || execution.nodes.some((node) => node.status === 'running' || node.status === 'unknown'));
+  actions.cleanupWorkspace = executionUnsettled
+    ? denied(Rationale.OPERATION_IN_PROGRESS, '执行仍在进行或停稳待核对，确认停止后才能清理工作区')
+    : workspace?.state === 'ready' ? allowed() : denied(Rationale.WORKSPACE_NOT_READY, '没有可清理的工作区');
 
   // W0-4b: executed nodes awaiting a human verdict gate completion; expose the
   // entry point so the UI can point the user at the node panel.

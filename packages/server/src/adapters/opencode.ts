@@ -172,6 +172,15 @@ export class OpenCodeAdapter implements OpenCodePort {
     if (!aborted) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '运行时未确认会话停止');
   }
 
+  async inspectSession(sessionId: string): Promise<'idle' | 'running' | 'unknown'> {
+    if (this.#manager.status.state !== 'ready') return 'unknown';
+    const statuses = await this.#manager.client.sessionStatuses();
+    const state = statuses[sessionId]?.type;
+    if (state === 'idle') return 'idle';
+    if (state === 'busy' || state === 'retry') return 'running';
+    return 'unknown';
+  }
+
   async findSessions(metadata: Record<string, string>): Promise<readonly OpenCodeSession[]> {
     if (this.#manager.status.state !== 'ready') return [];
     const sessions = await this.#manager.client.listSessions();
