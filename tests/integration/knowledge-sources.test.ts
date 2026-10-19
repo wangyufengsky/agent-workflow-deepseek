@@ -68,6 +68,7 @@ test('knowledge sources lists project docs read-only and skips ignored directori
       citations: [],
       model: 'test/model',
       generatedAt: new Date().toISOString(),
+      conversationId: 'conversation_test_1',
     }]);
     const history = await app.app.inject({ method: 'GET', url: `/api/knowledge/history?projectId=${projectId}` });
     assert.equal(history.statusCode, 200, history.body);

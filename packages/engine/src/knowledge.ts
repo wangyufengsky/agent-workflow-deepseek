@@ -63,11 +63,16 @@ export class KnowledgeService {
       return { path: source.path, content };
     }).filter((document) => document.content !== '');
     if (documents.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '文档来源不可读');
-    const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? []).slice(0, 3);
+    const conversationId = typeof input.conversationId === 'string' && input.conversationId.trim() !== ''
+      ? input.conversationId.trim().slice(0, 64)
+      : createId('conversation');
+    const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? [])
+      .filter((entry) => entry.conversationId === conversationId)
+      .slice(0, 3);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'knowledge.ask',
-      body: { projectId: input.projectId, question },
+      body: { projectId: input.projectId, question, conversationId },
       target: { projectId: input.projectId },
     });
     if (replayed && record.status !== 'accepted') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已经受理，请按回执核对');
@@ -99,6 +104,7 @@ export class KnowledgeService {
         citations,
         model: `${model.provider}/${model.model}`,
         generatedAt: nowIso(),
+        conversationId,
         usage: usageFromMessages(result.outcome.messages),
       };
       const entry: KnowledgeHistoryEntry = { id: createId('knowledge'), ...response };

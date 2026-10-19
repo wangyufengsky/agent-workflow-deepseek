@@ -68,7 +68,7 @@ flash 模型经兼容网关返回文本 `OK`。验证发生在工具集过滤、
 
 `AGENT_WORKFLOW_LIVE=1 tests/integration/knowledge-ask-live.test.ts`：基于项目 README/docs 提问“交付流程/清理前要做什么”，
 flash 模型返回答案并给出 `README.md:3`、`README.md:4` 两条引用（服务端校验路径与行号），**PASS 31s**。
-问答结果含 usage tokens 写入本机历史；后续问题会带上最近 3 条问答作为上下文；无引用/非法引用会被服务端丢弃。live 15s PASS（usage>0）。
+问答结果含 usage tokens 与会话 id 写入本机历史；同一会话后续问题带最近 3 条问答作上下文。live PASS 24s：首问 + 追问同一 conversationId、历史 2 条、usage>0。
 
 ## 2.7 PPT 大纲生成（真实模型，PASS）
 

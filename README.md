@@ -82,7 +82,7 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
   DELETE 与多语句被拒绝；密码从测试项目 `application.yml` 注入，不落库明文。
 - **GitHub**：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；响应与日志不包含令牌。
 - **用量**：规划/执行/审查/修复 token 聚合到 Insights；知识库与 PPT 的 usage tokens 随结果展示。
-- **知识库问答**：基于项目 README/docs 提问，flash 模型返回答案与经校验的 `path:line` 引用（live PASS 31s）。
+- **知识库问答**：基于项目 docs 提问，flash 返回答案、经校验引用与 conversationId；同一会话追问带上下文（live PASS 24s）。
 - **PPT 大纲/逐页**：草稿 → flash 模型生成 12 页大纲与逐页要点并落库（live PASS 32s）；可导出 Markdown 与真实 .pptx。
 - **GitLab / 远端写**：GitHub/GitLab 的 MR 列表与创建通过本地桩服务端到端验证；真实远端写操作未执行。
 

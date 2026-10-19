@@ -206,6 +206,7 @@ export interface KnowledgeSource {
 export interface KnowledgeAskRequest extends CommandRequest {
   readonly projectId: string;
   readonly question: string;
+  readonly conversationId?: string;
 }
 
 export interface KnowledgeCitation {
@@ -221,6 +222,7 @@ export interface KnowledgeAskResponse {
   readonly citations: readonly KnowledgeCitation[];
   readonly model: string;
   readonly generatedAt: IsoDateTime;
+  readonly conversationId: string;
   readonly usage?: TokenUsage;
 }
 

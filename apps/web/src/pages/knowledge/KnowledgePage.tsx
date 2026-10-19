@@ -27,6 +27,7 @@ export function KnowledgePage() {
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const [askResult, setAskResult] = useState<KnowledgeAskResponse | undefined>(undefined);
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const projectId = selectedProjectId !== '' ? selectedProjectId : (projects[0]?.id ?? '');
   const historyQuery = useQuery({
     queryKey: ['knowledge', 'history', projectId],
@@ -36,12 +37,13 @@ export function KnowledgePage() {
   });
   const askMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiPost<{ receipt: { status: string }; resource: KnowledgeAskResponse }>('/api/knowledge/ask', { requestKey: createRequestKey(), projectId, question: question.trim() });
+      const response = await apiPost<{ receipt: { status: string }; resource: KnowledgeAskResponse }>('/api/knowledge/ask', { requestKey: createRequestKey(), projectId, question: question.trim(), ...(conversationId === undefined ? {} : { conversationId }) });
       if (response.data.receipt.status !== 'succeeded') throw new Error(`问答回执：${response.data.receipt.status}`);
       return response.data.resource;
     },
     onSuccess: (result) => {
       setAskResult(result);
+      setConversationId(result.conversationId);
       void queryClient.invalidateQueries({ queryKey: ['knowledge', 'history', projectId] });
     },
   });
@@ -146,9 +148,14 @@ export function KnowledgePage() {
             >
               {askMutation.isPending ? '研究中…' : '发送'}
             </Button>
+            {conversationId === undefined ? null : (
+              <Button variant="ghost" size="sm" icon="refresh" onClick={() => { setConversationId(undefined); setAskResult(undefined); setQuestion(''); }}>
+                新对话
+              </Button>
+            )}
           </div>
           <p className="hint" id="kb-disabled-note" style={{ marginTop: 8 }}>
-            问答使用受管 OpenCode（只读）基于项目文档回答；最近 3 条问答会作为上下文，引用可点击回到原文。
+            问答使用受管 OpenCode（只读）基于项目文档回答；同一对话最近 3 条问答作为上下文，引用可点击回到原文。
           </p>
           {askMutation.isError ? <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>问答失败：{String((askMutation.error as Error).message)}</p> : null}
           {askResult === undefined ? null : (
@@ -324,7 +331,7 @@ export function KnowledgePage() {
               : (
                 <div className="list">
                   {historyQuery.data.entries.map((entry) => (
-                    <button key={entry.id} type="button" className="list-row" onClick={() => { setAskResult(entry); }}>
+                    <button key={entry.id} type="button" className="list-row" onClick={() => { setAskResult(entry); setConversationId(entry.conversationId); }}>
                       <span className="tile"><Icon name="sparkle" size="sm" /></span>
                       <span className="grow" style={{ minWidth: 0, textAlign: 'left' }}>
                         <span style={{ display: 'block', fontSize: 13 }}>{entry.question}</span>
