@@ -984,6 +984,7 @@ export interface PptAttachment {
   readonly name: string;
   readonly size: number;
   readonly content: string;
+  readonly kind: 'text' | 'image';
   readonly addedAt: IsoDateTime;
 }
 

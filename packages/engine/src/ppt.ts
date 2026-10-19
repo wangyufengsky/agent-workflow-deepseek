@@ -73,6 +73,14 @@ export class PptService {
       const page = pptx.addSlide();
       (page as unknown as { background?: unknown }).background = { color: palette.bg };
       page.addText(slide.title, { x: 0.5, y: 0.35, w: 12.3, h: 0.8, fontSize: 24, bold: true, color: palette.accent });
+      for (const attachment of work.attachments.filter((item) => item.kind === 'image')) {
+        try {
+          (page as unknown as { addImage?: (options: Record<string, unknown>) => void }).addImage?.({ data: attachment.content, x: 0.8, y: 1.2, w: 11.5, h: 5.5 });
+          break;
+        } catch {
+          // Ignore an unsupported image; the slide keeps its text content.
+        }
+      }
       if (slide.bullets.length > 0) {
         page.addText(slide.bullets.map((bullet) => ({ text: bullet, options: { bullet: true } })), { x: 0.7, y: 1.4, w: 11.8, h: 5.2, fontSize: 16, color: palette.text });
       }
@@ -98,7 +106,10 @@ export class PptService {
     const name = typeof input.name === 'string' ? input.name.trim() : '';
     if (name === '' || name.length > 120) throw new AppError(ErrorCode.VALIDATION_FAILED, '附件名长度需要在 1–120 之间');
     if (typeof input.content !== 'string' || input.content.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '附件内容为空');
-    if (input.content.length > 200_000) throw new AppError(ErrorCode.VALIDATION_FAILED, '附件内容超过 200KB；当前仅支持文本/Markdown');
+    const kind = input.kind === 'image' ? 'image' : 'text';
+    if (kind === 'image' && !/^data:image\/(png|jpeg|jpg|webp);base64,/.test(input.content)) throw new AppError(ErrorCode.VALIDATION_FAILED, '图片附件必须是 base64 data URL（png/jpeg/webp）');
+    if (kind === 'text' && input.content.length > 200_000) throw new AppError(ErrorCode.VALIDATION_FAILED, '文本附件超过 200KB；请改用图片或拆分');
+    if (kind === 'image' && input.content.length > 3_000_000) throw new AppError(ErrorCode.VALIDATION_FAILED, '图片附件超过 3MB data URL');
     if (work.attachments.length >= 10) throw new AppError(ErrorCode.VALIDATION_FAILED, '最多 10 个附件');
     if (work.attachments.some((attachment) => attachment.name === name)) throw new AppError(ErrorCode.CONFLICT, '同名附件已存在', { details: { name } });
     const { replayed } = this.#commands.begin({
@@ -108,7 +119,7 @@ export class PptService {
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
-    const attachment = { name, size: input.content.length, content: input.content, addedAt: nowIso() };
+    const attachment = { name, size: input.content.length, content: input.content, kind, addedAt: nowIso() } as const;
     const updated = this.#store.pptWorks.update({ ...work, attachments: [...work.attachments, attachment] });
     this.#commands.settle(input.requestKey, { workId: id, name });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
@@ -165,7 +176,7 @@ export class PptService {
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
     this.#store.pptWorks.update({ ...work, status: 'generating' });
     try {
-      const documents = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
+      const documents = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.filter((attachment) => attachment.kind === 'text').map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
       const result = await this.#opencode.runSession({
         kind: 'review',
         metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.slides' },
@@ -207,7 +218,7 @@ export class PptService {
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
     this.#store.pptWorks.update({ ...work, status: 'generating' });
     try {
-      const context = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
+      const context = [...(work.projectId === undefined ? [] : this.#documents(work.projectId)), ...work.attachments.filter((attachment) => attachment.kind === 'text').map((attachment) => `--- 附件：${attachment.name}\n${attachment.content.slice(0, 4_000)}`)];
       const result = await this.#opencode.runSession({
         kind: 'review',
         metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.outline' },

@@ -32,8 +32,8 @@ export function PptPage() {
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
   });
   const addAttachment = useMutation({
-    mutationFn: async (input: { id: string; name: string; content: string }) => {
-      await apiPost(ROUTES.pptWorkAttachments(input.id), { requestKey: createRequestKey(), name: input.name, content: input.content, confirmAttach: true });
+    mutationFn: async (input: { id: string; name: string; content: string; kind?: 'text' | 'image' }) => {
+      await apiPost(ROUTES.pptWorkAttachments(input.id), { requestKey: createRequestKey(), name: input.name, content: input.content, kind: input.kind ?? 'text', confirmAttach: true });
     },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
   });

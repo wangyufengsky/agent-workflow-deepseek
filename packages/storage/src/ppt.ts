@@ -118,7 +118,8 @@ function parseAttachments(raw: string | null): readonly PptAttachment[] {
     return parsed.filter((item): item is PptAttachment => item !== null && typeof item === 'object' && typeof (item as { name?: unknown }).name === 'string' && typeof (item as { content?: unknown }).content === 'string').map((item) => ({
       name: item.name.slice(0, 120),
       size: typeof item.size === 'number' ? item.size : item.content.length,
-      content: item.content.slice(0, 200_000),
+      content: item.content.slice(0, item.kind === 'image' ? 3_000_000 : 200_000),
+      kind: item.kind === 'image' ? 'image' as const : 'text' as const,
       addedAt: typeof item.addedAt === 'string' ? item.addedAt : nowIso(),
     })).slice(0, 10);
   } catch {

@@ -318,6 +318,7 @@ export interface PptWorkGenerateContentRequest extends CommandRequest {
 export interface PptAttachmentRequest extends CommandRequest {
   readonly name: string;
   readonly content: string;
+  readonly kind?: 'text' | 'image';
   readonly confirmAttach: true;
 }
 

@@ -54,6 +54,13 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     assert.equal(detached.statusCode, 200, detached.body);
     assert.equal((detached.json().data.resource.attachments as unknown[]).length, 0);
 
+    const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const imageAttached = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/attachments`, payload: { requestKey: requestKey('img'), name: 'dot.png', content: image, kind: 'image', confirmAttach: true } });
+    assert.equal(imageAttached.statusCode, 200, imageAttached.body);
+    assert.equal((imageAttached.json().data.resource.attachments as { kind: string }[])[0]!.kind, 'image');
+    const badImage = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/attachments`, payload: { requestKey: requestKey('img2'), name: 'bad.png', content: 'not-a-data-url', kind: 'image', confirmAttach: true } });
+    assert.equal(badImage.statusCode, 400, badImage.body);
+
     const pptx = await app.app.inject({ method: 'GET', url: `/api/ppt/works/${id}/pptx` });
     assert.equal(pptx.statusCode, 200, pptx.body);
     assert.match(String(pptx.headers['content-type']), /presentationml/);
