@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppError, ErrorCode, type OpenCodeRestartRequest } from '@agent-workflow/shared';
 import type { Engine } from '@agent-workflow/engine';
 import type { Store } from '@agent-workflow/storage';
@@ -9,8 +9,7 @@ export function registerRuntimeOperationRoutes(app: FastifyInstance, store: Stor
   app.get('/api/opencode/operations', async (request) => envelope({
     operations: store.operations.listRecentFor(['opencode.start', 'opencode.restart']),
   }, request.id));
-  for (const action of ['start', 'restart'] as const) {
-    app.post(`/api/opencode/${action}`, async (request) => {
+  const handle = (action: 'start' | 'restart') => async (request: FastifyRequest) => {
       const body = (request.body as OpenCodeRestartRequest & { confirmStart?: boolean });
       if (body === null || typeof body !== 'object' || typeof body.requestKey !== 'string' || !body.requestKey.startsWith('req_')) throw new AppError(ErrorCode.VALIDATION_FAILED, '请求号不合法');
       if ((action === 'start' ? body.confirmStart : body.confirmRestart) !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '需要显式确认运行时操作');
@@ -46,7 +45,8 @@ export function registerRuntimeOperationRoutes(app: FastifyInstance, store: Stor
         engine.commands.fail(body.requestKey, appError);
         throw appError;
       } finally { releaseMaintenance?.(); }
-    });
-  }
-
+  };
+  app.post('/api/opencode/start', handle('start'));
+  app.post('/api/opencode/restart', handle('restart'));
 }
+
