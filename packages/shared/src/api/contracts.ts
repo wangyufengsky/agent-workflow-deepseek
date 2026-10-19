@@ -149,6 +149,7 @@ export interface UpdateProjectRequest {
     readonly gitProvider?: 'github' | 'gitlab';
     readonly defaultMethodId?: string;
   };
+  readonly archived?: boolean;
   readonly expected?: { readonly updatedAt?: string };
 }
 

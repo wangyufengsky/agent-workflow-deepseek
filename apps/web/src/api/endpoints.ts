@@ -34,8 +34,8 @@ export async function fetchTasks(query: ListTasksQuery = {}): Promise<readonly T
   return response.data.items;
 }
 
-export async function fetchProjects(): Promise<readonly ProjectSummary[]> {
-  const response = await apiGet<Page<ProjectSummary>>(ROUTES.projects);
+export async function fetchProjects(includeArchived = false): Promise<readonly ProjectSummary[]> {
+  const response = await apiGet<Page<ProjectSummary>>(`${ROUTES.projects}${includeArchived ? '?includeArchived=1' : ''}`);
   return response.data.items;
 }
 

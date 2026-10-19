@@ -80,13 +80,13 @@ export class ProjectRepository {
     return rows.map(mapProject);
   }
 
-  listSummaries(): readonly ProjectSummary[] {
+  listSummaries(includeArchived = false): readonly ProjectSummary[] {
     const rows = this.#db
       .prepare(
         `SELECT p.*,
                 (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.lifecycle = 'active') AS open_tasks,
                 (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id AND t.lifecycle = 'active' AND t.attention != 'none') AS attention_tasks
-         FROM projects p WHERE p.archived = 0 ORDER BY p.updated_at DESC`,
+         FROM projects p ${includeArchived ? '' : 'WHERE p.archived = 0'} ORDER BY p.updated_at DESC`,
       )
       .all() as unknown as Row[];
     return rows.map((row) => ({

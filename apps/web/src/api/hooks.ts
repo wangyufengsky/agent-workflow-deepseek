@@ -42,10 +42,10 @@ export function useTasks(query: ListTasksQuery = {}) {
   });
 }
 
-export function useProjects() {
+export function useProjects(includeArchived = false) {
   return useQuery({
-    queryKey: queryKeys.projects,
-    queryFn: fetchProjects,
+    queryKey: [...queryKeys.projects, includeArchived] as const,
+    queryFn: () => fetchProjects(includeArchived),
     retry: shouldRetry,
     staleTime: 30_000,
   });

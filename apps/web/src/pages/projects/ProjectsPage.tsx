@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ROUTES,
   RepoGitState,
@@ -11,7 +11,7 @@ import {
   type ProjectSummary,
   type RepoGitStateValue,
 } from '@agent-workflow/shared';
-import { ApiClientError, apiGet, apiPost, errorMessage } from '../../api/client.ts';
+import { ApiClientError, apiGet, apiPost, errorMessage, request } from '../../api/client.ts';
 import { queryKeys, useProjects } from '../../api/hooks.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
@@ -58,7 +58,7 @@ function apiErrorDetail(error: unknown): string {
   return errorMessage(error);
 }
 
-function ProjectCard({ project }: { readonly project: ProjectSummary }) {
+function ProjectCard({ project, busy, onArchive }: { readonly project: ProjectSummary; readonly busy: boolean; readonly onArchive: () => void }) {
   const unavailable = project.gitState === RepoGitState.PATH_UNAVAILABLE || project.gitState === RepoGitState.CAPABILITY_UNAVAILABLE;
   return (
     <article className="card pad hoverable" aria-label={project.name} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -136,6 +136,9 @@ function ProjectCard({ project }: { readonly project: ProjectSummary }) {
             开始任务
           </LinkButton>
         )}
+        <Button variant="ghost" size="sm" icon={project.archived ? 'refresh' : 'archive'} disabled={busy} onClick={onArchive}>
+          {project.archived ? '恢复' : '归档'}
+        </Button>
         <span className="spacer" />
         <span className="hint mono">{project.id}</span>
       </div>
@@ -145,8 +148,23 @@ function ProjectCard({ project }: { readonly project: ProjectSummary }) {
 
 export function ProjectsPage() {
   const queryClient = useQueryClient();
-  const projectsQuery = useProjects();
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const projectsQuery = useProjects(includeArchived);
   const projects = projectsQuery.data ?? [];
+  const archiveProject = useMutation({
+    mutationFn: async (project: ProjectSummary) => {
+      await request(`/api/projects/${encodeURIComponent(project.id)}`, {
+        method: 'PATCH',
+        body: { requestKey: createRequestKey(), archived: !project.archived },
+      });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+      ]);
+    },
+  });
   const [gitFilter, setGitFilter] = useState<GitFilter>('all');
   const [keyword, setKeyword] = useState('');
 
@@ -326,7 +344,7 @@ export function ProjectsPage() {
     body = (
       <div className="grid-2">
         {filtered.map((project) => (
-          <ProjectCard key={project.id} project={project} />
+          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending} onArchive={() => { archiveProject.mutate(project); }} />
         ))}
       </div>
     );
@@ -338,9 +356,12 @@ export function ProjectsPage() {
         title="项目"
         lede="项目是任务、流程和配置的归属。选一个项目开始工作，或登记本机已有目录；登记不会移动或修改任何文件。"
         actions={
+          <><Button variant="secondary" size="sm" icon={includeArchived ? 'eye' : 'archive'} onClick={() => { setIncludeArchived((value) => !value); }}>
+            {includeArchived ? '隐藏已归档' : '显示已归档'}
+          </Button>
           <Button variant="primary" size="sm" icon="plus" onClick={openRegister}>
             登记项目
-          </Button>
+          </Button></>
         }
       />
 

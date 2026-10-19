@@ -185,7 +185,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   // Projects
-  app.get('/api/projects', async (request) => envelope({ items: engine.projects.list() }, requestId(request)));
+  app.get<{ Querystring: { includeArchived?: string } }>('/api/projects', async (request) => envelope({ items: engine.projects.list(request.query.includeArchived === '1') }, requestId(request)));
   app.post('/api/projects', async (request, reply) => {
     const body = request.body as CreateProjectRequest;
     const result = await engine.projects.register(body);

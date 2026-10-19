@@ -43,12 +43,12 @@ export class ProjectService {
     this.#context = context;
   }
 
-  list(): readonly ProjectSummary[] {
-    return this.#store.projects.listSummaries();
+  list(includeArchived = false): readonly ProjectSummary[] {
+    return this.#store.projects.listSummaries(includeArchived);
   }
 
   get(projectId: string): ProjectSummary {
-    const project = this.#store.projects.listSummaries().find((item) => item.id === projectId);
+    const project = this.#store.projects.listSummaries(true).find((item) => item.id === projectId);
     if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
     return project;
   }
@@ -108,6 +108,7 @@ export class ProjectService {
       const updated = this.#store.projects.update(projectId, {
         name: input.name,
         description: input.description,
+        ...(input.archived === undefined ? {} : { archived: input.archived }),
         settings: input.settings === undefined ? undefined : { ...this.#store.projects.get(projectId)?.settings, ...input.settings },
       });
       if (updated === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
