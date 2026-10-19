@@ -14,6 +14,8 @@ class ControlledModel implements OpenCodePort {
   complete?: (result: OpenCodeRunResult) => void;
   aborted = 0;
   abortFails = false;
+  sessionState: 'idle' | 'running' | 'unknown' = 'running';
+  async inspectSession() { return this.sessionState; }
   status(): ReturnType<OpenCodePort['status']> { return { state: 'ready' } as ReturnType<OpenCodePort['status']>; }
   async ensureReady() {}
   async findSessions() { return []; }
@@ -59,7 +61,8 @@ test('charter stop acknowledgement does not unlock generation until original pro
   try {
     await engine.charters.update(project.id, { requestKey: key('seed'), content: '# 保留的手工草稿' });
     await engine.charters.generate(project.id, { requestKey: key('stopped'), confirmGenerate: true }); await tick();
-    await engine.charters.stop(project.id, { requestKey: key('stop'), confirmStop: true });
+    const stop = await engine.charters.stop(project.id, { requestKey: key('stop'), confirmStop: true });
+    assert.equal(stop.receipt.status, 'accepted');
     assert.equal(model.aborted, 1);
     assert.equal((await engine.charters.view(project.id)).status, 'generating');
     model.finish('# 迟到结果'); await tick();
@@ -114,5 +117,28 @@ test('abort failure is an unknown stop receipt and cannot reopen generation', as
     assert.equal(model.requests.length, 1);
     model.finish('# 迟到正文'); await tick();
     assert.equal((await engine.charters.view(project.id)).draft, undefined);
+  } finally { store.close(); }
+});
+
+test('charter timeout after abort failure remains unknown, restart reconciliation needs explicit idle', async () => {
+  const { store, model, engine, project } = fixture();
+  try {
+    await engine.charters.update(project.id, { requestKey: key('timeout-seed'), content: '# 保留草稿' });
+    await engine.charters.generate(project.id, { requestKey: key('timeout-generate'), confirmGenerate: true }); await tick();
+    model.abortFails = true;
+    await engine.charters.stop(project.id, { requestKey: key('timeout-stop'), confirmStop: true });
+    model.complete?.({ sessionId: 'charter-session', outcome: { idle: false, timedOut: true, assistantText: '', messages: [] } }); await tick();
+    assert.equal(engine.commands.get(key('timeout-generate'))?.status, 'unknown');
+    assert.equal(engine.commands.get(key('timeout-stop'))?.status, 'unknown');
+    const restarted = new CharterService(store, engine.commands, model, engine.context);
+    await restarted.reconcileOperation(key('timeout-stop'));
+    assert.equal(engine.commands.get(key('timeout-stop'))?.status, 'unknown');
+    assert.equal(model.aborted, 1);
+    model.sessionState = 'idle';
+    await restarted.reconcileOperation(key('timeout-stop'));
+    assert.equal(engine.commands.get(key('timeout-stop'))?.status, 'succeeded');
+    assert.equal(engine.commands.get(key('timeout-generate'))?.status, 'succeeded');
+    assert.equal((await restarted.view(project.id)).draft?.content, '# 保留草稿');
+    assert.equal(model.aborted, 1);
   } finally { store.close(); }
 });

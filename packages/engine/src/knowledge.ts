@@ -5,6 +5,7 @@ import {
   nowIso,
   type CommandResponse,
   type KnowledgeAskRequest,
+  type ActionAvailability,
   type KnowledgeAskResponse,
   type KnowledgeRunProgress,
   type KnowledgeStopRequest,
@@ -13,6 +14,8 @@ import {
   type KnowledgeStep,
   type KnowledgeToolActivity,
   type ModelProfile,
+  type RoleDefinition,
+  type KnowledgeRoleEvidence,
 } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { EngineContext } from './actions.ts';
@@ -20,6 +23,7 @@ import type { CommandService } from './operations.ts';
 import type { OpenCodePort } from './ports.ts';
 import type { OpenCodeMessage, OpenCodePart } from '@agent-workflow/opencode';
 import { listKnowledgeSources, readKnowledgeSource } from '../../server/src/knowledge.ts';
+import { roleModel } from './role-runtime.ts';
 import { partialKnowledgeAnswer } from './knowledge-stream.ts';
 import { usageFromMessages } from './token-usage.ts';
 
@@ -32,6 +36,7 @@ export interface KnowledgeServiceOptions {
   readonly commands: CommandService;
   readonly context: EngineContext;
   readonly opencode: OpenCodePort;
+  readonly roles?: () => readonly RoleDefinition[];
 }
 
 /** Read-only document Q&A with durable command receipts and frozen source selection. */
@@ -41,12 +46,23 @@ export class KnowledgeService {
   readonly #context: EngineContext;
   readonly #opencode: OpenCodePort;
   readonly #active = new Set<string>();
+  readonly #roles: () => readonly RoleDefinition[];
 
   constructor(options: KnowledgeServiceOptions) {
     this.#store = options.store;
     this.#commands = options.commands;
     this.#context = options.context;
     this.#opencode = options.opencode;
+    this.#roles = options.roles ?? (() => []);
+  }
+
+  askAvailability(): ActionAvailability {
+    if (!this.#context.opencodeReady()) return { allowed: false, reasonCode: ErrorCode.OPENCODE_NOT_READY, reason: '运行环境尚未就绪，请先启动受管 OpenCode。' };
+    try {
+      const role = this.#roles().find((item) => item.id === 'role.reviewer');
+      if (role === undefined) this.#model(); else roleModel(role, this.#context.settings().models);
+      return { allowed: true };
+    } catch (error) { return { allowed: false, reasonCode: ErrorCode.MODEL_NOT_CONFIGURED, reason: error instanceof Error ? error.message : '问答模型尚未配置' }; }
   }
 
   async ask(input: KnowledgeAskRequest): Promise<CommandResponse<KnowledgeAskResponse>> {
@@ -86,7 +102,8 @@ export class KnowledgeService {
         const status = outstandingKey === undefined ? undefined : this.#commands.get(outstandingKey)?.status;
         if (status === 'accepted' || status === 'unknown') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, `当前对话还有未完成问答，请核对原请求 ${outstandingKey}`);
       }
-      const model = requestedConversationId === undefined ? this.#model()
+      const role = this.#roles().find((item) => item.id === 'role.reviewer');
+      const model = requestedConversationId === undefined ? (role === undefined ? this.#model() : roleModel(role, this.#context.settings().models))
         : this.#store.settings.getJson<ModelProfile>(`knowledge.model.${requestedConversationId}`) ?? this.#model();
       if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法问答');
       const retrieveStartedAt = nowIso();
@@ -128,9 +145,14 @@ export class KnowledgeService {
       this.#store.settings.putJson(`knowledge.model.${conversationId}`, model);
       this.#store.settings.putJson(`knowledge.project.${conversationId}`, input.projectId);
       this.#store.settings.putJson(`knowledge.pending.${conversationId}`, input.requestKey);
+      const conversationVersion = (this.#store.settings.getJson<number>(`knowledge.version.${conversationId}`) ?? 0) + 1;
+      this.#store.settings.putJson(`knowledge.version.${conversationId}`, conversationVersion);
+      const roleEvidence: KnowledgeRoleEvidence = { executionRole: { id: 'knowledge.researcher', label: '知识研究员（只读）' },
+        ...(role === undefined ? {} : { profession: { id: role.id, name: role.name, revision: role.revision }, ...(role.image === undefined ? {} : { appearance: structuredClone(role.image) }) }),
+        conversationVersion, messageVersion: 1, requestKey: input.requestKey };
       const sourceSnapshot = { selectedPaths, readPaths: documents.map((document) => document.path), truncatedPaths };
       this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId,
-        model: `${model.provider}/${model.model}`, status: 'researching', startedAt: nowIso(), updatedAt: nowIso(), answer: '', sources: sourceSnapshot });
+        model: `${model.provider}/${model.model}`, status: 'researching', startedAt: nowIso(), updatedAt: nowIso(), answer: '', sources: sourceSnapshot, roleEvidence });
       const runKeys = this.#store.settings.getJson<string[]>(`knowledge.runs.${input.projectId}`) ?? [];
       this.#store.settings.putJson(`knowledge.runs.${input.projectId}`, [input.requestKey, ...runKeys].slice(0, 200));
       this.#active.add(input.requestKey);
@@ -143,7 +165,8 @@ export class KnowledgeService {
         metadata: { projectId: input.projectId, purpose: 'knowledge.ask' },
         cwd: project.rootPath,
         prompt: buildPrompt(question, documents, recent) + (previous === undefined ? '' : `\n继续完成上次停止的回答，返回包含已有内容的完整答案。已保留内容：\n${previous.answer}`),
-        system: SYSTEM_PROMPT,
+        system: `${role?.instructions ?? role?.purpose ?? ''}\n${SYSTEM_PROMPT}`,
+        ...(role === undefined ? {} : { rolePolicy: structuredClone(role) }),
         model,
         permission: 'read_only',
         toolPolicy: 'none',
@@ -210,6 +233,7 @@ export class KnowledgeService {
       const response: KnowledgeAskResponse = {
         requestKey: input.requestKey,
         status: 'completed',
+        roleEvidence,
         projectId: input.projectId,
         question,
         answer: parsed.answer.trim().slice(0, 8_000),
@@ -294,7 +318,7 @@ export class KnowledgeService {
     if (['completed', 'failed'].includes(progress.status)) return;
     this.#complete(progress.requestKey, { requestKey: progress.requestKey, status: 'stopped', projectId: progress.projectId,
       question: progress.question, answer: progress.answer, citations: [], model: progress.model,
-      generatedAt: nowIso(), conversationId: progress.conversationId, sources: progress.sources });
+      generatedAt: nowIso(), conversationId: progress.conversationId, sources: progress.sources, roleEvidence: progress.roleEvidence });
     if (progress.stopRequestKey !== undefined && this.#commands.get(progress.stopRequestKey)?.status !== 'succeeded') {
       this.#commands.settle(progress.stopRequestKey, { askKey: progress.requestKey, confirmedStopped: true });
     }

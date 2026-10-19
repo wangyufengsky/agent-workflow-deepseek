@@ -517,7 +517,7 @@ const CHARTER_VERSION_LIMIT = 10;
 
 interface StoredCharterState {
   readonly status: 'draft' | 'writing' | 'written' | 'generating';
-  readonly generation?: { readonly requestKey: string; readonly startedAt: string };
+  readonly generation?: { readonly requestKey: string; readonly startedAt: string; readonly sessionId?: string; readonly stopRequestKey?: string };
   readonly draft?: { readonly version: number; readonly content: string; readonly source: 'manual' | 'model' | 'existing_file'; readonly savedAt: string };
   readonly written?: { readonly version: number; readonly path: string; readonly writtenAt: string };
   readonly versions: readonly ProjectCharterVersion[];
@@ -536,7 +536,7 @@ export class CharterService {
   readonly #commands: CommandService;
   readonly #opencode?: OpenCodePort;
   readonly #context?: EngineContext;
-  readonly #active = new Map<string, { key: string; sessionId?: string; stopRequested: boolean }>();
+  readonly #active = new Map<string, { key: string; sessionId?: string; stopRequested: boolean; preventedDispatch?: boolean }>();
 
   constructor(store: Store, commands: CommandService, opencode?: OpenCodePort, context?: EngineContext) {
     this.#store = store;
@@ -597,7 +597,8 @@ export class CharterService {
     // Register synchronously before yielding; another key cannot start a second generation.
     if (this.#state(projectId)?.updatedAt !== before?.updatedAt) { const error = new AppError(ErrorCode.STALE_TARGET, '公约在生成前已变化，请重新读取'); this.#commands.fail(input.requestKey, error); throw error; }
     if (this.#active.has(projectId)) { const error = new AppError(ErrorCode.OPERATION_IN_PROGRESS, '公约仍在生成'); this.#commands.fail(input.requestKey, error); throw error; }
-    const active = { key: input.requestKey, stopRequested: false, sessionId: undefined as string | undefined };
+    const active = { key: input.requestKey, stopRequested: false, preventedDispatch: false, sessionId: undefined as string | undefined };
+    this.#store.settings.putJson(`charter.before.${input.requestKey}`, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
     this.#active.set(projectId, active);
     this.#save(projectId, { ...before, status: 'generating', versions: before?.versions ?? [], generation: { requestKey: input.requestKey, startedAt: nowIso() }, updatedAt: nowIso() });
     const opencode = this.#opencode;
@@ -605,18 +606,27 @@ export class CharterService {
       try {
         const existing = await readCharterFile(project.rootPath);
         if (active.stopRequested) {
-          this.#save(projectId, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
-          this.#commands.settle(input.requestKey, { stopped: true, dispatched: false });
+          this.#finishStoppedGeneration(projectId, input.requestKey);
           return;
         }
         const result = await opencode.runSession({ kind: 'planning', metadata: { projectId, purpose: 'project.charter.generate', requestKey: input.requestKey }, cwd: project.rootPath,
           prompt: `根据项目实际目录与配置生成 AGENTS.md。只读项目，不修改任何文件、不执行命令、不联网。输出纯 Markdown 公约，不加代码围栏。涵盖实际目录结构、开发约定、测试命令与未知项；不要编造未读取的信息。当前公约：\n${existing.content ?? '无'}\n项目说明：${project.description ?? ''}`,
           model, permission: 'read_only', sink: {}, timeoutMs: 120_000,
-          onSessionId: (sessionId) => { active.sessionId = sessionId; if (active.stopRequested) void opencode.abortSession(sessionId).catch(() => undefined); },
+          onSessionId: (sessionId) => {
+            active.sessionId = sessionId;
+            const current = this.#state(projectId);
+            if (current?.generation?.requestKey !== input.requestKey) throw new AppError(ErrorCode.STALE_TARGET, '旧公约生成不能派发会话');
+            this.#save(projectId, { ...current, generation: { ...current.generation, sessionId } });
+            if (active.stopRequested) {
+              active.preventedDispatch = true;
+              throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '公约在派发前已停止');
+            }
+          },
         });
+        if (this.#commands.get(input.requestKey)?.status === 'succeeded') return;
         if (active.stopRequested) {
-          this.#save(projectId, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
-          this.#commands.settle(input.requestKey, { stopped: true, draftPreserved: true });
+          if (!result.outcome.idle) throw new AppError(ErrorCode.CHARTER_STATE_UNKNOWN, '公约停止尚未确认');
+          this.#finishStoppedGeneration(projectId, input.requestKey);
           return;
         }
         if (result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '公约生成超时');
@@ -627,6 +637,8 @@ export class CharterService {
         this.#save(projectId, { status: 'draft', draft, ...(before?.written === undefined ? {} : { written: before.written }), versions: [{ version, status: 'draft' as const, source: 'model' as const, savedAt: now }, ...(before?.versions ?? [])].slice(0, CHARTER_VERSION_LIMIT), updatedAt: now });
         this.#commands.settle(input.requestKey, { projectId, version });
       } catch (error) {
+        if (active.preventedDispatch) { this.#finishStoppedGeneration(projectId, input.requestKey); return; }
+        if (this.#commands.get(input.requestKey)?.status === 'succeeded') return;
         // Timeout/abort failure may leave the provider alive: preserve original identity.
         const uncertain = active.stopRequested || (error instanceof AppError && error.code === ErrorCode.MODEL_BUDGET_EXCEEDED);
         if (!uncertain) this.#save(projectId, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
@@ -643,13 +655,40 @@ export class CharterService {
     if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
     const active = this.#active.get(projectId);
     if (active === undefined) { const error = new AppError(ErrorCode.CHARTER_STATE_UNKNOWN, '没有可观察的生成进程，只能核对原记录'); this.#commands.fail(input.requestKey, error); throw error; }
+    const current = this.#state(projectId)!;
+    if (current.generation?.stopRequestKey !== undefined) {
+      this.#commands.fail(input.requestKey, new AppError(ErrorCode.OPERATION_IN_PROGRESS, '已有停止请求，请核对原请求号'));
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { charter: await this.view(projectId) } };
+    }
     active.stopRequested = true;
+    this.#save(projectId, { ...current, generation: { ...current.generation!, stopRequestKey: input.requestKey } });
     try {
       if (active.sessionId !== undefined) await this.#opencode!.abortSession(active.sessionId);
       // Abort acknowledgement alone never proves the run has settled.
-      this.#commands.settle(input.requestKey, { stopRequested: true, generationRequestKey: active.key });
+      await this.reconcileOperation(input.requestKey);
     } catch (error) { this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('停止回执未知'), true); }
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { charter: await this.view(projectId) } };
+  }
+
+  async reconcileOperation(key: string): Promise<void> {
+    const operation = this.#commands.get(key);
+    if (operation === undefined || !['project.charter.stop', 'project.charter.generate'].includes(operation.operation) || !['accepted', 'unknown'].includes(operation.status)) return;
+    const projectId = operation.target.projectId;
+    if (projectId === undefined) return;
+    const state = this.#state(projectId);
+    if (state?.generation?.stopRequestKey === undefined || state.generation.sessionId === undefined) return;
+    try {
+      if (await this.#opencode?.inspectSession?.(state.generation.sessionId) === 'idle') this.#finishStoppedGeneration(projectId, state.generation.requestKey);
+    } catch { /* A failed status read is not proof that generation stopped. */ }
+  }
+
+  #finishStoppedGeneration(projectId: string, key: string): void {
+    const state = this.#state(projectId);
+    if (state?.generation?.requestKey !== key) return;
+    const before = this.#store.settings.getJson<StoredCharterState>(`charter.before.${key}`);
+    this.#save(projectId, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
+    this.#commands.settle(key, { stopped: true, draftPreserved: true });
+    if (state.generation.stopRequestKey !== undefined) this.#commands.settle(state.generation.stopRequestKey, { confirmedStopped: true, generationRequestKey: key });
   }
 
   async update(projectId: string, input: ProjectCharterUpdateRequest): Promise<CommandResponse<ProjectCharterResponse>> {

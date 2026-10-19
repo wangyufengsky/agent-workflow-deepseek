@@ -20,6 +20,7 @@ import { Icon } from '../../components/Icon.tsx';
 import { IconButton } from '../../components/IconButton.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { KnowledgeResearcherDrawer } from './KnowledgeResearcherDrawer.tsx';
 import { ResearchTimeline } from './ResearchTimeline.tsx';
 import { useKnowledgeAsk } from './useKnowledgeAsk.ts';
 import './knowledge.css';
@@ -207,145 +208,6 @@ function CitationNav({
   );
 }
 
-function ResearcherDrawer({
-  open,
-  result,
-  projectId,
-  projectName,
-  selectedSources,
-  onClose,
-  onOpenCitation,
-}: {
-  readonly open: boolean;
-  readonly result?: KnowledgeAskResponse;
-  readonly projectId: string;
-  readonly projectName: string;
-  readonly selectedSources: readonly string[];
-  readonly onClose: () => void;
-  readonly onOpenCitation: (index: number) => void;
-}) {
-  return (
-    <Drawer
-      open={open}
-      title="知识研究员检查"
-      size="lg"
-      onClose={onClose}
-      footer={
-        <>
-          <LinkButton variant="secondary" size="sm" icon="clock" to={`/knowledge/history${projectId === '' ? '' : `?project=${encodeURIComponent(projectId)}`}`}>
-            查看对话记录
-          </LinkButton>
-          <span className="spacer" />
-          <Button variant="ghost" onClick={onClose}>关闭</Button>
-        </>
-      }
-    >
-      {result === undefined ? (
-        <EmptyState
-          icon="book"
-          title="还没有可核对的回答"
-          description="先提一个问题。研究员检查只展示服务返回的回答、引用与用量，不显示虚构的研究步骤或工具轨迹。"
-        />
-      ) : (
-        <>
-          <dl className="kv kb-researcher-facts">
-            <dt>项目</dt>
-            <dd>{projectName}</dd>
-            <dt>模型</dt>
-            <dd className="mono-wrap">{result.model}</dd>
-            <dt>生成时间</dt>
-            <dd>{new Date(result.generatedAt).toLocaleString('zh-CN')}</dd>
-            <dt>会话</dt>
-            <dd className="mono-wrap">{result.conversationId}</dd>
-            <dt>引用</dt>
-            <dd>{String(result.citations.length)} 条</dd>
-            <dt>用量</dt>
-            <dd>
-              {result.usage === undefined
-                ? '服务未返回用量'
-                : `输入 ${String(result.usage.input)} · 输出 ${String(result.usage.output)} · 推理 ${String(result.usage.reasoning)} · 缓存 ${String(result.usage.cache)} · 合计 ${String(result.usage.total)} tokens`}
-            </dd>
-          </dl>
-
-          <div className="kb-researcher-section">
-            <span className="section-title">本次问题</span>
-            <div className="kb-researcher-question">{result.question}</div>
-            <p className="hint" style={{ marginTop: 6 }}>
-              服务只返回最终回答，没有「已发送问题列表」的独立 DTO；这里显示这次回答对应的问题。
-            </p>
-          </div>
-
-          <div className="kb-researcher-section">
-            <span className="section-title">回答正文</span>
-            <div className="kb-researcher-question">{result.answer}</div>
-          </div>
-
-          <div className="kb-researcher-section">
-            <ResearchTimeline steps={result.steps} toolActivity={result.toolActivity} compact />
-          </div>
-
-          <div className="kb-researcher-section">
-            <span className="section-title">引用材料 · {String(result.citations.length)} 条</span>
-            {result.citations.length === 0 ? (
-              <p className="hint">模型没有给出可验证的引用；这不等于资料不存在。</p>
-            ) : (
-              <div className="kb-cite-list">
-                {result.citations.map((citation, index) => (
-                  <button
-                    key={`${citation.path}:${citation.line}:${String(index)}`}
-                    type="button"
-                    className="kb-cite-row"
-                    onClick={() => { onOpenCitation(index); }}
-                  >
-                    <span className="kb-cite-n">{String(index + 1)}</span>
-                    <span className="grow" style={{ minWidth: 0 }}>
-                      <span className="mono" style={{ display: 'block', fontSize: 12.5, overflowWrap: 'anywhere' }}>
-                        {citation.path}:{String(citation.line)}
-                      </span>
-                      {citation.snippet === undefined ? null : (
-                        <span className="hint" style={{ display: 'block', marginTop: 3 }}>{citation.snippet}</span>
-                      )}
-                    </span>
-                    <Icon name="chevRight" size="sm" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="kb-researcher-section">
-            <span className="section-title">证据核对</span>
-            <div className="banner unknown">
-              <Icon name="help" />
-              <div className="grow">
-                <b>角色证据（三项核对）与项目许可：服务未提供。</b>
-                <br />
-                本面板只展示真实回答、引用、研究步骤/工具轨迹（若服务返回）、模型、会话与用量；不补写角色证据。
-              </div>
-            </div>
-          </div>
-
-          <div className="kb-researcher-section">
-            <span className="section-title">资料来源 · 已选 {String(selectedSources.length)} 份</span>
-            {selectedSources.length === 0 ? (
-              <p className="hint">这条历史回答没有记录来源选择。</p>
-            ) : (
-              <div className="kb-researcher-sources">
-                {selectedSources.map((source) => (
-                  <div key={source} className="mono" style={{ fontSize: 12 }}>{source}</div>
-                ))}
-              </div>
-            )}
-            <p className="hint" style={{ marginTop: 6 }}>
-              这里显示本轮实际使用的来源；调整来源将在下一轮问答生效。
-            </p>
-          </div>
-        </>
-      )}
-    </Drawer>
-  );
-}
-
 export function KnowledgePage() {
   const bootstrap = useBootstrap();
   const queryClient = useQueryClient();
@@ -359,6 +221,7 @@ export function KnowledgePage() {
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const [citationIndex, setCitationIndex] = useState<number | null>(null);
   const [researcherOpen, setResearcherOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   const [askResult, setAskResult] = useState<KnowledgeAskResponse | undefined>(undefined);
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [selectedSources, setSelectedSources] = useState<ReadonlySet<string>>(new Set());
@@ -471,6 +334,8 @@ export function KnowledgePage() {
   const askDisabledReason =
     projectId === ''
       ? '先选择项目'
+      : sourcesQuery.data?.askAvailability?.allowed === false
+        ? sourcesQuery.data.askAvailability.reason ?? '问答暂不可用'
       : question.trim().length < 2
         ? '问题至少 2 个字'
         : askCommand.busy
@@ -498,6 +363,8 @@ export function KnowledgePage() {
   };
 
   const openSource = (path: string) => {
+    setSourcesOpen(false);
+    setResearcherOpen(false);
     setCitationIndex(null);
     setSourcePath(path);
   };
@@ -570,17 +437,15 @@ export function KnowledgePage() {
               variant="secondary"
               size="sm"
               icon="users"
-              disabled={askResult === undefined}
-              disabledReason={askResult === undefined ? '先提一个问题，才有可核对的回答与引用。' : undefined}
-              onClick={() => { setResearcherOpen(true); }}
+              onClick={() => { closeReader(); setSourcesOpen(false); setResearcherOpen(true); }}
             >
               研究员检查
             </Button>
             <Badge
-              tone={bootstrap.isLoading ? 'idle' : bootstrap.isError ? 'unknown' : 'ok'}
-              icon={bootstrap.isLoading ? 'clock' : bootstrap.isError ? 'help' : 'check'}
+              tone={sourcesQuery.data?.askAvailability?.allowed === true ? 'ok' : 'idle'}
+              icon={sourcesQuery.data?.askAvailability?.allowed === true ? 'check' : 'help'}
             >
-              {bootstrap.isLoading ? '正在读取服务' : bootstrap.isError ? '服务未连接' : '文档问答可用'}
+              {sourcesQuery.data?.askAvailability?.allowed === true ? '问答可用' : sourcesQuery.data?.askAvailability?.reason ?? '选择项目后检查问答状态'}
             </Badge>
           </div>
         }
@@ -601,9 +466,7 @@ export function KnowledgePage() {
         <div className="kb-main">
           <section className="card" style={{ padding: 28 }}>
             <div className="row" style={{ gap: 12 }}>
-              <span className="tile lg" aria-hidden="true" style={{ fontSize: 16, fontWeight: 600 }}>
-                研
-              </span>
+              <button type="button" className="tile lg" aria-label="查看知识研究员当前工作" onClick={() => { closeReader(); setSourcesOpen(false); setResearcherOpen(true); }} style={{ fontSize: 16, fontWeight: 600 }}>研</button>
               <div className="grow" style={{ minWidth: 0 }}>
                 <div className="row wrap" style={{ gap: 8 }}>
                   <span style={{ fontSize: 16, fontWeight: 500 }}>知识研究员</span>
@@ -630,7 +493,7 @@ export function KnowledgePage() {
                 icon="chevDown"
                 disabled={projectId === ''}
                 disabledReason={projectId === '' ? '先选择项目。' : undefined}
-                onClick={() => { document.getElementById('kb-sources')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+                onClick={() => { setSourcesOpen(true); setResearcherOpen(false); closeReader(); }}
               >
                 查看资料清单
               </Button>
@@ -653,7 +516,7 @@ export function KnowledgePage() {
                   variant="secondary"
                   size="sm"
                   icon="book"
-                  onClick={() => { document.getElementById('kb-sources')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+                  onClick={() => { setSourcesOpen(true); setResearcherOpen(false); closeReader(); }}
                 >
                   资料来源
                 </Button>
@@ -739,7 +602,7 @@ export function KnowledgePage() {
                       variant="ghost"
                       size="sm"
                       icon="users"
-                      onClick={() => { setResearcherOpen(true); }}
+                      onClick={() => { closeReader(); setSourcesOpen(false); setResearcherOpen(true); }}
                     >
                       研究员检查
                     </Button>
@@ -806,196 +669,6 @@ export function KnowledgePage() {
               </div>
             </div>
           </section>
-
-          <div className="grid-2" style={{ marginTop: 16, alignItems: 'start' }}>
-            <section id="kb-sources" className="card pad" style={{ scrollMarginTop: 16 }}>
-              <div className="row" style={{ gap: 8 }}>
-                <Icon name="book" size="sm" />
-                <span className="section-title">资料来源</span>
-                <Badge tone={sourcesQuery.isError ? 'warn' : allSourcesSelected ? 'ok' : 'idle'} icon={sourcesQuery.isError ? 'alert' : 'check'}>
-                  {sourcesQuery.isLoading ? '读取中' : sourcesQuery.isError ? '读取失败' : `已选 ${String(selectedSources.size)} / ${String(sourceList.length)}`}
-                </Badge>
-              </div>
-              <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
-                服务端只读扫描项目目录中的文档（md/mdx/txt/rst/json/yaml）；回答会引用这些来源，点击引用可回到原文。
-              </p>
-              <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-                <select
-                  className="select"
-                  style={{ width: 'auto', height: 30 }}
-                  value={projectId}
-                  onChange={(event) => { setSelectedProjectId(event.target.value); closeReader(); }}
-                  aria-label="选择项目"
-                  disabled={conversationLocked}
-                  title={conversationLocked ? '已有会话不可更换项目；新建对话后可切换' : undefined}
-                >
-                  {projects.length === 0 ? <option value="">没有项目</option> : projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-                </select>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon="refresh"
-                  disabled={projectId === '' || sourcesQuery.isFetching}
-                  disabledReason={projectId === '' ? '先选择项目。' : sourcesQuery.isFetching ? '正在读取资料来源…' : undefined}
-                  onClick={() => { void sourcesQuery.refetch(); }}
-                >
-                  {sourcesQuery.isFetching ? '读取中…' : '读取来源'}
-                </Button>
-                <span className="hint">
-                  {conversationLocked ? '当前对话固定项目；来源调整在下一轮问答生效。' : '选择本轮问答要读取的资料。'}
-                </span>
-              </div>
-              <div className="kb-source-tools">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon="check"
-                  disabled={sourceList.length === 0 || allSourcesSelected}
-                  disabledReason={sourceList.length === 0 ? '没有可选来源。' : '已经全选。'}
-                  onClick={() => { setSelectedSources(new Set(sourceList.map((source) => source.path))); }}
-                >
-                  全选
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon="x"
-                  disabled={selectedSources.size === 0}
-                  disabledReason={selectedSources.size === 0 ? '当前没有已选来源。' : undefined}
-                  onClick={() => { setSelectedSources(new Set()); }}
-                >
-                  全不选
-                </Button>
-                <span className="hint">至少选择一份资料；未勾选的资料不会作为本轮输入。</span>
-              </div>
-              {sourcesQuery.isLoading ? <SkeletonText lines={4} /> : null}
-              {sourcesQuery.isError ? (
-                <div style={{ marginTop: 10 }}>
-                  <ServiceNotice error={sourcesQuery.error} title="资料来源读取失败" onRetry={() => { void sourcesQuery.refetch(); }} />
-                </div>
-              ) : null}
-              {sourcesQuery.data === undefined ? null : sourceList.length === 0 ? (
-                <p className="hint" style={{ marginTop: 10 }}>项目目录里没有找到支持的文档来源；仍可提问，引用可能为空。</p>
-              ) : (
-                <div className="list" style={{ marginTop: 10, maxHeight: 280, overflow: 'auto' }}>
-                  {sourceList.map((source) => (
-                    <div key={source.path} className="kb-source-row">
-                      <input
-                        type="checkbox"
-                        checked={selectedSources.has(source.path)}
-                        onChange={() => { toggleSource(source.path); }}
-                        aria-label={`选择来源 ${source.path}`}
-                      />
-                      <button type="button" className="kb-source-open" onClick={() => { openSource(source.path); }}>
-                        <Icon name="doc" size="sm" />
-                        <span className="path grow">{source.path}</span>
-                        <span className="hint">{Math.max(1, Math.round(source.bytes / 1024))} KB</span>
-                        <Icon name="chevRight" size="sm" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="row wrap" style={{ gap: 8, marginTop: 14 }}>
-                <input
-                  className="input"
-                  style={{ flex: 1, minWidth: 180 }}
-                  placeholder="在文档来源中搜索（至少 2 字）"
-                  value={searchTerm}
-                  onChange={(event) => { setSearchTerm(event.target.value); }}
-                  onKeyDown={(event) => { if (event.key === 'Enter') setSubmittedTerm(searchTerm.trim()); }}
-                  aria-label="搜索知识来源"
-                />
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon="search"
-                  disabled={projectId === '' || searchTerm.trim().length < 2}
-                  disabledReason={projectId === '' ? '先选择项目。' : '搜索至少 2 个字。'}
-                  onClick={() => { setSubmittedTerm(searchTerm.trim()); }}
-                >
-                  搜索
-                </Button>
-              </div>
-              {searchQuery.isError ? (
-                <div style={{ marginTop: 8 }}>
-                  <ServiceNotice error={searchQuery.error} title="来源搜索失败" onRetry={() => { void searchQuery.refetch(); }} />
-                </div>
-              ) : null}
-              {searchQuery.data === undefined ? null : searchQuery.data.matches.length === 0 ? (
-                <p className="hint" style={{ marginTop: 8 }}>没有匹配的文档行。</p>
-              ) : (
-                <div className="list" style={{ marginTop: 8, maxHeight: 260, overflow: 'auto' }}>
-                  {searchQuery.data.matches.map((match) => (
-                    <button
-                      key={`${match.path}:${match.line}`}
-                      type="button"
-                      className="list-row"
-                      style={{ alignItems: 'flex-start', textAlign: 'left' }}
-                      onClick={() => { openSource(match.path); }}
-                    >
-                      <span className="tile"><Icon name="search" size="sm" /></span>
-                      <div className="grow" style={{ minWidth: 0 }}>
-                        <div className="mono" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>{match.path}:{match.line}</div>
-                        <div className="hint" style={{ marginTop: 3 }}>{match.text}</div>
-                      </div>
-                      <Icon name="chevRight" size="sm" />
-                    </button>
-                  ))}
-                </div>
-              )}
-              <p className="hint" style={{ marginTop: 8 }}>
-                搜索只读本地文档文本，返回文件与行号；点击结果可回到原文预览。它不是模型问答，也不会生成引用结论。
-              </p>
-            </section>
-
-            <section className="card pad" aria-label="研究员检查摘要">
-              <div className="row" style={{ gap: 8 }}>
-                <Icon name="terminal" size="sm" />
-                <span className="section-title">研究员检查</span>
-                <Badge tone="idle" icon="lock">只读</Badge>
-              </div>
-              <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
-                基于服务返回的回答、引用、模型、会话与用量；研究步骤/工具轨迹有则展示，无则明确未提供；角色证据仍无 DTO。
-              </p>
-              {askResult === undefined ? (
-                <p className="hint" style={{ marginTop: 10 }}>先提一个问题，才有可核对的回答与引用。</p>
-              ) : (
-                <dl className="kv" style={{ marginTop: 10 }}>
-                  <dt>模型</dt>
-                  <dd className="mono-wrap">{askResult.model}</dd>
-                  <dt>引用</dt>
-                  <dd>{String(askResult.citations.length)} 条</dd>
-                  <dt>会话</dt>
-                  <dd className="mono-wrap">{askResult.conversationId}</dd>
-                  <dt>用量</dt>
-                  <dd>{askResult.usage === undefined ? '服务未返回' : `${String(askResult.usage.total)} tokens`}</dd>
-                </dl>
-              )}
-              <div className="banner unknown" style={{ marginTop: 10 }}>
-                <Icon name="help" />
-                <div className="grow">
-                  <b>角色证据：服务未提供。</b>
-                  <br />
-                  {(askResult?.steps?.length ?? 0) === 0 && (askResult?.toolActivity?.length ?? 0) === 0
-                    ? '本轮服务未返回研究步骤/工具轨迹。'
-                    : '研究步骤/工具轨迹来自服务返回，可在“研究员检查”查看。'}
-                </div>
-              </div>
-              <div className="row" style={{ marginTop: 10 }}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon="users"
-                  disabled={askResult === undefined}
-                  disabledReason={askResult === undefined ? '先提一个问题。' : undefined}
-                  onClick={() => { setResearcherOpen(true); }}
-                >
-                  打开研究员检查
-                </Button>
-              </div>
-            </section>
-          </div>
 
           <section className="card" aria-label="问答历史" style={{ marginTop: 16 }}>
             <div className="card-head">
@@ -1108,12 +781,156 @@ export function KnowledgePage() {
         {reader}
       </Modal>
 
-      <ResearcherDrawer
+      <Drawer open={sourcesOpen} title="资料来源" size="sm" onClose={() => { setSourcesOpen(false); }}>
+            <section id="kb-sources">
+              <div className="row" style={{ gap: 8 }}>
+                <Icon name="book" size="sm" />
+                <span className="section-title">资料来源</span>
+                <Badge tone={sourcesQuery.isError ? 'warn' : allSourcesSelected ? 'ok' : 'idle'} icon={sourcesQuery.isError ? 'alert' : 'check'}>
+                  {sourcesQuery.isLoading ? '读取中' : sourcesQuery.isError ? '读取失败' : `已选 ${String(selectedSources.size)} / ${String(sourceList.length)}`}
+                </Badge>
+              </div>
+              <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
+                服务端只读扫描项目目录中的文档（md/mdx/txt/rst/json/yaml）；回答会引用这些来源，点击引用可回到原文。
+              </p>
+              <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+                <select
+                  className="select"
+                  style={{ width: 'auto', height: 30 }}
+                  value={projectId}
+                  onChange={(event) => { setSelectedProjectId(event.target.value); closeReader(); }}
+                  aria-label="选择项目"
+                  disabled={conversationLocked}
+                  title={conversationLocked ? '已有会话不可更换项目；新建对话后可切换' : undefined}
+                >
+                  {projects.length === 0 ? <option value="">没有项目</option> : projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                </select>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon="refresh"
+                  disabled={projectId === '' || sourcesQuery.isFetching}
+                  disabledReason={projectId === '' ? '先选择项目。' : sourcesQuery.isFetching ? '正在读取资料来源…' : undefined}
+                  onClick={() => { void sourcesQuery.refetch(); }}
+                >
+                  {sourcesQuery.isFetching ? '读取中…' : '读取来源'}
+                </Button>
+                <span className="hint">
+                  {conversationLocked ? '当前对话固定项目；来源调整在下一轮问答生效。' : '选择本轮问答要读取的资料。'}
+                </span>
+              </div>
+              <div className="kb-source-tools">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon="check"
+                  disabled={sourceList.length === 0 || allSourcesSelected}
+                  disabledReason={sourceList.length === 0 ? '没有可选来源。' : '已经全选。'}
+                  onClick={() => { setSelectedSources(new Set(sourceList.map((source) => source.path))); }}
+                >
+                  全选
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon="x"
+                  disabled={selectedSources.size === 0}
+                  disabledReason={selectedSources.size === 0 ? '当前没有已选来源。' : undefined}
+                  onClick={() => { setSelectedSources(new Set()); }}
+                >
+                  全不选
+                </Button>
+                <span className="hint">至少选择一份资料；未勾选的资料不会作为本轮输入。</span>
+              </div>
+              {sourcesQuery.isLoading ? <SkeletonText lines={4} /> : null}
+              {sourcesQuery.isError ? (
+                <div style={{ marginTop: 10 }}>
+                  <ServiceNotice error={sourcesQuery.error} title="资料来源读取失败" onRetry={() => { void sourcesQuery.refetch(); }} />
+                </div>
+              ) : null}
+              {sourcesQuery.data === undefined ? null : sourceList.length === 0 ? (
+                <p className="hint" style={{ marginTop: 10 }}>项目目录里没有找到支持的资料来源，请先添加资料后提问。</p>
+              ) : (
+                <div className="list" style={{ marginTop: 10, maxHeight: 280, overflow: 'auto' }}>
+                  {sourceList.map((source) => (
+                    <div key={source.path} className="kb-source-row">
+                      <input
+                        type="checkbox"
+                        checked={selectedSources.has(source.path)}
+                        onChange={() => { toggleSource(source.path); }}
+                        aria-label={`选择来源 ${source.path}`}
+                      />
+                      <button type="button" className="kb-source-open" onClick={() => { openSource(source.path); }}>
+                        <Icon name="doc" size="sm" />
+                        <span className="path grow">{source.path}</span>
+                        <span className="hint">{Math.max(1, Math.round(source.bytes / 1024))} KB</span>
+                        <Icon name="chevRight" size="sm" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="row wrap" style={{ gap: 8, marginTop: 14 }}>
+                <input
+                  className="input"
+                  style={{ flex: 1, minWidth: 180 }}
+                  placeholder="在文档来源中搜索（至少 2 字）"
+                  value={searchTerm}
+                  onChange={(event) => { setSearchTerm(event.target.value); }}
+                  onKeyDown={(event) => { if (event.key === 'Enter') setSubmittedTerm(searchTerm.trim()); }}
+                  aria-label="搜索知识来源"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon="search"
+                  disabled={projectId === '' || searchTerm.trim().length < 2}
+                  disabledReason={projectId === '' ? '先选择项目。' : '搜索至少 2 个字。'}
+                  onClick={() => { setSubmittedTerm(searchTerm.trim()); }}
+                >
+                  搜索
+                </Button>
+              </div>
+              {searchQuery.isError ? (
+                <div style={{ marginTop: 8 }}>
+                  <ServiceNotice error={searchQuery.error} title="来源搜索失败" onRetry={() => { void searchQuery.refetch(); }} />
+                </div>
+              ) : null}
+              {searchQuery.data === undefined ? null : searchQuery.data.matches.length === 0 ? (
+                <p className="hint" style={{ marginTop: 8 }}>没有匹配的文档行。</p>
+              ) : (
+                <div className="list" style={{ marginTop: 8, maxHeight: 260, overflow: 'auto' }}>
+                  {searchQuery.data.matches.map((match) => (
+                    <button
+                      key={`${match.path}:${match.line}`}
+                      type="button"
+                      className="list-row"
+                      style={{ alignItems: 'flex-start', textAlign: 'left' }}
+                      onClick={() => { openSource(match.path); }}
+                    >
+                      <span className="tile"><Icon name="search" size="sm" /></span>
+                      <div className="grow" style={{ minWidth: 0 }}>
+                        <div className="mono" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>{match.path}:{match.line}</div>
+                        <div className="hint" style={{ marginTop: 3 }}>{match.text}</div>
+                      </div>
+                      <Icon name="chevRight" size="sm" />
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="hint" style={{ marginTop: 8 }}>
+                搜索只读本地文档文本，返回文件与行号；点击结果可回到原文预览。它不是模型问答，也不会生成引用结论。
+              </p>
+            </section>
+
+      </Drawer>
+
+      <KnowledgeResearcherDrawer
         open={researcherOpen}
         result={askResult}
-        projectId={projectId}
+        draft={question}
         projectName={projectName}
-        selectedSources={askResult?.sources?.selectedPaths ?? []}
+        selectedSources={askResult?.sources?.selectedPaths ?? [...selectedSources]}
         onClose={() => { setResearcherOpen(false); }}
         onOpenCitation={openCitation}
       />

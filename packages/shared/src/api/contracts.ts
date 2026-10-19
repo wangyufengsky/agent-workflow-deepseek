@@ -424,6 +424,7 @@ export interface KnowledgeRunProgress {
   readonly sources: NonNullable<KnowledgeAskResponse['sources']>;
   readonly sessionId?: string;
   readonly stopRequestKey?: string;
+  readonly roleEvidence?: KnowledgeRoleEvidence;
   readonly error?: string;
 }
 
@@ -433,12 +434,22 @@ export interface KnowledgeCitation {
   readonly snippet?: string;
 }
 
+export interface KnowledgeRoleEvidence {
+  readonly executionRole: { readonly id: string; readonly label: string };
+  readonly profession?: { readonly id: string; readonly name: string; readonly revision: string };
+  readonly appearance?: import('../domain/models.ts').RoleImageBinding;
+  readonly conversationVersion: number;
+  readonly messageVersion: number;
+  readonly requestKey: string;
+}
+
 export interface KnowledgeAskResponse {
   readonly projectId: string;
   readonly question: string;
   readonly answer: string;
   readonly status?: 'completed' | 'stopped';
   readonly requestKey?: string;
+  readonly roleEvidence?: KnowledgeRoleEvidence;
   readonly citations: readonly KnowledgeCitation[];
   readonly model: string;
   readonly generatedAt: IsoDateTime;
@@ -517,6 +528,7 @@ export interface KnowledgeSearchResponse {
 }
 
 export interface KnowledgeSourcesResponse {
+  readonly askAvailability?: ActionAvailability;
   readonly projectId: string;
   readonly sources: readonly KnowledgeSource[];
 }

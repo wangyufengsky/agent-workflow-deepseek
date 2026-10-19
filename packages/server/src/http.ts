@@ -899,7 +899,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const projectId = request.query.projectId ?? '';
     if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
     const project = engine.projects.get(projectId);
-    return envelope({ projectId, sources: listKnowledgeSources(project.rootPath) }, requestId(request));
+    return envelope({ projectId, sources: listKnowledgeSources(project.rootPath), askAvailability: engine.knowledge.askAvailability() }, requestId(request));
   });
   app.get<{ Querystring: { projectId?: string; q?: string; limit?: string } }>('/api/knowledge/search', async (request) => {
     const projectId = request.query.projectId ?? '';
@@ -1142,6 +1142,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.get<{ Params: { key: string } }>('/api/operations/:key', async (request) => {
     await engine.executions.reconcileOperation(request.params.key);
     await engine.knowledge.reconcileOperation(request.params.key);
+    await engine.charters.reconcileOperation(request.params.key);
     const operation = engine.commands.get(request.params.key);
     if (operation === undefined) throw new AppError(ErrorCode.NOT_FOUND, '操作记录不存在');
     return envelope({ operation, stillUnknown: operation.status === 'unknown' || operation.status === 'accepted' }, requestId(request));

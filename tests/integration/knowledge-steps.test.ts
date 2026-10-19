@@ -285,3 +285,24 @@ test('knowledge abort failure stays UNKNOWN and original-key reconciliation neve
     assert.equal(fixture.opencode.abortCount, 1);
   } finally { release(); fixture.close(); }
 });
+
+test('knowledge records dispatch-time role evidence and never retrofits a newer appearance onto the answer', async () => {
+  const fixture = setup();
+  fixture.opencode.assistantText = ANSWER;
+  try {
+    const input = { requestKey: requestKey('evidence'), projectId: fixture.projectId, question: '这个项目是什么？' };
+    const result = await fixture.engine.knowledge.ask(input);
+    const evidence = structuredClone(result.resource?.roleEvidence);
+    assert.equal(evidence?.executionRole.id, 'knowledge.researcher');
+    assert.equal(evidence?.profession?.id, 'role.reviewer');
+    assert.equal(evidence?.requestKey, input.requestKey);
+    assert.equal(fixture.opencode.requests[0]?.rolePolicy?.id, 'role.reviewer');
+    const role = fixture.engine.catalog.roles.find((item) => item.id === 'role.reviewer')!;
+    const originalImage = role.image;
+    const mutable = role as { image?: { id: string; kind: 'emoji'; value: string }; revision: string };
+    const revision = mutable.revision;
+    mutable.image = { id: 'later-image', kind: 'emoji', value: 'X' }; mutable.revision = 'later-revision';
+    try { assert.deepEqual(fixture.engine.knowledge.result(input.requestKey, fixture.projectId).roleEvidence, evidence); }
+    finally { (role as { image?: typeof originalImage }).image = originalImage; mutable.revision = revision; }
+  } finally { fixture.close(); }
+});

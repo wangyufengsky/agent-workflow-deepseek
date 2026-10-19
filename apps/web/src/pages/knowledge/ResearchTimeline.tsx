@@ -80,10 +80,7 @@ export function ResearchTimeline({
       <div className="kb-research-note">
         <Icon name="help" size="sm" />
         <span>
-          <b>服务未提供研究步骤/工具轨迹。</b>
-          {steps === undefined && toolActivity === undefined
-            ? '本次回答或旧历史记录没有返回步骤与工具事件；本页不会补造固定四步。'
-            : '服务返回的步骤/工具事件为空；本页不会补造。'}
+          本轮还没有工具调用记录。
         </span>
       </div>
     );
@@ -132,7 +129,7 @@ export function ResearchTimeline({
       ) : (
         <div className="kb-research-note">
           <Icon name="help" size="sm" />
-          <span><b>服务未提供研究步骤。</b>本次只返回了工具轨迹；不补造固定四步。</span>
+          <span>本轮记录了以下工具调用。</span>
         </div>
       )}
 
@@ -169,7 +166,7 @@ export function ResearchTimeline({
       ) : (
         <div className="kb-research-note">
           <Icon name="help" size="sm" />
-          <span><b>服务未提供工具轨迹。</b>本次执行或旧历史记录没有返回真实 tool parts；不补造工具调用。</span>
+          <span>本轮没有工具调用记录。</span>
         </div>
       )}
     </div>

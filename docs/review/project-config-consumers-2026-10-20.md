@@ -15,3 +15,7 @@
 验收边界：模型为离线受控端口，GitLab为本机HTTP替身，不是实际 provider/GitLab live PASS；未做四主题GUI/浏览器后退离开拦截验收、模型实际文档产出落盘与权限拒绝、真实GitLab写入。文档策略已进入实际执行提示，但这不能证明模型遵守该策略。生成后重启而原进程状态无法证明时保留 UNKNOWN；现有 OpenCodePort 只提供会话身份而无终态正文重读能力，尚不能自动恢复生成产物或安全解锁新轮次。这些是待补验收/契约缺口，不降为可选。
 
 集成提示：本批 `execution.ts` 仅新增 helper import 和执行提示中的一个插值；与职业提示改动合并时保留两者。与通用回执批次合并后，应将公共 commandScope 纳入 `/api/projects/:id`，让项目配置网络结果未知也使用公共持久核对入口。
+
+## Lead停止复审
+
+停止回执维持accepted直到明确idle/尚未派发；生成超时且停止未确认保留UNKNOWN，持久保存session与原停止key支持重启后只读核对，不重复abort。补充abort失败+超时+重启核对测试；公约相关10项通过，typecheck通过。真实模型/GUI仍待验收。
