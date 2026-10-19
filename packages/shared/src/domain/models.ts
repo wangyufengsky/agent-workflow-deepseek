@@ -49,6 +49,7 @@ import type {
   TaskAttentionValue,
   TaskLifecycleValue,
   TaskMethodSupportValue,
+  ThemeIdValue,
   TaskStageValue,
   VerificationStateValue,
   WorkspaceKindValue,
@@ -995,6 +996,7 @@ export interface PptWork {
   readonly outline: readonly string[];
   readonly slides: readonly PptSlide[];
   readonly attachments: readonly PptAttachment[];
+  readonly theme: ThemeIdValue;
   readonly usage?: TokenUsage;
   readonly createdAt: IsoDateTime;
   readonly updatedAt: IsoDateTime;

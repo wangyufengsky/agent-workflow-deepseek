@@ -11,6 +11,7 @@ interface Row {
   slides_json: string;
   usage_json: string | null;
   attachments_json: string;
+  theme: string;
   created_at: string;
   updated_at: string;
 }
@@ -19,6 +20,7 @@ export interface CreatePptWorkInput {
   readonly projectId?: string;
   readonly title: string;
   readonly topic: string;
+  readonly theme?: PptWork['theme'];
 }
 
 export class PptWorkRepository {
@@ -39,12 +41,13 @@ export class PptWorkRepository {
       outline: [],
       slides: [],
       attachments: [],
+      theme: input.theme ?? 'deepseek',
       createdAt: at,
       updatedAt: at,
     };
     this.#db
-      .prepare('INSERT INTO ppt_works (id, project_id, title, topic, status, outline_json, slides_json, created_at, updated_at, usage_json, attachments_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(work.id, work.projectId ?? null, work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), work.createdAt, work.updatedAt, work.usage === undefined ? null : JSON.stringify(work.usage), JSON.stringify(work.attachments));
+      .prepare('INSERT INTO ppt_works (id, project_id, title, topic, status, outline_json, slides_json, created_at, updated_at, usage_json, attachments_json, theme) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(work.id, work.projectId ?? null, work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), work.createdAt, work.updatedAt, work.usage === undefined ? null : JSON.stringify(work.usage), JSON.stringify(work.attachments), work.theme);
     return work;
   }
 
@@ -60,8 +63,8 @@ export class PptWorkRepository {
 
   update(work: PptWork): PptWork {
     this.#db
-      .prepare('UPDATE ppt_works SET title = ?, topic = ?, status = ?, outline_json = ?, slides_json = ?, updated_at = ?, usage_json = ?, attachments_json = ? WHERE id = ?')
-      .run(work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), nowIso(), work.usage === undefined ? null : JSON.stringify(work.usage), JSON.stringify(work.attachments), work.id);
+      .prepare('UPDATE ppt_works SET title = ?, topic = ?, status = ?, outline_json = ?, slides_json = ?, updated_at = ?, usage_json = ?, attachments_json = ?, theme = ? WHERE id = ?')
+      .run(work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), nowIso(), work.usage === undefined ? null : JSON.stringify(work.usage), JSON.stringify(work.attachments), work.theme, work.id);
     return this.get(work.id) ?? work;
   }
 
@@ -101,6 +104,7 @@ function mapRow(row: Row): PptWork {
     slides,
     usage: row.usage_json === null ? undefined : JSON.parse(row.usage_json) as PptWork['usage'],
     attachments: parseAttachments(row.attachments_json),
+    theme: row.theme as PptWork['theme'],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

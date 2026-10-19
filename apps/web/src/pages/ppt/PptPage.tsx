@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ROUTES, createRequestKey, type PptWork, type PptWorkExportResponse } from '@agent-workflow/shared';
+import { ROUTES, THEME_IDS, createRequestKey, type PptWork, type PptWorkExportResponse, type ThemeIdValue } from '@agent-workflow/shared';
 import { apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useProjects } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -27,7 +27,7 @@ export function PptPage() {
   const worksQuery = useQuery({ queryKey: ['ppt', 'works'], queryFn: async () => (await apiGet<{ works: readonly PptWork[] }>('/api/ppt/works')).data.works, retry: false });
   const createDraft = useMutation({
     mutationFn: async () => {
-      await apiPost('/api/ppt/works', { requestKey: createRequestKey(), ...(projectId === '' ? {} : { projectId }), title: text.trim().slice(0, 40) || '未命名演示', topic: text.trim(), confirmCreate: true });
+      await apiPost('/api/ppt/works', { requestKey: createRequestKey(), ...(projectId === '' ? {} : { projectId }), title: text.trim().slice(0, 40) || '未命名演示', topic: text.trim(), theme, confirmCreate: true });
     },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
   });
@@ -80,6 +80,7 @@ export function PptPage() {
   const projects = projectsQuery.data ?? [];
   const [projectId, setProjectId] = useState('');
   const [text, setText] = useState('');
+  const [theme, setTheme] = useState<ThemeIdValue>('deepseek');
   const [editing, setEditing] = useState<{ id: string; title: string; outlineText: string } | null>(null);
 
   const project = useMemo(() => projects.find((item) => item.id === projectId), [projectId, projects]);
@@ -89,7 +90,7 @@ export function PptPage() {
     <div className="page">
       <PageHeader
         title="PPT 制作"
-        lede="先讨论清楚要讲什么，再逐页制作。当前支持草稿、模型生成大纲与逐页内容；PPTX 导出仍未接通。"
+        lede="先讨论清楚要讲什么，再逐页制作。支持草稿、模型大纲/逐页、文本附件、Markdown 与带主题的 PPTX 导出。"
         actions={
           <Badge tone="wait" icon="layers">
             仅草稿
@@ -143,6 +144,14 @@ export function PptPage() {
             <span className="hint">
               {project === undefined ? '演示归属于一个项目，便于引用资料与项目公约。' : `已选择 ${project.name}；创建时会把项目写入演示记录。`}
             </span>
+          </div>
+
+          <div className="row wrap" style={{ gap: 10 }}>
+            <label className="label" htmlFor="ppt-theme">版式主题</label>
+            <select id="ppt-theme" className="select ctl" style={{ width: 220 }} value={theme} onChange={(event) => { setTheme(event.target.value as ThemeIdValue); }}>
+              {THEME_IDS.map((id) => <option key={id} value={id}>{id}</option>)}
+            </select>
+            <span className="hint">导出 PPTX 时使用对应背景/文字/强调色。</span>
           </div>
 
           <div className="field" style={{ margin: 0 }}>

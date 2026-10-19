@@ -42,7 +42,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
 | server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
-| server/ppt | 草稿 CRUD/大纲编辑/文本附件/Markdown+PPTX 导出；真实模型生成大纲与逐页（live PASS） |
+| server/ppt | 草稿 CRUD/大纲编辑/文本附件/四主题 PPTX/Markdown 导出；真实模型大纲与逐页（live PASS） |
 | server/templates | 固定模板详情/导出；自定义模板导入/更新版本（旧任务仍冻结旧版本）/归档；按模板生成计划/历史 |
 | server/settings | 断连轮询间隔持久化/校验、模型档案启停、工具集启停（非空/合法校验）、数据库概览跳转；任务页轮询使用该设置 |
 | mcp/runtime | 工具集过滤：只注入启用前缀的工具；空/未知工具集回退默认；设置经 AGENT_WORKFLOW_TOOLSETS 注入 |

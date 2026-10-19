@@ -1,5 +1,6 @@
 import type { IsoDateTime, RequestKey, TaskId } from '../ids.ts';
 import type { ErrorCodeValue } from '../errors.ts';
+import type { ThemeIdValue } from '../domain/enums.ts';
 import type { AppEventEnvelope } from '../domain/events.ts';
 import type {
   ActionAvailability,
@@ -320,6 +321,7 @@ export interface PptWorkUpdateRequest extends CommandRequest {
   readonly title?: string;
   readonly topic?: string;
   readonly outline?: readonly string[];
+  readonly theme?: ThemeIdValue;
   readonly confirmUpdate: true;
 }
 
@@ -331,6 +333,7 @@ export interface PptWorkCreateRequest extends CommandRequest {
   readonly projectId?: string;
   readonly title: string;
   readonly topic: string;
+  readonly theme?: ThemeIdValue;
   readonly confirmCreate: true;
 }
 

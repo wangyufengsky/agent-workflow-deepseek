@@ -43,7 +43,8 @@ export class PptService {
       target: {},
     });
     if (replayed && record.status !== 'accepted') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
-    const work = this.#store.pptWorks.create({ ...(input.projectId === undefined ? {} : { projectId: input.projectId }), title, topic });
+    const theme = validateTheme(input.theme);
+    const work = this.#store.pptWorks.create({ ...(input.projectId === undefined ? {} : { projectId: input.projectId }), title, topic, theme });
     this.#commands.settle(input.requestKey, { workId: work.id });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.list().works };
   }
@@ -61,16 +62,19 @@ export class PptService {
       addSlide: () => { addText: (text: unknown, options?: Record<string, unknown>) => void };
       write: (options: { outputType: string }) => Promise<Buffer>;
     };
+    const palette = PALETTES[work.theme] ?? DEFAULT_PALETTE;
     const pptx = new PptxGen();
     pptx.layout = 'LAYOUT_WIDE';
     const titleSlide = pptx.addSlide();
-    titleSlide.addText(work.title, { x: 0.6, y: 2.2, w: 12, h: 1.2, fontSize: 32, bold: true });
-    titleSlide.addText(work.topic, { x: 0.6, y: 3.4, w: 12, h: 1, fontSize: 16 });
+    (titleSlide as unknown as { background?: unknown }).background = { color: palette.bg };
+    titleSlide.addText(work.title, { x: 0.6, y: 2.2, w: 12, h: 1.2, fontSize: 32, bold: true, color: palette.text });
+    titleSlide.addText(work.topic, { x: 0.6, y: 3.4, w: 12, h: 1, fontSize: 16, color: palette.text });
     for (const slide of slides) {
       const page = pptx.addSlide();
-      page.addText(slide.title, { x: 0.5, y: 0.35, w: 12.3, h: 0.8, fontSize: 24, bold: true });
+      (page as unknown as { background?: unknown }).background = { color: palette.bg };
+      page.addText(slide.title, { x: 0.5, y: 0.35, w: 12.3, h: 0.8, fontSize: 24, bold: true, color: palette.accent });
       if (slide.bullets.length > 0) {
-        page.addText(slide.bullets.map((bullet) => ({ text: bullet, options: { bullet: true } })), { x: 0.7, y: 1.4, w: 11.8, h: 5.2, fontSize: 16 });
+        page.addText(slide.bullets.map((bullet) => ({ text: bullet, options: { bullet: true } })), { x: 0.7, y: 1.4, w: 11.8, h: 5.2, fontSize: 16, color: palette.text });
       }
     }
     return pptx.write({ outputType: 'nodebuffer' });
@@ -131,14 +135,15 @@ export class PptService {
     const topic = input.topic === undefined ? work.topic : input.topic.trim();
     if (topic.length > 2_000) throw new AppError(ErrorCode.VALIDATION_FAILED, 'PPT 主题过长');
     const outline = input.outline === undefined ? work.outline : input.outline.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 40);
+    const theme = input.theme === undefined ? work.theme : validateTheme(input.theme);
     const { replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'ppt.work.update',
-      body: { workId: id, title, topic, outline },
+      body: { workId: id, title, topic, outline, theme },
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
-    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline });
+    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline, theme });
     this.#commands.settle(input.requestKey, { workId: id, slides: outline.length });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
   }
@@ -290,4 +295,19 @@ function extractSlides(text: string): readonly PptSlide[] {
   } catch {
     return [];
   }
+}
+
+
+const DEFAULT_PALETTE = { bg: '0B1220', text: 'E5E7EB', accent: '7C9CFF' } as const;
+const PALETTES: Record<string, { readonly bg: string; readonly text: string; readonly accent: string }> = {
+  deepseek: DEFAULT_PALETTE,
+  warm: { bg: 'FFF8F0', text: '3B2F2F', accent: 'B45309' },
+  spdb: { bg: 'FFFFFF', text: '1F2A44', accent: '0B5FA5' },
+  'github-white': { bg: 'FFFFFF', text: '1F2328', accent: '0969DA' },
+};
+
+function validateTheme(theme: unknown): import('@agent-workflow/shared').ThemeIdValue {
+  if (theme === undefined) return 'deepseek';
+  if (theme === 'deepseek' || theme === 'warm' || theme === 'spdb' || theme === 'github-white') return theme;
+  throw new AppError(ErrorCode.VALIDATION_FAILED, 'PPT 主题不合法');
 }

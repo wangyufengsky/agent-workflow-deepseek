@@ -364,4 +364,11 @@ ALTER TABLE ppt_works ADD COLUMN usage_json TEXT;
 ALTER TABLE ppt_works ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]';
 `,
   },
+  {
+    version: 9,
+    name: 'ppt_theme',
+    sql: `
+ALTER TABLE ppt_works ADD COLUMN theme TEXT NOT NULL DEFAULT 'deepseek';
+`,
+  },
 ];

@@ -18,12 +18,15 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     const created = await app.app.inject({
       method: 'POST',
       url: '/api/ppt/works',
-      payload: { requestKey: requestKey('ppt'), title: '季度汇报', topic: '本季度交付与风险', confirmCreate: true },
+      payload: { requestKey: requestKey('ppt'), title: '季度汇报', topic: '本季度交付与风险', theme: 'warm', confirmCreate: true },
     });
     assert.equal(created.statusCode, 200, created.body);
-    const works = created.json().data.resource as { id: string; status: string; title: string }[];
+    const works = created.json().data.resource as { id: string; status: string; title: string; theme: string }[];
     assert.equal(works.length, 1);
     assert.equal(works[0]!.status, 'draft');
+    assert.equal(works[0]!.theme, 'warm');
+    const badTheme = await app.app.inject({ method: 'POST', url: '/api/ppt/works', payload: { requestKey: requestKey('badtheme'), title: 'T', topic: 'x', theme: 'neon', confirmCreate: true } });
+    assert.equal(badTheme.statusCode, 400, badTheme.body);
     const id = works[0]!.id;
     const updated = await app.app.inject({
       method: 'PATCH',
