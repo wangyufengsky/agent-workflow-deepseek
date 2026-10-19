@@ -70,16 +70,22 @@ export function RuntimePage() {
   const data = bootstrap.data;
   const disconnected = statusQuery.isError && isServiceUnavailable(statusQuery.error);
   const state = status !== undefined && isOpenCodeState(status.state) ? status.state : null;
+  const external = status?.managed === false;
 
   const restartBlockedReason = disconnected
     ? '服务未连接：无法读取 OpenCode 状态，也不能提交重启请求。'
     : statusQuery.isError
       ? 'OpenCode 状态读取失败，先修复状态接口再重启。'
-      : state === 'starting'
-        ? 'OpenCode 正在启动，不能重复提交重启。'
-        : state === null
-          ? 'OpenCode 返回了无法识别的状态；为避免误操作，重启已停用。'
-          : '正在读取 OpenCode 状态…';
+      : statusQuery.isLoading || status === undefined
+        ? '正在读取 OpenCode 状态…'
+        : external
+          ? '当前 OpenCode 不是本程序受管进程（未启用或由外部启动），不能在这里重启。'
+          : state === 'starting'
+            ? 'OpenCode 正在启动，不能重复提交重启。'
+            : state === null
+              ? `OpenCode 返回了无法识别的状态「${status.state}」；为避免误操作，重启已停用。`
+              : undefined;
+  const restartDisabledReason = restartBlockedReason ?? (restart.isPending ? '正在提交重启…' : undefined);
 
   let body: ReactNode;
   if (bootstrap.isLoading && statusQuery.isLoading) {
@@ -103,28 +109,42 @@ export function RuntimePage() {
           <div className="grow" style={{ minWidth: 220 }}>
             <div className="row wrap" style={{ gap: 8 }}>
               <h2 style={{ fontSize: 19, fontWeight: 500 }}>OpenCode{status?.version === undefined ? '' : ` ${status.version}`}</h2>
-              {state === null ? (
+              {status === undefined ? (
+                <Badge tone="idle" icon="clock">
+                  读取中
+                </Badge>
+              ) : state === null ? (
                 <Badge tone="unknown" icon="help">
-                  状态未知{status === undefined ? '' : `：${status.state}`}
+                  状态未知：{status.state}
                 </Badge>
               ) : (
                 <Badge tone={STATE_TONE[state]} icon={STATE_ICON[state]}>
                   {STATE_LABEL[state]}
                 </Badge>
               )}
-              <Badge outline icon="shield">
-                受管进程
-              </Badge>
+              {status === undefined ? null : external ? (
+                <Badge outline icon="lock">
+                  外部进程 · 未受管
+                </Badge>
+              ) : (
+                <Badge outline icon="shield">
+                  受管进程
+                </Badge>
+              )}
             </div>
             <div className="hint" style={{ marginTop: 6, lineHeight: 1.6 }}>
-              受管 OpenCode 通过本地 HTTP 接口执行任务与知识库对话。重启会结束当前会话，正在执行的任务会暂停。
+              {status === undefined
+                ? '正在读取 OpenCode 进程状态与受管归属…'
+                : external
+                  ? '当前 OpenCode 不是本程序受管进程（未启用或由外部启动）；本页只读取状态，不管理其进程，也不提供重启。'
+                  : '受管 OpenCode 通过本地 HTTP 接口执行任务与知识库对话。重启会结束当前会话，正在执行的任务会暂停。'}
             </div>
           </div>
           <Button
             variant="secondary"
             icon="refresh"
-            disabled={statusQuery.isError || state === 'starting' || restart.isPending}
-            disabledReason={restartBlockedReason}
+            disabled={restartDisabledReason !== undefined}
+            disabledReason={restartDisabledReason}
             onClick={() => restart.mutate()}
           >
             {restart.isPending ? '正在提交重启…' : '重启 OpenCode'}
@@ -139,6 +159,28 @@ export function RuntimePage() {
                 void statusQuery.refetch();
               }}
             />
+          </div>
+        ) : null}
+
+        {bootstrap.isError ? (
+          <div style={{ marginTop: 14 }}>
+            <ServiceNotice
+              error={bootstrap.error}
+              onRetry={() => {
+                void bootstrap.refetch();
+              }}
+            />
+          </div>
+        ) : null}
+
+        {external ? (
+          <div className="banner info" role="status" style={{ marginTop: 14 }}>
+            <Icon name="info" />
+            <div className="grow">
+              <b>外部进程 · 未受管</b>
+              <br />
+              当前 OpenCode 不是本程序受管进程（未启用或由外部启动）。本页只读取状态，不执行重启；需要在启动它的地方操作。
+            </div>
           </div>
         ) : null}
 
@@ -277,7 +319,7 @@ export function RuntimePage() {
     <div className="page">
       <PageHeader
         title="运行环境"
-        lede="opencode-workflow 通过本机的受管 OpenCode 执行任务与对话。这里查看连接是否正常，并在需要时重启。"
+        lede="opencode-workflow 通过本机的 OpenCode 执行任务与对话。这里查看连接是否正常，并在需要时重启受管进程。"
         actions={
           <Button
             variant="secondary"

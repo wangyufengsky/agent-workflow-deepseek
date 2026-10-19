@@ -87,6 +87,19 @@ export async function createApplication(options: CreateApplicationOptions = {}):
     },
   });
 
+  // Startup recovery runs before the HTTP API is registered: a previous process
+  // may have left executions, planning rounds or workspaces in flight. Recovery
+  // is idempotent, never redispatches a model, never touches workspace
+  // directories, and must not block startup.
+  try {
+    const recovery = engine.recoverOnStartup();
+    if (process.env.AGENT_WORKFLOW_DEBUG === '1' && recovery.affectedTaskIds.length > 0) {
+      console.error('[recovery]', JSON.stringify(recovery));
+    }
+  } catch (error) {
+    if (process.env.AGENT_WORKFLOW_DEBUG === '1') console.error('[recovery]', error);
+  }
+
   const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024, disableRequestLogging: true });
   const startedAt = nowIso();
   if (gatewaySettings.enabled) {

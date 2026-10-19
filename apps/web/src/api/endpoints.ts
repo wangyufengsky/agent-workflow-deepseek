@@ -2,10 +2,10 @@ import {
   ROUTES,
   createRequestKey,
   type BootstrapResponse,
-  type CommandResponse,
   type ListTasksQuery,
   type OpenCodeDetectResponse,
   type OpenCodeRestartRequest,
+  type OpenCodeRestartResponse,
   type OpenCodeStatusResponse,
   type Page,
   type ProjectSummary,
@@ -50,12 +50,17 @@ export async function fetchOpenCodeStatus(): Promise<OpenCodeStatusResponse['sta
 }
 
 export async function fetchOpenCodeDetect(): Promise<OpenCodeDetectResponse> {
-  const response = await apiGet<OpenCodeDetectResponse>('/api/opencode/detect');
+  const response = await apiGet<OpenCodeDetectResponse>(ROUTES.opencodeDetect);
   return response.data;
 }
 
-export async function restartOpenCode(): Promise<CommandResponse> {
+/**
+ * Restart command: the server now answers the standard `CommandResponse`
+ * (`{ receipt, resource: { status } }`). Callers must read `.receipt.status`
+ * instead of assuming a bare `status` object.
+ */
+export async function restartOpenCode(): Promise<OpenCodeRestartResponse> {
   const body: OpenCodeRestartRequest = { requestKey: createRequestKey(), confirmRestart: true };
-  const response = await apiPost<CommandResponse>(ROUTES.opencodeRestart, body);
+  const response = await apiPost<OpenCodeRestartResponse>(ROUTES.opencodeRestart, body);
   return response.data;
 }

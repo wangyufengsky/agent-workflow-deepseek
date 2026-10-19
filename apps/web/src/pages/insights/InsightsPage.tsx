@@ -10,7 +10,7 @@ import { deriveTaskStatus, sortByUpdatedDesc, taskHref, taskProgressText } from 
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
-import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
+import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
@@ -31,7 +31,15 @@ function UnknownValue({ reason }: { readonly reason: string }) {
   );
 }
 
-function TaskDetail({ task }: { readonly task: TaskSummary }) {
+function NotProvided({ reason }: { readonly reason: string }) {
+  return (
+    <Badge tone="unknown" icon="help" title={reason}>
+      服务未提供
+    </Badge>
+  );
+}
+
+function TaskDetail({ task, tokens, tokensReason }: { readonly task: TaskSummary; readonly tokens: number | undefined; readonly tokensReason: string }) {
   const status = deriveTaskStatus(task);
   const queryClient = useQueryClient();
   const [note, setNote] = useState('');
@@ -81,7 +89,9 @@ function TaskDetail({ task }: { readonly task: TaskSummary }) {
         <div className="eyebrow" style={{ marginBottom: 8 }}>
           验收与评审
         </div>
-        {acceptanceQuery.data === undefined ? <p className="hint">正在读取人工验收…</p> : acceptance === undefined ? (
+        {acceptanceQuery.isError ? (
+          <p className="hint" style={{ color: 'var(--danger)' }}>读取人工验收失败：{errorMessage(acceptanceQuery.error)}</p>
+        ) : acceptanceQuery.data === undefined ? <p className="hint">正在读取人工验收…</p> : acceptance === undefined ? (
           <div className="col" style={{ gap: 8 }}>
             <p className="hint">尚未人工验收。{canDecide ? '可以记录验收结论；结论只保存在本机。' : '任务完成后才能记录验收结论。'}</p>
             <textarea className="textarea" placeholder="验收备注（可选）" value={note} onChange={(event) => { setNote(event.target.value); }} />
@@ -115,25 +125,28 @@ function TaskDetail({ task }: { readonly task: TaskSummary }) {
           <div className="card pad" style={{ padding: 12 }}>
             <div className="eyebrow">已记录 Tokens</div>
             <div style={{ marginTop: 4 }}>
-              <UnknownValue reason="服务未提供按任务聚合的 tokens 接口" />
+              {tokens === undefined
+                ? <UnknownValue reason={tokensReason} />
+                : <span className="num" style={{ fontFamily: 'var(--font-display)', fontSize: 20 }}>{formatCount(tokens)}</span>}
             </div>
+            <div className="hint" style={{ marginTop: 4 }}>规划 tokens · /api/insights/task-usage</div>
           </div>
           <div className="card pad" style={{ padding: 12 }}>
             <div className="eyebrow">成本</div>
             <div style={{ marginTop: 4 }}>
-              <UnknownValue reason="服务未提供成本聚合接口" />
+              <NotProvided reason="服务未提供按任务的成本字段；顶层统计只有规划成本汇总。" />
             </div>
           </div>
           <div className="card pad" style={{ padding: 12 }}>
             <div className="eyebrow">耗时</div>
             <div style={{ marginTop: 4 }}>
-              <UnknownValue reason="服务未提供任务耗时接口" />
+              <NotProvided reason="服务未提供按任务的耗时字段。" />
             </div>
           </div>
           <div className="card pad" style={{ padding: 12 }}>
             <div className="eyebrow">重试</div>
             <div style={{ marginTop: 4 }}>
-              <UnknownValue reason="服务未提供重试次数聚合接口" />
+              <NotProvided reason="服务未提供按任务的重试次数字段。" />
             </div>
           </div>
         </div>
@@ -208,7 +221,7 @@ export function InsightsPage() {
       />
     );
   } else if (tasks.length === 0) {
-    body = <EmptyState icon="chart" title="还没有可统计的任务" description="任务产生后，这里按任务列出状态；用量与质量指标在对应接口接通前保持未知。" />;
+    body = <EmptyState icon="chart" title="还没有可统计的任务" description="任务产生后，这里按任务列出状态；规划 tokens 来自 /api/insights/task-usage，成本/耗时/重试暂无按任务字段。" />;
   } else if (rows.length === 0) {
     body = <EmptyState icon="search" title="没有符合条件的任务" description="清除筛选或换个关键词后重试。" />;
   } else {
@@ -257,7 +270,7 @@ export function InsightsPage() {
                         </Badge>
                       </td>
                       <td style={{ padding: '12px 8px' }}>
-                        {taskAcceptance.data === undefined || taskQuality.data === undefined ? <UnknownValue reason="正在读取验收/评审聚合" /> : (() => {
+                        {taskAcceptance.data === undefined || taskQuality.data === undefined ? <UnknownValue reason={taskAcceptance.isError || taskQuality.isError ? '验收/评审聚合读取失败' : '正在读取验收/评审聚合'} /> : (() => {
                           const acceptance = acceptanceByTask.get(task.id);
                           const quality = qualityByTask.get(task.id);
                           return (
@@ -276,7 +289,7 @@ export function InsightsPage() {
                         })()}
                       </td>
                       <td style={{ padding: '12px 16px' }}>
-                        {taskUsage.data === undefined ? <UnknownValue reason="正在读取规划用量" /> : (
+                        {taskUsage.data === undefined ? <UnknownValue reason={taskUsage.isError ? '按任务 tokens 读取失败' : '正在读取规划用量'} /> : (
                           <span className="hint num">{formatCount(usageByTask.get(task.id) ?? 0)} 规划 tokens</span>
                         )}
                       </td>
@@ -296,7 +309,13 @@ export function InsightsPage() {
             <span className="hint">验收为执行节点通过/失败计数；评审为真实审查/待处理问题计数；规划 tokens 单独统计</span>
           </div>
         </section>
-        {selected === undefined ? null : <TaskDetail task={selected} />}
+        {selected === undefined ? null : (
+          <TaskDetail
+            task={selected}
+            tokens={taskUsage.data === undefined ? undefined : (usageByTask.get(selected.id) ?? 0)}
+            tokensReason={taskUsage.isError ? '按任务 tokens 读取失败；请刷新统计后重试' : '正在读取按任务 tokens'}
+          />
+        )}
       </div>
     );
   }
@@ -305,7 +324,7 @@ export function InsightsPage() {
     <div className="page">
       <PageHeader
         title="质量与用量"
-        lede="按任务核对状态、验收与消耗。计数、tokens/成本、逐任务节点通过数、规划用量与审查计数均来自服务；人工验收结论仍未接入。"
+        lede="按任务核对状态、验收与消耗。任务状态、人工验收、评审、规划 tokens 与运行统计均来自服务；成本/耗时/重试暂无按任务字段。"
         actions={
           <button
             type="button"
@@ -320,6 +339,17 @@ export function InsightsPage() {
           </button>
         }
       />
+
+      {insights.isError ? (
+        <div style={{ marginBottom: 16 }}>
+          <ServiceNotice
+            error={insights.error}
+            onRetry={() => {
+              void insights.refetch();
+            }}
+          />
+        </div>
+      ) : null}
 
       <div className="toolbar">
         <div className="input-wrap" style={{ width: 240 }}>
@@ -343,7 +373,7 @@ export function InsightsPage() {
         <div className="card pad">
           <div className="eyebrow">已记录用量 · 规划</div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, marginTop: 6 }}>
-            {insights.data === undefined ? <UnknownValue reason="正在读取 insights" /> : `${formatCount(insights.data.planning.tokens.total)} tokens`}
+            {insights.data === undefined ? <UnknownValue reason={insights.isError ? '运行统计读取失败' : '正在读取 insights'} /> : `${formatCount(insights.data.planning.tokens.total)} tokens`}
           </div>
           <div className="hint" style={{ marginTop: 6 }}>
             {insights.data === undefined ? '尚未读取' : `输入 ${formatCount(insights.data.planning.tokens.input)} · 输出 ${formatCount(insights.data.planning.tokens.output)} · 推理 ${formatCount(insights.data.planning.tokens.reasoning)} · 缓存 ${formatCount(insights.data.planning.tokens.cache)}`}
@@ -352,7 +382,7 @@ export function InsightsPage() {
         <div className="card pad">
           <div className="eyebrow">成本 · 规划</div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, marginTop: 6 }}>
-            {insights.data === undefined ? <UnknownValue reason="正在读取 insights" /> : `${insights.data.planning.currency} ${insights.data.planning.costKnown.toFixed(4)}`}
+            {insights.data === undefined ? <UnknownValue reason={insights.isError ? '运行统计读取失败' : '正在读取 insights'} /> : `${insights.data.planning.currency} ${insights.data.planning.costKnown.toFixed(4)}`}
           </div>
           <div className="hint" style={{ marginTop: 6 }}>
             规划成本已结账；执行 tokens 已汇总，评审/修复用量未聚合。

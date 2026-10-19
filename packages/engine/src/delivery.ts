@@ -1,6 +1,7 @@
 import type {
   CommandResponse,
   DeliveryMergeRequest,
+  DeliveryMergeRequestRequest,
   DeliveryCommitRequest,
   DeliveryPushRequest,
   DeliveryResponse,
@@ -78,6 +79,7 @@ export class DeliveryService {
   }
 
   async commit(taskId: string, input: DeliveryCommitRequest): Promise<CommandResponse<DeliveryResponse>> {
+    if (input?.confirmCommit !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '提交任务变更需要 confirmCommit=true 确认');
     const delivery = this.get(taskId);
     const task = this.#requireTask(taskId);
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
@@ -126,6 +128,7 @@ export class DeliveryService {
   }
 
   async push(taskId: string, input: DeliveryPushRequest): Promise<CommandResponse<DeliveryResponse>> {
+    if (input?.confirmPush !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '推送任务分支需要 confirmPush=true 确认');
     const delivery = this.get(taskId);
     const task = this.#requireTask(taskId);
     const project = this.#requireProject(task.projectId);
@@ -166,7 +169,8 @@ export class DeliveryService {
     }
   }
 
-  async createMergeRequest(taskId: string, input: { requestKey: string; sourceRef: string; pushedSha: string; targetBranch: string; expectedTargetTip: string; title: string; description: string; confirmMergeRequest: true }): Promise<CommandResponse<DeliveryResponse>> {
+  async createMergeRequest(taskId: string, input: DeliveryMergeRequestRequest): Promise<CommandResponse<DeliveryResponse>> {
+    if (input?.confirmMergeRequest !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '创建合并请求需要 confirmMergeRequest=true 确认');
     const delivery = this.get(taskId);
     const task = this.#requireTask(taskId);
     const project = this.#requireProject(task.projectId);
@@ -209,6 +213,7 @@ export class DeliveryService {
   }
 
   async merge(taskId: string, input: DeliveryMergeRequest): Promise<CommandResponse<DeliveryResponse>> {
+    if (input?.confirmMerge !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '合并任务分支需要 confirmMerge=true 确认');
     const delivery = this.get(taskId);
     const task = this.#requireTask(taskId);
     const project = this.#requireProject(task.projectId);

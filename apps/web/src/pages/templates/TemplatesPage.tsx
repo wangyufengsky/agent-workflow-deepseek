@@ -12,18 +12,39 @@ import {
   type TemplateDetailResponse,
   type TemplateTasksResponse,
 } from '@agent-workflow/shared';
-import { ApiClientError, apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
+import { ApiClientError, apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
 import { queryKeys, useBootstrap } from '../../api/hooks.ts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
-import { Modal } from '../../components/Modal.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+import {
+  ArchiveTemplateDialog,
+  JsonTemplateEditor,
+  VisualTemplateEditor,
+  type TemplateArchiveResult,
+  type TemplateSaveResult,
+} from './TemplateEditors.tsx';
 
 const CREATE_LOCK_NOTE = '固定模板任务创建后不能修改步骤；要改要求，请新建模板任务。';
+
+type CatalogNoticeTone = 'ok' | 'warn' | 'danger' | 'unknown';
+
+interface CatalogNotice {
+  readonly tone: CatalogNoticeTone;
+  readonly title: string;
+  readonly detail?: string;
+}
+
+const NOTICE_ICONS: Readonly<Record<CatalogNoticeTone, 'check' | 'alert' | 'help'>> = {
+  ok: 'check',
+  warn: 'alert',
+  danger: 'alert',
+  unknown: 'help',
+};
 
 type CreatePhase = 'idle' | 'submitting' | 'succeeded' | 'failed' | 'unknown';
 
@@ -89,12 +110,9 @@ export function TemplatesPage() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | undefined>(undefined);
-  const [jsonEditor, setJsonEditor] = useState<{ id: string; text: string } | null>(null);
-  const [jsonError, setJsonError] = useState<string | undefined>(undefined);
-  const [jsonBusy, setJsonBusy] = useState(false);
-  const [visualEditor, setVisualEditor] = useState<{ id: string; name: string; steps: { key: string; title: string; kind: 'implementation' | 'test' | 'delivery'; group: string }[] } | null>(null);
-  const [visualError, setVisualError] = useState<string | undefined>(undefined);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [catalogNotice, setCatalogNotice] = useState<CatalogNotice | null>(null);
+  const [editor, setEditor] = useState<{ readonly mode: 'visual' | 'json'; readonly templateId: string } | null>(null);
+  const [archiveTemplateId, setArchiveTemplateId] = useState<string | null>(null);
   const templates = bootstrap.data?.catalog.templates ?? [];
   const methods = bootstrap.data?.catalog.methods ?? [];
   const projects: readonly ProjectSummary[] = bootstrap.data?.projects ?? [];
@@ -109,6 +127,8 @@ export function TemplatesPage() {
   const [state, setState] = useState<CreateState | null>(null);
 
   const template = templates.find((item) => item.id === selectedId) ?? templates[0];
+  const editorTemplate = editor === null ? undefined : templates.find((item) => item.id === editor.templateId);
+  const archiveTemplate = archiveTemplateId === null ? undefined : templates.find((item) => item.id === archiveTemplateId);
   const historyQuery = useQuery({
     queryKey: ['template', 'tasks', template?.id ?? ''],
     queryFn: async () => (await apiGet<TemplateTasksResponse>(ROUTES.templateTasks(template!.id))).data,
@@ -124,7 +144,6 @@ export function TemplatesPage() {
   const effectiveMethodId = methodId.length > 0 ? methodId : (methods[0]?.id ?? '');
   const selectedMethod = methods.find((method) => method.id === effectiveMethodId);
   const formLocked = state?.phase === 'submitting' || state?.phase === 'unknown';
-  const creationSucceeded = state?.phase === 'succeeded';
 
   const missingFields: string[] = [];
   if (projectId.length === 0) missingFields.push('项目');
@@ -227,6 +246,44 @@ export function TemplatesPage() {
     } catch (error) {
       setState({ ...state, message: `核对失败：${errorMessage(error)}` });
     }
+  };
+
+  const handleTemplateSaved = async (result: TemplateSaveResult) => {
+    setEditor(null);
+    setSelectedId(result.templateId);
+    setCatalogNotice({
+      tone: 'ok',
+      title: result.version === undefined ? '模板已保存' : `模板已保存为版本 ${String(result.version)}`,
+      detail: `回执 ${result.receiptStatus} · requestKey ${result.requestKey}${result.auditId === undefined ? '' : ` · auditId ${result.auditId}`}`,
+    });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
+      queryClient.invalidateQueries({ queryKey: ['template', 'tasks', result.templateId] }),
+    ]);
+  };
+
+  const handleTemplateArchived = async (result: TemplateArchiveResult) => {
+    setArchiveTemplateId(null);
+    setSelectedId(null);
+    setCatalogNotice({
+      tone: 'ok',
+      title: '自定义模板已归档',
+      detail:
+        result.receiptStatus === undefined
+          ? `服务未返回回执（归档路由暂未签发）；已按模板目录核对 · requestKey ${result.requestKey}`
+          : `回执 ${result.receiptStatus} · requestKey ${result.requestKey}${result.auditId === undefined ? '' : ` · auditId ${result.auditId}`}`,
+    });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
+      queryClient.invalidateQueries({ queryKey: ['template', 'tasks'] }),
+    ]);
+  };
+
+  const verifyArchived = async (templateId: string): Promise<boolean> => {
+    const result = await bootstrap.refetch();
+    const data = result.data;
+    if (data === undefined) throw new Error('刷新模板目录失败，无法确认归档结果。');
+    return !data.catalog.templates.some((item) => item.id === templateId);
   };
 
   let content: ReactNode;
@@ -613,18 +670,33 @@ export function TemplatesPage() {
               void (async () => {
                 try {
                   const parsed = JSON.parse(await file.text()) as { template?: unknown } | unknown;
-                  const template = parsed !== null && typeof parsed === 'object' && 'template' in parsed ? (parsed as { template: unknown }).template : parsed;
-                  await apiPost('/api/catalog/templates/import', { requestKey: createRequestKey(), template, confirmImport: true });
+                  const imported = parsed !== null && typeof parsed === 'object' && 'template' in parsed ? (parsed as { template: unknown }).template : parsed;
+                  const response = await apiPost<CommandResponse<readonly TaskTemplate[]>>(ROUTES.catalogTemplateImport, {
+                    requestKey: createRequestKey(),
+                    template: imported,
+                    confirmImport: true,
+                  });
                   await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+                  const receipt = response.data.receipt;
+                  setCatalogNotice(
+                    receipt.status === 'succeeded'
+                      ? { tone: 'ok', title: '模板已导入', detail: `回执 ${receipt.status} · requestKey ${receipt.requestKey}` }
+                      : { tone: 'unknown', title: '导入结果未明', detail: `服务返回 ${receipt.status}；已刷新模板目录，请以目录为准。` },
+                  );
                 } catch (error) {
-                  setImportError(isServiceUnavailable(error) ? '服务未连接，未导入。' : errorMessage(error));
+                  if (isServiceUnavailable(error)) {
+                    setImportError(`导入结果未明：${errorMessage(error)} 不会自动重试，请按模板目录核对。`);
+                    await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+                  } else {
+                    setImportError(`导入失败：${errorMessage(error)}`);
+                  }
                 } finally {
                   setImportBusy(false);
                 }
               })();
             }}
           />
-          <Button variant="secondary" size="sm" icon="upload" disabled={importBusy} onClick={() => { importInputRef.current?.click(); }}>
+          <Button variant="secondary" size="sm" icon="upload" disabled={importBusy} disabledReason="导入请求处理中" onClick={() => { importInputRef.current?.click(); }}>
             {importBusy ? '导入中…' : '导入模板 JSON'}
           </Button>
           {template !== undefined && template.id.startsWith('template.custom.') ? (
@@ -634,8 +706,8 @@ export function TemplatesPage() {
                 size="sm"
                 icon="edit"
                 onClick={() => {
-                  setVisualError(undefined);
-                  setVisualEditor({ id: template.id, name: template.name, steps: template.steps.map((step) => ({ key: step.key, title: step.title, kind: step.kind === 'test' ? 'test' as const : step.kind === 'delivery' ? 'delivery' as const : 'implementation' as const, group: step.group })) });
+                  setCatalogNotice(null);
+                  setEditor({ mode: 'visual', templateId: template.id });
                 }}
               >
                 可视化编辑
@@ -645,11 +717,22 @@ export function TemplatesPage() {
                 size="sm"
                 icon="terminal"
                 onClick={() => {
-                  setJsonError(undefined);
-                  setJsonEditor({ id: template.id, text: JSON.stringify({ ...template, version: template.version + 1 }, null, 2) });
+                  setCatalogNotice(null);
+                  setEditor({ mode: 'json', templateId: template.id });
                 }}
               >
                 编辑 JSON
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="archive"
+                onClick={() => {
+                  setCatalogNotice(null);
+                  setArchiveTemplateId(template.id);
+                }}
+              >
+                归档模板
               </Button>
             </>
           ) : null}
@@ -668,7 +751,67 @@ export function TemplatesPage() {
           </div>
         }
       />
+      {importError === undefined ? null : (
+        <div className="banner danger" role="alert" style={{ marginBottom: 16 }}>
+          <Icon name="alert" />
+          <div className="grow">
+            <b>导入模板失败</b>
+            <br />
+            {importError}
+          </div>
+          <div className="actions">
+            <Button variant="ghost" size="sm" icon="x" onClick={() => { setImportError(undefined); }}>
+              关闭
+            </Button>
+          </div>
+        </div>
+      )}
+      {catalogNotice === null ? null : (
+        <div
+          className={`banner ${catalogNotice.tone}`}
+          role={catalogNotice.tone === 'ok' ? 'status' : 'alert'}
+          style={{ marginBottom: 16 }}
+        >
+          <Icon name={NOTICE_ICONS[catalogNotice.tone]} />
+          <div className="grow">
+            <b>{catalogNotice.title}</b>
+            {catalogNotice.detail === undefined ? null : (
+              <>
+                <br />
+                {catalogNotice.detail}
+              </>
+            )}
+          </div>
+          <div className="actions">
+            <Button variant="ghost" size="sm" icon="x" onClick={() => { setCatalogNotice(null); }}>
+              关闭
+            </Button>
+          </div>
+        </div>
+      )}
       {content}
+
+      {editorTemplate === undefined || editor === null ? null : editor.mode === 'visual' ? (
+        <VisualTemplateEditor
+          template={editorTemplate}
+          onClose={() => { setEditor(null); }}
+          onSaved={(result) => { void handleTemplateSaved(result); }}
+        />
+      ) : (
+        <JsonTemplateEditor
+          template={editorTemplate}
+          onClose={() => { setEditor(null); }}
+          onSaved={(result) => { void handleTemplateSaved(result); }}
+        />
+      )}
+      {archiveTemplate === undefined ? null : (
+        <ArchiveTemplateDialog
+          template={archiveTemplate}
+          onClose={() => { setArchiveTemplateId(null); }}
+          onArchived={(result) => { void handleTemplateArchived(result); }}
+          verifyArchived={verifyArchived}
+        />
+      )}
     </div>
   );
 }

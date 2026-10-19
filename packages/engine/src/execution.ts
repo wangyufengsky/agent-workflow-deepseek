@@ -126,7 +126,9 @@ export class ExecutionService {
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
     const failedNodes = execution.nodes.filter((node) => node.status === NodeStatus.FAILED);
     if (failedNodes.length === 0) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有失败的步骤可以重试');
-    if (!['failed', 'stopped', 'paused'].includes(execution.status)) {
+    // `unknown` is the startup-recovery state: interrupted nodes are persisted as
+    // failed, so an explicit retry is the user-approved way out of it.
+    if (!['failed', 'stopped', 'paused', 'unknown'].includes(execution.status)) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行仍在运行，先暂停/取消后再重试', { details: { status: execution.status } });
     }
     const { record, replayed } = this.#commands.begin({
@@ -162,7 +164,8 @@ export class ExecutionService {
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
     if (input?.confirmSkip !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '跳过节点需要显式确认');
-    if (!['failed', 'stopped', 'paused'].includes(execution.status)) {
+    // `unknown` is the startup-recovery state (interrupted nodes are failed).
+    if (!['failed', 'stopped', 'paused', 'unknown'].includes(execution.status)) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行未停止：先暂停/停止执行，再跳过节点', { details: { status: execution.status } });
     }
     const node = execution.nodes.find((item) => item.nodeId === nodeId);
@@ -232,6 +235,93 @@ export class ExecutionService {
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'stopped', revision: 2 });
     this.#commands.settle(input.requestKey, { stopped: true });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
+  }
+
+  /**
+   * Startup recovery for executions a previous process left in flight.
+   *
+   * A process that is gone cannot still be running a node, so in-flight nodes and
+   * attempts are settled and the execution moves to `unknown` with an actionable
+   * notice. Accepted receipts belonging to that execution are settled to unknown
+   * as well (`GET /api/operations/:key` then shows the interruption instead of an
+   * endless "still accepted"); nothing is redispatched and no model is called.
+   *
+   * Returns the affected task ids so the composition root can recompute attention.
+   */
+  recoverOnStartup(): readonly string[] {
+    const affected: string[] = [];
+    const failure = new AppError(
+      ErrorCode.INTERNAL_ERROR,
+      '进程重启，执行中断；正在执行的步骤结果未提交。请核对回执后按原配置重试失败步骤，或取消执行。',
+    );
+    const notice: NonNullable<ExecutionView['notice']> = { kind: 'unknown', message: failure.message };
+    for (const task of this.#store.tasks.list()) {
+      const execution = task.executionId === undefined ? this.#store.executions.byTask(task.id) : this.#store.executions.get(task.executionId);
+      if (execution === undefined) continue;
+      if (execution.status !== 'running' && execution.status !== 'pausing' && execution.status !== 'stopping') continue;
+      this.#recoverExecution(task, execution, failure, notice);
+      affected.push(task.id);
+    }
+    return affected;
+  }
+
+  #recoverExecution(task: Task, execution: ExecutionView, failure: AppError, notice: NonNullable<ExecutionView['notice']>): void {
+    const at = nowIso();
+    const interrupted = { code: 'INTERRUPTED', message: '进程重启，步骤执行中断；结果未提交，可按原配置重试' };
+    // machines.ts (shared, outside this task's write scope) has no direct
+    // RUNNING -> UNKNOWN edge; compose the two legal edges instead:
+    // RUNNING --execution.pause--> PAUSING --execution.unknown--> UNKNOWN.
+    if (execution.status === 'running') this.#store.executions.update(execution.id, { status: 'pausing' });
+    for (const node of execution.nodes) {
+      if (node.status !== NodeStatus.RUNNING) continue;
+      const attempt = node.currentAttemptId === undefined ? undefined : this.#store.executions.getAttempt(node.currentAttemptId);
+      if (attempt !== undefined && attempt.status === NodeStatus.RUNNING) {
+        this.#store.executions.finishAttempt(attempt.id, NodeStatus.FAILED, undefined, interrupted.message);
+      }
+      if (attempt !== undefined && (attempt.status === NodeStatus.SUCCEEDED || attempt.status === NodeStatus.FAILED || attempt.status === NodeStatus.UNKNOWN)) {
+        // Crash between writing the attempt result and the node state: the
+        // attempt is the durable record, so mirror it instead of guessing.
+        this.#store.executions.updateNode(execution.id, node.nodeId, {
+          status: attempt.status,
+          currentAttemptId: null,
+          endedAt: attempt.endedAt ?? at,
+          ...(attempt.status === NodeStatus.FAILED ? { error: interrupted } : {}),
+        });
+        continue;
+      }
+      this.#store.executions.updateNode(execution.id, node.nodeId, {
+        status: NodeStatus.FAILED,
+        currentAttemptId: null,
+        endedAt: at,
+        error: interrupted,
+      });
+    }
+    // Attempts left running without a node pointer (crash between attempt and node writes).
+    for (const attempt of this.#store.executions.listAttempts(execution.id)) {
+      if (attempt.status === NodeStatus.RUNNING) this.#store.executions.finishAttempt(attempt.id, NodeStatus.FAILED, undefined, interrupted.message);
+    }
+    const refreshed = this.#store.executions.get(execution.id) ?? execution;
+    const progress = {
+      done: refreshed.nodes.filter((node) => node.status === NodeStatus.SUCCEEDED).length,
+      failed: refreshed.nodes.filter((node) => node.status === NodeStatus.FAILED).length,
+      running: refreshed.nodes.filter((node) => node.status === NodeStatus.RUNNING).length,
+      total: refreshed.nodes.length,
+    };
+    this.#store.executions.update(execution.id, { status: 'unknown', notice, progress });
+    this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status: 'unknown', revision: 1 });
+    this.#settleInterruptedReceipts(task.id, execution.id, failure);
+  }
+
+  #settleInterruptedReceipts(taskId: string, executionId: string, failure: AppError): void {
+    for (const operation of this.#store.operations.listPending()) {
+      if (!operation.operation.startsWith('execution.')) continue;
+      const targetExecution = operation.target.executionId;
+      const sameTarget = targetExecution === executionId || (targetExecution === undefined && operation.target.taskId === taskId);
+      if (!sameTarget) continue;
+      const record = this.#commands.get(operation.requestKey);
+      if (record === undefined || record.status !== 'accepted') continue;
+      this.#commands.fail(operation.requestKey, failure, true);
+    }
   }
 
   /** Called by the internal MCP result-submit endpoint. */
@@ -312,7 +402,9 @@ export class ExecutionService {
         const source = statuses.get(edge.from);
         return source === NodeStatus.SUCCEEDED || source === NodeStatus.SKIPPED;
       });
-      if (ready && incoming.length > 0) {
+      // Root nodes have no incoming edges, so they are ready as soon as they are
+      // pending again (e.g. after retrying an interrupted first step).
+      if (ready) {
         this.#store.executions.updateNode(execution.id, node.nodeId, { status: 'ready' });
       }
     }

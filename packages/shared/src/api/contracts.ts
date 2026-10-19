@@ -394,6 +394,20 @@ export interface TemplateUpdateRequest extends CommandRequest {
   readonly confirmUpdate: true;
 }
 
+/**
+ * `DELETE /api/catalog/templates/:id` archives a custom template. It is a
+ * mutating command, so it answers with a receipt; the remaining custom
+ * templates are flattened as `templates` for clients that read the list at the
+ * top level.
+ */
+export interface TemplateArchiveRequest extends CommandRequest {
+  readonly confirmArchive: true;
+}
+
+export interface TemplateArchiveResponse extends CommandResponse<{ readonly templates: readonly TaskTemplate[] }> {
+  readonly templates: readonly TaskTemplate[];
+}
+
 export interface TemplateImportRequest extends CommandRequest {
   readonly template: TaskTemplate;
   readonly confirmImport: true;
@@ -798,6 +812,12 @@ export interface GitFetchRequest extends CommandRequest {
   readonly remote?: string;
 }
 
+/**
+ * `POST /api/git/repos/:projectId/fetch` now answers with the standard command
+ * envelope; `resource.fetchedAt` is the real timestamp reported by Git.
+ */
+export interface GitFetchResponse extends CommandResponse<{ readonly fetchedAt: string; readonly remote: string }> {}
+
 export interface ReviewStartRequest extends CommandRequest {
   readonly projectId: string;
   readonly sha: string;
@@ -995,6 +1015,38 @@ export interface OpenCodeRestartRequest extends CommandRequest {
   readonly confirmRestart: true;
 }
 
+/** Manager-level runtime status captured when a restart command settles. */
+export interface OpenCodeRuntimeStatus {
+  readonly state: string;
+  readonly version?: string;
+  readonly host?: string;
+  readonly port?: number;
+  readonly pid?: number;
+  readonly startedAt?: IsoDateTime;
+  readonly lastError?: string;
+}
+
+export type OpenCodeRestartResponse = CommandResponse<{ readonly status: OpenCodeRuntimeStatus }>;
+
+/**
+ * Managed MCP tools injected per toolset prefix.
+ *
+ * The registry itself lives in `packages/mcp/src/tools/index.ts` (a separate
+ * stdio process); this table mirrors it so the HTTP layer can report the count
+ * for the toolsets that are actually enabled. The contract test
+ * `tests/integration/routes-contract.test.ts` asserts these counts against
+ * `MANAGED_TOOL_NAMES`, so adding/removing a tool fails tests instead of
+ * silently skewing the runtime page.
+ */
+export const MCP_TOOL_COUNTS_BY_TOOLSET = {
+  workflow: 4,
+  git: 4,
+  database: 1,
+  workspace: 4,
+} as const;
+
+export type McpToolsetId = keyof typeof MCP_TOOL_COUNTS_BY_TOOLSET;
+
 /* ------------------------------------------------------------------ */
 /* Events                                                              */
 /* ------------------------------------------------------------------ */
@@ -1022,6 +1074,7 @@ export const ROUTES = {
   taskDetail: (id: string) => `/api/tasks/${encodeURIComponent(id)}/detail`,
   pptWorks: '/api/ppt/works',
   pptWork: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
+  pptWorkPptx: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/pptx`,
   pptWorkGenerateSlides: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate-slides`,
   pptWorkExport: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/export`,
   pptWorkAttachments: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/attachments`,
@@ -1096,6 +1149,14 @@ export const ROUTES = {
   fixes: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes`,
   fix: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}`,
   fixStart: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/start`,
+  fixDiff: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/diff`,
+  fixStop: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/stop`,
+  fixCommit: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/commit`,
+  fixPush: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/push`,
+  fixMerge: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/merge`,
+  fixMergeRequest: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/merge-request`,
+  fixDiscard: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/discard`,
+  fixFileRevert: (projectId: string, fixRunId: string, fileId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/files/${encodeURIComponent(fileId)}/revert`,
   catalogRoles: '/api/catalog/roles',
   projectRecheck: (id: string) => `/api/projects/${encodeURIComponent(id)}/recheck`,
   templateDetail: (id: string) => `/api/templates/${encodeURIComponent(id)}`,
@@ -1108,11 +1169,12 @@ export const ROUTES = {
   catalogRoleRestore: (id: string, revision: string) => `/api/catalog/roles/${encodeURIComponent(id)}/restore/${encodeURIComponent(revision)}`,
   catalogRoleHistory: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/history`,
   catalogRoleArchive: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/archive`,
-  fixMerge: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/merge`,
   settings: '/api/settings',
+  settingsGit: '/api/settings/git',
   gitlabConnection: '/api/settings/gitlab',
   gitlabConnectionTest: '/api/settings/gitlab/test',
   databaseConnections: '/api/settings/databases',
+  databaseConnection: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}`,
   databaseProbe: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/probe`,
   databaseQuery: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/query`,
   opencodeStatus: '/api/opencode/status',

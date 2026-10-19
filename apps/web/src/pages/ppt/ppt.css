@@ -1,0 +1,251 @@
+/* PPT 制作页：作品列表 / 详情两列布局。只用设计令牌，不写死颜色。 */
+
+.ppt-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .ppt-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ppt-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ---------- 最近演示卡片 ---------- */
+.ppt-recent {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.ppt-recent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--fill-1);
+  text-align: left;
+  min-width: 0;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+
+.ppt-recent-card:hover {
+  background: var(--fill-2);
+  border-color: var(--line-3);
+}
+
+.ppt-recent-card[aria-pressed="true"] {
+  border-color: var(--accent-line);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.ppt-mini {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  aspect-ratio: 16 / 9;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, var(--fill-3), var(--fill-1));
+  overflow: hidden;
+}
+
+.ppt-mini b {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ppt-mini i {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill-5);
+}
+
+.ppt-mini-empty {
+  margin: auto;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ppt-mini-page {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  padding: 1px 7px;
+  border-radius: var(--r-xs);
+  background: var(--fill-4);
+  color: var(--sub);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+/* ---------- 作品行 ---------- */
+.ppt-row-extra {
+  white-space: nowrap;
+}
+
+.ppt-row-time {
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .ppt-row-extra {
+    display: none;
+  }
+
+  .ppt-row-time {
+    display: none;
+  }
+}
+
+/* ---------- 作品详情 ---------- */
+.ppt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.ppt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12.5px;
+  color: var(--sub);
+}
+
+.ppt-outline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ppt-outline li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--fill-1);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.ppt-num {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ppt-slides {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ppt-slide {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+}
+
+.ppt-slide ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+/* ---------- 附件 ---------- */
+.ppt-attach-thumb {
+  width: 56px;
+  height: 38px;
+  flex: none;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-2);
+  background: var(--fill-2);
+}
+
+.ppt-attach-form {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-md);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ppt-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ppt-field-row .field {
+  margin: 0;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* ---------- 回执 / 导出内容 ---------- */
+.ppt-receipt {
+  align-items: flex-start;
+}
+
+.ppt-receipt .ppt-meta {
+  gap: 2px 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ppt-lookup {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--fill-1);
+  font-size: 12.5px;
+}
+
+.ppt-md {
+  margin: 0;
+  max-height: 340px;
+  overflow: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--fill-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

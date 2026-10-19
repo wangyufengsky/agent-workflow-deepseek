@@ -47,6 +47,7 @@ export function TaskCanvasPage() {
 
   const [editMode, setEditMode] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [deliveryFocusRequest, setDeliveryFocusRequest] = useState(0);
   const [pageReceipt, setPageReceipt] = useState<OperationReceipt | undefined>(undefined);
 
   const detail = detailQuery.data;
@@ -76,6 +77,11 @@ export function TaskCanvasPage() {
       },
       { replace: true },
     );
+  };
+
+  const requestDeliveryFocus = () => {
+    setDeliveryFocusRequest((current) => current + 1);
+    if (!deliveryOpen) patchParams({ delivery: '1', node: undefined });
   };
 
   const graph = useMemo(() => {
@@ -238,24 +244,24 @@ export function TaskCanvasPage() {
               size="sm"
               icon="edit"
               disabled={actions.adjustExecutionPlan?.allowed !== true || command.state.busy}
-              disabledReason={actions.adjustExecutionPlan?.reason}
+              disabledReason={command.state.busy ? '正在提交操作，等待服务回执…' : actions.adjustExecutionPlan?.reason}
               onClick={() => setEditMode(true)}
             >
               调整待执行计划
             </Button>
           )}
           {execution?.status === 'running' ? (
-            <Button variant="secondary" size="sm" icon="pause" disabled={command.state.busy || actions.pauseExecution?.allowed !== true} disabledReason={actions.pauseExecution?.reason} onClick={runPause}>
+            <Button variant="secondary" size="sm" icon="pause" disabled={command.state.busy || actions.pauseExecution?.allowed !== true} disabledReason={command.state.busy ? '正在提交操作，等待服务回执…' : actions.pauseExecution?.reason} onClick={runPause}>
               暂停
             </Button>
           ) : null}
           {execution?.status === 'paused' ? (
-            <Button variant="secondary" size="sm" icon="play" disabled={command.state.busy || actions.resumeExecution?.allowed !== true} disabledReason={actions.resumeExecution?.reason} onClick={runResume}>
+            <Button variant="secondary" size="sm" icon="play" disabled={command.state.busy || actions.resumeExecution?.allowed !== true} disabledReason={command.state.busy ? '正在提交操作，等待服务回执…' : actions.resumeExecution?.reason} onClick={runResume}>
               继续
             </Button>
           ) : null}
           {detail?.delivery !== undefined || execution?.status === 'completed' ? (
-            <Button variant="secondary" size="sm" icon="doc" onClick={() => patchParams({ delivery: '1', node: undefined })}>
+            <Button variant="secondary" size="sm" icon="doc" onClick={requestDeliveryFocus}>
               查看变更并交付
             </Button>
           ) : null}
@@ -361,7 +367,12 @@ export function TaskCanvasPage() {
         {nodeId !== undefined ? (
           <NodeDetailPanel taskId={taskId} nodeId={nodeId} connection={live.connection} pollInterval={live.refetchInterval} onClose={closeNode} onOpenPlan={openRequirement} />
         ) : deliveryOpen ? (
-          <TaskDeliveryPanel taskId={taskId} onClose={() => patchParams({ delivery: undefined })} onOpenChanges={() => patchParams({ delivery: '1', node: undefined })} />
+          <TaskDeliveryPanel
+            taskId={taskId}
+            focusChangesRequest={deliveryFocusRequest}
+            onClose={() => patchParams({ delivery: undefined })}
+            onOpenChanges={requestDeliveryFocus}
+          />
         ) : editMode ? (
           <aside className="side task-side" aria-label="调整待执行计划">
             <div className="side-head task-side-head">

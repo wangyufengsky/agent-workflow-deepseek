@@ -141,7 +141,7 @@ export function DeliveryApplyPreview({ delivery }: { readonly delivery: TaskDeli
             预览只读，不会改变原目录。
           </p>
           <div className="row-wrap">
-            <Button variant="secondary" size="sm" icon="folder" disabled={previewMutation.isPending} onClick={() => previewMutation.mutate()}>
+            <Button variant="secondary" size="sm" icon="folder" disabled={previewMutation.isPending} disabledReason={previewMutation.isPending ? '正在生成应用预览，等待服务回执…' : undefined} onClick={() => previewMutation.mutate()}>
               {previewMutation.isPending ? '正在检查…' : '生成应用预览'}
             </Button>
           </div>
@@ -215,7 +215,7 @@ export function DeliveryApplyPreview({ delivery }: { readonly delivery: TaskDeli
         </div>
         <p className="delivery-hint">{preview.untouchedSummary}</p>
         <div className="row-wrap">
-          <Button variant="secondary" size="sm" icon="refresh" disabled={previewMutation.isPending} onClick={() => previewMutation.mutate()}>
+          <Button variant="secondary" size="sm" icon="refresh" disabled={previewMutation.isPending} disabledReason={previewMutation.isPending ? '正在重新检查，等待服务回执…' : undefined} onClick={() => previewMutation.mutate()}>
             {previewMutation.isPending ? '正在重检…' : '重新检查'}
           </Button>
           <Button
@@ -223,7 +223,12 @@ export function DeliveryApplyPreview({ delivery }: { readonly delivery: TaskDeli
             size="sm"
             icon="folder"
             disabled={previewMutation.isPending || applyMutation.isPending || applyReason !== undefined}
-            {...(applyReason === undefined ? {} : { disabledReason: applyReason })}
+            disabledReason={
+              applyMutation.isPending ? '正在写入原目录，等待服务回执…'
+                : previewMutation.isPending ? '正在重新检查，等待服务回执…'
+                  : applyReason !== undefined ? applyReason
+                    : undefined
+            }
             onClick={() => applyMutation.mutate()}
           >
             {applyMutation.isPending ? '正在写入…' : '确认应用到原目录'}

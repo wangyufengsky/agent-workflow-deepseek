@@ -33,6 +33,52 @@ export class WorkspaceService {
     this.#git = git;
   }
 
+  /**
+   * Startup recovery for workspace preparation a previous process left in flight.
+   *
+   * The workspace becomes `unknown`, running preparation steps become failed and
+   * every step carries the verification hint. Nothing on disk is deleted or
+   * modified here: an operator must verify the directory/branch before preparing
+   * again or cleaning up. Accepted preparation receipts are settled to unknown so
+   * `GET /api/operations/:key` shows the interruption.
+   *
+   * Returns the affected task ids so the composition root can recompute attention.
+   */
+  recoverOnStartup(): readonly string[] {
+    const affected: string[] = [];
+    for (const task of this.#store.tasks.list()) {
+      const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(task.id) : this.#store.workspaces.get(task.workspaceId);
+      if (workspace === undefined || workspace.state !== 'preparing') continue;
+      const message = '进程重启，工作区准备中断；请核对工作区目录与分支后再重新准备或清理（不会自动删除或修改目录）。';
+      const nextStep = workspace.steps.findIndex((step) => step.state === 'not_started');
+      const steps = workspace.steps.map((step, index) => {
+        if (step.state === 'running') return { ...step, state: 'failed' as const, detail: message };
+        if (index === nextStep) return { ...step, detail: message };
+        return step;
+      });
+      const updated = this.#store.workspaces.update(workspace.id, { state: 'unknown', steps, lastCheckedAt: nowIso() });
+      this.#store.events.publish('task.workspace.updated', {
+        taskId: task.id,
+        workspaceId: workspace.id,
+        revision: updated?.revision ?? workspace.revision,
+        state: 'unknown',
+      });
+      this.#settlePrepareReceipts(task.id, new AppError(ErrorCode.INTERNAL_ERROR, message));
+      affected.push(task.id);
+    }
+    return affected;
+  }
+
+  #settlePrepareReceipts(taskId: string, failure: AppError): void {
+    for (const operation of this.#store.operations.listPending()) {
+      if (operation.operation !== 'task.workspace.prepare') continue;
+      if (operation.target.taskId !== taskId) continue;
+      const record = this.#commands.get(operation.requestKey);
+      if (record === undefined || record.status !== 'accepted') continue;
+      this.#commands.fail(operation.requestKey, failure, true);
+    }
+  }
+
   get(taskId: string): TaskWorkspace | undefined {
     const task = this.#requireTask(taskId);
     return task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);

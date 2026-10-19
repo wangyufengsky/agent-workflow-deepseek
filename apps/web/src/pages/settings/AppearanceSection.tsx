@@ -17,7 +17,7 @@ export function AppearanceSection({ settings }: { readonly settings?: PublicSett
       {settings === undefined ? (
         <PendingBackendNotice
           className="settings-note"
-          message="服务未连接，只读设置值暂不可读；主题仍可立即在本地切换并写入 URL。"
+          message="设置值尚未读取；主题仍可立即在本地切换并写入 URL。"
         />
       ) : (
         <div className="card card-sec">
@@ -35,10 +35,6 @@ export function AppearanceSection({ settings }: { readonly settings?: PublicSett
           </SettingsRow>
         </div>
       )}
-
-      <p className="hint" style={{ marginTop: 14 }}>
-        只有外观在本地生效；其余设置项的保存需要服务端设置接口接通。
-      </p>
     </div>
   );
 }

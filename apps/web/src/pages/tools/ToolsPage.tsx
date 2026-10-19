@@ -15,7 +15,7 @@ import { formatRelativeTime } from '../../app/format.ts';
 
 type ToolsTab = 'tools' | 'skills';
 
-const TOGGLE_BLOCKED_REASON = '单个工具开关未开放；按工具集启停并重启受管 OpenCode 后生效。';
+const TOGGLE_BLOCKED_REASON = '单工具开关尚未接通；当前按 toolset 启停，保存并重启受管 OpenCode 后生效。';
 
 const TOOLSET_ICON: Record<string, IconName> = {
   workflow: 'flow',
@@ -56,7 +56,7 @@ function ToolRow({ tool }: { readonly tool: ManagedToolMeta }) {
         )}
       </div>
       <Button variant="ghost" size="sm" icon="lock" disabled disabledReason={TOGGLE_BLOCKED_REASON}>
-        工具集控制
+        单工具控制
       </Button>
     </div>
   );
@@ -81,6 +81,7 @@ function ToolsView() {
     },
   });
   const enabledToolsets = bootstrap.data?.settings.opencode.toolsets ?? [];
+  const settingsLoaded = bootstrap.data !== undefined;
   const status = statusQuery.data;
   const integrationStatus = bootstrap.data?.integration.opencode.status;
 
@@ -118,7 +119,7 @@ function ToolsView() {
         </div>
         <div className="row wrap" style={{ gap: 6, marginTop: 12 }}>
           {integrationStatus === undefined ? null : <Badge outline>集成状态：{integrationStatus}</Badge>}
-          <span className="hint">按工具集启停，保存后重启受管 OpenCode 才会改变注入清单；单个工具开关未开放。</span>
+          <span className="hint">toolset 启停已接通（写入设置，重启受管 OpenCode 后生效）；单工具开关尚未接通。</span>
         </div>
         <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
           {MCP_TOOLSETS.map((toolset) => {
@@ -129,10 +130,11 @@ function ToolsView() {
                 variant={enabled ? 'secondary' : 'ghost'}
                 size="sm"
                 icon={enabled ? 'check' : 'minus'}
-                disabled={toggleToolset.isPending}
+                disabled={!settingsLoaded || toggleToolset.isPending}
+                disabledReason={!settingsLoaded ? '设置尚未读取，不能修改工具集' : undefined}
                 onClick={() => { toggleToolset.mutate(toolset.id); }}
               >
-                {toolset.label} · {enabled ? '已启用' : '已停用'}
+                {toolset.label} · {settingsLoaded ? (enabled ? '已启用' : '已停用') : '设置未读取'}
               </Button>
             );
           })}
@@ -146,6 +148,17 @@ function ToolsView() {
               compact
               onRetry={() => {
                 void statusQuery.refetch();
+              }}
+            />
+          </div>
+        ) : null}
+        {bootstrap.isError ? (
+          <div style={{ marginTop: 12 }}>
+            <ServiceNotice
+              error={bootstrap.error}
+              compact
+              onRetry={() => {
+                void bootstrap.refetch();
               }}
             />
           </div>
@@ -181,7 +194,7 @@ function ToolsView() {
         );
       })}
 
-      <PendingBackendNotice message="清单来源：packages/mcp/src/tools（服务端静态注册）。工具启用 / 停用、外部 MCP 来源与 Skill 安装状态都还没有服务端接口，因此不在此页修改。" />
+      <PendingBackendNotice message="清单来源：packages/mcp/src/tools（服务端静态注册）。toolset 启停已接通（写入 settings.opencode.toolsets）；单工具开关、外部 MCP 来源与 Skill 安装状态尚无服务端接口。" />
     </div>
   );
 }

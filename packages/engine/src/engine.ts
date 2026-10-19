@@ -29,6 +29,15 @@ export interface EngineOptions {
   };
 }
 
+/** Result of `Engine.recoverOnStartup`, also used as startup diagnostics. */
+export interface StartupRecoverySummary {
+  readonly executions: number;
+  readonly planningRounds: number;
+  readonly workspaces: number;
+  readonly affectedTaskIds: readonly string[];
+  readonly failures: readonly { readonly scope: string; readonly message: string }[];
+}
+
 /**
  * Composition root for domain services. Each module is independently testable;
  * the HTTP layer only translates transport and calls these services.
@@ -100,6 +109,48 @@ export class Engine {
 
   get settings(): AppSettings {
     return this.#settings;
+  }
+
+  /**
+   * Deterministic, idempotent startup recovery for work a previous process left
+   * in flight (executions, planning rounds, workspace preparation).
+   *
+   * It never calls a model and never deletes workspace directories; a broken
+   * record is reported in `failures` instead of thrown so startup cannot be
+   * blocked. Safe to call more than once (the second pass finds nothing).
+   */
+  recoverOnStartup(): StartupRecoverySummary {
+    const affected = new Set<string>();
+    const failures: { scope: string; message: string }[] = [];
+    const run = (scope: string, recover: () => readonly string[], count: (value: number) => void): void => {
+      try {
+        const taskIds = recover();
+        for (const taskId of taskIds) affected.add(taskId);
+        count(taskIds.length);
+      } catch (error) {
+        failures.push({ scope, message: error instanceof Error ? error.message : String(error) });
+      }
+    };
+    let executions = 0;
+    let planningRounds = 0;
+    let workspaces = 0;
+    run('execution', () => this.executions.recoverOnStartup(), (value) => {
+      executions = value;
+    });
+    run('planning', () => this.planning.recoverOnStartup(), (value) => {
+      planningRounds = value;
+    });
+    run('workspace', () => this.workspaces.recoverOnStartup(), (value) => {
+      workspaces = value;
+    });
+    for (const taskId of affected) {
+      try {
+        this.tasks.recomputeAttention(taskId);
+      } catch (error) {
+        failures.push({ scope: `attention:${taskId}`, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return { executions, planningRounds, workspaces, affectedTaskIds: [...affected], failures };
   }
 
   updateSettings(settings: AppSettings): void {

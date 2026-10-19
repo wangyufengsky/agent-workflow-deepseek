@@ -18,10 +18,13 @@ import type {
 import {
   AppError,
   ErrorCode,
+  PlanningStage,
   TaskAttention,
   TaskStage,
+  canTransition,
   createId,
   nowIso,
+  planningStageMachine,
   validatePlanningCandidate,
   DEFAULT_CATALOG,
   findMethod,
@@ -68,6 +71,68 @@ export class PlanningService {
     this.#context = context;
     this.#opencode = opencode;
     this.#tasks = tasks;
+  }
+
+  /**
+   * Startup recovery for planning rounds a previous process left in flight.
+   *
+   * A round that was running/stopping can never be resumed in a new process, so
+   * it becomes `unknown` (the existing `planning.reconcile` path and the
+   * round-unknown actions stay available) and is *not* redispatched to the model.
+   * A queued round never reached the model, so it is failed. Accepted
+   * start/stop receipts of those rounds are settled so `GET /api/operations/:key`
+   * is conclusive.
+   *
+   * Returns the affected task ids so the composition root can recompute attention.
+   */
+  recoverOnStartup(): readonly string[] {
+    const affected: string[] = [];
+    for (const task of this.#store.tasks.list()) {
+      let recovered = false;
+      for (const round of this.#store.planning.list(task.id)) {
+        if (round.status !== 'running' && round.status !== 'stopping' && round.status !== 'queued') continue;
+        recovered = true;
+        const at = nowIso();
+        if (round.status === 'queued') {
+          const message = '进程重启，排队中的规划轮次未派发模型即中断；请重新预览并开始新一轮。';
+          this.#store.planning.update(round.id, {
+            status: 'failed',
+            stage: 'failed',
+            endedAt: at,
+            lastActivity: message,
+            failure: { code: 'INTERRUPTED', message },
+          });
+          this.#store.events.publish('planning.changed', { taskId: task.id, roundId: round.id, status: 'failed', stage: 'failed', revision: round.recordSeq.last });
+          this.#settleRoundReceipts(task.id, false, new AppError(ErrorCode.INTERNAL_ERROR, message));
+          continue;
+        }
+        const message = '进程重启，规划轮次已中断；本轮不会自动重新派发模型，请先核对原轮次记录。';
+        // planning.stage has no UNKNOWN edge from needs_answer; keep that stage.
+        const stage = canTransition(planningStageMachine, round.stage, PlanningStage.UNKNOWN) ? PlanningStage.UNKNOWN : round.stage;
+        const stop = round.stop === undefined ? undefined : { ...round.stop, processState: 'unknown' as const, accountingState: 'unknown' as const };
+        this.#store.planning.update(round.id, {
+          status: 'unknown',
+          stage,
+          endedAt: at,
+          lastActivity: message,
+          ...(stop === undefined ? {} : { stop }),
+        });
+        this.#store.events.publish('planning.changed', { taskId: task.id, roundId: round.id, status: 'unknown', stage, revision: round.recordSeq.last });
+        this.#settleRoundReceipts(task.id, true, new AppError(ErrorCode.INTERNAL_ERROR, message));
+      }
+      if (recovered) affected.push(task.id);
+    }
+    return affected;
+  }
+
+  #settleRoundReceipts(taskId: string, unknown: boolean, failure: AppError): void {
+    for (const operation of this.#store.operations.listPending()) {
+      if (operation.operation !== 'planning.start' && operation.operation !== 'planning.stop') continue;
+      if (operation.target.taskId !== taskId) continue;
+      const record = this.#commands.get(operation.requestKey);
+      if (record === undefined || record.status !== 'accepted') continue;
+      this.#commands.fail(operation.requestKey, failure, unknown);
+    }
   }
 
   preview(taskId: string, request: PlanningPreviewRequest = {}): PlanningPreview {

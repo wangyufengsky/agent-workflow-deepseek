@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   TaskMethodSupport,
   TASK_STAGE_LABEL,
@@ -93,6 +93,7 @@ function TemplateStrip({ templates }: { readonly templates: readonly TaskTemplat
 /** 开始任务：项目、需求原文、流程方法卡；只形成需求草稿，不调用模型。 */
 export function StartPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const bootstrap = useBootstrap();
   const [projectId, setProjectId] = useState<string>('');
   const [title, setTitle] = useState('');
@@ -106,15 +107,25 @@ export function StartPage() {
   const methods: readonly WorkflowMethod[] = bootstrap.data?.catalog.methods ?? [];
   const templates: readonly TaskTemplate[] = bootstrap.data?.catalog.templates ?? [];
   const opencodeStatus = bootstrap.data?.integration.opencode.status;
-  const effectiveProjectId = projectId.length > 0 ? projectId : (projects[0]?.id ?? '');
+  const requestedProjectId = searchParams.get('project') ?? '';
+  const requestedMethodId = searchParams.get('methodId') ?? '';
+  const projectFromQuery = requestedProjectId !== '' && projects.some((project) => project.id === requestedProjectId) ? requestedProjectId : '';
+  const methodFromQuery = requestedMethodId !== '' && methods.some((method) => method.id === requestedMethodId) ? requestedMethodId : '';
+  const effectiveProjectId = projectId.length > 0 ? projectId : projectFromQuery.length > 0 ? projectFromQuery : (projects[0]?.id ?? '');
   const effectiveProject = projects.find((project) => project.id === effectiveProjectId);
   const projectDefaultMethod = effectiveProject?.settings.defaultMethodId;
   const defaultMethodId = projectDefaultMethod !== undefined && methods.some((method) => method.id === projectDefaultMethod)
     ? projectDefaultMethod
     : (methods[0]?.id ?? '');
-  const effectiveMethodId = methodId.length > 0 ? methodId : defaultMethodId;
+  const effectiveMethodId = methodId.length > 0 ? methodId : methodFromQuery.length > 0 ? methodFromQuery : defaultMethodId;
   const selectedMethod = methods.find((method) => method.id === effectiveMethodId);
   const selectedProject = projects.find((project) => project.id === effectiveProjectId);
+  const invalidProjectQuery = projects.length > 0 && projectId.length === 0 && requestedProjectId !== '' && projectFromQuery === '';
+  const invalidMethodQuery = methods.length > 0 && methodId.length === 0 && requestedMethodId !== '' && methodFromQuery === '';
+  const queryNotice = [
+    invalidProjectQuery ? `URL 中的项目「${requestedProjectId}」不存在，已使用默认项目。` : null,
+    invalidMethodQuery ? `URL 中的流程方法「${requestedMethodId}」不存在，已使用默认方法。` : null,
+  ].filter((item): item is string => item !== null).join(' ');
 
   const missing = (() => {
     if (bootstrap.isError) return '服务未连接：无法读取项目与流程方法';
@@ -208,11 +219,17 @@ export function StartPage() {
       </div>
 
       <ReceiptNotice receipt={receipt} successMessage="需求草稿已形成，正在打开需求画布…" />
-      {error === null || isServiceUnavailable(error) ? null : (
+      {queryNotice.length === 0 ? null : (
+        <div className="banner info" role="status" style={{ marginBottom: 12 }}>
+          <Icon name="info" />
+          <div className="grow">{queryNotice}</div>
+        </div>
+      )}
+      {error === null ? null : (
         <div className="banner danger" role="alert" style={{ marginBottom: 12 }}>
           <Icon name="alert" />
           <div className="grow">
-            <b>形成需求草稿失败</b>
+            <b>{isServiceUnavailable(error) ? '服务未连接，未创建任务' : '形成需求草稿失败'}</b>
             <br />
             {errorMessage(error)}
           </div>

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
+  ActionAvailability,
   ApiEnvelope,
   RecoveryCreateRequest,
   RoleSaveRequest,
@@ -45,8 +46,26 @@ import type {
   DeliveryPushRequest,
   DeliveryMergeRequest,
   GitLabConnectionRequest,
+  GitFetchRequest,
+  OpenCodeRestartRequest,
+  TemplateArchiveRequest,
+  NodeStatusValue,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, THEMES, THEME_ORDER, createId, mergeSettings, nowIso, validateSettings, type AppSettings } from '@agent-workflow/shared';
+import {
+  AppError,
+  DatabaseConnectionState,
+  ErrorCode,
+  MCP_TOOL_COUNTS_BY_TOOLSET,
+  NODE_TERMINAL_STATUSES,
+  NodeStatus,
+  THEMES,
+  THEME_ORDER,
+  createId,
+  mergeSettings,
+  nowIso,
+  validateSettings,
+  type AppSettings,
+} from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { DatabaseService } from '@agent-workflow/database';
 import type { RemoteService } from './remote.ts';
@@ -108,10 +127,125 @@ export function registerErrorHandler(app: FastifyInstance, log?: (error: unknown
     });
   });
   app.setNotFoundHandler((request, reply) => {
-    reply.status(404).send({
-      error: { code: ErrorCode.NOT_FOUND, message: `未知路由 ${request.method} ${request.url}`, requestId: createId('req'), at: nowIso(), retryable: false },
-    });
+    reply.status(404).send(apiNotFoundBody(request.method, request.url, createId('req')));
   });
+}
+
+/**
+ * JSON 404 body shared by the Fastify not-found handler and the SPA fallback.
+ * The fallback must never answer an unknown `/api/*` GET with index.html, or a
+ * missing endpoint would look like a 200 success to clients.
+ */
+function apiNotFoundBody(method: string, url: string, requestIdValue: string) {
+  return {
+    error: {
+      code: ErrorCode.NOT_FOUND,
+      message: `未知路由 ${method} ${url}`,
+      requestId: requestIdValue,
+      at: nowIso(),
+      retryable: false,
+    },
+  };
+}
+
+/**
+ * Route signatures (`METHOD <fastify pattern>`) whose JSON body is a
+ * `CommandRequest`. These are validated before the handler runs so a missing
+ * `requestKey` returns 400 VALIDATION_FAILED instead of reaching
+ * `CommandService.begin` and surfacing as an internal 500.
+ */
+const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
+  'POST /api/projects',
+  'PATCH /api/projects/:id',
+  'POST /api/projects/:id/recheck',
+  'POST /api/tasks',
+  'PATCH /api/tasks/:id',
+  'POST /api/tasks/:id/planning/start',
+  'POST /api/tasks/:id/planning/stop',
+  'POST /api/tasks/:id/planning/apply',
+  'POST /api/tasks/:id/planning/reject',
+  'POST /api/tasks/:id/planning/answers',
+  'POST /api/tasks/:id/plan/from-template',
+  'POST /api/tasks/:id/plan/skeleton',
+  'POST /api/tasks/:id/plan/confirm',
+  'POST /api/tasks/:id/plan/edit/begin',
+  'POST /api/tasks/:id/plan/edit/save',
+  'POST /api/tasks/:id/plan/edit/finish',
+  'POST /api/tasks/:id/workspace/prepare',
+  'POST /api/tasks/:id/workspace/cleanup/confirm',
+  'POST /api/tasks/:id/execution/start',
+  'POST /api/tasks/:id/execution/pause',
+  'POST /api/tasks/:id/execution/resume',
+  'POST /api/tasks/:id/execution/retry',
+  'POST /api/tasks/:id/execution/cancel',
+  'POST /api/tasks/:id/execution/nodes/:nodeId/skip',
+  'POST /api/tasks/:id/delivery/select',
+  'POST /api/tasks/:id/delivery/commit',
+  'POST /api/tasks/:id/delivery/push',
+  'POST /api/tasks/:id/delivery/merge-request',
+  'POST /api/tasks/:id/delivery/merge',
+  'POST /api/tasks/:id/recovery',
+  'POST /api/tasks/:id/acceptance',
+  'POST /api/git/repos/:projectId/fetch',
+  'POST /api/catalog/templates/import',
+  'PATCH /api/catalog/templates/:id',
+  'DELETE /api/catalog/templates/:id',
+  'POST /api/catalog/roles',
+  'POST /api/catalog/roles/:id/publish',
+  'POST /api/catalog/roles/:id/archive',
+  'POST /api/catalog/roles/:id/restore/:revision',
+  'POST /api/settings/gitlab',
+  'PATCH /api/settings',
+  'POST /api/settings/databases',
+  'POST /api/knowledge/ask',
+  'POST /api/opencode/restart',
+]);
+
+function validateCommandBody(request: FastifyRequest): void {
+  const body = request.body;
+  const record = body !== null && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : undefined;
+  const requestKey = record?.requestKey;
+  if (typeof requestKey === 'string' && requestKey.trim() !== '') return;
+  throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 requestKey', {
+    details: { hint: '写操作必须在 JSON 请求体中携带 req_ 前缀的 requestKey' },
+  });
+}
+
+/**
+ * Typed command body reader. Routes in {@link COMMAND_ROUTE_SIGNATURES} are
+ * already validated by the hook; this keeps handler-level types honest and
+ * supports the legacy DELETE route where clients historically omitted a body.
+ */
+function commandBody<T extends CommandRequest>(request: FastifyRequest, options: { readonly generateRequestKey?: boolean } = {}): T {
+  const body = request.body;
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    if (options.generateRequestKey === true) return { requestKey: createId('req') } as T;
+    throw new AppError(ErrorCode.VALIDATION_FAILED, '请求体必须是 JSON 对象');
+  }
+  const record = body as Record<string, unknown>;
+  if (typeof record.requestKey === 'string' && record.requestKey.trim() !== '') return body as T;
+  if (options.generateRequestKey === true) return { ...record, requestKey: createId('req') } as T;
+  throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 requestKey');
+}
+
+/**
+ * Output streams are closed once the node/attempt can no longer append
+ * fragments. `unknown` is included: after a process restart the attempt cannot
+ * resume unless the user retries (which creates a new attempt).
+ */
+function isTerminalOutputStatus(status: NodeStatusValue | undefined): boolean {
+  if (status === undefined) return false;
+  return status === NodeStatus.UNKNOWN || NODE_TERMINAL_STATUSES.includes(status);
+}
+
+/** Tool count for the enabled toolsets (mirrors the managed MCP registry). */
+function countEnabledMcpTools(toolsets: readonly string[]): number {
+  let total = 0;
+  for (const toolset of new Set(toolsets)) {
+    const count = MCP_TOOL_COUNTS_BY_TOOLSET[toolset as keyof typeof MCP_TOOL_COUNTS_BY_TOOLSET];
+    if (typeof count === 'number') total += count;
+  }
+  return total;
 }
 
 export function registerCors(app: FastifyInstance, allowedOrigins: readonly string[]): void {
@@ -146,6 +280,16 @@ const MIME: Record<string, string> = {
 export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): void {
   const { engine, store, opencodeRef, paths, databaseService, remoteService } = deps;
   const requestId = (request: FastifyRequest): string => String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
+  // Command envelopes are validated once, before any handler can reach domain
+  // services. Hooks registered here also cover routes added by later plugins.
+  app.addHook('preValidation', async (request) => {
+    const routeUrl = request.routeOptions.url;
+    if (routeUrl === undefined) return;
+    if (!COMMAND_ROUTE_SIGNATURES.has(`${request.method} ${routeUrl}`)) return;
+    validateCommandBody(request);
+  });
+  /** View `actions` reuse the task capability projection instead of a constant `{}`. */
+  const viewActions = (taskId: string): Record<string, ActionAvailability> => engine.tasks.detail(taskId).capabilities;
 
   app.get<{ Querystring: { path?: string } }>('/api/fs/directories', async (request) => envelope(listDirectories(request.query.path), requestId(request)));
   app.get('/api/health', async (request) => ({
@@ -176,7 +320,13 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
             gitlab: { configured: false, authState: 'not_configured' },
           }
         : remoteService.integrationStatus(),
-      database: { configured: settings.database.connections.length, connected: 0 },
+      database: {
+        configured: settings.database.connections.length,
+        // Real state: connections whose most recent probe is `connected`. A
+        // connection that was never probed reports not_configured (not a fake
+        // success); bootstrap stays cheap and never opens a database socket.
+        connected: (databaseService?.list() ?? []).filter((connection) => connection.state === DatabaseConnectionState.CONNECTED).length,
+      },
     };
     return envelope(
       {
@@ -302,7 +452,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   // Workspace
   app.get<{ Params: { id: string } }>('/api/tasks/:id/workspace', async (request) => {
     const workspace = engine.workspaces.get(request.params.id);
-    return envelope({ taskId: request.params.id, workspace, actions: {} }, requestId(request));
+    return envelope({ taskId: request.params.id, workspace, actions: viewActions(request.params.id) }, requestId(request));
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/workspace/prepare', async (request) => envelope(await engine.workspaces.prepare(request.params.id, request.body as PrepareWorkspaceRequest), requestId(request)));
   app.get<{ Params: { id: string } }>('/api/tasks/:id/changes', async (request) => envelope({ changes: await engine.workspaces.changes(request.params.id) }, requestId(request)));
@@ -317,7 +467,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.get<{ Params: { id: string } }>('/api/tasks/:id/execution', async (request) => {
     const execution = engine.executions.get(request.params.id);
     const workspace = engine.workspaces.get(request.params.id);
-    return envelope({ execution, workspace, actions: {} }, requestId(request));
+    return envelope({ execution, workspace, actions: viewActions(request.params.id) }, requestId(request));
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/start', async (request) => envelope(engine.executions.start(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/pause', async (request) => envelope(engine.executions.pause(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
@@ -348,13 +498,17 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const node = execution?.nodes.find((item) => item.nodeId === request.params.nodeId);
     const attemptId = request.query.attemptId ?? node?.currentAttemptId;
     const fragments = attemptId === undefined ? [] : store.executions.listOutput(attemptId, Number(request.query.afterSeq ?? 0));
-    return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attemptId, fragments, terminal: false }, requestId(request));
+    // Terminal is the real node/attempt end state, not a constant: a running
+    // attempt keeps streaming, a settled one never appends again.
+    const attempt = attemptId === undefined ? undefined : store.executions.getAttempt(attemptId);
+    const terminal = isTerminalOutputStatus(attempt?.status ?? node?.status);
+    return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attemptId, fragments, terminal }, requestId(request));
   });
 
   // Delivery
   app.get<{ Params: { id: string } }>('/api/tasks/:id/delivery', async (request) => {
     const delivery = engine.deliveries.get(request.params.id);
-    return envelope({ delivery, actions: {} }, requestId(request));
+    return envelope({ delivery, actions: viewActions(request.params.id) }, requestId(request));
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/select', async (request) => envelope(await engine.deliveries.select(request.params.id, request.body as DeliverySelectRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/commit', async (request) => envelope(await engine.deliveries.commit(request.params.id, request.body as DeliveryCommitRequest), requestId(request)));
@@ -510,12 +664,36 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   app.post<{ Params: { projectId: string } }>('/api/git/repos/:projectId/fetch', async (request) => {
+    const body = commandBody<GitFetchRequest>(request);
     const project = requireProject(engine, request.params.projectId);
+    if (body.projectId !== undefined && body.projectId !== project.id) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, 'projectId 与请求路径不一致', { details: { path: project.id, body: body.projectId } });
+    }
     const fetchImpl = engine.ports.git.fetch;
     if (fetchImpl === undefined) throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '当前 Git 适配不支持获取远端');
-    const result = await fetchImpl.call(engine.ports.git, { repoRoot: project.rootPath, remote: 'origin', prune: true });
-    store.events.publish('git.repo.changed', { projectId: project.id });
-    return envelope({ fetchedAt: result.fetchedAt }, requestId(request));
+    const remote = typeof body.remote === 'string' && body.remote.trim() !== '' ? body.remote.trim() : 'origin';
+    const { record, replayed } = engine.commands.begin({
+      requestKey: body.requestKey,
+      operation: 'git.fetch',
+      body: { projectId: project.id, remote },
+      target: { projectId: project.id },
+    });
+    if (replayed && record.status !== 'accepted') {
+      const fetchedAt = typeof record.outcome?.fetchedAt === 'string' ? record.outcome.fetchedAt : undefined;
+      return envelope({ receipt: engine.commands.toReceipt(record), resource: { fetchedAt, remote } }, requestId(request));
+    }
+    try {
+      const result = await fetchImpl.call(engine.ports.git, { repoRoot: project.rootPath, remote, prune: true });
+      store.events.publish('git.repo.changed', { projectId: project.id });
+      engine.commands.settle(body.requestKey, { fetchedAt: result.fetchedAt, remote });
+      return envelope(
+        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { fetchedAt: result.fetchedAt, remote } },
+        requestId(request),
+      );
+    } catch (error) {
+      engine.commands.fail(body.requestKey, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   });
 
   // Tasks created from a fixed template (read-only history)
@@ -628,8 +806,34 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(engine.templates.update(request.params.id, body), requestId(request));
   });
   app.delete<{ Params: { id: string } }>('/api/catalog/templates/:id', async (request) => {
-    const list = engine.templates.archive(request.params.id);
-    return envelope({ templates: list }, requestId(request));
+    const body = commandBody<TemplateArchiveRequest>(request);
+    if (body.confirmArchive !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '归档模板需要 confirmArchive=true 确认');
+    const existing = engine.templates.list().find((template) => template.id === request.params.id);
+    if (existing === undefined) throw new AppError(ErrorCode.NOT_FOUND, '自定义模板不存在');
+    // TemplateCatalogService.archive() has no command envelope, so the receipt
+    // is registered here at the HTTP boundary (the template file itself is
+    // owned by the catalog service and must not be duplicated in the route).
+    const { record, replayed } = engine.commands.begin({
+      requestKey: body.requestKey,
+      operation: 'catalog.template.archive',
+      body: { templateId: request.params.id },
+      target: { ref: request.params.id },
+    });
+    if (replayed && record.status !== 'accepted') {
+      const templates = engine.templates.list();
+      return envelope({ receipt: engine.commands.toReceipt(record), resource: { templates }, templates }, requestId(request));
+    }
+    try {
+      const templates = engine.templates.archive(request.params.id);
+      engine.commands.settle(body.requestKey, { templateId: request.params.id, remaining: templates.length });
+      return envelope(
+        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { templates }, templates },
+        requestId(request),
+      );
+    } catch (error) {
+      engine.commands.fail(body.requestKey, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   });
 
   app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));
@@ -674,12 +878,39 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   app.patch('/api/settings', async (request) => {
     const body = request.body as UpdateSettingsRequest;
+    if (body.patch === null || typeof body.patch !== 'object' || Array.isArray(body.patch)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 patch');
+    }
     const current = engine.publicSettings();
     const merged = mergeSettings(current, body.patch) as AppSettings;
     const issues = validateSettings(merged);
     if (issues.length > 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '设置校验失败', { details: { issues } });
-    engine.updateSettings(merged);
-    return envelope({ settings: merged, issues, catalog: engine.catalog }, requestId(request));
+    // 设置保存是全局变更：登记操作并返回回执，失败/重放都能按 requestKey 核对。
+    const { record, replayed } = engine.commands.begin({
+      requestKey: body.requestKey,
+      operation: 'settings.update',
+      body: { patch: body.patch, confirmAcrossProjects: body.confirmAcrossProjects === true },
+      target: {},
+    });
+    if (replayed && record.status !== 'accepted') {
+      const settingsNow = engine.publicSettings();
+      const issuesNow = validateSettings(settingsNow);
+      return envelope(
+        { receipt: engine.commands.toReceipt(record), resource: { settings: settingsNow, issues: issuesNow, catalog: engine.catalog }, settings: settingsNow, issues: issuesNow, catalog: engine.catalog },
+        requestId(request),
+      );
+    }
+    try {
+      engine.updateSettings(merged);
+      engine.commands.settle(body.requestKey, { applied: true });
+      return envelope(
+        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { settings: merged, issues, catalog: engine.catalog }, settings: merged, issues, catalog: engine.catalog },
+        requestId(request),
+      );
+    } catch (error) {
+      engine.commands.fail(body.requestKey, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   });
 
   // Database connections (mysql2; read-only / probe)
@@ -689,11 +920,27 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   app.post('/api/settings/databases', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
-    const body = request.body as DatabaseConnectionUpsertRequest;
+    const body = commandBody<DatabaseConnectionUpsertRequest>(request);
     const input = body.connection;
+    if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 connection');
+    const settings = engine.publicSettings();
+    // 连接登记属于设置变更（OPERATIONS 未单列连接 CRUD），用 settings.update 登记回执。
+    const { record, replayed } = engine.commands.begin({
+      requestKey: body.requestKey,
+      operation: 'settings.update',
+      body: { connectionName: input.name, type: input.type, host: input.host, port: input.port, database: input.database, user: input.user },
+      target: {},
+    });
+    if (replayed && record.status !== 'accepted') {
+      const savedId = typeof record.outcome?.connectionId === 'string' ? record.outcome.connectionId : undefined;
+      const connection = savedId === undefined ? undefined : databaseService.list().find((item) => item.id === savedId);
+      return envelope(
+        { receipt: engine.commands.toReceipt(record), resource: { connection }, ...(connection === undefined ? {} : { connection }) },
+        requestId(request),
+      );
+    }
     const id = input.id ?? `db_${Math.random().toString(36).slice(2, 12)}`;
     const passwordRef = input.password === undefined ? undefined : `db:${id}`;
-    if (input.password !== undefined && passwordRef !== undefined) store.secrets.put(passwordRef, input.password);
     const config = {
       id,
       name: input.name,
@@ -706,15 +953,27 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       readOnly: input.readOnly ?? true,
       ssl: input.ssl ?? false,
     };
-    const settings = engine.publicSettings();
     const duplicate = settings.database.connections.find((item) => item.id !== id && item.host === config.host && item.port === config.port && item.database === config.database);
     if (duplicate !== undefined) {
-      throw new AppError(ErrorCode.CONFLICT, '同一主机/端口/数据库已经有连接配置', { details: { connectionId: duplicate.id, name: duplicate.name } });
+      const conflict = new AppError(ErrorCode.CONFLICT, '同一主机/端口/数据库已经有连接配置', { details: { connectionId: duplicate.id, name: duplicate.name } });
+      engine.commands.fail(body.requestKey, conflict);
+      throw conflict;
     }
-    databaseService.registerConnection(config);
-    const connections = [...settings.database.connections.filter((item) => item.id !== id), config];
-    engine.updateSettings({ ...settings, database: { ...settings.database, connections } });
-    return envelope({ connection: databaseService.get(id) }, requestId(request));
+    try {
+      if (input.password !== undefined && passwordRef !== undefined) store.secrets.put(passwordRef, input.password);
+      databaseService.registerConnection(config);
+      const connections = [...settings.database.connections.filter((item) => item.id !== id), config];
+      engine.updateSettings({ ...settings, database: { ...settings.database, connections } });
+      engine.commands.settle(body.requestKey, { connectionId: id });
+      const connection = databaseService.get(id);
+      return envelope(
+        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { connection }, connection },
+        requestId(request),
+      );
+    } catch (error) {
+      engine.commands.fail(body.requestKey, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   });
   app.delete<{ Params: { id: string } }>('/api/settings/databases/:id', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
@@ -722,17 +981,41 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     if (!settings.database.connections.some((connection) => connection.id === request.params.id)) {
       throw new AppError(ErrorCode.NOT_FOUND, '数据库连接不存在');
     }
-    const next: AppSettings = {
-      ...settings,
-      database: {
-        ...settings.database,
-        connections: settings.database.connections.filter((connection) => connection.id !== request.params.id),
-      },
-    };
-    engine.updateSettings(next);
-    await databaseService.applySettings(next.database);
-    store.events.publish('task.changed', { taskId: '', projectId: '', stage: 'draft', revision: 1 });
-    return envelope({ connections: databaseService.list() }, requestId(request));
+    // Legacy Web clients call DELETE without a request body; a server key is
+    // generated for those so the change still gets an auditable receipt. New
+    // callers should send `{ requestKey }` and it is echoed back.
+    const body = commandBody<CommandRequest>(request, { generateRequestKey: true });
+    const { record, replayed } = engine.commands.begin({
+      requestKey: body.requestKey,
+      operation: 'settings.update',
+      body: { deletedConnectionId: request.params.id },
+      target: {},
+    });
+    if (replayed && record.status !== 'accepted') {
+      const connections = databaseService.list();
+      return envelope({ receipt: engine.commands.toReceipt(record), resource: { connections }, connections }, requestId(request));
+    }
+    try {
+      const next: AppSettings = {
+        ...settings,
+        database: {
+          ...settings.database,
+          connections: settings.database.connections.filter((connection) => connection.id !== request.params.id),
+        },
+      };
+      engine.updateSettings(next);
+      await databaseService.applySettings(next.database);
+      store.events.publish('task.changed', { taskId: '', projectId: '', stage: 'draft', revision: 1 });
+      engine.commands.settle(body.requestKey, { deletedConnectionId: request.params.id });
+      const connections = databaseService.list();
+      return envelope(
+        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { connections }, connections },
+        requestId(request),
+      );
+    } catch (error) {
+      engine.commands.fail(body.requestKey, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   });
   app.post<{ Params: { id: string } }>('/api/settings/databases/:id/probe', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
@@ -762,18 +1045,41 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   app.post('/api/settings/gitlab', async (request) => {
     if (remoteService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'Git 远端模块未接通');
-    const body = request.body as GitLabConnectionRequest;
+    const body = commandBody<GitLabConnectionRequest>(request);
     if (body.provider !== 'github' && body.provider !== 'gitlab') throw new AppError(ErrorCode.VALIDATION_FAILED, 'provider 必须是 github 或 gitlab');
-    const state = await remoteService.saveConnection({ provider: body.provider, baseUrl: body.baseUrl, apiBaseUrl: body.apiBaseUrl, token: body.token });
-    engine.updateSettings(remoteService.settings());
-    store.events.publish('git.repo.changed', { projectId: '' });
-    return envelope({ connection: state, settings: remoteService.settings() }, requestId(request));
+    // 令牌只在本机凭据库变更；回执里不出现 token（bodyHash 只含 provider 与地址）。
+    const { record, replayed } = engine.commands.begin({
+      requestKey: body.requestKey,
+      operation: 'secret.save',
+      body: { provider: body.provider, baseUrl: body.baseUrl, apiBaseUrl: body.apiBaseUrl },
+      target: {},
+    });
+    if (replayed && record.status !== 'accepted') {
+      const connection = remoteService.connectionState(body.provider);
+      const settings = remoteService.settings();
+      return envelope({ receipt: engine.commands.toReceipt(record), resource: { connection, settings }, connection, settings }, requestId(request));
+    }
+    try {
+      const state = await remoteService.saveConnection({ provider: body.provider, baseUrl: body.baseUrl, apiBaseUrl: body.apiBaseUrl, token: body.token });
+      engine.updateSettings(remoteService.settings());
+      store.events.publish('git.repo.changed', { projectId: '' });
+      engine.commands.settle(body.requestKey, { provider: body.provider, state: state.state });
+      const settings = remoteService.settings();
+      return envelope(
+        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { connection: state, settings }, connection: state, settings },
+        requestId(request),
+      );
+    } catch (error) {
+      engine.commands.fail(body.requestKey, error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
   });
   app.post('/api/settings/gitlab/test', async (request) => {
     if (remoteService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'Git 远端模块未接通');
     const body = (request.body ?? {}) as { provider?: 'github' | 'gitlab' };
     const provider = body.provider ?? engine.publicSettings().git.defaultProvider;
-    return envelope({ connection: await remoteService.testConnection(provider) }, requestId(request));
+    // 验证请求只探测账户，不改配置、不登记操作：响应显式标注非变更语义。
+    return envelope({ connection: await remoteService.testConnection(provider), mutating: false }, requestId(request));
   });
 
   // OpenCode
@@ -783,6 +1089,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const diagnostics = opencode === undefined ? undefined : await opencode.diagnostics().catch(() => undefined);
     const setting = engine.publicSettings();
     const planner = setting.models.find((model) => model.enabled && model.roles.includes('planner')) ?? setting.models[0];
+    const mcpConnected = diagnostics === undefined ? false : Object.values(diagnostics.mcp).some((item) => item.status === 'connected');
     return envelope(
       {
         status: {
@@ -798,8 +1105,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
           agent: setting.opencode.agent,
           mcp: {
             name: setting.opencode.mcpServerName,
-            connected: diagnostics === undefined ? false : Object.values(diagnostics.mcp).some((item) => item.status === 'connected'),
-            tools: diagnostics !== undefined && Object.values(diagnostics.mcp).some((item) => item.status === 'connected') ? 13 : 0,
+            connected: mcpConnected,
+            // Real count for the toolsets this service actually injects; it
+            // follows `opencode.toolsets` instead of a fixed 13, and is 0 while
+            // the MCP channel is not connected (nothing is usable then).
+            tools: mcpConnected ? countEnabledMcpTools(setting.opencode.toolsets) : 0,
           },
           startedAt: status.startedAt,
           lastError: status.lastError,
@@ -820,13 +1130,32 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(await detectOpenCodeBinaries(engine.publicSettings().opencode.binaryPath), requestId(request));
   });
   app.post('/api/opencode/restart', async (request) => {
+    const body = commandBody<OpenCodeRestartRequest>(request);
+    if (body.confirmRestart !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '重启 OpenCode 需要 confirmRestart=true 确认');
     const opencode = opencodeRef.current;
     if (opencode === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'OpenCode 服务未启用');
-    await opencode.stop();
-    await opencode.ensureReady().catch((error: unknown) => {
-      throw error instanceof AppError ? error : new AppError(ErrorCode.OPENCODE_NOT_READY, String(error));
+    const { record, replayed } = engine.commands.begin({
+      requestKey: body.requestKey,
+      operation: 'opencode.restart',
+      body: { confirmRestart: true },
+      target: {},
     });
-    return envelope({ status: opencode.status() }, requestId(request));
+    if (replayed && record.status !== 'accepted') {
+      return envelope({ receipt: engine.commands.toReceipt(record), resource: { status: opencode.status() } }, requestId(request));
+    }
+    try {
+      await opencode.stop();
+      await opencode.ensureReady();
+      engine.commands.settle(body.requestKey, { state: opencode.status().state });
+      return envelope(
+        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { status: opencode.status() } },
+        requestId(request),
+      );
+    } catch (error) {
+      const appError = error instanceof AppError ? error : new AppError(ErrorCode.OPENCODE_NOT_READY, error instanceof Error ? error.message : '重启 OpenCode 失败');
+      engine.commands.fail(body.requestKey, appError);
+      throw appError;
+    }
   });
 
   // SSE events
@@ -875,6 +1204,13 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     });
     app.get('/*', async (request, reply) => {
       const wildcard = (request.params as { '*': string })['*'];
+      // SPA history fallback must never swallow the API namespace: an unknown
+      // GET /api/* has to answer the same JSON 404 envelope as an unknown POST
+      // (otherwise a missing endpoint looks like a successful HTML page).
+      if (wildcard === 'api' || wildcard.startsWith('api/')) {
+        reply.status(404).send(apiNotFoundBody('GET', request.url, createId('req')));
+        return;
+      }
       if (wildcard.includes('..')) {
         reply.status(400).send({ error: { code: 'FORBIDDEN', message: '非法路径' } });
         return;

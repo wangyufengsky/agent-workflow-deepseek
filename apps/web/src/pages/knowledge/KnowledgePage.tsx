@@ -7,15 +7,8 @@ import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Icon } from '../../components/Icon.tsx';
-import { PendingBackendNotice, ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { Modal } from '../../components/Modal.tsx';
-
-const ASK_BLOCKED_REASON = '知识库问答接口尚未接通：服务端没有检索 / 对话 / 引用读取接口，问题不会发送，也没有模拟回答。';
-
-const PLANNED_ENTRYPOINTS = [
-  { method: 'POST', path: '/api/knowledge/conversations', purpose: '创建对话并固定项目与来源选择' },
-  { method: 'POST', path: '/api/knowledge/conversations/:id/messages', purpose: '发送问题；回答与引用由服务端记录' },
-] as const;
 
 export function KnowledgePage() {
   const bootstrap = useBootstrap();
@@ -125,14 +118,21 @@ export function KnowledgePage() {
             onChange={(event) => {
               setQuestion(event.target.value);
             }}
-            placeholder="描述你的问题，或粘贴需要理解的内容…（当前输入不会发送）"
-            aria-describedby="kb-disabled-note"
+            placeholder="描述你的问题，或粘贴需要理解的内容…"
+            aria-describedby="kb-ask-note"
           />
           <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-            <Button variant="secondary" size="sm" icon="book" disabled disabledReason="资料来源在下方「资料来源」卡片中读取；问答与引用仍未接通。">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="book"
+              onClick={() => {
+                document.getElementById('kb-sources')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            >
               资料来源
             </Button>
-            <span className="chip" title="问答模型由服务端在创建对话时固定">
+            <span className="chip" title="问答模型由服务端按已启用的 reviewer 模型选择">
               <Icon name="sparkle" size="sm" />
               模型由服务端决定
             </span>
@@ -154,7 +154,7 @@ export function KnowledgePage() {
               </Button>
             )}
           </div>
-          <p className="hint" id="kb-disabled-note" style={{ marginTop: 8 }}>
+          <p className="hint" id="kb-ask-note" style={{ marginTop: 8 }}>
             问答使用受管 OpenCode（只读）基于项目文档回答；同一对话最近 3 条问答作为上下文，引用可点击回到原文。
           </p>
           {askMutation.isPending ? <p className="hint" style={{ marginTop: 8 }}>模型正在阅读文档并核对引用，通常需要 15–90 秒；请勿重复提交。</p> : null}
@@ -215,14 +215,14 @@ export function KnowledgePage() {
       </section>
 
       <div className="grid-2" style={{ marginTop: 16, alignItems: 'start' }}>
-        <section className="card pad">
+        <section id="kb-sources" className="card pad" style={{ scrollMarginTop: 16 }}>
           <div className="row" style={{ gap: 8 }}>
             <Icon name="book" size="sm" />
             <span className="section-title">资料来源</span>
             <Badge tone="ok" icon="check">只读清单</Badge>
           </div>
           <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
-            服务端只读扫描项目目录中的文档（md/mdx/txt/rst/json/yaml），不返回文件正文；问答与引用仍未接通。
+            服务端只读扫描项目目录中的文档（md/mdx/txt/rst/json/yaml）；回答会引用这些来源，点击引用可回到原文。
           </p>
           <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
             <select className="select" style={{ width: 'auto', height: 30 }} value={projectId} onChange={(event) => { setSelectedProjectId(event.target.value); }} aria-label="选择项目">
@@ -284,37 +284,15 @@ export function KnowledgePage() {
         <section className="card pad">
           <div className="row" style={{ gap: 8 }}>
             <Icon name="terminal" size="sm" />
-            <span className="section-title">研究过程与引用</span>
+            <span className="section-title">引用与核对</span>
             <Badge tone="idle" icon="lock">
               只读
             </Badge>
           </div>
           <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
-            检索步骤、工具记录与引用原文都由服务端在回答时冻结；页面不会在客户端拼接或模拟这些证据。历史对话同理，需要服务端提供会话读取接口。
+            回答中的引用由服务端校验后返回；点击引用可打开对应原文。页面不会在客户端拼接或模拟引用，历史记录只保存在本机。
           </p>
         </section>
-      </div>
-
-      <div className="section">
-        <div className="section-head">
-          <span className="section-title">建议的服务端能力</span>
-          <span className="hint">用于后续接通，不代表已实现</span>
-        </div>
-        <div className="card">
-          <div className="list" style={{ padding: 6 }}>
-            {PLANNED_ENTRYPOINTS.map((entry) => (
-              <div key={entry.path} className="list-row" style={{ cursor: 'default' }}>
-                <Badge outline>{entry.method}</Badge>
-                <span className="mono grow" style={{ fontSize: 12.5, overflowWrap: 'anywhere' }}>
-                  {entry.path}
-                </span>
-                <span className="hint" style={{ textAlign: 'right', maxWidth: 320 }}>
-                  {entry.purpose}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
 
       <section className="card" aria-label="问答历史" style={{ marginTop: 16 }}>
@@ -327,7 +305,11 @@ export function KnowledgePage() {
           <Badge tone="neutral">本机</Badge>
         </div>
         <div className="card-body">
-          {historyQuery.data === undefined ? <p className="hint">正在读取历史…</p>
+          {historyQuery.isError ? (
+            <p className="hint" style={{ color: 'var(--danger)' }}>读取历史失败：{String((historyQuery.error as Error).message)}</p>
+          ) : projects.length === 0 ? (
+            <p className="hint">还没有项目；问答历史按项目保存在本机。</p>
+          ) : historyQuery.data === undefined ? <p className="hint">正在读取历史…</p>
             : historyQuery.data.entries.length === 0 ? <p className="hint">当前项目还没有问答记录。</p>
               : (
                 <div className="list">
@@ -363,8 +345,6 @@ export function KnowledgePage() {
           </div>
         )}
       </Modal>
-
-      <PendingBackendNotice message="资料来源清单与正文读取已接通（只读）；模型问答、检索结论、引用与历史会话仍未接通，本页不展示示例回答或引用编号。" />
     </div>
   );
 }

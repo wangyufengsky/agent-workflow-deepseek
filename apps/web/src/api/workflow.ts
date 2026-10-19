@@ -8,6 +8,7 @@ import {
   type AppEventEnvelope,
   type AttemptListResponse,
   type CommandResponse,
+  type CleanupPreviewResponse,
   type ConfirmPlanRequest,
   type CreateTaskRequest,
   type EditBeginRequest,
@@ -305,6 +306,30 @@ export async function prepareWorkspace(
 export async function startExecution(taskId: string, expectedStatus?: string): Promise<CommandResponse<ExecutionResponse>> {
   const body: ExecutionCommandRequest = { requestKey: createRequestKey(), expectedStatus, confirm: true };
   const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionStart(taskId), body);
+  return response.data;
+}
+
+/** Read-only cleanup preview: what would be deleted/retained and the current blockers. */
+export async function previewWorkspaceCleanup(taskId: string): Promise<CleanupPreviewResponse> {
+  const response = await apiPost<CleanupPreviewResponse>(ROUTES.workspaceCleanupPreview(taskId), {});
+  return response.data;
+}
+
+/**
+ * Confirm workspace cleanup. The caller may pass the request key so a transport
+ * error (no receipt received) can still be reconciled by the original key.
+ */
+export async function confirmWorkspaceCleanup(
+  taskId: string,
+  input: { readonly previewRef: string; readonly workspaceRevision: string; readonly requestKey?: string },
+): Promise<CommandResponse<{ workspace?: WorkspaceResponse['workspace'] }>> {
+  const body = {
+    requestKey: input.requestKey ?? createRequestKey(),
+    previewRef: input.previewRef,
+    workspaceRevision: input.workspaceRevision,
+    confirmCleanup: true as const,
+  };
+  const response = await apiPost<CommandResponse<{ workspace?: WorkspaceResponse['workspace'] }>>(ROUTES.workspaceCleanupConfirm(taskId), body);
   return response.data;
 }
 

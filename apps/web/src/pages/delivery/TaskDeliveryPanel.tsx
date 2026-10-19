@@ -71,10 +71,12 @@ export interface TaskDeliveryPanelProps {
   readonly taskId: string;
   /** 任务画布等宿主提供的关闭入口；没有时面板不显示关闭按钮。 */
   readonly onClose?: () => void;
-  /** 打开「任务变更」视图（Git 工作台的任务上下文）；未提供时按钮隐藏。 */
+  /** 定位到交付区（滚动并聚焦文件选择）；每次递增触发，不再重复设置同一参数。 */
   readonly onOpenChanges?: () => void;
   /** 嵌入任务画布内联显示（无固定宽度）；默认是 480 右侧面板。 */
   readonly inline?: boolean;
+  /** 宿主请求定位待交付变更区；值递增时滚动并聚焦文件选择。 */
+  readonly focusChangesRequest?: number;
 }
 
 /**
@@ -84,7 +86,7 @@ export interface TaskDeliveryPanelProps {
  * - 回执 UNKNOWN 只核对原操作（operations.by-key），不重发；
  * - 非 Git 项目只显示只读应用预览，并禁用写操作、写明原因。
  */
-export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: TaskDeliveryPanelProps) {
+export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focusChangesRequest }: TaskDeliveryPanelProps) {
   const queryClient = useQueryClient();
   const [selectedFileIds, setSelectedFileIds] = useState<ReadonlySet<string>>(new Set());
   const [goal, setGoal] = useState<DeliveryGoalValue | null>(null);
@@ -93,6 +95,9 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
   const [lookupKey, setLookupKey] = useState<string | null>(null);
   const [reconciledKeys, setReconciledKeys] = useState<ReadonlySet<string>>(new Set());
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [focusNotice, setFocusNotice] = useState(0);
+  const changesFocusRef = useRef<HTMLDivElement>(null);
+  const handledFocusRequest = useRef(0);
   const selectionReady = useRef(false);
   const goalReady = useRef(false);
 
@@ -181,6 +186,26 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
     setGoal(delivery.goal ?? null);
     goalReady.current = true;
   }, [delivery]);
+
+  // 宿主点「查看变更并交付」时真正定位到交付区：滚动并聚焦文件选择，而不是再次设置同一个 URL 参数。
+  useEffect(() => {
+    if (focusChangesRequest === undefined || focusChangesRequest <= handledFocusRequest.current) return;
+    if (delivery === undefined) return;
+    const container = changesFocusRef.current;
+    if (container === null) return;
+    handledFocusRequest.current = focusChangesRequest;
+    container.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    const focusTarget = container.querySelector<HTMLElement>('input[type="checkbox"], button, [tabindex]');
+    if (focusTarget !== null) focusTarget.focus({ preventScroll: true });
+    else container.focus({ preventScroll: true });
+    setFocusNotice(focusChangesRequest);
+  }, [changes, delivery, focusChangesRequest]);
+
+  useEffect(() => {
+    if (focusNotice === 0) return;
+    const timer = window.setTimeout(() => { setFocusNotice(0); }, 5000);
+    return () => { window.clearTimeout(timer); };
+  }, [focusNotice]);
 
   const invalidate = async () => {
     await Promise.all([
@@ -342,7 +367,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
   const selectBlockedReason =
     delivery === undefined ? '交付记录还没有读取成功。'
       : delivered ? '任务已交付，不能重新保存选择。'
-        : stepsStarted ? '已开始交付；改变目标与选择的语义 API 未冻结（P2），本面板不提供静默改选。'
+        : stepsStarted ? '已开始交付；为避免改变已提交的范围，这里不提供静默改选。'
           : hasUnknown ? '有回执未知的操作，先核对原操作。'
             : eligibilityReason !== null ? eligibilityReason
               : goal === null ? '先选择完成目标。'
@@ -587,27 +612,36 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
           </div>
         ) : null}
 
-        <DeliveryFileSelect
-          files={changes?.files ?? []}
-          selected={selectedFileIds}
-          onToggle={(fileId, selected) => {
-            setSelectedFileIds((current) => {
-              const next = new Set(current);
-              if (selected) next.add(fileId);
-              else next.delete(fileId);
-              return next;
-            });
-          }}
-          onSelectAll={() => { setSelectedFileIds(new Set((changes?.files ?? []).map((file) => file.fileId))); }}
-          onSelectNone={() => { setSelectedFileIds(new Set()); }}
-          excluded={changes?.excluded}
-          remaining={delivery.remaining}
-          loading={changesQuery.isPending && delivery !== undefined}
-          error={changesQuery.isError ? changesQuery.error : null}
-          onRetry={() => { void changesQuery.refetch(); }}
-          disabled={fileSelectDisabledReason !== null}
-          disabledReason={fileSelectDisabledReason}
-        />
+        {focusNotice === 0 ? null : (
+          <div className="banner info" role="status">
+            <Icon name="target" />
+            <div className="grow">已定位到待交付变更；选择文件后可保存目标与选择。</div>
+          </div>
+        )}
+
+        <div ref={changesFocusRef} tabIndex={-1} aria-label="待交付变更区">
+          <DeliveryFileSelect
+            files={changes?.files ?? []}
+            selected={selectedFileIds}
+            onToggle={(fileId, selected) => {
+              setSelectedFileIds((current) => {
+                const next = new Set(current);
+                if (selected) next.add(fileId);
+                else next.delete(fileId);
+                return next;
+              });
+            }}
+            onSelectAll={() => { setSelectedFileIds(new Set((changes?.files ?? []).map((file) => file.fileId))); }}
+            onSelectNone={() => { setSelectedFileIds(new Set()); }}
+            excluded={changes?.excluded}
+            remaining={delivery.remaining}
+            loading={changesQuery.isPending && delivery !== undefined}
+            error={changesQuery.isError ? changesQuery.error : null}
+            onRetry={() => { void changesQuery.refetch(); }}
+            disabled={fileSelectDisabledReason !== null}
+            disabledReason={fileSelectDisabledReason}
+          />
+        </div>
 
         <DeliveryGoalPicker
           projectGit={projectGit}
@@ -616,7 +650,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
           disabled={delivered || stepsStarted || hasUnknown || (eligibilityReason !== null)}
           disabledReason={
             delivered ? '任务已交付。'
-              : stepsStarted ? '已开始交付；改变目标的语义 API 未冻结（P2），本面板不提供静默改目标。'
+              : stepsStarted ? '已开始交付；为避免改变已提交的范围，这里不提供静默改目标。'
                 : hasUnknown ? '有回执未知的操作，先核对原操作。'
                   : eligibilityReason
           }
@@ -628,7 +662,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
               variant="primary"
               icon="check"
               disabled={selectBlockedReason !== null || selectMutation.isPending}
-              disabledReason={selectBlockedReason ?? undefined}
+              disabledReason={selectMutation.isPending ? '正在保存目标与选择，等待服务回执…' : selectBlockedReason ?? undefined}
               onClick={() => {
                 setPendingAction('select');
                 selectMutation.mutate(undefined, {
@@ -723,7 +757,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
                 variant="secondary"
                 icon="upload"
                 disabled={commitBlockedReason !== null || commitMutation.isPending}
-                disabledReason={commitBlockedReason ?? undefined}
+                disabledReason={commitMutation.isPending ? '正在提交，等待服务回执…' : commitBlockedReason ?? undefined}
                 onClick={() => { setContinueToPush(true); setPendingAction('commit'); commitMutation.mutate(); }}
               >
                 提交（完成后确认推送）
@@ -733,7 +767,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
               variant="primary"
               icon="check"
               disabled={commitBlockedReason !== null || commitMutation.isPending}
-              disabledReason={commitBlockedReason ?? undefined}
+              disabledReason={commitMutation.isPending ? '正在提交，等待服务回执…' : commitBlockedReason ?? undefined}
               onClick={() => { setContinueToPush(false); setPendingAction('commit'); commitMutation.mutate(); }}
             >
               {commitMutation.isPending ? '提交中…' : '确认提交'}
@@ -801,7 +835,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
               variant="primary"
               icon="upload"
               disabled={pushBlockedReason !== null || pushMutation.isPending}
-              disabledReason={pushBlockedReason ?? undefined}
+              disabledReason={pushMutation.isPending ? '正在推送，等待服务回执…' : pushBlockedReason ?? undefined}
               onClick={() => { setPendingAction('push'); pushMutation.mutate(); }}
             >
               {pushMutation.isPending ? '推送中…' : '确认推送'}
@@ -847,7 +881,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
               variant="primary"
               icon="gitRepo"
               disabled={mrBlockedReason !== null || mrMutation.isPending}
-              disabledReason={mrBlockedReason ?? undefined}
+              disabledReason={mrMutation.isPending ? '正在创建合并请求，等待服务回执…' : mrBlockedReason ?? undefined}
               onClick={() => { setPendingAction('mr'); mrMutation.mutate(); }}
             >
               {mrMutation.isPending ? '创建中…' : '确认创建'}
@@ -880,7 +914,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
           </label>
           <div className="dialog-warning">
             <Icon name="info" />
-            <span>创建成功即完成所选交付，不等待合并；合并在 GitLab 完成，产品内不提供合并按钮。已有同源 → 目标的打开 MR 时服务不会重复创建。</span>
+            <span>创建成功即完成所选交付，不等待合并；你也可以在 GitLab 完成合并，或在下方用本地合并（独立确认，no-ff + CAS）。已有同源 → 目标的打开 MR 时服务不会重复创建。</span>
           </div>
           {mrMutation.isError ? <FailureNotice error={mrMutation.error} compact /> : null}
         </div>
@@ -899,7 +933,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline }: Ta
               variant="danger"
               icon="split"
               disabled={mergeBlockedReason !== null || mergeMutation.isPending}
-              disabledReason={mergeBlockedReason ?? undefined}
+              disabledReason={mergeMutation.isPending ? '正在合并，等待服务回执…' : mergeBlockedReason ?? undefined}
               onClick={() => { setPendingAction('merge'); mergeMutation.mutate(); }}
             >
               {mergeMutation.isPending ? '合并中…' : '确认合并'}

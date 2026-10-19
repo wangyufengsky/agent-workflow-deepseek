@@ -463,7 +463,7 @@ export function FixPanel({
             </div>
           )}
           <div className="fix-step-actions">
-            <Button variant="primary" icon="wand" disabled={startBlockedReason !== null || startMutation.isPending} disabledReason={startBlockedReason ?? undefined} onClick={() => { setDialog('start'); }}>
+            <Button variant="primary" icon="wand" disabled={startBlockedReason !== null || startMutation.isPending} disabledReason={startMutation.isPending ? '正在开始修复，等待服务回执…' : startBlockedReason ?? undefined} onClick={() => { setDialog('start'); }}>
               开始 AI 修复
             </Button>
             {startBlockedReason === null ? null : <span className="action-reason"><Icon name="lock" size="sm" />{startBlockedReason}</span>}
@@ -482,7 +482,7 @@ export function FixPanel({
             </span>
             <span className="grow" />
             {fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying' || fix.state === 'stopping' ? (
-              <Button variant="secondary" size="sm" icon="stop" disabled={stopMutation.isPending || fix.state === 'stopping'} disabledReason={fix.state === 'stopping' ? '正在停止；停止请求不等于已停止。' : undefined} onClick={() => { stopMutation.mutate(); }}>
+              <Button variant="secondary" size="sm" icon="stop" disabled={stopMutation.isPending || fix.state === 'stopping'} disabledReason={stopMutation.isPending ? '正在提交停止请求，等待服务回执…' : fix.state === 'stopping' ? '正在停止；停止请求不等于已停止。' : undefined} onClick={() => { stopMutation.mutate(); }}>
                 停止修复
               </Button>
             ) : null}
@@ -559,7 +559,7 @@ export function FixPanel({
                     <Button variant="ghost" size="sm" icon="eye" onClick={() => { onOpenDiff(file, fix.fixRunId); }}>
                       查看 diff
                     </Button>
-                    <Button variant="ghost" size="sm" icon="undo" disabled={!revertAllowed || revertMutation.isPending} disabledReason={revertAllowed ? undefined : actionReasonText(revertAction, '当前状态不允许撤销文件。')} onClick={() => { revertMutation.mutate(file.fileId); }}>
+                    <Button variant="ghost" size="sm" icon="undo" disabled={!revertAllowed || revertMutation.isPending} disabledReason={revertMutation.isPending ? '正在撤销这个文件，等待服务回执…' : !revertAllowed ? actionReasonText(revertAction, '当前状态不允许撤销文件。') : undefined} onClick={() => { revertMutation.mutate(file.fileId); }}>
                       撤销此文件
                     </Button>
                   </div>
@@ -619,12 +619,13 @@ export function FixPanel({
                   variant="secondary"
                   size="sm"
                   icon="upload"
-                  disabled={commitStep?.state !== 'succeeded' || pushStep?.state === 'succeeded' || !gitlabReady || pushMutation.isPending}
+                   disabled={commitStep?.state !== 'succeeded' || pushStep?.state === 'succeeded' || !gitlabReady || pushMutation.isPending}
                   disabledReason={
-                    commitStep?.state !== 'succeeded' ? '提交成功后才能推送。'
-                      : pushStep?.state === 'succeeded' ? '已推送；下一步是创建合并请求。'
-                        : !gitlabReady ? 'GitLab 未连接或仓库没有远端，推送不可用；到设置 → GitLab 配置连接。'
-                          : undefined
+                    pushMutation.isPending ? '正在推送，等待服务回执…'
+                      : commitStep?.state !== 'succeeded' ? '提交成功后才能推送。'
+                        : pushStep?.state === 'succeeded' ? '已推送；下一步是创建合并请求。'
+                          : !gitlabReady ? 'GitLab 未连接或仓库没有远端，推送不可用；到设置 → GitLab 配置连接。'
+                            : undefined
                   }
                   onClick={openPushDialog}
                 >
@@ -643,7 +644,7 @@ export function FixPanel({
                 {mrStep?.mrIid === undefined ? null : <span className="mono-sm">!{String(mrStep.mrIid)}</span>}
               </div>
               <div className="fix-step-desc">
-                在 GitLab 创建 MR；创建成功只代表所选交付完成，不等待合并。产品内不提供直接合并。
+                在 GitLab 创建 MR；创建成功只代表所选交付完成，不等待合并。也可以在下方直接合并本地修复分支（独立确认，no-ff + CAS）。
               </div>
               <div className="fix-step-actions">
                 <Button
@@ -652,10 +653,11 @@ export function FixPanel({
                   icon="gitRepo"
                   disabled={pushStep?.state !== 'succeeded' || mrStep?.state === 'succeeded' || !gitlabReady || mrMutation.isPending}
                   disabledReason={
-                    pushStep?.state !== 'succeeded' ? '推送成功后才能创建合并请求。'
-                      : mrStep?.state === 'succeeded' ? '已创建合并请求。'
-                        : !gitlabReady ? 'GitLab 未连接，无法创建合并请求。'
-                          : undefined
+                    mrMutation.isPending ? '正在创建合并请求，等待服务回执…'
+                      : pushStep?.state !== 'succeeded' ? '推送成功后才能创建合并请求。'
+                        : mrStep?.state === 'succeeded' ? '已创建合并请求。'
+                          : !gitlabReady ? 'GitLab 未连接，无法创建合并请求。'
+                            : undefined
                   }
                   onClick={openMrDialog}
                 >
@@ -688,10 +690,11 @@ export function FixPanel({
                   icon="branch"
                   disabled={commitStep?.state !== 'succeeded' || mergeStep?.state === 'succeeded' || mergeBaseTip === undefined || mergeMutation.isPending}
                   disabledReason={
-                    commitStep?.state !== 'succeeded' ? '提交成功后才能合并。'
-                      : mergeStep?.state === 'succeeded' ? '修复分支已合并。'
-                        : mergeBaseTip === undefined ? '没有读取到目标分支当前 tip；刷新分支后再确认。'
-                          : undefined
+                    mergeMutation.isPending ? '正在合并，等待服务回执…'
+                      : commitStep?.state !== 'succeeded' ? '提交成功后才能合并。'
+                        : mergeStep?.state === 'succeeded' ? '修复分支已合并。'
+                          : mergeBaseTip === undefined ? '没有读取到目标分支当前 tip；刷新分支后再确认。'
+                            : undefined
                   }
                   onClick={() => { setDialog('merge'); }}
                 >
@@ -704,7 +707,7 @@ export function FixPanel({
 
           <div className="row-wrap">
             <span className="grow" />
-            <Button variant="danger" size="sm" icon="trash" disabled={discardMutation.isPending || fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying'} disabledReason={fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying' ? '修复进行中不能放弃；先停止并等停稳。' : undefined} onClick={() => { setDialog('discard'); }}>
+            <Button variant="danger" size="sm" icon="trash" disabled={discardMutation.isPending || fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying'} disabledReason={discardMutation.isPending ? '正在提交放弃请求，等待服务回执…' : fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying' ? '修复进行中不能放弃；先停止并等停稳。' : undefined} onClick={() => { setDialog('discard'); }}>
               放弃修复
             </Button>
           </div>
@@ -729,7 +732,7 @@ export function FixPanel({
           <>
             <Button variant="ghost" onClick={() => { setDialog(null); }}>取消</Button>
             <span className="spacer" />
-            <Button variant="primary" icon="wand" disabled={startBlockedReason !== null || startMutation.isPending} disabledReason={startBlockedReason ?? undefined} onClick={() => { startMutation.mutate(); }}>
+            <Button variant="primary" icon="wand" disabled={startBlockedReason !== null || startMutation.isPending} disabledReason={startMutation.isPending ? '正在开始修复，等待服务回执…' : startBlockedReason ?? undefined} onClick={() => { startMutation.mutate(); }}>
               {startMutation.isPending ? '提交中…' : '确认开始修复'}
             </Button>
           </>
@@ -886,10 +889,11 @@ export function FixPanel({
               icon="gitRepo"
               disabled={pushStep?.pushedSha === undefined || targetTip === undefined || mrTitle.trim().length === 0 || mrMutation.isPending}
               disabledReason={
-                pushStep?.pushedSha === undefined ? '没有已推送的 SHA。'
-                  : targetTip === undefined ? '没有读取到目标分支当前 tip；先刷新分支，避免拿旧确认创建 MR。'
-                    : mrTitle.trim().length === 0 ? '标题不能为空。'
-                      : undefined
+                mrMutation.isPending ? '正在创建合并请求，等待服务回执…'
+                  : pushStep?.pushedSha === undefined ? '没有已推送的 SHA。'
+                    : targetTip === undefined ? '没有读取到目标分支当前 tip；先刷新分支，避免拿旧确认创建 MR。'
+                      : mrTitle.trim().length === 0 ? '标题不能为空。'
+                        : undefined
               }
               onClick={() => { mrMutation.mutate(); }}
             >
@@ -923,7 +927,7 @@ export function FixPanel({
           </label>
           <div className="dialog-warning">
             <Icon name="info" />
-            <span>创建成功只代表所选交付完成，不等待合并；合并在 GitLab 完成。已有同源 → 目标的打开 MR 时服务不会重复创建。</span>
+            <span>创建成功只代表所选交付完成，不等待合并；你可以到 GitLab 完成合并，或在下方用「合并修复分支」本地合并（独立确认，no-ff + CAS）。已有同源 → 目标的打开 MR 时服务不会重复创建。</span>
           </div>
           {mrMutation.isError ? <FailureNotice error={mrMutation.error} compact /> : null}
         </div>
@@ -942,7 +946,7 @@ export function FixPanel({
               variant="primary"
               icon="branch"
               disabled={mergeBaseTip === undefined || mergeMutation.isPending}
-              disabledReason={mergeBaseTip === undefined ? '没有读取到目标分支 tip。' : undefined}
+              disabledReason={mergeMutation.isPending ? '正在合并，等待服务回执…' : mergeBaseTip === undefined ? '没有读取到目标分支 tip。' : undefined}
               onClick={() => { mergeMutation.mutate(); }}
             >
               {mergeMutation.isPending ? '合并中…' : '确认合并'}
@@ -977,7 +981,7 @@ export function FixPanel({
           <>
             <Button variant="ghost" onClick={() => { setDialog(null); }}>取消</Button>
             <span className="spacer" />
-            <Button variant="danger" icon="trash" disabled={discardMutation.isPending} onClick={() => { discardMutation.mutate(); }}>
+            <Button variant="danger" icon="trash" disabled={discardMutation.isPending} disabledReason={discardMutation.isPending ? '正在提交放弃请求，等待服务回执…' : undefined} onClick={() => { discardMutation.mutate(); }}>
               {discardMutation.isPending ? '提交中…' : '确认放弃修复'}
             </Button>
           </>

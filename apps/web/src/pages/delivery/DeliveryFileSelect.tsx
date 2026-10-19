@@ -53,10 +53,10 @@ export function DeliveryFileSelect({
         <span className="spacer" />
         {disabled ? null : (
           <>
-            <Button variant="ghost" size="sm" icon="check" onClick={onSelectAll} disabled={files.length === 0}>
+            <Button variant="ghost" size="sm" icon="check" onClick={onSelectAll} disabled={files.length === 0} disabledReason={files.length === 0 ? '没有可选择的文件。' : undefined}>
               全选
             </Button>
-            <Button variant="ghost" size="sm" icon="x" onClick={onSelectNone} disabled={selected.size === 0}>
+            <Button variant="ghost" size="sm" icon="x" onClick={onSelectNone} disabled={selected.size === 0} disabledReason={selected.size === 0 ? '当前没有已选择的文件。' : undefined}>
               全不选
             </Button>
           </>
