@@ -205,6 +205,28 @@ export class WorkspaceService {
   cleanupPreview(taskId: string): WorkspaceCleanupPreview {
     const workspace = this.get(taskId);
     if (workspace === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务没有工作区');
+    const task = this.#requireTask(taskId);
+    const execution = task.executionId === undefined ? this.#store.executions.byTask(taskId) : this.#store.executions.get(task.executionId);
+    const planning = task.currentPlanningRoundId === undefined ? this.#store.planning.latest(taskId) : this.#store.planning.get(task.currentPlanningRoundId);
+    const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(taskId) : this.#store.deliveries.get(task.deliveryId);
+    const blockers: { kind: string; label: string; ref?: string }[] = [];
+    if (workspace.state === 'preparing' || workspace.state === 'cleaning') {
+      blockers.push({ kind: 'workspace_busy', label: `工作区正在${workspace.state === 'preparing' ? '准备' : '清理'}，不能重复清理` });
+    }
+    if (execution !== undefined && ['running', 'starting', 'pausing', 'stopping'].includes(execution.status)) {
+      blockers.push({ kind: 'execution_active', label: '执行仍在进行，先停止执行再清理工作区', ref: execution.id });
+    }
+    if (planning !== undefined && ['queued', 'running', 'stopping'].includes(planning.status)) {
+      blockers.push({ kind: 'planning_active', label: '规划仍在进行，先停止规划再清理工作区', ref: planning.id });
+    }
+    for (const step of delivery?.steps ?? []) {
+      if (step.state === 'in_progress') {
+        blockers.push({ kind: 'delivery_in_progress', label: '交付步骤正在执行，完成后再清理工作区', ref: step.step });
+      }
+    }
+    const undelivered = delivery !== undefined && delivery.projection !== 'delivered'
+      ? { count: 1, reason: '任务变更还没有完成交付；清理会删除工作区与本地分支' }
+      : { count: 0, reason: '没有未交付的任务变更' };
     return {
       previewRef: `cleanup_${workspace.id}_${workspace.revision}`,
       workspaceId: workspace.id,
@@ -218,9 +240,9 @@ export class WorkspaceService {
         { kind: 'remote_branch', label: '远端分支（永不自动删除）' },
         { kind: 'audit', label: '回执与审计记录' },
       ],
-      undelivered: { count: 0, reason: '尚未读取交付状态' },
-      requiresUndeliveredAck: false,
-      blockers: [],
+      undelivered,
+      requiresUndeliveredAck: true,
+      blockers,
     };
   }
 
@@ -229,6 +251,14 @@ export class WorkspaceService {
     if (workspace === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务没有工作区');
     const task = this.#requireTask(taskId);
     const project = this.#requireProject(task.projectId);
+    const preview = this.cleanupPreview(taskId);
+    if (preview.blockers.length > 0) {
+      throw new AppError(ErrorCode.DELIVERY_BLOCKED, preview.blockers.map((blocker) => blocker.label).join('；'), {
+        details: { blockers: preview.blockers },
+      });
+    }
+    if (input.previewRef !== preview.previewRef) throw new AppError(ErrorCode.STALE_TARGET, '清理预览已变化，请重新读取后确认');
+    if (input.workspaceRevision !== preview.workspaceRevision) throw new AppError(ErrorCode.STALE_TARGET, '工作区已变化，请重新读取后确认');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'task.workspace.cleanup.confirm',

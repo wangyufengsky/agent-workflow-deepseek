@@ -80,10 +80,13 @@ test('two tasks prepare isolated worktrees concurrently without touching main', 
 
     // Cleanup both, in reverse order, and verify the repository returns to baseline.
     for (const prepared of [first, second]) {
+      const preview = await app.app.inject({ method: 'POST', url: `/api/tasks/${prepared.taskId}/workspace/cleanup/preview`, payload: {} });
+      assert.equal(preview.statusCode, 200, preview.body);
+      const cleanupPreview = preview.json().data.preview as { previewRef: string; workspaceRevision: string };
       const cleanup = await app.app.inject({
         method: 'POST',
         url: `/api/tasks/${prepared.taskId}/workspace/cleanup/confirm`,
-        payload: { requestKey: requestKey('clean'), previewRef: `preview_${prepared.workspace.id}`, workspaceRevision: '1', confirmCleanup: true },
+        payload: { requestKey: requestKey('clean'), previewRef: cleanupPreview.previewRef, workspaceRevision: cleanupPreview.workspaceRevision, confirmCleanup: true },
       });
       assert.equal(cleanup.statusCode, 200, cleanup.body);
     }
