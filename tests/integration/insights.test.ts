@@ -85,9 +85,13 @@ test('insights aggregate real task/review counters from SQLite', async () => {
     assert.equal(usage[0]!.taskId, firstTask.id);
     assert.equal(usage[0]!.tokens, 165);
 
+    app.store.db.exec('PRAGMA foreign_keys = OFF');
+    app.store.db.prepare("INSERT OR REPLACE INTO executions (id, task_id, plan_revision_id, status, auto_advance, progress_json, revision) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run('exec_quality_test', firstTask.id, 'plan_test', 'completed', 0, '{"done":0,"failed":0,"running":0,"total":0}', 1);
+    app.store.db.exec('PRAGMA foreign_keys = ON');
     const review = app.store.reviews.create({
       projectId,
-      executionId: createId('exec'),
+      executionId: 'exec_quality_test',
       subject: { commitSha: 'a'.repeat(40), compareBase: { compareId: 'parent:0', kind: 'parent', label: '父提交', baseSha: 'b'.repeat(40) } },
       dimensions: ['correctness'],
       context: 'diff_only',
@@ -118,6 +122,13 @@ test('insights aggregate real task/review counters from SQLite', async () => {
     const withReviewUsage = await app.app.inject({ method: 'GET', url: '/api/insights' });
     const reviewTokens = (withReviewUsage.json().data as { reviews: { tokens: { total: number } } }).reviews.tokens;
     assert.equal(reviewTokens.total, 240);
+    const taskQuality = await app.app.inject({ method: 'GET', url: '/api/insights/task-quality' });
+    assert.equal(taskQuality.statusCode, 200, taskQuality.body);
+    const qualityItems = taskQuality.json().data.items as { taskId: string; reviews: number; openFindings: number }[];
+    assert.equal(qualityItems.length, 1);
+    assert.equal(qualityItems[0]!.taskId, firstTask.id);
+    assert.equal(qualityItems[0]!.reviews, 1);
+    assert.equal(qualityItems[0]!.openFindings, 1);
   } finally {
     await app.close();
   }

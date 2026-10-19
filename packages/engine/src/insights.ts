@@ -88,4 +88,19 @@ export class InsightsService {
       .all() as unknown as { taskId: string; tokens: number }[];
     return rows.map((row) => ({ taskId: row.taskId, tokens: Number(row.tokens) }));
   }
+
+  taskQuality(): readonly { readonly taskId: string; readonly reviews: number; readonly openFindings: number }[] {
+    const rows = this.#store.db
+      .prepare(
+        `SELECT e.task_id AS taskId,
+                COUNT(r.id) AS reviews,
+                COALESCE(SUM((SELECT COUNT(*) FROM json_each(r.findings_json) j WHERE json_extract(j.value, '$.status') = 'open')), 0) AS openFindings
+           FROM reviews r
+           JOIN executions e ON e.id = r.execution_id
+          GROUP BY e.task_id
+          ORDER BY e.task_id`,
+      )
+      .all() as unknown as { taskId: string; reviews: number; openFindings: number }[];
+    return rows.map((row) => ({ taskId: row.taskId, reviews: Number(row.reviews), openFindings: Number(row.openFindings) }));
+  }
 }

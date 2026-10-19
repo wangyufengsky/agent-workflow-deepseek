@@ -4,7 +4,7 @@ import { TaskLifecycle, type TaskLifecycleValue, type TaskSummary } from '@agent
 import { useQuery } from '@tanstack/react-query';
 import { useBootstrap } from '../../api/hooks.ts';
 import { apiGet } from '../../api/client.ts';
-import type { InsightsResponse, InsightsTaskUsageResponse } from '@agent-workflow/shared';
+import type { InsightsResponse, InsightsTaskQualityResponse, InsightsTaskUsageResponse } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatCount, formatRelativeTime } from '../../app/format.ts';
 import { deriveTaskStatus, sortByUpdatedDesc, taskHref, taskProgressText } from '../../app/taskStatus.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -117,6 +117,8 @@ export function InsightsPage() {
   const bootstrap = useBootstrap();
   const insights = useQuery({ queryKey: ['insights'], queryFn: async () => (await apiGet<InsightsResponse>('/api/insights')).data, retry: false });
   const taskUsage = useQuery({ queryKey: ['insights', 'task-usage'], queryFn: async () => (await apiGet<InsightsTaskUsageResponse>('/api/insights/task-usage')).data, retry: false });
+  const taskQuality = useQuery({ queryKey: ['insights', 'task-quality'], queryFn: async () => (await apiGet<InsightsTaskQualityResponse>('/api/insights/task-quality')).data, retry: false });
+  const qualityByTask = useMemo(() => new Map((taskQuality.data?.items ?? []).map((entry) => [entry.taskId, entry])), [taskQuality.data]);
   const usageByTask = useMemo(() => new Map((taskUsage.data?.usage ?? []).map((entry) => [entry.taskId, entry.tokens])), [taskUsage.data]);
   const tasks = bootstrap.data?.tasks ?? [];
   const counts = bootstrap.data?.counts;
@@ -214,7 +216,15 @@ export function InsightsPage() {
                         </Badge>
                       </td>
                       <td style={{ padding: '12px 8px' }}>
-                        <UnknownValue reason="验收 / 评审接口尚未接通" />
+                        {taskQuality.data === undefined ? <UnknownValue reason="正在读取评审聚合" /> : (() => {
+                          const quality = qualityByTask.get(task.id);
+                          if (quality === undefined) return <span className="hint">未审查</span>;
+                          return (
+                            <span className="hint num">
+                              {String(quality.reviews)} 次审查{quality.openFindings > 0 ? ` · ${String(quality.openFindings)} 待处理` : ' · 无待处理'}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td style={{ padding: '12px 16px' }}>
                         {taskUsage.data === undefined ? <UnknownValue reason="正在读取规划用量" /> : (
@@ -234,7 +244,7 @@ export function InsightsPage() {
             <span className="hint grow">
               已加载 {String(rows.length)} 个任务 · 汇总覆盖当前筛选范围
             </span>
-            <span className="hint">逐任务用量：仅统计规划轮次 tokens</span>
+            <span className="hint">用量仅统计规划轮次 tokens；评审为真实审查/待处理问题计数，验收结论未接通</span>
           </div>
         </section>
         {selected === undefined ? null : <TaskDetail task={selected} />}
@@ -246,7 +256,7 @@ export function InsightsPage() {
     <div className="page">
       <PageHeader
         title="质量与用量"
-        lede="按任务核对状态、验收与消耗。计数、规划 tokens/成本与执行 tokens 来自 /api/insights；验收与评审结论仍按未知显示。"
+        lede="按任务核对状态、验收与消耗。计数、tokens/成本、逐任务规划用量与审查计数来自服务；验收结论仍按未知显示。"
         actions={
           <button
             type="button"

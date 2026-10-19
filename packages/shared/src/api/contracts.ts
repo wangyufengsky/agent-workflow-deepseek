@@ -289,6 +289,10 @@ export interface InsightsResponse {
   readonly deliveries: { readonly delivered: number; readonly blocked: number; readonly inProgress: number };
 }
 
+export interface InsightsTaskQualityResponse {
+  readonly items: readonly { readonly taskId: string; readonly reviews: number; readonly openFindings: number }[];
+}
+
 export interface InsightsTaskUsageResponse {
   readonly usage: readonly { readonly taskId: string; readonly tokens: number }[];
 }
@@ -1040,6 +1044,7 @@ export const ROUTES = {
   opencodeLogs: '/api/opencode/logs',
   insights: '/api/insights',
   insightsTaskUsage: '/api/insights/task-usage',
+  insightsTaskQuality: '/api/insights/task-quality',
   skills: '/api/skills',
   knowledgeSources: '/api/knowledge/sources',
   knowledgeSearch: '/api/knowledge/search',
