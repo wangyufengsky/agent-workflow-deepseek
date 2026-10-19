@@ -22,3 +22,5 @@ export * from './domain/run-content.ts';
 export * from './domain/questions.ts';
 export * from './config/database-access.ts';
 export * from './domain/file-evidence.ts';
+
+export * from './domain/insights.ts';

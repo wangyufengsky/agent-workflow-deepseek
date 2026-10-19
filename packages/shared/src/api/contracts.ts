@@ -577,10 +577,11 @@ export interface InsightsResponse {
     readonly completed: number;
     readonly failed: number;
     readonly running: number;
-    readonly costKnown: number;
+    readonly costKnown?: number;
     readonly budgetUnknownRounds: number;
     readonly tokens: { readonly input: number; readonly output: number; readonly reasoning: number; readonly cache: number; readonly total: number };
-    readonly currency: string;
+    readonly currency?: string;
+    readonly costs: readonly { readonly currency: string; readonly amount: number }[];
   };
   readonly executions: { readonly total: number; readonly running: number; readonly failed: number; readonly attempts: number; readonly tokens: { readonly input: number; readonly output: number; readonly reasoning: number; readonly cache: number; readonly total: number } };
   readonly reviews: { readonly total: number; readonly completed: number; readonly failed: number; readonly openFindings: number; readonly tokens: { readonly input: number; readonly output: number; readonly total: number } };
@@ -869,7 +870,8 @@ export interface InsightsTaskQualityResponse {
 }
 
 export interface InsightsTaskUsageResponse {
-  readonly usage: readonly { readonly taskId: string; readonly tokens: number }[];
+  readonly usage: readonly import('../domain/insights.ts').TaskUsageView[];
+  readonly tasks: readonly TaskSummary[];
 }
 
 export interface PptWorksResponse {

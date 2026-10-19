@@ -238,6 +238,8 @@ export class TaskService {
       .map((task) => this.#summary(task));
   }
 
+  allSummaries(): readonly TaskSummary[] { return this.#store.tasks.list().map((task) => this.#summary(task)); }
+
   list(query: ListTasksQuery = {}): readonly TaskSummary[] {
     let tasks = this.#store.tasks.list().filter((task) => Boolean(this.#store.settings.getJson<string>(`task.archived.${task.id}`)) === (query.archived === true || String(query.archived) === 'true'));
     if (query.projectId !== undefined) tasks = tasks.filter((task) => task.projectId === query.projectId);

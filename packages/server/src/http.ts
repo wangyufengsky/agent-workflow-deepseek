@@ -1055,7 +1055,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   app.get('/api/insights/task-acceptance', async (request) => envelope({ items: engine.insights.taskAcceptance() }, requestId(request)));
   app.get('/api/insights/task-quality', async (request) => envelope({ items: engine.insights.taskQuality() }, requestId(request)));
-  app.get('/api/insights/task-usage', async (request) => envelope({ usage: engine.insights.taskUsage() }, requestId(request)));
+  app.get('/api/insights/task-usage', async (request) => envelope({ usage: engine.insights.taskUsage(), tasks: engine.tasks.allSummaries() }, requestId(request)));
   app.get('/api/insights', async (request) => envelope(engine.insights.summary(), requestId(request)));
 
   app.post('/api/catalog/templates/import', async (request) => {
