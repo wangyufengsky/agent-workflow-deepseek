@@ -17,6 +17,7 @@ import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Drawer } from '../../components/Drawer.tsx';
+import { Modal } from '../../components/Modal.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
@@ -58,7 +59,7 @@ function apiErrorDetail(error: unknown): string {
   return errorMessage(error);
 }
 
-function ProjectCard({ project, busy, onArchive }: { readonly project: ProjectSummary; readonly busy: boolean; readonly onArchive: () => void }) {
+function ProjectCard({ project, busy, onArchive, onEdit }: { readonly project: ProjectSummary; readonly busy: boolean; readonly onArchive: () => void; readonly onEdit: () => void }) {
   const unavailable = project.gitState === RepoGitState.PATH_UNAVAILABLE || project.gitState === RepoGitState.CAPABILITY_UNAVAILABLE;
   return (
     <article className="card pad hoverable" aria-label={project.name} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -136,6 +137,9 @@ function ProjectCard({ project, busy, onArchive }: { readonly project: ProjectSu
             开始任务
           </LinkButton>
         )}
+        <Button variant="ghost" size="sm" icon="edit" disabled={busy} onClick={onEdit}>
+          编辑
+        </Button>
         <Button variant="ghost" size="sm" icon={project.archived ? 'refresh' : 'archive'} disabled={busy} onClick={onArchive}>
           {project.archived ? '恢复' : '归档'}
         </Button>
@@ -149,8 +153,24 @@ function ProjectCard({ project, busy, onArchive }: { readonly project: ProjectSu
 export function ProjectsPage() {
   const queryClient = useQueryClient();
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [editing, setEditing] = useState<{ id: string; name: string; description: string } | null>(null);
   const projectsQuery = useProjects(includeArchived);
   const projects = projectsQuery.data ?? [];
+  const editProject = useMutation({
+    mutationFn: async (input: { id: string; name: string; description: string }) => {
+      await request(`/api/projects/${encodeURIComponent(input.id)}`, {
+        method: 'PATCH',
+        body: { requestKey: createRequestKey(), name: input.name.trim(), description: input.description.trim() },
+      });
+    },
+    onSuccess: async () => {
+      setEditing(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+      ]);
+    },
+  });
   const archiveProject = useMutation({
     mutationFn: async (project: ProjectSummary) => {
       await request(`/api/projects/${encodeURIComponent(project.id)}`, {
@@ -344,7 +364,7 @@ export function ProjectsPage() {
     body = (
       <div className="grid-2">
         {filtered.map((project) => (
-          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending} onArchive={() => { archiveProject.mutate(project); }} />
+          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending || editProject.isPending} onArchive={() => { archiveProject.mutate(project); }} onEdit={() => { setEditing({ id: project.id, name: project.name, description: project.description }); }} />
         ))}
       </div>
     );
@@ -365,6 +385,7 @@ export function ProjectsPage() {
         }
       />
 
+      {editProject.isError ? <p className="hint" style={{ marginBottom: 12, color: 'var(--danger)' }}>{errorMessage(editProject.error)}</p> : null}
       {notice === null ? null : (
         <div className="banner ok" role="status" style={{ marginBottom: 14 }}>
           <Icon name="check" />
@@ -420,6 +441,39 @@ export function ProjectsPage() {
       </div>
 
       {body}
+
+      <Modal
+        open={editing !== null}
+        title="编辑项目"
+        onClose={() => { setEditing(null); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setEditing(null); }}>取消</Button>
+            <span className="spacer" />
+            <Button
+              variant="primary"
+              icon="check"
+              disabled={editProject.isPending || (editing?.name.trim().length ?? 0) === 0}
+              onClick={() => { if (editing !== null) editProject.mutate(editing); }}
+            >
+              {editProject.isPending ? '保存中…' : '保存'}
+            </Button>
+          </>
+        }
+      >
+        {editing === null ? null : (
+          <div className="stack-loose">
+            <label className="form-label">
+              名称
+              <input className="input" value={editing.name} maxLength={120} onChange={(event) => { setEditing({ ...editing, name: event.target.value }); }} />
+            </label>
+            <label className="form-label">
+              说明
+              <textarea className="textarea" value={editing.description} maxLength={2000} onChange={(event) => { setEditing({ ...editing, description: event.target.value }); }} />
+            </label>
+          </div>
+        )}
+      </Modal>
 
       <Drawer
         open={registerOpen}

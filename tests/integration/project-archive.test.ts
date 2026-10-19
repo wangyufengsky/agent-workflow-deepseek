@@ -22,6 +22,11 @@ test('projects can be archived, hidden from the default list and restored', asyn
   try {
     const created = await app.app.inject({ method: 'POST', url: '/api/projects', payload: { requestKey: requestKey('prj'), name: 'Archive', rootPath: repo } });
     const projectId = created.json().data.resource.project.id as string;
+    const renamed = await app.app.inject({ method: 'PATCH', url: `/api/projects/${projectId}`, payload: { requestKey: requestKey('rename'), name: 'Renamed', description: 'updated description' } });
+    assert.equal(renamed.statusCode, 200, renamed.body);
+    assert.equal(renamed.json().data.resource.project.name, 'Renamed');
+    assert.equal(renamed.json().data.resource.project.description, 'updated description');
+
     const archived = await app.app.inject({ method: 'PATCH', url: `/api/projects/${projectId}`, payload: { requestKey: requestKey('arch'), archived: true } });
     assert.equal(archived.statusCode, 200, archived.body);
     const defaultList = await app.app.inject({ method: 'GET', url: '/api/projects' });
