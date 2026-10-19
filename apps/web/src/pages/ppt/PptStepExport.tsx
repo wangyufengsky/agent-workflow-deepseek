@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ROUTES, type PptWork, type PptWorkExportResponse } from '@agent-workflow/shared';
+import { pptPages, ROUTES, type PptWork, type PptWorkExportResponse } from '@agent-workflow/shared';
 import { apiGet, errorMessage } from '../../api/client.ts';
 import { formatCount } from '../../app/format.ts';
 import { Button } from '../../components/Button.tsx';
@@ -16,7 +16,7 @@ import {
 type PptxState =
   | { readonly phase: 'idle' }
   | { readonly phase: 'running' }
-  | { readonly phase: 'done'; readonly filename: string; readonly size: number }
+  | { readonly phase: 'done'; readonly filename: string; readonly size: number; readonly saved?: boolean; readonly sha256?: string }
   | { readonly phase: 'failed'; readonly message: string };
 
 type MarkdownState =
@@ -63,6 +63,10 @@ function errorTextFromBody(body: string): string | undefined {
 }
 
 export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResult, onCommand }: PptStepExportProps) {
+  const [format,setFormat] = useState<'pptx'|'pdf'>('pptx');
+  const [includeNotes,setIncludeNotes] = useState(work.plan?.delivery.includeNotes !== false);
+  const [cancelled,setCancelled] = useState(false);
+  const exportBlocked=busyKind!==null||work.status==='generating'||work.mutationBlock!==undefined;
   const [pptx, setPptx] = useState<PptxState>({ phase: 'idle' });
   const [markdown, setMarkdown] = useState<MarkdownState>({ phase: 'idle' });
   const [markdownOpen, setMarkdownOpen] = useState(false);
@@ -73,13 +77,20 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
   const canExportPptx = work.outline.length > 0 || work.slides.length > 0;
 
   useEffect(() => {
+    setPptx({phase:'idle'});setMarkdown({phase:'idle'});setMarkdownOpen(false);setCancelled(false);
+  }, [work.id,work.revision]);
+
+  useEffect(() => {
     if (lastResult !== null && lastResult.kind === 'delete') setDeleteOpen(false);
   }, [lastResult]);
 
   const exportPptx = async (): Promise<void> => {
     setPptx({ phase: 'running' });
     try {
-      const response = await fetch(ROUTES.pptWorkPptx(work.id), {
+      setCancelled(false);
+      if(window.workflowDesktop?.exportPpt){const result=await window.workflowDesktop.exportPpt({workId:work.id,revision:work.revision??1,format,includeNotes});if(result.status==='saved')setPptx({phase:'done',filename:result.filename,size:result.size,saved:true,sha256:result.sha256});else if(result.status==='cancelled'){setPptx({phase:'idle'});setCancelled(true);}else setPptx({phase:'failed',message:result.status==='failed'?result.message:'当前宿主不支持保存演示'});return;}
+      if(format==='pdf'){setPptx({phase:'failed',message:'PDF需要桌面打印宿主，请在桌面窗口导出'});return;}
+      const response = await fetch(`${ROUTES.pptWorkPptx(work.id)}?revision=${work.revision??1}&includeNotes=${includeNotes}`, {
         method: 'GET',
         headers: { Accept: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
         credentials: 'same-origin',
@@ -121,8 +132,8 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
         <div className="grow">
           <b>导出由服务即时生成，且不会回写作品状态</b>
           <br />
-          PPTX 与 Markdown 都由服务按当前大纲/逐页内容生成；服务没有“已导出”状态或版本记录，因此阶段条不会把「导出」标成已完成。
-          Markdown 导出返回文件名与正文，可在弹窗中预览后下载。
+          PPTX、PDF 与 Markdown 使用当前大纲、逐页内容与对象样式；服务没有“已导出”状态或版本记录，因此阶段条不会把「导出」标成已完成。
+          PDF由受控桌面打印宿主生成，保存后核对文件哈希；浏览器下载只表示已发起下载。Markdown可先预览再下载。
         </div>
       </div>
 
@@ -133,19 +144,21 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
               <Icon name="slides" />
             </span>
             <div className="grow">
-              <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>PowerPoint（.pptx）</h4>
+              <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>演示文件</h4>
               <div className="hint">按当前大纲/逐页要点与版式主题生成；图片附件会尝试作为页面配图。</div>
             </div>
           </div>
+          <div role="radiogroup" aria-label="导出格式" className="col" style={{gap:8,marginTop:12}}>{([['pptx','PowerPoint (.pptx)','可继续编辑'],['pdf','PDF','适合分享和打印']] as const).map(([value,label,hint])=><label className="list-row" key={value}><input type="radio" name="ppt-export-format" checked={format===value} disabled={pptx.phase==='running'} onChange={()=>{setFormat(value);setPptx({phase:'idle'});setCancelled(false);}}/><span>{label}<span className="hint"> · {hint}</span></span></label>)}</div>
+          <label className="row" style={{gap:8,marginTop:14}}><input type="checkbox" checked={includeNotes} disabled={pptx.phase==='running'} onChange={event=>{setIncludeNotes(event.target.checked);setPptx({phase:'idle'});setCancelled(false);}}/>包含演讲备注</label>
           <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
             <Button
               variant="primary"
               icon="download"
-              disabled={blocked || pptx.phase === 'running' || !canExportPptx}
+              disabled={exportBlocked || pptx.phase === 'running' || !canExportPptx || format==='pdf'&&!window.workflowDesktop?.exportPpt}
               disabledReason={
-                blockedReason ??
+                (exportBlocked ? blockedReason : undefined) ?? (format==='pdf'&&!window.workflowDesktop?.exportPpt?'PDF需要桌面打印宿主':undefined) ??
                 (pptx.phase === 'running'
-                  ? 'PPTX 正在生成，等下载结束再点。'
+                  ? '演示文件正在生成并保存，请等待当前操作结束。'
                   : !canExportPptx
                     ? '先生成或编辑大纲；服务在没有大纲时会拒绝导出 PPTX。'
                     : undefined)
@@ -154,19 +167,17 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
                 void exportPptx();
               }}
             >
-              {pptx.phase === 'running' ? '正在生成 PPTX…' : '导出 PPTX'}
+              {pptx.phase === 'running' ? '正在生成并保存…' : `导出 ${format.toUpperCase()}`}
             </Button>
             <span className="hint num">
-              {work.slides.length > 0
-                ? `将导出 ${String(work.slides.length)} 页逐页内容`
-                : `将按 ${String(work.outline.length)} 条大纲导出（无逐页要点）`}
+              导出基于修订 {work.revision??1} · {pptPages(work).length} 个演示页面（含当前封面）{format==='pdf'&&includeNotes?` · 另附 ${pptPages(work).filter(page=>page.notes).length} 个备注页`:''}
             </span>
           </div>
           {pptx.phase === 'done' ? (
             <div className="banner ok" style={{ marginTop: 10 }}>
               <Icon name="check" />
               <div className="grow">
-                已下载 {pptx.filename} · {formatFileSize(pptx.size)}。
+                {pptx.saved?'已保存并核对文件':'已发起浏览器下载'} {pptx.filename} · {formatFileSize(pptx.size)}。{pptx.sha256?<div className="hint mono" style={{overflowWrap:'anywhere'}}>SHA-256 {pptx.sha256}</div>:null}
               </div>
               <div className="actions">
                 <Button
@@ -181,10 +192,11 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
               </div>
             </div>
           ) : null}
+          {cancelled?<p className="hint" role="status"><Icon name="minus" size="sm"/>已取消保存，没有保存文件。</p>:null}
           {pptx.phase === 'failed' ? (
             <div className="banner danger" role="alert" style={{ marginTop: 10 }}>
               <Icon name="alert" />
-              <div className="grow">PPTX 导出失败：{pptx.message}</div>
+              <div className="grow">导出失败：{pptx.message}</div>
             </div>
           ) : null}
         </section>
@@ -203,7 +215,7 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
             <Button
               variant="secondary"
               icon="file"
-              disabled={blocked || markdown.phase === 'running'}
+              disabled={exportBlocked || markdown.phase === 'running'}
               disabledReason={blockedReason ?? (markdown.phase === 'running' ? 'Markdown 正在导出，等响应返回再点。' : undefined)}
               onClick={() => {
                 void exportMarkdown();

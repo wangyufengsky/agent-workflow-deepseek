@@ -1,9 +1,10 @@
-import type { ArtifactExportRequest, ArtifactExportResult } from '@agent-workflow/shared';
+import type { ArtifactExportRequest, ArtifactExportResult, PptNativeExportRequest, PptNativeExportResult } from '@agent-workflow/shared';
 import electron from 'electron';
 
 const { contextBridge, ipcRenderer } = electron;
 
 const desktopApi = {
+  exportPpt: (input:PptNativeExportRequest):Promise<PptNativeExportResult> => ipcRenderer.invoke('workflow:exportPpt',input),
   exportArtifact: (input: ArtifactExportRequest): Promise<ArtifactExportResult> => ipcRenderer.invoke('workflow:exportArtifact', input),
   platform: process.platform,
   versions: {

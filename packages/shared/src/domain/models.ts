@@ -1222,6 +1222,19 @@ export interface PptBrief {
   readonly style: string;
   readonly sources: string;
 }
+export interface PptAssistantProposal {
+  readonly id: string;
+  readonly baseRevision: number;
+  readonly scope: 'brief' | 'page' | 'all';
+  readonly pageIndex?: number;
+  readonly summary: string;
+  readonly patch: { readonly brief?: PptBrief; readonly plan?: PptProductionPlan; readonly outline?: readonly string[]; readonly pages?: readonly { readonly index: number; readonly before: PptSlide; readonly after: PptSlide }[] };
+  readonly before: { readonly brief?: PptBrief; readonly plan?: PptProductionPlan; readonly outline: readonly string[] };
+  readonly status: 'pending' | 'applied' | 'discarded';
+  readonly createdAt: string;
+}
+export interface PptAssistantMessage { readonly id: string; readonly role: 'user' | 'assistant'; readonly text: string; readonly createdAt: string; readonly proposalId?: string; }
+export interface PptAssistantView { readonly messages: readonly PptAssistantMessage[]; readonly proposals: readonly PptAssistantProposal[]; readonly activeRequestKey?: string; }
 export interface PptVersion {
   readonly cover?: PptSlide;
   readonly plan?: PptProductionPlan;

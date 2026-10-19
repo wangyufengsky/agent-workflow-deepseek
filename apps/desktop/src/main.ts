@@ -1,6 +1,8 @@
+import { exportPpt } from './ppt-export.ts';
 import { exportArtifact } from './artifact-export.ts';
-import { writeFile } from 'node:fs/promises';
-import type { ArtifactExportRequest } from '@agent-workflow/shared';
+import { writeFile, readFile, rename, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import type { ArtifactExportRequest, PptNativeExportRequest } from '@agent-workflow/shared';
 import electron from 'electron';
 import type { BrowserWindow as ElectronBrowserWindow } from 'electron';
 
@@ -93,6 +95,17 @@ async function createWindow(): Promise<void> {
     mainWindow = undefined;
   });
 }
+
+ipcMain.handle('workflow:exportPpt', async (event, input: PptNativeExportRequest) => {
+  if (!mainWindow || !trustedBaseUrl || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || new URL(event.senderFrame.url).origin !== new URL(trustedBaseUrl).origin) return { status: 'unsupported' };
+  return exportPpt(input, {
+    baseUrl: trustedBaseUrl, fetch,
+    choosePath: async (filename) => { const result=await dialog.showSaveDialog(mainWindow!,{defaultPath:filename,title:'保存演示',filters:[{name:input.format==='pdf'?'PDF':'PowerPoint',extensions:[input.format]}]});return result.canceled?undefined:result.filePath; },
+    printPdf: async (html) => { const page=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,javascript:false,partition:`ppt-print-${randomUUID()}`}});page.webContents.setWindowOpenHandler(()=>({action:'deny'}));page.webContents.session.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('data:')}));try {await page.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);return await page.webContents.printToPDF({printBackground:true,preferCSSPageSize:true,landscape:true});}finally{page.destroy();} },
+    write: async (path,bytes) => { const temporary=`${path}.${randomUUID()}.tmp`;try{await writeFile(temporary,bytes,{flag:'wx',mode:0o600});await rename(temporary,path);}finally{await rm(temporary,{force:true});} },
+    read: (path)=>readFile(path),
+  });
+});
 
 ipcMain.handle('workflow:exportArtifact', async (event, input: ArtifactExportRequest) => {
   if (!mainWindow || !trustedBaseUrl || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || new URL(event.senderFrame.url).origin !== new URL(trustedBaseUrl).origin) return { status: 'unsupported' };

@@ -971,20 +971,27 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       throw new AppError(ErrorCode.INTERNAL_ERROR, '读取来源失败');
     }
   });
+  app.get<{Params:{id:string}}>('/api/ppt/works/:id/assistant', async(request)=>envelope(engine.ppt.assistant.view(request.params.id),requestId(request)));
+  app.post<{Params:{id:string}}>('/api/ppt/works/:id/assistant', async(request)=>envelope(await engine.ppt.assistant.ask(request.params.id,request.body as import('@agent-workflow/shared').PptAssistantRequest),requestId(request)));
+  app.post<{Params:{id:string}}>('/api/ppt/works/:id/assistant/decide', async(request)=>envelope(engine.ppt.assistant.decide(request.params.id,request.body as import('@agent-workflow/shared').PptAssistantDecideRequest),requestId(request)));
   app.post<{ Params: { id: string } }>('/api/ppt/works/:id/stop', async (request) => envelope(await engine.ppt.stop(request.params.id, request.body as import('@agent-workflow/shared').PptWorkStopRequest), requestId(request)));
   app.get<{ Params: { id: string }; Querystring: { page?: string; direction?: string } }>('/api/ppt/works/:id/thumbnail', async (request, reply) => reply.header('content-type', 'image/svg+xml; charset=utf-8').header('cache-control', 'no-store').send(engine.ppt.thumbnail(request.params.id, Number(request.query.page ?? 0), request.query.direction)));
   app.get<{ Params: { id: string } }>('/api/ppt/works/:id/check', async (request) => envelope(engine.ppt.check(request.params.id), requestId(request)));
-  for (const action of ['copy', 'archive', 'restore'] as const) {
-    app.post<{ Params: { id: string } }>(`/api/ppt/works/:id/${action}`, async (request) => envelope(engine.ppt.manage(request.params.id, action, request.body as import('@agent-workflow/shared').PptWorkManageRequest), requestId(request)));
-  }
+  const managePpt = (action: 'copy'|'archive'|'restore') => async (request: FastifyRequest<{Params:{id:string}}>) => envelope(engine.ppt.manage(request.params.id, action, request.body as import('@agent-workflow/shared').PptWorkManageRequest), requestId(request));
+  app.post('/api/ppt/works/:id/copy', managePpt('copy'));
+  app.post('/api/ppt/works/:id/archive', managePpt('archive'));
+  app.post('/api/ppt/works/:id/restore', managePpt('restore'));
+  app.get<{Params:{id:string};Querystring:{revision:string;includeNotes?:string}}>('/api/ppt/works/:id/document', async (request) => envelope(engine.ppt.document(request.params.id,Number(request.query.revision),request.query.includeNotes===undefined?undefined:request.query.includeNotes==='true'),requestId(request)));
   app.get('/api/ppt/works', async (request) => envelope(engine.ppt.list(), requestId(request)));
   app.post('/api/ppt/works', async (request) => {
     const body = request.body as PptWorkCreateRequest;
     return envelope(engine.ppt.create(body), requestId(request));
   });
-  app.get<{ Params: { id: string } }>('/api/ppt/works/:id/pptx', async (request, reply) => {
-    const buffer = await engine.ppt.exportPptx(request.params.id);
+  app.get<{ Params: { id: string }; Querystring: {revision?:string;includeNotes?:string} }>('/api/ppt/works/:id/pptx', async (request, reply) => {
+    if(request.query.revision!==undefined)engine.ppt.document(request.params.id,Number(request.query.revision));
+    const buffer = await engine.ppt.exportPptx(request.params.id,request.query.includeNotes===undefined?undefined:request.query.includeNotes==='true');
     return reply
+      .header('x-content-sha256',createHash('sha256').update(buffer).digest('hex'))
       .header('content-type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
       .header('content-disposition', `attachment; filename="${encodeURIComponent(engine.ppt.exportFilename(request.params.id))}"`)
       .send(buffer);

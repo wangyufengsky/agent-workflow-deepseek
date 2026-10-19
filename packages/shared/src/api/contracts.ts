@@ -892,6 +892,11 @@ export interface PptAttachmentRequest extends CommandRequest {
   readonly confirmAttach: true;
 }
 
+export interface PptDocumentResponse { readonly workId: string; readonly revision: number; readonly filename: string; readonly html: string; readonly sha256: string; readonly pages: number; }
+export interface PptNativeExportRequest { readonly workId: string; readonly revision: number; readonly format: 'pptx' | 'pdf'; readonly includeNotes?: boolean; }
+export type PptNativeExportResult = { readonly status: 'saved'; readonly filename: string; readonly size: number; readonly sha256: string } | { readonly status: 'cancelled' | 'unsupported' } | { readonly status: 'failed'; readonly message: string };
+export interface PptAssistantRequest extends CommandRequest { readonly expectedRevision: number; readonly message: string; readonly scope: 'brief' | 'page' | 'all'; readonly pageIndex?: number; readonly confirmSend: true; }
+export interface PptAssistantDecideRequest extends CommandRequest { readonly proposalId: string; readonly decision: 'apply' | 'discard'; readonly confirm: true; }
 export interface PptWorkUpdateRequest extends CommandRequest {
   readonly cover?: import('../domain/models.ts').PptSlide;
   readonly plan?: import('../domain/models.ts').PptProductionPlan;
@@ -1910,6 +1915,9 @@ export const ROUTES = {
   pptWorkAttachments: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/attachments`,
   pptWorkAttachment: (id: string, name: string) => `/api/ppt/works/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`,
   pptWorkUpdate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
+  pptAssistant: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/assistant`,
+  pptAssistantDecide: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/assistant/decide`,
+  pptDocument: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/document`,
   pptWorkStop: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/stop`,
   pptWorkGenerate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate`,
   taskAcceptance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/acceptance`,

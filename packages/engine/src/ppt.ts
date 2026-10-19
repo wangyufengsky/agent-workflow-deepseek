@@ -1,3 +1,5 @@
+import { PptAssistantService } from './ppt-assistant.ts';
+import { pptDocument } from './ppt-document.ts';
 import { validatePlan, validateSlideExtras } from './ppt-plan.ts';
 import { PptGenerationCoordinator } from './ppt-generation.ts';
 import { checkPpt, pptPalette, pptPages, pptPageLayout, pptLineColor, renderPptPage } from './ppt-renderer.ts';
@@ -23,6 +25,7 @@ export class PptService {
   readonly #context: EngineContext;
   readonly #opencode: OpenCodePort;
   readonly #generation: PptGenerationCoordinator;
+  readonly assistant: PptAssistantService;
 
   constructor(store: Store, commands: CommandService, context: EngineContext, opencode: OpenCodePort) {
     this.#store = store;
@@ -30,6 +33,7 @@ export class PptService {
     this.#context = context;
     this.#opencode = opencode;
     this.#generation = new PptGenerationCoordinator(store, commands, opencode);
+    this.assistant = new PptAssistantService({store,commands,context,opencode,generation:this.#generation,guard:(id,revision,key)=>{const work=this.#requireWork(id);this.#assertEditable(work,revision,key);return work;},update:(id,input)=>this.update(id,input),documents:(work)=>[...(work.projectId?this.#documents(work.projectId):[]),...work.attachments.filter(item=>item.kind==='text').map(item=>`附件 ${item.name}（最多4000字符）：${item.content.slice(0,4000)}`)]});
   }
 
   /**
@@ -45,6 +49,7 @@ export class PptService {
    */
   recoverOnStartup(): { readonly recovered: number; readonly workIds: readonly string[] } {
     const workIds: string[] = [];
+    for (const record of this.#store.operations.listPending()) { if(record.operation==='ppt.assistant.ask'&&record.target.ref){this.#generation.fail(record.target.ref,true);this.#commands.fail(record.requestKey,new AppError(ErrorCode.RECEIPT_UNKNOWN,'服务重启，原助手调用结果待核对，不自动重发'),true);} }
     const message = '进程重启，PPT 生成中断，结果未保存；可重新生成大纲或逐页内容。';
     const failure = new AppError(ErrorCode.INTERNAL_ERROR, message);
     for (const work of this.#store.pptWorks.list()) {
@@ -72,7 +77,7 @@ export class PptService {
 
   list(): PptWorksResponse {
     return { works: this.#store.pptWorks.list().map((work) => {
-      const pending = this.#store.operations.listPending().find((record) => record.target.ref === work.id && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides'));
+      const pending = this.#store.operations.listPending().find((record) => record.target.ref === work.id && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides' || record.operation === 'ppt.assistant.ask'));
       const missing=this.#missingBrief(work);
       const reason=missing.length ? `先补全并保存需求简报：${missing.join('、')}` : undefined;
       const actions={ generate: reason ? {allowed:false,reason} : {allowed:true}, generateSlides: reason ? {allowed:false,reason} : work.plan && !work.plan.confirmed ? {allowed:false,reason:'先保存并确认制作方案'} : {allowed:true}, design: reason ? {allowed:false,reason} : {allowed:true} };
@@ -102,8 +107,9 @@ export class PptService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.list().works };
   }
 
+  document(id: string, revision: number, includeNotes?: boolean) { const work=this.#requireWork(id); this.#assertSettled(work); if(revision!==(work.revision??1))throw new AppError(ErrorCode.STALE_TARGET,'作品修订已变化，请重新打开导出'); if(!work.slides.length&&!work.outline.length)throw new AppError(ErrorCode.VALIDATION_FAILED,'作品没有页面'); return pptDocument(work,includeNotes); }
   exportFilename(id: string) { const work=this.#requireWork(id); return `${(work.plan?.delivery.filename || work.title).replace(/[\\/:*?"<>|]/g,'_').trim().slice(0,60) || '演示'}.pptx`; }
-  async exportPptx(id: string): Promise<Buffer> {
+  async exportPptx(id: string, includeNotes?: boolean): Promise<Buffer> {
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
     const slides = work.slides.length > 0
@@ -128,7 +134,7 @@ export class PptService {
         const image = work.attachments.find((item) => item.kind === 'image' && item.name === page.imageName);
         if (image) (target as unknown as { addImage: (options: Record<string, unknown>) => void }).addImage({ data: image.content, x: 7, y: 1.6, w: 5.5, h: 4.8 });
       }
-      if (page.notes && work.plan?.delivery.includeNotes !== false) (target as unknown as { addNotes: (text: string) => void }).addNotes(page.notes);
+      if (page.notes && (includeNotes ?? work.plan?.delivery.includeNotes ?? true)) (target as unknown as { addNotes: (text: string) => void }).addNotes(page.notes);
     }
     return pptx.write({ outputType: 'nodebuffer' });
   }
@@ -337,7 +343,7 @@ export class PptService {
   }
 
   stop(id: string, input: PptWorkStopRequest) { this.#requireWork(id); return this.#generation.stop(id, input); }
-  reconcileOperation(key: string) { return this.#generation.reconcile(key); }
+  async reconcileOperation(key: string) { this.assistant.reconcile(key); return this.#generation.reconcile(key); }
   check(id: string) { return checkPpt(this.#requireWork(id)); }
   thumbnail(id: string, page = 0, direction?: unknown) { const saved = this.#requireWork(id); const work = direction === undefined ? saved : { ...saved, direction: validateDirection(direction) }; if (!Number.isInteger(page) || page < 0 || page >= pptPages(work).length) throw new AppError(ErrorCode.NOT_FOUND, '页面不存在'); return renderPptPage(work, page); }
   manage(id: string, action: 'copy' | 'archive' | 'restore', input: PptWorkManageRequest): CommandResponse<PptWork> {
@@ -368,13 +374,13 @@ export class PptService {
   #requireWork(id: string): PptWork { const work = this.#store.pptWorks.get(id); if (!work) throw new AppError(ErrorCode.NOT_FOUND, '作品不存在'); return work; }
   #missingBrief(work: PptWork) { return ([['audience','给谁看'],['objective','想达到'],['length','篇幅'],['style','风格'],['sources','依据资料']] as const).filter(([field])=>!work.brief?.[field]?.trim()).map(([,label])=>label); }
   #assertBrief(work: PptWork) { const fields=this.#missingBrief(work); if(fields.length)throw new AppError(ErrorCode.VALIDATION_FAILED, `先补全并保存需求简报：${fields.join('、')}`,{details:{fields}}); }
-  #assertSettled(work: PptWork) {
+  #assertSettled(work: PptWork, ignoreKey?: string) {
     if (work.status === 'generating') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '作品仍在生成，原进程尚未核对结束');
-    const unknown = this.#store.operations.listPending().find((record) => record.target.ref === work.id && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides'));
+    const unknown = this.#store.operations.listPending().find((record) => record.target.ref === work.id && record.requestKey !== ignoreKey && (record.operation === 'ppt.work.generate' || record.operation === 'ppt.work.slides' || record.operation === 'ppt.assistant.ask'));
     if (unknown) throw new AppError(ErrorCode.RECEIPT_UNKNOWN, `原生成结果待核对：${unknown.requestKey}`, { httpStatus: 409, details: { requestKey: unknown.requestKey } });
   }
-  #assertEditable(work: PptWork, revision?: number) {
-    this.#assertSettled(work);
+  #assertEditable(work: PptWork, revision?: number, ignoreKey?:string) {
+    this.#assertSettled(work,ignoreKey);
     if (work.archived) throw new AppError(ErrorCode.VALIDATION_FAILED, '作品已归档，恢复后才能修改');
     if (work.status === 'generating') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '作品仍在生成');
     if (revision !== undefined && revision !== (work.revision ?? 1)) throw new AppError(ErrorCode.STALE_TARGET, '作品已有新版本，本地修改保留，请重新读取并比对');
@@ -394,6 +400,7 @@ export class PptService {
     });
     if (replayed && record.status !== 'accepted') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '删除请求正在处理');
     this.#store.pptWorks.delete(id);
+    this.#store.settings.removeJson(`ppt.assistant.${id}`);
     this.#commands.settle(requestKey, { workId: id, deletedAt: nowIso() });
     return { receipt: this.#commands.toReceipt(this.#commands.get(requestKey)!), resource: this.list().works };
   }

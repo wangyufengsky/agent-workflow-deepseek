@@ -96,7 +96,7 @@ export class PptGenerationCoordinator {
     }
     async reconcile(key: string) {
         const record = this.commands.get(key);
-        if (!record || !['ppt.work.stop', 'ppt.work.generate', 'ppt.work.slides'].includes(record.operation) || !['accepted', 'unknown'].includes(record.status) || !record.target.ref)
+        if (!record || !['ppt.work.stop', 'ppt.work.generate', 'ppt.work.slides', 'ppt.assistant.ask'].includes(record.operation) || !['accepted', 'unknown'].includes(record.status) || !record.target.ref)
             return;
         const run = this.state(record.target.ref);
         if (!run || ![run.requestKey, run.stopRequestKey].includes(key))

@@ -1,3 +1,4 @@
+import { PptAssistantPanel } from './PptAssistantPanel.tsx';
 import { PptPlanDrawer } from './PptPlanDrawer.tsx';
 import { PptGenerationControls } from './PptGenerationControls.tsx';
 import { PptVersions } from './PptProductionPanels.tsx';
@@ -33,7 +34,7 @@ const STEP_TITLES: Record<PptStageKey, { readonly title: string; readonly hint: 
   discuss: { title: '① 讨论需求', hint: '补全五项需求简报、标题、主题与大纲；保存会 PATCH 到服务并返回回执。' },
   design: { title: '② 设计方案', hint: '选择三个视觉方向和版式主题，生成或查看大纲与逐页内容；模型调用可能较慢。' },
   check: { title: '③ 制作检查', hint: '逐页查看真实页面、编辑正文和演讲备注；按当前修订检查页面内容与确定性版式边界。' },
-  export: { title: '④ 导出', hint: '按当前内容导出 PPTX / Markdown；导出不会回写作品状态。' },
+  export: { title: '④ 导出', hint: '按当前修订导出 PPTX / PDF / Markdown；导出不会回写作品状态。' },
 };
 
 export function PptWorkbench({ work, projectName, busyKind, lastResult, onCommand, onBack }: PptWorkbenchProps) {
@@ -141,6 +142,7 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
         </p>
       </section>
 
+      <div className="ppt-work-area">
       <section className="card ppt-wb-step" aria-label={stepMeta.title} style={{ marginTop: 16 }}>
         <div className="card-head">
           <span className="eyebrow">{stepMeta.title}</span>
@@ -185,6 +187,8 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
           )}
         </div>
       </section>
+      <PptAssistantPanel key={work.id} work={work} blocked={blocked} />
+      </div>
     </div>
   );
 }
