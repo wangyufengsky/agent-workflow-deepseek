@@ -261,3 +261,9 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 打包产物包含 `Contents/Resources/app/node_modules/pptxgenjs`（PPTX 运行时依赖）。
 - 直接启动 `.app` 可执行文件时需确保 shell 未设置 `ELECTRON_RUN_AS_NODE=1`（本工具环境默认设置，会令 Electron 以 Node 模式运行而无法开窗）。
 - 启动后 `/api/health` 返回 200；通过打包内 server 创建 PPT 草稿并导出 `.pptx`，55,341B、标准 ZIP 头（运行时 `pptxgenjs` 在打包环境中可用）。
+
+### 第 77 轮 UI 截图冒烟（2026-10-19）
+
+`npx electron scripts/capture-ui.cjs`：以真实服务（隔离数据目录 + 演示 Git 仓库）渲染并截图 10 个路由：
+`/`、`/tasks`、`/requirement/:id`、`/tasks/:id`、`/start`、`/git`、`/settings` 以及 3 个非默认主题首页。
+全部页面成功渲染；`evidence/ui-git.png`、`ui-requirement-canvas.png`、`ui-settings.png`、`ui-task-canvas.png` 已更新为当前实现。
