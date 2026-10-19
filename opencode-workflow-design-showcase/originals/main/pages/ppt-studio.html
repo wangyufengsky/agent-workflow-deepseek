@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PPT 工作台 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.studio{display:flex;height:100%;min-height:0}
+.rail{width:188px;flex:none;overflow-y:auto;padding:14px 12px 80px;box-shadow:inset -1px 0 0 var(--line);display:flex;flex-direction:column;gap:10px}
+.tb{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+.tb .n{width:16px;font-size:11px;color:var(--muted);text-align:right;padding-top:4px;font-family:var(--font-mono)}
+.tb .f{flex:1;border-radius:7px;box-shadow:0 0 0 1px var(--line);overflow:hidden;position:relative;transition:box-shadow var(--t-fast)}
+.tb:hover .f{box-shadow:0 0 0 1px var(--line-3)}
+.tb.on .f{box-shadow:0 0 0 2px var(--accent)}
+.tb.on .n{color:var(--accent)}
+.tb .flag{position:absolute;right:4px;top:4px;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;background:var(--warn);color:#111}
+.tb .flag svg{width:10px;height:10px;stroke-width:2.6}
+.center{flex:1;min-width:0;display:flex;flex-direction:column;background:radial-gradient(ellipse at 50% 30%,rgba(77,107,254,.05),transparent 60%)}
+.ctool{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;box-shadow:inset 0 -1px 0 var(--line)}
+.stagearea{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;padding:28px 32px}
+.slide-wrap{width:min(100%,880px)}
+.slide{container-type:inline-size;aspect-ratio:16/9;width:100%;border-radius:10px;background:#0f1116;box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px var(--line-2);position:relative;overflow:hidden;color:#eef0f4}
+.slide.mini{border-radius:0;box-shadow:none;pointer-events:none}
+.s-pad{position:absolute;inset:7cqw 7cqw 6cqw}
+.s-k{font-family:var(--font-mono);font-size:1.5cqw;color:#a9bcff;letter-spacing:.1cqw}
+.s-h{font-family:var(--font-display);font-weight:500;font-size:4.2cqw;letter-spacing:-.1cqw;line-height:1.2;margin-top:1.4cqw}
+.s-h.xl{font-size:6.4cqw;font-weight:400}
+.s-p{font-size:1.9cqw;line-height:1.6;color:#a9adb6;margin-top:1.6cqw}
+.s-row{display:flex;gap:2cqw;margin-top:4cqw}
+.s-box{flex:1;border-radius:1.2cqw;border:.12cqw solid rgba(255,255,255,.12);background:rgba(255,255,255,.035);padding:2cqw}
+.s-box b{display:block;font-size:2cqw;font-weight:500;color:#fff}
+.s-box span{display:block;font-size:1.5cqw;color:#9196a0;margin-top:.8cqw;line-height:1.5}
+.s-chip{padding:1cqw 1.8cqw;border-radius:5cqw;background:rgba(255,255,255,.06);border:.12cqw solid rgba(255,255,255,.12);font-size:1.7cqw}
+.s-glow{position:absolute;right:-12cqw;bottom:-18cqw;width:52cqw;height:52cqw;border-radius:50%;background:radial-gradient(circle,rgba(77,107,254,.45),transparent 65%)}
+.editing [data-el]{cursor:text;outline:.12cqw dashed transparent;outline-offset:.6cqw;border-radius:.3cqw}
+.editing [data-el]:hover{outline-color:rgba(169,188,255,.5)}
+.editing [data-el].sel{outline:.18cqw solid #a9bcff}
+.overflow{outline:.18cqw dashed var(--warn)!important;outline-offset:.6cqw}
+.gen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.4cqw;background:rgba(10,10,12,.72);backdrop-filter:blur(2px);font-size:1.7cqw;color:var(--ink-2)}
+.gen .bar{width:30cqw;height:.4cqw;border-radius:1cqw;background:rgba(255,255,255,.1);overflow:hidden}
+.gen .bar i{display:block;height:100%;width:40%;background:var(--accent);animation:ind 1.4s var(--ease) infinite}
+@keyframes ind{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+.notes{width:min(100%,880px);margin-top:16px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
+.notes summary{list-style:none;cursor:pointer;display:flex;gap:8px;align-items:center;padding:10px 14px;font-size:13px;color:var(--sub)}
+.notes textarea{width:100%;border:0;outline:0;resize:vertical;background:transparent;padding:0 14px 12px;font-size:13.5px;line-height:1.7;color:var(--ink-2);min-height:64px}
+.asst{width:372px;flex:none;display:flex;flex-direction:column;box-shadow:inset 1px 0 0 var(--line);background:var(--panel)}
+.asst .tabs{padding:0 14px}
+.msgs{flex:1;min-height:0;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+.m-u{align-self:flex-end;max-width:86%;padding:9px 13px;border-radius:14px 14px 4px 14px;background:var(--bubble);font-size:13.5px;line-height:1.65}
+.m-a{font-size:13.5px;line-height:1.75;color:var(--ink-2)}
+.m-a .who{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12.5px;color:var(--sub)}
+.m-a .who i{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;background:var(--accent-fill);color:var(--accent);font-style:normal;font-size:11px}
+.opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.opts button{padding:6px 11px;border-radius:var(--r-pill);border:1px solid var(--line-2);font-size:12.5px;color:var(--ink-2)}
+.opts button:hover{background:var(--fill-3)}
+.opts button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-fill)}
+.chg{margin-top:8px;border-radius:10px;border:1px solid var(--line);background:var(--fill-1);padding:10px 12px;font-size:12.5px}
+.chg .row+.row{margin-top:6px}
+.comp{padding:12px 14px 14px;box-shadow:inset 0 1px 0 var(--line)}
+.comp .box{border-radius:14px;background:var(--raised);border:1px solid var(--line-2);padding:8px 8px 8px 12px}
+.comp .box:focus-within{border-color:rgba(169,188,255,.45)}
+.comp textarea{width:100%;border:0;outline:0;resize:none;background:transparent;font-size:13.5px;line-height:1.6;color:var(--ink);min-height:40px}
+.scope{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--r-pill);background:var(--fill-3);font-size:12px;color:var(--ink-2)}
+.brief{width:min(100%,720px);display:flex;flex-direction:column;gap:12px}
+.bf{display:grid;grid-template-columns:96px 1fr;gap:14px;padding:14px 16px;border-radius:12px;background:var(--panel);border:1px solid var(--line);align-items:start}
+.bf .k{font-size:12.5px;color:var(--muted);padding-top:2px}
+.bf.pending{border-style:dashed;background:transparent}
+.bf.pending .v{color:var(--muted)}
+.bf.fresh{border-color:rgba(169,188,255,.45);animation:fl 1.2s var(--ease)}
+@keyframes fl{from{background:rgba(169,188,255,.12)}}
+.outline{display:flex;flex-direction:column;gap:6px}
+.ol{display:grid;grid-template-columns:28px 1fr auto;gap:12px;align-items:center;padding:10px 14px;border-radius:10px;background:var(--panel);border:1px solid var(--line)}
+.ol .n{font-family:var(--font-mono);font-size:12px;color:var(--accent)}
+.dir{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.dir button{text-align:left;border-radius:12px;border:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:8px;background:var(--panel)}
+.dir button.on{border-color:var(--accent);box-shadow:var(--ring)}
+.sw{aspect-ratio:16/9;border-radius:7px;position:relative;overflow:hidden}
+.foot-cta{position:sticky;bottom:0;width:min(100%,720px);margin-top:18px;display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:var(--float);backdrop-filter:blur(10px);border:1px solid var(--line-2)}
+.stepper{display:flex;align-items:center;gap:4px;margin-left:12px}
+.stepper span{white-space:nowrap;flex:none;display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--r-pill);font-size:12px;color:var(--muted)}
+.stepper span.done{color:var(--sub)}
+.stepper span.on{background:var(--fill-3);color:var(--ink)}
+.stepper span b{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:500;box-shadow:inset 0 0 0 1px var(--line-3)}
+.stepper span.on b{background:var(--accent);color:var(--bg);box-shadow:none}
+.stepper span.done b{background:var(--ok-fill);color:var(--ok);box-shadow:none}
+.stepper span.done b svg{width:10px;height:10px;stroke-width:3}
+.stepper i{width:14px;height:1px;background:var(--line-2);flex:none}
+@media (max-width:1380px){.stepper span:not(.on) .lb{display:none}.stepper span:not(.on){padding:0 4px}}
+.header h1{white-space:nowrap;flex:none}
+.stepper em{font-style:normal}
+.prop{display:flex;flex-direction:column;gap:14px;padding:16px}
+.prop label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+.issue{display:flex;gap:10px;padding:10px 12px;border-radius:10px;background:var(--fill-1);border:1px solid var(--line);font-size:13px;cursor:pointer}
+.issue:hover{background:var(--fill-3)}
+/* 补充 · 制作方案（pl-） */
+.header>.hint{white-space:nowrap}
+@media (max-width:1180px){.header>.hint{display:none}}
+.pl-top{flex:none;padding:12px 20px 0;display:flex;flex-direction:column;gap:10px}
+.pl-phase{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r-md);background:var(--fill-2);border:1px solid var(--line);font-size:13px;line-height:1.5}
+.pl-phase .grow>span{display:block}
+.pl-tabs{overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap;margin:0 -4px}
+.pl-tabs::-webkit-scrollbar{display:none}
+.pl-tabs .tab{flex:none;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.pl-tabs .tab .bad{width:6px;height:6px;border-radius:50%;background:var(--danger)}
+.pl-form .field+.field{margin-top:18px}
+.pl-form .textarea{min-height:84px}
+.pl-form .grid-2>.field{margin-top:0!important}
+.pl-form .seg{align-self:flex-start}
+.pl-h{font-size:13px;font-weight:500;color:var(--ink-2);margin:22px 0 10px;display:flex;align-items:center;gap:8px}
+.pl-h:first-child{margin-top:4px}
+.pl-h .hint{font-weight:400;margin-left:auto}
+.pl-card{border-radius:var(--r-md);border:1px solid var(--line);background:var(--fill-1)}
+.pl-card+.pl-card{margin-top:8px}
+.pl-card.on{border-color:var(--line-3);background:var(--fill-2)}
+.pl-card-h{display:flex;align-items:center;gap:10px;padding:10px 8px 10px 14px;min-height:48px}
+.pl-card-h .n{font-family:var(--font-mono);font-size:11.5px;color:var(--muted);flex:none}
+.pl-card-b{padding:4px 14px 14px;display:flex;flex-direction:column;gap:14px}
+.pl-card-b .field+.field{margin-top:0}
+.pl-dir input[type=radio]{width:16px;height:16px;accent-color:var(--brand);margin:0;flex:none}
+.pl-sw{width:40px;height:40px;border-radius:10px;flex:none;box-shadow:inset 0 0 0 1px var(--line-2)}
+.pl-sw.bad{background:repeating-linear-gradient(45deg,var(--fill-2) 0 6px,var(--fill-4) 6px 12px);box-shadow:inset 0 0 0 1px var(--danger-line)}
+.pl-srcs{display:flex;flex-wrap:wrap;gap:6px}
+.pl-src{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px;border-radius:var(--r-pill);border:1px solid var(--line-2);font-size:12.5px;color:var(--ink-2);cursor:pointer}
+.pl-src input{width:14px;height:14px;margin:0;accent-color:var(--brand)}
+.pl-src:has(input:checked){background:var(--accent-fill);border-color:var(--accent-line)}
+.pl-src:has(input:disabled){opacity:.55;cursor:not-allowed}
+.pl-foot{gap:10px}
+.pl-foot .st{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--sub);flex:1;min-width:0}
+fieldset.pl-fs{border:0;margin:0;padding:0;min-width:0}
+fieldset.pl-fs:disabled .input,fieldset.pl-fs:disabled .select,fieldset.pl-fs:disabled .textarea{background:var(--fill-2);color:var(--sub);cursor:not-allowed}
+.pl-sk{height:40px;border-radius:10px}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="ppt">
+<main id="page" style="height:100%" hidden><div class="studio" id="studio"></div>
+  <aside class="drawer md" id="vers" aria-hidden="true" aria-label="版本"><div class="drawer-head"><div class="grow"><h2>版本</h2><div class="hint" style="margin-top:2px">每次确认方案或批量修改都会生成一个修订</div></div><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer('vers')"><span data-icon="x"></span></button></div><div class="drawer-body" id="versB"></div></aside>
+  <aside class="drawer md" id="srcs" aria-hidden="true" aria-label="资料"><div class="drawer-head"><div class="grow"><h2>资料</h2><div class="hint" style="margin-top:2px">助手制作时可以引用的内容</div></div><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer('srcs')"><span data-icon="x"></span></button></div><div class="drawer-body" id="srcsB"></div><div class="drawer-foot"><button class="btn secondary"><span data-icon="upload" data-icon-size="sm"></span>上传资料</button><span class="grow"></span><button class="btn primary" onclick="DS.closeDrawer('srcs')">完成</button></div></aside>
+  <aside class="drawer md" id="plan" aria-hidden="true" aria-labelledby="planT"><div class="drawer-head"><div class="grow"><h2 id="planT">制作方案</h2><div class="hint" style="margin-top:2px">助手按这份方案组织内容和页面</div></div><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer('plan')"><span data-icon="x"></span></button></div>
+    <div class="pl-top" id="planTop"></div><div class="drawer-body" id="planB" role="tabpanel"></div><div class="drawer-foot pl-foot" id="planF"></div></aside>
+  <div class="dialog" id="plDlg" role="dialog" aria-modal="true" aria-labelledby="plDlgT"><div class="dialog-body"><h2 id="plDlgT"></h2><p id="plDlgP"></p></div><div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog('plDlg')">取消</button><button class="btn" id="plDlgOk"></button></div></div>
+  <div class="dialog" id="exp" role="dialog" aria-modal="true" aria-labelledby="expT"><div class="dialog-head"><h2 id="expT">导出演示</h2></div><div class="dialog-body" id="expB"></div><div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog('exp')">取消</button><button class="btn primary" onclick="DS.closeDialog('exp');DS.toast('正在导出 · 完成后可在“版本”中下载','info')">导出</button></div></div>
+</main>
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S0=DS.state||'make', S=S0==='pl-ro-active'?'make':S0.startsWith('pl-')?'done':S0;
+const STAGE={discuss:0,plan:1}[S]??2;
+const st={cur:S==='issues'?3:S==='edit'?2:5, edit:S==='edit', sel:S==='edit'?'h':null, tab:S==='edit'?'prop':'chat', scope:'page', dir:0, brief:S==='discuss'?2:4};
+const SL=[
+ {t:'封面', h:p=>`<div class="s-glow"></div><div class="s-pad" style="display:flex;flex-direction:column;justify-content:flex-end"><div class="s-k" data-el="k">ENGINEERING ONBOARDING</div><div class="s-h xl" data-el="h">opencode-workflow 项目入门</div><div class="s-p" data-el="p">架构、任务流程与错误恢复 · 工程新人培训 · 2026.10</div></div>`},
+ {t:'今天会讲什么', h:p=>`<div class="s-pad"><div class="s-k" data-el="k">AGENDA</div><div class="s-h" data-el="h">今天会讲什么</div><div style="margin-top:4cqw;display:grid;grid-template-columns:1fr 1fr;gap:1.6cqw 4cqw">${['整体架构','任务的一生','资料与许可','错误恢复','上手建议'].map((x,i)=>`<div style="display:flex;gap:2cqw;align-items:baseline;border-top:.12cqw solid rgba(255,255,255,.12);padding-top:1.4cqw"><span class="s-k">0${i+1}</span><span style="font-size:2.3cqw">${x}</span></div>`).join('')}</div></div>`},
+ {t:'整体架构', h:p=>`<div class="s-pad"><div class="s-k" data-el="k">01 · ARCHITECTURE</div><div class="s-h" data-el="h">三个部分，各自持有边界</div><div class="s-row">${[['界面','呈现状态、保留输入、提供恢复入口'],['任务服务','生命周期、队列与租约、验收与推进'],['资料服务','来源许可、读取校验、引用回溯']].map(x=>`<div class="s-box"><b>${x[0]}</b><span>${x[1]}</span></div>`).join('')}</div><div class="s-p ${p.warn?'overflow':''}" data-el="p">界面不直接决定任务能否执行；任务服务也不绕过资料服务读取文件。每一次读取都会在当时核对许可，开关变化后迟到的内容不会再被呈现，这一点在多人协作和长时间运行的任务里尤其重要。</div></div>`},
+ {t:'任务的一生', h:p=>`<div class="s-pad"><div class="s-k" data-el="k">02 · LIFECYCLE</div><div class="s-h" data-el="h">任务的一生</div><div style="display:flex;flex-wrap:wrap;gap:1.2cqw;align-items:center;margin-top:5cqw">${['需求','确认计划','排队与准备','执行','验证','接受结果'].map((x,i)=>`${i?'<span style="color:#5f636b;font-size:2cqw">→</span>':''}<span class="s-chip" style="${i===3?'border-color:#a9bcff;color:#a9bcff':''}">${x}</span>`).join('')}</div><div class="s-p" data-el="p" style="margin-top:4cqw">草稿、确认计划、开始执行是三个独立动作——确认之前不会占用任何执行资源。</div></div>`},
+ {t:'错误恢复', h:p=>`<div class="s-pad"><div class="s-k" data-el="k">04 · RECOVERY</div><div class="s-h" data-el="h">出错时，先确认发生了什么</div><div class="s-row">${[['继续','从卡住的步骤接着跑'],['重试','用原请求再来一次'],['停止','保留已有产出']].map(x=>`<div class="s-box"><b>${x[0]}</b><span>${x[1]}</span></div>`).join('')}</div></div>`},
+ {t:'上手建议', h:p=>`<div class="s-pad"><div class="s-k" data-el="k">05 · NEXT</div><div class="s-h" data-el="h">第一周可以做的事</div></div>`},
+];
+const PST=[ 'ok','ok', S==='issues'||S==='make'?'warn':'ok', 'ok', S==='make'?'gen':'ok', S==='make'?'wait':'ok' ];
+function slide(i,mini){ const s=SL[i], p={warn:PST[i]==='warn'}; const pending=PST[i]==='wait'; return `<div class="slide ${mini?'mini':''} ${st.edit&&!mini?'editing':''}">${pending?`<div style="position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:${mini?'10px':'1.8cqw'}">等待制作</div>`:s.h(p)}${PST[i]==='gen'?`<div class="gen">${mini?'':'<span>正在制作这一页…</span><span class="bar"><i></i></span>'}</div>`:''}</div>`; }
+function stepper(){ const L=['讨论需求','设计方案','制作检查','导出']; return `<div class="stepper">${L.map((l,i)=>`${i?'<i></i>':''}<span class="${i<STAGE?'done':i===STAGE?'on':''}"><b>${i<STAGE?I('check'):i+1}</b><em class="lb">${l}</em></span>`).join('')}</div>`; }
+function header(){
+  DS.$('.header').innerHTML = `<h1 style="gap:0"><a href="ppt-works.html" style="color:var(--sub)">PPT 制作</a><span style="color:var(--faint);margin:0 8px">/</span><span class="ellipsis" style="max-width:220px">项目入门与架构说明</span></h1>${window.PL_HEAD||''}${stepper()}
+    <span class="spacer"></span><span class="hint" style="margin-right:6px">${STAGE>=2?'修订 8 · 已自动保存':'草稿 · 已自动保存'}</span>
+    <button class="btn ghost sm" onclick="openSrcs(this)">${I('book','sm')}资料 3</button><button class="btn ghost sm" onclick="openVers(this)">${I('clock','sm')}版本</button>
+    <button class="btn ${STAGE>=2?'primary':'secondary'} sm" ${STAGE<2?'disabled title="确认方案并生成页面后可导出"':''} onclick="openExp(this)">${I('download','sm')}导出</button>${STAGE>=2?`<button class="icon-btn" aria-label="作品菜单" title="作品菜单" onclick="openWorkMenu(this)">${I('more')}</button>`:''}`;
+}
+function center(){
+  if (STAGE===0) return `<div class="ctool"><span style="font-size:13.5px">需求简报</span><span class="hint">讨论中逐项补全 · 你也可以直接改</span></div>
+    <div class="stagearea"><div class="brief">${[['给谁看','新加入的工程师（入职第一周）'],['想达到','能说清整体架构，知道任务出错时该看哪里'],['篇幅','约 6 页 · 20 分钟讲解'],['风格','深色、克制、少文字多图示'],['依据资料','architecture.md · design-contract.md · api-reference.md']].map(([k,v],i)=>{const done=i<st.brief+1, fresh=i===st.brief;return `<div class="bf ${done?'':'pending'} ${fresh?'fresh':''}"><span class="k">${k}</span><span class="v">${done?v:'等待讨论'}</span></div>`}).join('')}
+      <div class="foot-cta"><span class="grow hint">${st.brief>=4?'信息已经足够，可以让助手出方案':'还差 '+(4-st.brief)+' 项，回答右侧助手的问题即可'}</span><button class="btn primary" ${st.brief>=4?'':'disabled'} onclick="DS.setState('plan')">生成制作方案${I('arrowRight','sm')}</button></div></div></div>`;
+  if (STAGE===1) return `<div class="ctool"><span style="font-size:13.5px">制作方案</span><span class="hint">确认后才开始逐页制作 · 之后仍可调整</span></div>
+    <div class="stagearea"><div class="brief">
+      <div class="row"><h3 style="font-size:14px;font-weight:500" class="grow">大纲 · 6 页</h3><button class="btn ghost sm">${I('plus','sm')}加一页</button></div>
+      <div class="outline">${SL.map((s,i)=>`<div class="ol"><span class="n">0${i+1}</span><div><div style="font-size:13.5px">${s.t}</div><div class="hint">${['标题 + 副标题','5 个章节','三块职责卡片 + 一句边界说明','6 步流程图','三种恢复方式对比','第一周清单'][i]}</div></div><button class="icon-btn" aria-label="调整第 ${i+1} 页" onclick="DS.menu(this,[{label:'改写要点',icon:'edit'},{label:'上移',icon:'arrowUp'},{label:'删除这一页',icon:'trash',danger:true}])">${I('more')}</button></div>`).join('')}</div>
+      <h3 style="font-size:14px;font-weight:500;margin-top:10px">视觉方向</h3>
+      <div class="dir">${[['深色克制','#0f1116','rgba(77,107,254,.5)'],['浅色编辑','#f3f1ec','rgba(30,30,30,.6)'],['高对比','#000','rgba(169,255,200,.6)']].map(([n,bg,ac],i)=>`<button class="${st.dir===i?'on':''}" onclick="st.dir=${i};render()" aria-pressed="${st.dir===i}"><span class="sw" style="background:${bg}"><span style="position:absolute;left:10%;top:22%;width:50%;height:9%;border-radius:2px;background:${i===1?'#222':'#eee'}"></span><span style="position:absolute;left:10%;top:40%;width:34%;height:5%;border-radius:2px;background:${i===1?'#999':'#666'}"></span><span style="position:absolute;right:-10%;bottom:-30%;width:60%;height:90%;border-radius:50%;background:radial-gradient(circle,${ac},transparent 65%)"></span></span><span style="font-size:13px">${n}</span></button>`).join('')}</div>
+      <div class="foot-cta"><span class="grow"><div style="font-size:13.5px">确认方案</div><div class="hint">将生成 6 页 · 约 3 分钟 · 制作中可以继续和助手讨论</div></span><button class="btn secondary" onclick="DS.setState('discuss')">回到讨论</button><button class="btn primary" onclick="DS.setState('make')">确认并开始制作</button></div></div></div>`;
+  const cur=st.cur;
+  return `<div class="ctool">
+      <span style="font-size:13.5px">第 ${cur+1} 页 · ${SL[cur].t}</span>${PST[cur]==='warn'?`<span class="badge st-fail">${I('alert','sm')}文字可能溢出</span>`:PST[cur]==='gen'?'<span class="badge st-run"><span class="dot pulse"></span>制作中</span>':''}
+      <span class="grow"></span>
+      <label class="row hint" style="gap:8px;cursor:pointer">手动编辑<button class="switch" role="switch" aria-checked="${st.edit}" aria-label="手动编辑" ${PST[cur]==='gen'||PST[cur]==='wait'?'disabled':''} onclick="st.edit=!st.edit;st.sel=null;st.tab=st.edit?'prop':'chat';render()"></button></label>
+      <button class="btn ghost sm" onclick="st.tab='check';render()">${I('shield','sm')}检查${S==='make'||S==='issues'?' <span class="num" style="color:var(--warn)">1</span>':''}</button>
+    </div>
+    <div class="stagearea"><div class="slide-wrap" onclick="pickEl(event)">${slide(cur)}</div>
+      <details class="notes" ${S==='edit'?'':'open'}><summary>${I('edit','sm')}演讲备注<span class="grow"></span><span class="hint">只在演讲者视图显示</span></summary><textarea aria-label="演讲备注">${['开场 30 秒：说明今天的目标是让大家知道出错时去哪里看。','先过一遍目录，告诉大家第 4 部分最重要。','强调“边界”：界面只呈现，不决定。可以举一次权限变化的例子。','用正在跑的一个任务现场演示状态变化。','结合上周的一次真实恢复讲。',''][cur]}</textarea></details></div>`;
+}
+function rail(){ if (STAGE<2) return ''; return `<div class="rail" aria-label="页面">${SL.map((s,i)=>`<div class="tb ${i===st.cur?'on':''}" tabindex="0" role="button" aria-label="第 ${i+1} 页 ${s.t}" onclick="st.cur=${i};st.sel=null;render()"><span class="n">${i+1}</span><span class="f">${slide(i,true)}${PST[i]==='warn'?`<span class="flag">${I('alert')}</span>`:''}</span></div>`).join('')}<button class="btn ghost sm" style="margin-left:24px">${I('plus','sm')}加一页</button></div>`; }
+function msgs(){
+  if (STAGE===0) return `<div class="m-u">做一份给新同事的项目入门 PPT，讲架构、任务流程和错误恢复。</div>
+    <div class="m-a"><div class="who"><i>P</i>PPT 助手</div>好的。我先读了项目里的 3 份文档，确认几件事：<div style="margin-top:10px">听众主要是哪类同事？</div><div class="opts"><button class="on">工程新人</button><button>产品与设计</button><button>外部合作方</button></div></div>
+    <div class="m-u">工程新人，入职第一周。</div>
+    <div class="m-a"><div class="who"><i>P</i>PPT 助手</div>明白。讲解时间大概多长？我会据此控制页数。<div class="opts"><button>10 分钟 · 3–4 页</button><button>20 分钟 · 6 页</button><button>40 分钟 · 10 页以上</button><button>你决定</button></div></div>`;
+  if (STAGE===1) return `<div class="m-a"><div class="who"><i>P</i>PPT 助手</div>方案已经放在中间：6 页大纲和 3 个视觉方向。我推荐“深色克制”，和你们产品界面一致。<br>大纲里第 4 页“资料与许可”我合并进了“整体架构”，篇幅更紧凑——如果想单独讲，告诉我即可。</div>`;
+  return `<div class="m-u">第 3 页文字太多了，帮我精简一下，保留“每次读取都核对许可”这一点。</div>
+    <div class="m-a"><div class="who"><i>P</i>PPT 助手</div>可以。建议改成一句话：<div class="chg"><div class="row" style="gap:8px"><span class="badge st-danger" style="height:18px;font-size:11px">删除</span><span class="hint" style="text-decoration:line-through">界面不直接决定任务能否执行；任务服务也不绕过……</span></div><div class="row" style="gap:8px"><span class="badge st-ok" style="height:18px;font-size:11px">替换</span><span>每一次读取都在当时核对许可。</span></div><div class="row" style="gap:6px;margin-top:10px"><span class="grow hint">只影响第 3 页 · 你手动改过的内容不受影响</span><button class="btn ghost sm">不用了</button><button class="btn primary sm" onclick="DS.toast('已应用到第 3 页 · 修订 9')">应用</button></div></div></div>
+    ${S==='make'?`<div class="m-a"><div class="who"><i>P</i>PPT 助手</div><span class="row" style="gap:8px"><span class="spin" style="width:12px;height:12px;color:var(--accent)"></span>正在制作第 5 页 · 还剩 2 页</span></div>`:''}`;
+}
+function side(){
+  const tabs=STAGE<2?'':`<div class="tabs" role="tablist">${[['chat','PPT 助手'],['prop','对象属性'],['check','检查']].map(([k,l])=>`<button class="tab" role="tab" aria-selected="${st.tab===k}" onclick="st.tab='${k}';render()">${l}</button>`).join('')}</div>`;
+  let body;
+  if (st.tab==='prop' && STAGE>=2){ body = st.sel? `<div class="prop"><div class="hint">已选中 · ${{h:'标题',p:'正文',k:'小标签'}[st.sel]}</div>
+      <div><label>文字</label><textarea class="input" rows="2" style="height:auto;padding:8px 12px">${SL[st.cur].t==='错误恢复'?'出错时，先确认发生了什么':'三个部分，各自持有边界'}</textarea></div>
+      <div class="row" style="gap:10px"><div class="grow"><label>字号</label><select class="select"><option>标题 · 42</option><option>正文 · 19</option></select></div><div class="grow"><label>颜色</label><select class="select"><option>主文字</option><option>强调色</option><option>次要</option></select></div></div>
+      <div><label>对齐</label><div class="seg"><button aria-pressed="true">左</button><button aria-pressed="false">中</button><button aria-pressed="false">右</button></div></div>
+      <div class="banner info" style="font-size:12.5px">${I('info','sm')}<div>手动修改会被保留。之后让助手改这一页时，会先列出将覆盖的内容。</div></div></div>`
+    : `<div class="empty" style="padding:48px 20px">${st.edit?`<h3>点击页面中的文字来编辑</h3><p>标题、正文和小标签都可以直接改。</p>`:`<h3>打开“手动编辑”后可选中对象</h3><button class="btn secondary sm" onclick="st.edit=true;render()">打开手动编辑</button>`}</div>`; }
+  else if (st.tab==='check' && STAGE>=2){ body=`<div class="prop"><div class="row"><span class="grow" style="font-size:13.5px">${S==='make'?'1 个问题 · 5 页已检查':'1 个问题 · 6 页已检查'}</span><button class="btn ghost sm">${I('refresh','sm')}重新检查</button></div>
+      <div class="issue" onclick="st.cur=2;render()"><span style="color:var(--warn)">${I('alert','sm')}</span><div class="grow"><div>第 3 页 · 正文可能溢出</div><div class="hint">在 16:9 投影下超出安全区约 2 行</div></div><button class="btn secondary sm" onclick="event.stopPropagation();st.tab='chat';render()">让助手精简</button></div>
+      ${['字号层级一致','颜色在投影下可读','无占位文字'].map(x=>`<div class="row hint" style="gap:8px;padding:2px 4px"><span style="color:var(--ok)">${I('check','sm')}</span>${x}</div>`).join('')}</div>`; }
+  else body=`<div class="msgs" id="msgs">${msgs()}</div>`;
+  const comp = (st.tab==='chat'||STAGE<2)?`<div class="comp"><div class="box"><textarea placeholder="${STAGE===0?'回答问题，或补充你的想法…':'告诉助手要怎么改…'}" aria-label="给 PPT 助手的消息"></textarea><div class="row" style="gap:6px">${STAGE>=2?`<button class="scope" onclick="st.scope=st.scope==='page'?'all':'page';render()" aria-label="切换修改范围">${I('target','sm')}${st.scope==='page'?`仅第 ${st.cur+1} 页`:'整份演示'}${I('chevDown','sm')}</button>`:''}<span class="grow"></span><button class="send btn primary sm" style="width:32px;padding:0;justify-content:center" aria-label="发送">${I('arrowUp','sm')}</button></div></div></div>`:'';
+  return `<aside class="asst" aria-label="PPT 助手">${tabs}${body}${comp}</aside>`;
+}
+function render(){ header(); DS.$('#studio').innerHTML = rail()+`<section class="center">${center()}</section>`+side(); if(st.sel){ const e=DS.$(`.slide-wrap [data-el="${st.sel}"]`); e&&e.classList.add('sel'); } const m=DS.$('#msgs'); if(m) m.scrollTop=m.scrollHeight; }
+function pickEl(e){ if(!st.edit) return; const el=e.target.closest('[data-el]'); st.sel=el?el.dataset.el:null; st.tab='prop'; render(); }
+function openVers(b){ DS.$('#versB').innerHTML=[[8,'精简第 3 页文字','你 · 10 分钟前',1],[7,'第 1–6 页生成完成','助手 · 2 小时前'],[6,'确认制作方案 · 深色克制','你 · 2 小时前'],[5,'调整大纲：合并“资料与许可”','助手 · 2 小时前']].map(([n,t,w,cur])=>`<div class="list-row"><span class="num hint" style="width:28px">r${n}</span><span class="grow"><div style="font-size:13.5px">${t}</div><div class="hint">${w}</div></span>${cur?'<span class="badge st-accent">当前</span>':`<button class="btn ghost sm" onclick="DS.toast('已恢复为新修订 r9 · 原修订保留')">恢复</button>`}</div>`).join('')+`<p class="hint" style="padding:14px 4px">恢复不会覆盖历史，而是基于旧修订生成一个新修订。</p>`; DS.openDrawer('vers',b); }
+function openSrcs(b){ DS.$('#srcsB').innerHTML=[['architecture.md','项目文档 · 12 KB'],['design-contract.md','项目文档 · 8 KB'],['api-reference.md','项目文档 · 21 KB']].map(([n,d])=>`<label class="list-row" style="cursor:pointer"><input type="checkbox" checked style="accent-color:var(--brand)">${I('file','sm')}<span class="grow"><div style="font-size:13.5px">${n}</div><div class="hint">${d}</div></span></label>`).join(''); DS.openDrawer('srcs',b); }
+function openExp(b){ const busy=S==='make'; DS.$('#expB').innerHTML=`${busy?`<div class="banner warn" style="margin-bottom:14px">${I('alert','sm')}<div>第 5、6 页仍在制作。现在导出将只包含已完成的 4 页。</div></div>`:''}
+  <div class="col" style="gap:8px">${[['PowerPoint (.pptx)','可在 PowerPoint 或 Keynote 中继续编辑',1],['PDF','适合分享和打印',0]].map(([n,d,on])=>`<label class="list-row" style="cursor:pointer;border:1px solid ${on?'var(--accent)':'var(--line)'};border-radius:12px"><input type="radio" name="fmt" ${on?'checked':''} style="accent-color:var(--brand)"><span class="grow"><div style="font-size:13.5px">${n}</div><div class="hint">${d}</div></span></label>`).join('')}</div>
+  <label class="row" style="gap:10px;margin-top:14px;font-size:13.5px"><input type="checkbox" checked style="accent-color:var(--brand)">包含演讲备注</label>
+  <div class="hint" style="margin-top:12px">导出基于修订 8 · ${busy?4:6} 页 · 检查中有 1 个问题未处理</div>`; DS.openDialog('exp',b); }
+DS.mount({header:'', state:S0, states:[{id:'discuss',label:'① 讨论需求'},{id:'plan',label:'② 设计方案'},{id:'make',label:'③ 制作中'},{id:'done',label:'③ 已全部生成'},{id:'issues',label:'③ 检查有问题'},{id:'edit',label:'③ 手动编辑'},
+  {id:'pl-brief',label:'补充 · 制作方案 · 制作目标'},{id:'pl-narrative',label:'补充 · 制作方案 · 叙事结构'},{id:'pl-frozen',label:'补充 · 制作方案 · 方向已冻结'},{id:'pl-slides',label:'补充 · 制作方案 · 页面内容'},
+  {id:'pl-visual-bad',label:'补充 · 制作方案 · 视觉规范（色值无效）'},{id:'pl-assets',label:'补充 · 制作方案 · 图表素材'},{id:'pl-notes',label:'补充 · 制作方案 · 演讲辅助'},{id:'pl-delivery',label:'补充 · 制作方案 · 交付设置'},
+  {id:'pl-saving',label:'补充 · 制作方案 · 等待自动保存'},{id:'pl-conflict',label:'补充 · 制作方案 · 版本冲突'},{id:'pl-review',label:'补充 · 制作方案 · 已用于制作（需重新打开）'},
+  {id:'pl-ro-active',label:'补充 · 制作方案 · 只读（制作中）'},{id:'pl-ro-archived',label:'补充 · 制作方案 · 只读（已归档）'},{id:'pl-loading',label:'补充 · 制作方案 · 读取中'},{id:'pl-error',label:'补充 · 制作方案 · 读取失败'},
+  {id:'pl-blocked',label:'补充 · 制作方案 · 有未保存属性被拦截'}]});
+DS.$('#content').style.overflow='hidden';
+if (S==='issues') st.tab='check', st.cur=2;
+render();
+</script>
+<script>
+/* ---------- 补充 · 制作方案（七模块，480 抽屉） ---------- */
+const PL_TABS=[['brief','制作目标'],['narrative','叙事结构'],['slides','页面内容'],['visual','视觉规范'],['assets','图表素材'],['notes','演讲辅助'],['delivery','交付设置']];
+const PL_EDIT=['BRIEFING','DIRECTION','DESIGN'];
+const PL_LAYOUTS=['标题页','标题与正文','两栏对比','三栏卡片','流程图','大图'];
+const PL_DIRS=[
+  {t:'深色克制',d:'深色底、少量强调色，和产品界面保持一致。',story:'从“界面只呈现、不决定”切入，沿任务的一生展开，最后落到出错时怎么办。',ch:'整体架构 / 任务的一生 / 错误恢复 / 上手建议',n:6,v:'深色底 · 蓝色强调 · 细字重标题'},
+  {t:'浅色编辑',d:'浅底大字，适合投影和打印。',story:'以一个真实任务为线索，从提交讲到交付。',ch:'一个任务的旅程 / 背后的三个部分 / 出错时',n:7,v:'米白底 · 黑色大字 · 少量插图'},
+  {t:'高对比',d:'黑底高亮，适合大会场远距离观看。',story:'三句话讲清架构，再用流程图讲任务。',ch:'三句话 / 一张流程图 / 三种恢复',n:5,v:'纯黑底 · 荧光绿强调'}];
+const PL_CH=[['整体架构','建立“三个部分各自持有边界”的印象',2],['任务的一生','说清确认之前不占用执行资源',1],['错误恢复','知道先确认发生了什么，再选继续、重试或停止',1],['上手建议','给出第一周可以做的三件事',1]];
+const PL_SL=[['封面','开场','这是一份帮你一周内上手 opencode-workflow 的入门','标题 + 副标题：架构、任务流程与错误恢复','标题页'],['今天会讲什么','开场','五个部分，第 4 部分最重要','目录 5 项，两列排布','标题与正文'],['整体架构','整体架构','界面只呈现，不决定','三块职责卡片 + 一句边界说明','三栏卡片'],['任务的一生','任务的一生','确认之前不占用任何执行资源','6 步流程图，当前步高亮','流程图'],['错误恢复','错误恢复','先确认发生了什么，再选继续、重试或停止','三种恢复方式对比','三栏卡片'],['上手建议','上手建议','第一周可以做的三件事','清单 3 项','标题与正文']];
+const PL_NOTES=['开场 30 秒：说明今天的目标是让大家知道出错时去哪里看。','先过一遍目录，告诉大家第 4 部分最重要。','强调“边界”：界面只呈现，不决定。可以举一次权限变化的例子。','用正在跑的一个任务现场演示状态变化。约 3 分钟。','结合上周的一次真实恢复讲。过渡到最后一页：“所以第一周你可以……”',''];
+const PL_SRC=[['architecture.md',1],['design-contract.md',1],['api-reference.md',1],['季度运行数据.xlsx',0]];
+const PL_PICK=[[],[],[0],[1],[2,1],[0,1]];
+const PS=S0.startsWith('pl-')?S0:'';
+const pl={tab:{'pl-narrative':'narrative','pl-frozen':'narrative','pl-slides':'slides','pl-visual-bad':'visual','pl-assets':'assets','pl-notes':'notes','pl-delivery':'delivery'}[PS]||'brief',
+  phase:PS==='pl-narrative'?'DIRECTION':(!PS||['pl-review','pl-ro-active','pl-ro-archived'].includes(PS))?'REVIEW':'DESIGN',
+  active:PS==='pl-ro-active'||(!PS&&S==='make'), archived:PS==='pl-ro-archived', loading:PS==='pl-loading', error:PS==='pl-error',
+  dirty:['pl-saving','pl-visual-bad','pl-conflict'].includes(PS), scheduled:PS==='pl-saving', conflict:PS==='pl-conflict',
+  accent:PS==='pl-visual-bad'?'#4D6BF':'#4D6BFE', dir:0, openDir:0, openSlide:0, saved:'14:32', density:'适中', blocked:PS==='pl-blocked'};
+const plValid=()=>/^#?[a-fA-F0-9]{6}$/.test(pl.accent);
+const plRO=()=>pl.active||pl.archived||!PL_EDIT.includes(pl.phase);
+const fid=()=> 'pf'+Math.random().toString(36).slice(2,7);
+function F(label,ctl,{hint='',req=false,err=''}={}){ const id=fid(); return `<div class="field"><label class="label" for="${id}">${label}${req?' <span class="req">*</span>':''}</label>${ctl.replace('%ID%',id)}${err?`<span class="error-text" role="alert">${I('alert','sm')}${err}</span>`:hint?`<span class="hint">${hint}</span>`:''}</div>`; }
+const IN=(v,extra='')=>`<input class="input" id="%ID%" value="${esc(v)}" ${extra} oninput="plTouch()">`;
+const NUM=(v)=>`<input class="input num" id="%ID%" type="number" min="1" max="100" value="${v}" style="max-width:140px" oninput="plTouch()">`;
+const TA=(v,rows=3)=>`<textarea class="textarea" id="%ID%" rows="${rows}" oninput="plTouch()">${esc(v)}</textarea>`;
+const SEL=(opts,cur)=>`<select class="select" id="%ID%" onchange="plTouch()">${opts.map(o=>`<option ${o===cur?'selected':''}>${o}</option>`).join('')}</select>`;
+function plBrief(){ return `${F('受众',IN('新加入的工程师（入职第一周）'))}${F('目的',TA('让新同事说清整体架构，知道任务出错时该看哪里、找谁。'))}
+  <div class="grid-2" style="margin-top:18px">${F('汇报时长',IN('20 分钟'))}${F('预计页数',NUM(6),{hint:'1–100 页'})}</div>${F('补充要求',TA('少文字多图示；“错误恢复”结合上周的真实案例讲。'))}`; }
+function plNarr(){
+  const frozen=pl.phase==='DESIGN';
+  const dirs=PL_DIRS.map((d,i)=>{ const open=pl.openDir===i; return `<div class="pl-card pl-dir ${pl.dir===i?'on':''}"><div class="pl-card-h"><input type="radio" name="pl-dir" aria-label="选择这个方向：${d.t}" ${pl.dir===i?'checked':''} ${frozen?'disabled':''} onchange="pl.dir=${i};pl.openDir=${i};plTouch();plRender()"><span class="grow" style="min-width:0"><div style="font-size:13.5px;font-weight:500">${d.t}${pl.dir===i?' <span class="badge st-accent" style="height:20px;margin-left:4px">已选</span>':''}</div><div class="hint ellipsis">${d.d}</div></span><button type="button" class="btn ghost sm" aria-expanded="${open}" onclick="pl.openDir=${open?-1:i};plRender()">${open?'收起':'编辑'}</button></div>
+    ${open?`<div class="pl-card-b">${F('方案名称',IN(d.t))}${F('方向说明',TA(d.d,2))}${F('讲述主线',TA(d.story,2))}${F('章节安排',IN(d.ch))}<div class="grid-2">${F('建议页数',NUM(d.n))}${F('视觉方向',IN(d.v))}</div></div>`:''}</div>`; }).join('');
+  const ch=PL_CH.map(([t,pp,n],i)=>`<div class="pl-card"><div class="pl-card-h"><span class="n">第 ${i+1} 章</span><span class="grow" style="font-size:13.5px">${t}</span><button type="button" class="icon-btn" aria-label="移除第 ${i+1} 章" onclick="plConfirm('移除这个章节安排？','历史版本仍会保留。','移除',true)">${I('trash','sm')}</button></div>
+    <div class="pl-card-b"><div class="grid-2" style="grid-template-columns:minmax(0,1fr) 120px">${F('章节名称',IN(t))}${F('页数安排',NUM(n))}</div>${F('本章目的',TA(pp,2))}</div></div>`).join('');
+  return `<h3 class="pl-h">整体方向${frozen?'<span class="badge st-idle" style="margin-left:auto">'+I('lock','sm')+'已确认</span>':'<span class="hint">选一个方向，可直接改写</span>'}</h3>
+    ${frozen?`<div class="banner" style="font-size:12.5px;margin-bottom:10px">${I('lock','sm')}<div>方向已经确认，重新打开需求后可以修改。下面的章节与页面仍可调整。</div></div>`:''}
+    <fieldset class="pl-fs" ${frozen?'disabled':''}>${dirs}<button type="button" class="btn ghost sm" style="margin-top:8px" onclick="plTouch()">${I('plus','sm')}自行填写方向</button></fieldset>
+    <h3 class="pl-h">章节</h3>${F('全稿主线与章节衔接',TA('先给出“三个部分、各自持有边界”的全貌，再沿一个任务讲生命周期；错误恢复承接“状态由服务端决定”，最后给出第一周行动清单。'))}
+    <div style="margin-top:14px">${ch}</div><button type="button" class="btn ghost sm" style="margin-top:8px" onclick="plTouch()">${I('plus','sm')}添加章节</button>`;
+}
+function plSlides(){ return `<h3 class="pl-h">页面内容<span class="hint">${PL_SL.length} 页</span></h3>`+PL_SL.map(([t,sec,msg,ct,lay],i)=>{ const open=pl.openSlide===i; return `<div class="pl-card ${open?'on':''}"><div class="pl-card-h"><span class="n">${String(i+1).padStart(2,'0')}</span><button type="button" class="grow" style="text-align:left;min-width:0" aria-expanded="${open}" onclick="pl.openSlide=${open?-1:i};plRender()"><div class="ellipsis" style="font-size:13.5px">${t}</div><div class="hint ellipsis">${lay} · ${msg}</div></button>
+    <button type="button" class="icon-btn" aria-label="上移第 ${i+1} 页" ${i===0?'disabled title="已到边界"':''} onclick="plTouch()">${I('arrowUp','sm')}</button><button type="button" class="icon-btn" aria-label="下移第 ${i+1} 页" ${i===PL_SL.length-1?'disabled title="已到边界"':''} onclick="plTouch()"><span style="display:flex;transform:rotate(180deg)">${I('arrowUp','sm')}</span></button><button type="button" class="icon-btn" aria-label="移除第 ${i+1} 页" onclick="plConfirm('移除这页设计？','历史版本仍会保留。','移除这页',true)">${I('trash','sm')}</button></div>
+    ${open?`<div class="pl-card-b">${F('标题',IN(t,'required'),{req:true})}<div class="grid-2">${F('章节',IN(sec))}${F('版式',SEL(PL_LAYOUTS,lay))}</div>${F('核心观点',TA(msg,2))}${F('页面内容',TA(ct,3))}</div>`:''}</div>`; }).join('')+`<button type="button" class="btn ghost sm" style="margin-top:8px" onclick="plTouch()">${I('plus','sm')}加一页</button>`; }
+function plVisual(){ const ok=plValid();
+  return `${F('整体风格',TA('深色底、细字重标题；强调色只用在关键数字和流程的当前步。'))}
+    <div class="grid-2" style="margin-top:18px">${F('演示主题',SEL(['深色克制','浅色编辑','高对比'],'深色克制'))}${F('字体',SEL(['思源黑体','苹方','微软雅黑'],'思源黑体'))}</div>
+    <div style="margin-top:18px">${F('强调色',`<div class="row" style="gap:10px"><span class="pl-sw ${ok?'':'bad'}" id="plSw" aria-hidden="true" ${ok?`style="background:${pl.accent.startsWith('#')?pl.accent:'#'+pl.accent}"`:''}></span><input class="input mono ${ok?'':'invalid'}" id="%ID%" value="${esc(pl.accent)}" aria-invalid="${!ok}" maxlength="7" style="max-width:160px" oninput="pl.accent=this.value;plTouch();plRender(true)"></div>`,ok?{hint:'6 位十六进制色值，例如 #4D6BFE'}:{err:'请输入 6 位十六进制色值，例如 #4D6BFE。修正前不会保存。'})}</div>
+    <div class="field" style="margin-top:18px"><span class="label" id="plDen">文字密度</span><div class="seg" role="group" aria-labelledby="plDen">${['精简','适中','详细'].map(x=>`<button type="button" aria-pressed="${pl.density===x}" onclick="pl.density='${x}';plTouch();plRender()">${x}</button>`).join('')}</div></div>
+    <div style="margin-top:18px">${F('页面比例',`<input class="input" id="%ID%" value="16:9" readonly style="max-width:140px">`,{hint:'固定为 16:9'})}</div>
+    <p class="hint" style="margin-top:14px">视觉要求指导助手制作，实际对象样式可在页面制作中调整。</p>`; }
+function plAssets(){ return `${F('素材使用要求',TA('只用项目文档里的结论，不引用外部数据。',2))}${F('图表表达要求',TA('流程用横向步骤图，对比用三栏卡片；不使用饼图。',2))}${F('配图要求',TA('不使用照片；需要时用简单线框示意。',2))}
+    <h3 class="pl-h">每页依据<span class="hint">资料就绪后才能勾选</span></h3>`+PL_SL.map(([t],i)=>`<div class="pl-card" style="padding:10px 14px"><div style="font-size:13px;margin-bottom:8px"><span class="mono hint">${String(i+1).padStart(2,'0')}</span>　${t}</div><div class="pl-srcs">${PL_SRC.map(([n,ready],j)=>`<label class="pl-src" ${ready?'':'title="资料还在解析，完成后才能选为依据"'}><input type="checkbox" ${PL_PICK[i].includes(j)?'checked':''} ${ready?'':'disabled'} onchange="plTouch()">${n}${ready?'':'<span class="badge st-wait" style="height:18px;font-size:11px">解析中</span>'}</label>`).join('')}</div></div>`).join(''); }
+function plNotes(){ return `<h3 class="pl-h">演讲辅助<span class="hint">讲稿、时长与过渡</span></h3>`+PL_SL.map(([t],i)=>`<div class="pl-card" style="padding:12px 14px">${F(`<span class="mono hint" style="font-weight:400">${String(i+1).padStart(2,'0')}</span> ${t}`,TA(PL_NOTES[i],2).replace('class="textarea"','class="textarea" placeholder="这一页还没有讲稿"'))}</div>`).join(''); }
+function plDelivery(){ return `${F('文件名称',IN('项目入门与架构说明'),{hint:'导出时自动加上 .pptx'})}${F('目标办公软件',IN('Microsoft PowerPoint 2019 及以上'))}
+    <label class="check" style="margin-top:18px"><input type="checkbox" checked onchange="plTouch()"><span><div style="font-size:13.5px">包含演讲备注</div><div class="hint">导出的文件里保留每页讲稿</div></span></label>
+    <div class="banner info" style="margin-top:18px;font-size:12.5px">${I('info','sm')}<div>正式导出为可编辑 PPTX，页面预览为 PNG。</div></div>`; }
+function plPhase(){
+  const ro=plRO();
+  if (pl.archived) return `<div class="pl-phase">${I('archive','sm')}<span class="grow"><b style="font-weight:500">作品已归档，方案只读</b><span class="hint">恢复作品后才能修改或重新制作。</span></span><button class="btn secondary sm" disabled title="作品已归档">修改方案</button></div>`;
+  if (pl.active) return `<div class="pl-phase"><span class="spin" style="color:var(--accent)"></span><span class="grow"><b style="font-weight:500">助手正在制作，方案暂时只读</b><span class="hint">制作完成或停止后，才能重新打开修改。</span></span><button class="btn secondary sm" disabled title="制作进行中">修改方案</button></div>`;
+  if (ro) return `<div class="pl-phase">${I('lock','sm')}<span class="grow"><b style="font-weight:500">方案已用于制作</b><span class="hint">重新打开后才能修改；现有页面和导出会保留。</span></span><button class="btn secondary sm" onclick="plConfirm('修改制作方案？','现有页面和导出会保留。修改后需要重新制作才会生效。','修改方案',false,()=>{pl.phase='DESIGN';plRender();DS.toast('方案已重新打开')})">${I('edit','sm')}修改方案</button></div>`;
+  return `<div class="pl-phase">${I('sparkle','sm')}<span class="grow"><b style="font-weight:500">${pl.phase==='DIRECTION'?'设计方案阶段 · 可以调整方向':'方案已重新打开 · 方向已确认'}</b><span class="hint">${pl.dirty?'先保存方案，再按方案制作。':'按已保存的方案和资料重新完成全部页面。'}</span></span><button class="btn secondary sm" ${pl.dirty||pl.loading||pl.error?'disabled title="先保存方案，再开始制作"':''} onclick="DS.closeDrawer('plan');DS.toast('已开始按方案制作','info')">${I('play','sm')}按方案制作</button></div>`;
+}
+function plRender(keepFocus){
+  const f=keepFocus?document.activeElement:null, fv=f&&f.id?f.id:null, caret=f&&f.selectionStart;
+  const ro=plRO();
+  DS.$('#planTop').innerHTML = (pl.error?'':plPhase())
+    +(pl.conflict?`<div class="banner warn" role="alert">${I('alert','sm')}<div><b>方案已有新版本（修订 9）</b><br>当前输入已保留，自动保存已暂停。读取最新方案后再决定如何合并你的修改。</div><div class="actions"><button class="btn secondary sm" onclick="pl.conflict=false;pl.dirty=false;plRender();DS.toast('已读取最新方案 · 修订 9')">${I('refresh','sm')}读取最新方案</button></div></div>`:'')
+    +(pl.error?`<div class="banner danger" role="alert">${I('alert','sm')}<div><b>制作方案读取失败</b><br>作品服务暂时没有返回方案（错误 502）。已保存的方案没有变化。</div><div class="actions"><button class="btn secondary sm" onclick="pl.error=false;pl.loading=true;plRender();setTimeout(()=>{pl.loading=false;plRender()},800)">${I('refresh','sm')}重新读取</button></div></div>`:'')
+    +`<div class="tabs pl-tabs" role="tablist" aria-label="方案模块">${PL_TABS.map(([k,l])=>`<button class="tab" role="tab" id="pl-t-${k}" aria-selected="${pl.tab===k}" aria-controls="planB" ${pl.loading||pl.error?'disabled':''} onclick="pl.tab='${k}';plRender()">${l}${k==='visual'&&!plValid()?'<span class="bad" aria-label="有需要修正的字段"></span>':''}</button>`).join('')}</div>`;
+  DS.$('#planB').setAttribute('aria-labelledby','pl-t-'+pl.tab);
+  const body={brief:plBrief,narrative:plNarr,slides:plSlides,visual:plVisual,assets:plAssets,notes:plNotes,delivery:plDelivery}[pl.tab];
+  DS.$('#planB').innerHTML = pl.loading?`<p class="hint row" role="status" style="margin:4px 0 16px"><span class="spin"></span>正在读取制作方案…</p>${[1,2,3,4].map(()=>'<div class="field" style="margin-bottom:18px"><div class="skel" style="height:12px;width:22%"></div><div class="skel pl-sk"></div></div>').join('')}`
+    : pl.error?`<div class="empty"><span class="tile">${I('layers','lg')}</span><h3>方案暂时不可用</h3><p>重新读取成功后，七个模块会显示在这里。</p></div>`
+    : `<form class="pl-form" onsubmit="event.preventDefault();plSave()"><fieldset class="pl-fs" ${ro?'disabled':''}>${body()}</fieldset></form>`;
+  const can=!ro&&pl.dirty&&plValid()&&!pl.conflict&&!pl.loading&&!pl.error;
+  const stx = pl.loading||pl.error ? '' : ro ? `${I('lock','sm')}<span>只读 · 已保存修订 8</span>`
+    : !pl.dirty ? `<span style="color:var(--ok);display:flex">${I('check','sm')}</span><span>已自动保存 · ${pl.saved}</span>`
+    : pl.scheduled ? `<span class="spin"></span><span>等待自动保存…</span>`
+    : `<span class="dot" style="color:var(--warn)"></span><span>修改已保留，请核对后保存${!plValid()?' · 强调色格式不正确':pl.conflict?' · 自动保存已暂停':''}</span>`;
+  DS.$('#planF').innerHTML = `<span class="st" role="status">${stx}</span>${ro?'':`<button class="btn primary" ${can?'':`disabled title="${!pl.dirty?'没有未保存的修改':'请核对当前方案、版本和原操作'}"`} onclick="plSave()">保存方案</button>`}`;
+  DS.$('#pl-t-'+pl.tab)?.scrollIntoView({block:'nearest',inline:'nearest'});
+  if (fv){ const e=document.getElementById(fv)||DS.$('#planB .input.mono'); if(e){ e.focus(); try{e.setSelectionRange(caret,caret)}catch(x){} } }
+}
+let plTimer=null;
+function plTouch(){ if(plRO()) return; pl.dirty=true; if(pl.conflict||!plValid()){ pl.scheduled=false; plFoot(); return; } pl.scheduled=true; plFoot(); clearTimeout(plTimer); plTimer=setTimeout(()=>{ if(pl.conflict||!plValid()) return; pl.dirty=false; pl.scheduled=false; pl.saved='14:'+String(33+Math.floor(Math.random()*20)); plRender(true); },1400); }
+function plFoot(){ const t=DS.$('#planTop'); plRender(true); }
+function plSave(){ if(!plValid()||pl.conflict) return; clearTimeout(plTimer); pl.dirty=false; pl.scheduled=false; pl.saved='14:41'; plRender(); DS.toast('方案已保存 · 修订 9'); }
+function plConfirm(t,p,ok,danger,run){ DS.$('#plDlgT').textContent=t; DS.$('#plDlgP').textContent=p; const b=DS.$('#plDlgOk'); b.textContent=ok; b.className='btn '+(danger?'danger':'primary'); b.onclick=()=>{ DS.closeDialog('plDlg'); if(run) run(); else plTouch(); }; DS.openDialog('plDlg'); }
+function openPlan(t){
+  if (pl.blocked||(typeof st!=='undefined'&&st.edit&&st.sel&&PS==='pl-blocked')){ plBlock(); return; }
+  plRender(); DS.openDrawer('plan',t); setTimeout(()=>DS.$('#pl-t-'+pl.tab)?.focus(),90);
+}
+function openWorkMenu(b){ DS.menu(b,[{label:'制作方案',icon:'layers',run:()=>openPlan(b)},{label:'资料与素材',icon:'book',run:()=>openSrcs(b)},{label:'版本与导出',icon:'clock',run:()=>openVers(b)},'-',{label:pl.archived?'恢复这份作品':'归档这份作品',icon:'archive',run:()=>DS.toast(pl.archived?'恢复作品（原型）':'归档作品（原型）','info')}]); }
+function plBlock(){ window.PL_BLOCK=true; st.tab='prop'; render(); DS.$('.prop textarea')?.focus(); }
+const _plRenderBase=render;
+render=function(){ _plRenderBase(); if(window.PL_BLOCK){ const a=DS.$('.stagearea'); if(a&&!DS.$('#plBlk')) a.insertAdjacentHTML('afterbegin',`<div id="plBlk" class="banner warn" role="alert" style="width:min(100%,880px);margin-bottom:16px">${I('alert')}<div><b>制作方案没有打开</b><br>对象或页面输入尚未保存，请先核对属性；草稿仍保留。</div><div class="actions"><button class="btn secondary sm" onclick="DS.$('.prop textarea')?.focus()">去核对属性</button></div></div>`); const pp=DS.$('.prop'); if(pp&&!DS.$('#plDirty')) pp.insertAdjacentHTML('afterbegin','<span id="plDirty" class="badge st-fail" style="align-self:flex-start"><span class="dot"></span>标题文字未保存</span>'); } };
+if (PS==='pl-ro-archived'){ window.PL_HEAD='<span class="badge st-idle" style="margin-left:10px;flex:none">'+I('archive','sm')+'已归档</span>'; render(); }
+if (PS==='pl-blocked'){ Object.assign(st,{edit:true,sel:'h',cur:2}); plBlock(); }
+else if (PS){ render(); plRender(); DS.openDrawer('plan'); setTimeout(()=>DS.$('#pl-t-'+pl.tab)?.focus(),90); }
+</script>
+
+</body>
+</html>

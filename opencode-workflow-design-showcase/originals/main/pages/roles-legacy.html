@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>历史角色配置 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.lg-split{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px;align-items:start}
+.lg-dir{padding:8px;display:flex;flex-direction:column;position:sticky;top:0}
+.lg-grp{font-size:12px;color:var(--muted);padding:12px 10px 6px;letter-spacing:.3px}
+.lg-row{display:flex;gap:12px;align-items:flex-start;padding:10px;border-radius:var(--r-md);width:100%;text-align:left;transition:background var(--t-fast)}
+.lg-row:hover{background:var(--fill-3)}
+.lg-row[aria-current="true"]{background:var(--fill-4);box-shadow:inset 0 0 0 1px var(--line-2)}
+.lg-row .t{font-size:13.5px;color:var(--ink)}
+.lg-row .d{font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lg-row .m{font-size:12px;color:var(--muted)}
+.lg-av{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font:600 13px var(--font-display);flex:none;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
+.lg-av.lg{width:56px;height:56px;border-radius:15px;font-size:20px}
+.lg-pager{display:flex;justify-content:space-between;gap:4px;padding:10px 2px 2px;margin-top:6px;box-shadow:inset 0 1px 0 var(--line)}
+.lg-dhead{display:flex;gap:16px;align-items:center;padding:20px 22px 16px;flex-wrap:wrap}
+.lg-tabs{padding:0 22px}
+.lg-body{padding:20px 22px 24px}
+.lg-sec+.lg-sec{margin-top:24px}
+.lg-flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--sub)}
+.lg-flow span{padding:3px 10px;border-radius:var(--r-pill);background:var(--fill-3);border:1px solid var(--line)}
+.lg-flow span.me{background:var(--accent-fill);border-color:var(--accent-line);color:var(--accent)}
+.lg-bind{display:grid;grid-template-columns:120px minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px 0}
+.lg-bind+.lg-bind{box-shadow:inset 0 1px 0 var(--line)}
+.lg-scope{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;padding:14px 16px;border-radius:var(--r-md);background:var(--fill-2);border:1px solid var(--line)}
+.lg-scope .field{margin:0;min-width:200px;flex:1;max-width:280px}
+.lg-scope .btn{height:var(--form-h)}
+.lg-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.lg-stat{padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--fill-1)}
+.lg-stat b{display:block;font:500 20px var(--font-display);color:var(--ink)}
+.lg-stat span{font-size:12px;color:var(--muted)}
+.lg-tool{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px 0}
+.lg-tool+.lg-tool{box-shadow:inset 0 1px 0 var(--line)}
+.lg-tool .n{font-size:13.5px;color:var(--ink)}
+.lg-tool .s{font-size:12px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.lg-tool .r{grid-column:1/-1;font-size:12.5px;color:var(--sub)}
+.lg-rule{display:grid;grid-template-columns:64px minmax(0,1fr) minmax(0,1fr) minmax(0,.8fr);gap:12px;align-items:center;padding:10px 14px;font-size:13px}
+.lg-rule+.lg-rule{box-shadow:inset 0 1px 0 var(--line)}
+.lg-rule.h{background:var(--fill-2);font-size:12px;color:var(--muted);padding:8px 14px}
+.lg-tbl{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.lg-doc{padding:14px 16px;border-radius:var(--r-md);background:var(--bg-sunken);border:1px solid var(--line);font:12.5px/1.75 var(--font-mono);color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.lg-doc .v{color:var(--accent)}
+.lg-vars{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px 14px;font-size:13px;margin:0}
+.lg-vars dt{font:12.5px var(--font-mono);color:var(--accent)}
+.lg-vars dd{margin:0;color:var(--sub)}
+.lg-hist{display:grid;grid-template-columns:210px minmax(0,1fr);gap:20px;align-items:start}
+.lg-tl{position:relative;display:flex;flex-direction:column}
+.lg-tl-it{position:relative;padding:10px 12px 12px 30px;border-radius:var(--r-md)}
+.lg-tl-it::before{content:"";position:absolute;left:12px;top:16px;width:9px;height:9px;border-radius:50%;background:var(--panel);border:2px solid var(--line-3)}
+.lg-tl-it::after{content:"";position:absolute;left:17px;top:29px;bottom:-12px;width:1px;background:var(--line-2)}
+.lg-tl-it:last-of-type::after{display:none}
+.lg-tl-it.latest::before{border-color:var(--ok);background:var(--ok)}
+.lg-tl-it.sel{background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--line-2)}
+.lg-tl-it .t{font-size:13.5px;color:var(--ink);display:flex;gap:8px;align-items:center}
+.lg-tl-it .acts{display:flex;gap:2px;margin:6px 0 0 -10px;align-items:center}
+.lg-diff{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.lg-diff-h,.lg-diff-r{display:grid;grid-template-columns:116px minmax(0,1fr) minmax(0,1fr);gap:12px;padding:10px 14px;font-size:13px}
+.lg-diff-h{background:var(--fill-2);font-size:12px;color:var(--muted);padding:8px 14px}
+.lg-diff-r+.lg-diff-r{box-shadow:inset 0 1px 0 var(--line)}
+.lg-diff-r .f{color:var(--ink-2)}
+.lg-v{align-self:start;font:12px/1.6 var(--font-mono);padding:6px 9px;border-radius:var(--r-xs);white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+.lg-v.del{background:var(--danger-fill);color:var(--ink-2);box-shadow:inset 2px 0 0 var(--danger-line)}
+.lg-v.add{background:var(--ok-fill);color:var(--ink-2);box-shadow:inset 2px 0 0 var(--ok-line)}
+.lg-v.none{background:var(--fill-2);color:var(--muted)}
+.lg-steps{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.lg-step{display:inline-flex;align-items:center;gap:6px}
+.lg-step .n{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:500 11px var(--font-mono);background:var(--fill-3);color:var(--sub);border:1px solid var(--line-2)}
+.lg-step.done{color:var(--sub)}.lg-step.done .n{background:var(--ok-fill);border-color:var(--ok-line);color:var(--ok)}
+.lg-step.cur{color:var(--ink)}.lg-step.cur .n{background:var(--fill-5);color:var(--ink-strong);border-color:var(--line-3)}
+.lg-step.bad .n{background:var(--warn-fill);border-color:var(--warn-line);color:var(--warn)}
+.lg-step-sep{width:18px;height:1px;background:var(--line-2)}
+.lg-file{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--fill-2)}
+.lg-li{display:flex;gap:10px;align-items:center;padding:9px 0;font-size:13px}
+.lg-li+.lg-li{box-shadow:inset 0 1px 0 var(--line)}
+.lg-confirm{padding:12px 14px;border-radius:var(--r-md);border:1px solid var(--line-2);background:var(--fill-2)}
+.lg-pend{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--r-md);background:var(--wait-fill);border:1px solid var(--wait-line);font-size:13.5px;color:var(--ink-2);margin-bottom:16px}
+.lg-pend>.i{color:var(--wait)}
+.lg-pend b{font-weight:500;color:var(--ink)}
+@media (max-width:1100px){.lg-hist{grid-template-columns:minmax(0,1fr)}.lg-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="roles">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+
+<aside class="drawer xl" id="impDrawer" role="dialog" aria-labelledby="impT" aria-hidden="true"></aside>
+
+<div class="dialog" id="replaceDlg" role="alertdialog" aria-labelledby="rpT" aria-describedby="rpB">
+  <div class="dialog-body"><h2 id="rpT">替换未发布的配置包？</h2><p id="rpB">“opencode-workflow-roles-2026-10.zip”已校验，但还没有发布。放弃它，改为校验新选的“opencode-workflow-roles-2026-10-b.zip”？</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>保留当前配置包</button><button class="btn danger" onclick="DS.closeDialog();DS.toast('已放弃原配置包，开始校验新配置包','info')">放弃并校验新包</button></div>
+</div>
+<div class="dialog" id="backDlg" role="alertdialog" aria-labelledby="bkT" aria-describedby="bkB">
+  <div class="dialog-body"><h2 id="bkT">放弃未发布的配置包？</h2><p id="bkB">“opencode-workflow-roles-2026-10.zip”还没有发布。放弃它后打开职业目录？历史角色已发布的版本保持原样。</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>留在这里</button><button class="btn danger" onclick="SC.href ='roles.html'">放弃并打开职业目录</button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S=DS.state||'catalog';
+const IMPORT = S.startsWith('import-');
+const LOCK = S==='publish-unknown';
+const PENDING = ['pending','back-confirm','import-replace'].includes(S);
+const TAB = {overview:'overview',pending:'overview','back-confirm':'overview','publish-unknown':'overview',perms:'perms',prompt:'prompt',history:'history','history-open':'history',compare:'history'}[S] || (IMPORT||S==='import-replace'?'overview':null);
+const SELECTED = TAB ? 'se' : null;
+
+const GROUPS = [
+  ['需求开发', [
+    {id:'se', n:'软件工程师', a:'工', c:'--role-1', d:'按冻结计划实现功能、修复问题，并附上验证方式。', slots:2, rev:4},
+    {id:'ba', n:'需求分析师', a:'析', c:'--role-2', d:'把模糊需求整理成可核对的需求说明。', slots:1, rev:2}]],
+  ['单元测试补齐', [
+    {id:'qa', n:'测试工程师', a:'测', c:'--role-3', d:'补齐单元测试并说明覆盖范围。', slots:1, rev:3}]],
+  ['专项角色', [
+    {id:'st', n:'统计辅助', a:'统', c:'--role-4', d:'通过独立命令统计用量与耗时。', slots:0, rev:1},
+    {id:'dw', n:'文档整理员', a:'文', c:'--role-5', d:'整理会议纪要与技术文档。', slots:0, rev:2}]],
+];
+
+function header(){
+  const dis = LOCK ? 'disabled title="原发布结果未核对"' : '';
+  return `<div class="crumbs"><a href="roles.html">角色管理</a><span class="sep">/</span><span class="cur">历史角色配置</span></div><span class="spacer"></span>
+    <button class="btn ghost sm" ${dis} onclick="${PENDING?"DS.openDialog('backDlg',this)":"SC.href ='roles.html'"}">${I('arrowLeft','sm')}职业目录</button>
+    <button class="btn secondary sm" ${dis} onclick="${PENDING?"DS.openDialog('replaceDlg',this)":"DS.setState('import-validating')"}">${I('upload','sm')}导入配置包</button>`;
+}
+
+/* ---------- 左侧目录 ---------- */
+function directory(){
+  const q = S==='search-empty' ? '数据迁移' : '';
+  let body;
+  if (S==='loading') body = `<div class="col" style="gap:10px;padding:8px">${[0,1,2,3].map(()=>`<div class="row" style="gap:12px"><div class="skel" style="width:32px;height:32px;border-radius:9px"></div><div class="grow col" style="gap:6px"><div class="skel" style="height:12px;width:60%"></div><div class="skel" style="height:10px;width:85%"></div></div></div>`).join('')}<div class="hint" style="padding:4px 2px">正在读取角色…</div></div>`;
+  else if (S==='read-error') body = `<div class="empty" style="padding:32px 12px"><span class="tile">${I('alert','lg')}</span><h3>没能读取角色目录</h3><p>网络连接中断。已经发布的角色配置没有变化。</p><button class="btn secondary sm" onclick="DS.setState('catalog')">${I('refresh','sm')}重试</button></div>`;
+  else if (S==='search-empty') body = `<div class="empty" style="padding:32px 12px"><span class="tile">${I('search','lg')}</span><h3>没有匹配的角色</h3><p>没有名称或用途包含“数据迁移”的历史角色。</p><button class="btn ghost sm" onclick="DS.setState('catalog')">清空搜索</button></div>`;
+  else body = GROUPS.map(([g,rows])=>`<div class="lg-grp">${g}</div>${rows.map(r=>`<button class="lg-row" aria-current="${r.id===SELECTED}" ${LOCK&&r.id!==SELECTED?'disabled style="opacity:.5;cursor:not-allowed"':''} onclick="DS.setState('overview')"><span class="lg-av" style="--c:var(${r.c})">${r.a}</span><span class="grow" style="display:grid;gap:2px;min-width:0"><span class="t">${r.n}</span><span class="d">${r.d}</span><span class="m">${r.slots?`${r.slots} 个阶段在使用`:'暂无激活阶段'} · 最新发布修订 ${r.rev}</span></span></button>`).join('')}`).join('');
+  const pager = S==='loading'||S==='read-error'||S==='search-empty' ? '' : `<div class="lg-pager"><button class="btn ghost sm" disabled title="当前没有可返回的上一页">${I('chevLeft','sm')}上一页</button><span class="hint" style="align-self:center">第 1 页</span><button class="btn ghost sm">下一页${I('chevRight','sm')}</button></div>`;
+  return `<aside class="card lg-dir" aria-label="历史角色目录">
+    <div style="padding:4px 4px 4px"><div class="input-wrap"><span data-icon="search"></span><input class="input ctl" placeholder="搜索角色名称或用途" aria-label="搜索角色" value="${q}" ${LOCK?'disabled':''}></div></div>
+    ${body}${pager}</aside>`;
+}
+
+/* ---------- 右侧详情 ---------- */
+function dhead(){
+  return `<div class="lg-dhead"><span class="lg-av lg" style="--c:var(--role-1)">工</span>
+    <div class="grow"><div class="row wrap" style="gap:8px"><h2 class="title" style="font-size:22px">软件工程师</h2><span class="badge st-ok">${I('check','sm')}最新发布修订 4</span><span class="badge">2 个阶段在使用</span><span class="badge outline">形象已配置</span></div>
+      <div class="hint" style="margin-top:6px">按冻结计划实现功能、修复问题，并附上验证方式。来自旧版角色配置包，只影响之后新建的会话。</div></div></div>`;
+}
+function tabs(){
+  return `<div class="tabs lg-tabs" role="tablist">${[['overview','描述'],['perms','权限与 MCP'],['prompt','Prompt 模板'],['history','版本历史']].map(([k,l])=>`<button class="tab" role="tab" aria-selected="${TAB===k}" ${LOCK?'disabled style="opacity:.5;cursor:not-allowed"':''} onclick="DS.setState('${k}')">${l}</button>`).join('')}</div>`;
+}
+function overview(){
+  const bind = (wf, steps, me) => `<div class="lg-bind"><span style="font-size:13.5px">${wf}</span><div class="lg-flow">${steps.map(s=>`<span class="${s===me?'me':''}">${s}</span>`).join(I('chevRight','sm'))}</div><button class="btn ghost sm" ${LOCK?'disabled':''}>使用修订 4${I('arrowRight','sm')}</button></div>`;
+  return `<div class="lg-sec"><div class="sec-t">角色职责</div><p style="font-size:14px;line-height:1.7;color:var(--ink-2)">依据冻结的实施计划修改代码，每次改动附上验证方式与影响范围；遇到需求不明确时停下来提问，不自行扩大修改范围。</p>
+      <div class="row" style="gap:8px;margin-top:10px"><span class="hint">来源</span><span class="chip">${I('archive','sm')}内置</span></div></div>
+    <div class="lg-sec"><div class="sec-t">所属流程与位置</div>${bind('需求开发',['需求澄清','实施','代码验证'],'实施')}${bind('小范围修复',['定位问题','修复','回归验证'],'修复')}
+      <p class="hint" style="margin-top:6px">运行时使用的修订以每个流程位置的绑定为准；点击可查看那个修订的静态配置。</p></div>`;
+}
+const TOOLS = [
+  ['读取文件','read','原生','ok',''],
+  ['编辑文件','edit','原生','ok','',1],
+  ['执行命令','bash','原生','block','当前项目策略禁止执行任意命令。'],
+  ['读取外部文档','example.docs.mcp / read_document','MCP','ok',''],
+  ['搜索外部文档','example.docs.mcp / search','MCP','ok',''],
+  ['抓取网页','webfetch','原生','role','这个角色的配置包没有开放网络访问。'],
+  ['查看任务证据','task_evidence','辅助','ok',''],
+];
+const TST = {ok:['st-idle','待运行时核定'], block:['st-fail','策略禁用'], role:['st-danger','角色已禁用']};
+function perms(){
+  return `<div class="lg-sec"><div class="row wrap" style="gap:8px"><span class="sec-t" style="margin:0">工具与访问权限</span><span class="grow"></span><span class="badge outline">${I('lock','sm')}只读 · 来自修订 4</span></div>
+      <p style="font-size:13.5px;color:var(--ink-2);margin-top:8px">权限模式：精确清单，只允许下面列出的工具。</p></div>
+    <div class="lg-sec"><div class="lg-scope">
+      <div class="field"><label class="label" for="sl">角色阶段</label><select class="select" id="sl"><option>需求开发 · 实施</option><option>小范围修复 · 修复</option></select></div>
+      <div class="field"><label class="label" for="pj">按哪个项目预览</label><select class="select" id="pj"><option>全局配置</option><option>支付网关重构</option><option>客服知识库</option></select></div>
+      <button class="btn secondary">${I('eye','sm')}预览权限</button></div>
+      <div class="row wrap" style="gap:8px;margin-top:12px"><span class="badge st-ok">${I('check','sm')}阶段绑定配置</span><span class="badge">修订 4</span><span class="badge st-ok">信息完整</span><span class="hint">· 预览按全局配置计算，具体项目可能进一步收紧。</span></div></div>
+    <div class="lg-sec lg-stats"><div class="lg-stat"><b class="num">7</b><span>配置的工具</span></div><div class="lg-stat"><b class="num" style="color:var(--warn)">2</b><span>受限</span></div><div class="lg-stat"><b class="num">5</b><span>待运行时核定</span></div></div>
+    <div class="lg-sec"><div class="sec-t">MCP 与工具清单</div><div>${TOOLS.map(([n,id,src,st,why,req])=>`<div class="lg-tool"><div class="n">${n}</div><span class="badge ${TST[st][0]}">${st==='ok'?I('clock','sm'):I('alert','sm')}${TST[st][1]}</span>
+        <div class="s"><span class="mono">${id}</span><span>·</span><span>${src}</span>${req?'<span class="badge outline" style="height:20px">服务端必需</span>':''}</div>${why?`<div class="r">${why}</div>`:''}</div>`).join('')}</div></div>
+    <div class="lg-sec"><div class="sec-t">权限规则</div><div class="lg-tbl"><div class="lg-rule h"><span>动作</span><span>权限</span><span>说明</span><span>范围</span></div>
+      ${[['ok','允许','read','读取文件','全部'],['ok','允许','edit','编辑文件','src/**'],['wait','询问','bash','执行命令','git status*'],['danger','拒绝','webfetch','抓取网页','全部']].map(([c,a,p,d,r])=>`<div class="lg-rule"><span class="badge st-${c}">${a}</span><span class="mono">${p}</span><span class="sub">${d}</span><span class="mono" style="color:var(--sub)">${r}</span></div>`).join('')}</div></div>`;
+}
+const PROMPT = `你是{role_name}，负责在流程“{workflow_name}”的“{step_name}”步骤完成实施。
+
+目标：{task_goal}
+冻结计划：{frozen_plan}
+工作区：{workspace}
+
+先阅读项目公约再修改代码；每次改动说明验证方式与影响范围。`;
+function promptDoc(rev){
+  return `<div class="lg-sec"><div class="sec-t">工作节点专业说明</div><div class="lg-doc" style="font-family:var(--font)">依据已核对的资料实施，清楚记录来源和边界。</div></div>
+    <div class="lg-sec"><div class="row" style="gap:8px;margin-bottom:8px"><span class="sec-t" style="margin:0">Prompt 配置全文</span><span class="hint">· 静态内容合并展示，按流程选用</span></div>
+      <dl class="lg-vars" aria-label="模板变量说明">${[['{role_name}','角色名称'],['{workflow_name}','所在流程'],['{step_name}','流程步骤'],['{task_goal}','本次任务目标'],['{frozen_plan}','冻结的实施计划'],['{workspace}','工作区路径']].map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      <div class="lg-doc" style="margin-top:12px">${esc(PROMPT).replace(/\{[a-z_]+\}/g,m=>`<span class="v">${m}</span>`)}</div></div>`;
+}
+function prompt(){
+  return `<div class="row wrap" style="gap:10px"><span class="badge st-ok">${I('check','sm')}修订 4</span><span class="hint">发布于 2026年9月26日 14:20</span><span class="grow"></span><button class="btn secondary sm">${I('download','sm')}导出修订 4</button></div><div style="margin-top:20px">${promptDoc(4)}</div>`;
+}
+const REVS = [[4,'2026年9月26日 14:20'],[3,'2026年9月2日 10:05'],[2,'2026年8月18日 16:41'],[1,'2026年7月30日 09:12']];
+function history(){
+  const sel = S==='history-open'||S==='compare' ? 2 : null;
+  const tl = `<div class="lg-tl">${REVS.map(([n,t])=>`<div class="lg-tl-it ${n===4?'latest':''} ${n===sel?'sel':''}"><div class="t">修订 ${n}${n===4?'<span class="badge st-ok" style="height:20px">最新发布</span>':''}</div><div class="hint">${t}</div>
+      <div class="acts"><button class="btn ghost sm" onclick="DS.setState('history-open')">${I('eye','sm')}查看</button><button class="icon-btn" aria-label="导出修订 ${n}" title="导出修订 ${n}">${I('download','sm')}</button>${n!==4?`<button class="icon-btn" aria-label="修订 ${n} 与最新发布比较" title="与最新发布比较" onclick="DS.setState('compare')">${I('split','sm')}</button>`:''}</div></div>`).join('')}
+    <button class="btn ghost sm" style="align-self:flex-start;margin-top:6px">${I('chevDown','sm')}加载更早的版本</button></div>`;
+  let right;
+  if (S==='history-open') right = `<section aria-label="所选历史配置"><div class="row wrap" style="gap:8px"><h3 style="font-size:16px;font-weight:500">修订 2 的静态配置</h3><span class="badge outline">${I('lock','sm')}只读</span><span class="grow"></span><button class="btn secondary sm" onclick="DS.setState('compare')">${I('split','sm')}与最新比较</button></div>
+      <div class="banner" style="margin-top:12px">${I('info')}<div>这是当时发布的配置版本，不是历史会话里实际使用的完整 Prompt 快照。</div></div>
+      <dl class="kv" style="margin-top:16px"><dt>发布时间</dt><dd>2026年8月18日 16:41</dd><dt>内容摘要</dt><dd class="mono">7c41e09b2a6f…d93e</dd><dt>权限模式</dt><dd>精确清单</dd><dt>模型策略</dt><dd>按当前流程继承</dd><dt>原生工具</dt><dd>read（读取文件）、edit（编辑文件）、bash（执行命令）</dd><dt>精确 MCP</dt><dd class="muted">无显式清单</dd></dl>
+      <details class="adv" style="margin-top:16px"><summary>${I('chevRight','sm chev')}查看修订 2 的 Prompt 全文</summary><div style="padding-bottom:14px">${promptDoc(2)}</div></details></section>`;
+  else if (S==='compare') right = `<section aria-label="版本差异"><div class="row wrap" style="gap:8px"><h3 style="font-size:16px;font-weight:500">修订 2 与最新发布修订 4 的差异</h3><span class="badge">4 处变化</span></div>
+      <div class="lg-diff" style="margin-top:12px"><div class="lg-diff-h"><span>内容</span><span>修订 2</span><span>修订 4（最新发布）</span></div>
+      ${[['原生工具','read, edit, bash','read, edit, bash, webfetch'],['精确 MCP 工具',null,'example.docs.mcp/read_document\nexample.docs.mcp/search'],['权限规则 · 执行命令','允许 · 全部','询问 · git status*'],['Prompt · 实施要求','每次改动说明验证方式。','先阅读项目公约再修改代码；每次改动说明验证方式与影响范围。']].map(([f,a,b])=>`<div class="lg-diff-r"><span class="f">${f}</span><span class="lg-v ${a?'del':'none'}">${a?esc(a):'（无）'}</span><span class="lg-v add">${esc(b)}</span></div>`).join('')}</div>
+      <p class="hint" style="margin-top:10px">只比较静态配置。已冻结任务仍使用它们当时的修订。</p></section>`;
+  else right = `<div class="empty" style="padding:48px 16px"><span class="tile">${I('clock','lg')}</span><h3>选择一个修订</h3><p>查看它的静态配置、导出配置包，或与最新发布修订比较差异。</p></div>`;
+  return `<div class="lg-hist">${tl}<div style="min-width:0">${right}</div></div>`;
+}
+function detail(){
+  if (S==='loading') return `<section class="card" aria-busy="true"><div class="lg-dhead"><div class="skel" style="width:56px;height:56px;border-radius:15px"></div><div class="grow col" style="gap:8px"><div class="skel" style="height:20px;width:180px"></div><div class="skel" style="height:12px;width:60%"></div></div></div><div class="lg-body col" style="gap:10px"><div class="skel" style="height:14px;width:120px"></div><div class="skel" style="height:64px"></div><div class="hint">正在读取角色详情…</div></div></section>`;
+  if (!TAB) return `<section class="card"><div class="empty" style="padding:96px 24px"><span class="tile">${I('users','lg')}</span><h3>选择一个角色</h3><p>查看它的职责、权限、Prompt 和已发布的版本。要更新旧配置，请导入配置包，校验并核对差异后再发布。</p></div></section>`;
+  return `<section class="card">${dhead()}${tabs()}<div class="lg-body">${{overview,perms,prompt,history}[TAB]()}</div></section>`;
+}
+
+/* ---------- 导入抽屉 ---------- */
+function steps(cur, bad){
+  const L=['选择文件','校验','核对差异','发布'];
+  return `<div class="lg-steps">${L.map((l,i)=>`${i?'<span class="lg-step-sep"></span>':''}<span class="lg-step ${i<cur?'done':i===cur?(bad?'bad':'cur'):''}"><span class="n">${i<cur?I('check','sm'):i+1}</span>${l}</span>`).join('')}</div>`;
+}
+function importDrawer(){
+  const st = S.slice(7);
+  const file = `<div class="lg-file"><span class="tile">${I('archive')}</span><div class="grow"><div style="font-size:13.5px">opencode-workflow-roles-2026-10.zip</div><div class="hint">48 KB · 来源摘要 <span class="mono">9f3e2a1c4b7d…</span></div></div><button class="btn ghost sm" ${st==='validating'?'disabled':''} onclick="DS.openDialog('replaceDlg',this)">换一个</button></div>`;
+  let body='', foot='';
+  const pubNote = `<div class="banner info" style="margin-top:16px">${I('info')}<div>发布只影响<b>之后新建的会话</b>。正在运行的会话和已冻结的任务不会因为导入获得新增权限。</div></div>`;
+  const roles = (rows) => `<div class="sec-t" style="margin-top:20px">角色版本</div>${rows.map(([n,c,t])=>`<div class="lg-li"><span class="grow">${n}</span><span class="badge ${c}">${t}</span></div>`).join('')}`;
+  const diff = `<div class="sec-t" style="margin-top:20px">字段差异 · 4 处</div><div class="lg-diff"><div class="lg-diff-h" style="grid-template-columns:130px minmax(0,1fr) minmax(0,1fr)"><span>内容</span><span>当前</span><span>导入后</span></div>
+      ${[['软件工程师 · 原生工具','read, edit, bash','read, edit, bash, grep'],['软件工程师 · 编辑范围','src/**','src/**\ntests/**'],['代码评审员',null,'新角色 · 修订 1'],['代码评审 · 评审','未绑定','代码评审员']].map(([f,a,b])=>`<div class="lg-diff-r" style="grid-template-columns:130px minmax(0,1fr) minmax(0,1fr)"><span class="f">${f}</span><span class="lg-v ${a?'del':'none'}">${a?esc(a):'（不存在）'}</span><span class="lg-v add">${esc(b)}</span></div>`).join('')}</div>`;
+  const binds = `<div class="sec-t" style="margin-top:20px">激活绑定</div><div class="lg-li"><span class="grow">需求开发 · 实施</span><span class="sub">${I('arrowRight','sm')}</span><span>软件工程师</span><span class="hint">不变</span></div><div class="lg-li"><span class="grow">代码评审 · 评审</span><span class="sub">${I('arrowRight','sm')}</span><span>代码评审员</span><span class="badge st-accent">新绑定</span></div>`;
+  if (st==='validating') {
+    body = `${steps(1)}<div style="margin-top:18px">${file}</div><div class="col" style="gap:10px;margin-top:20px"><div class="row" style="gap:10px;color:var(--sub);font-size:13.5px"><span class="spin"></span>正在校验配置包与现有配置…</div>${[0,1,2].map(()=>'<div class="skel" style="height:38px"></div>').join('')}</div>`;
+    foot = `<span class="hint grow">校验只读取配置包，不会写入任何配置。</span><button class="btn primary" disabled>发布配置包</button>`;
+  } else if (st==='invalid') {
+    body = `${steps(1,true)}<div style="margin-top:18px">${file}</div>
+      <div class="banner warn" style="margin-top:16px" role="alert">${I('alert')}<div><b>校验未通过，不能发布</b><br>修正配置包后重新导入。当前的角色配置没有任何变化。</div></div>
+      <div class="sec-t" style="margin-top:20px">问题 · 3 项</div>${[['roles/code-reviewer.json','缺少角色职责说明。'],['roles/software-engineer.json','工具“shell_exec”不在可识别的清单里。'],['配置包','激活绑定引用了不存在的角色“qa-lead”。']].map(([p,m])=>`<div class="lg-li" style="align-items:flex-start"><span style="color:var(--warn)">${I('alert','sm')}</span><span class="grow"><span class="mono" style="color:var(--sub)">${p}</span><br>${m}</span></div>`).join('')}`;
+    foot = `<button class="btn ghost" onclick="DS.closeDrawer()">关闭</button><span class="grow"></span><button class="btn secondary">${I('upload','sm')}选择其他配置包</button>`;
+  } else if (st==='nodiff') {
+    body = `${steps(2,true)}<div style="margin-top:18px">${file}</div>
+      <div class="banner ok" style="margin-top:16px">${I('check')}<div><b>校验通过</b></div></div>
+      ${roles([['软件工程师','st-idle','内容未变'],['测试工程师','st-idle','内容未变']])}
+      <div class="sec-t" style="margin-top:20px">激活绑定</div><p class="hint">保留现有角色绑定。</p>
+      <div class="banner warn" style="margin-top:20px" role="alert">${I('alert')}<div><b>没有可核对的字段差异，当前不能发布</b><br>校验结果没有给出逐项差异，无法确认发布会改动什么。可以关闭这个配置包，或重新校验。</div></div>`;
+    foot = `<button class="btn ghost" onclick="DS.closeDrawer()">关闭</button><span class="grow"></span><button class="btn secondary">${I('refresh','sm')}重新校验</button><button class="btn primary" disabled>发布配置包</button>`;
+  } else {
+    body = `${steps(2)}<div style="margin-top:18px">${file}</div>
+      <div class="banner ok" style="margin-top:16px">${I('check')}<div><b>校验通过，请核对差异</b><br>确认下面的角色、权限、提示模板和激活变化都符合预期，再发布。</div></div>
+      ${roles([['软件工程师','st-wait','更新版本 · 修订 4 → 5'],['代码评审员','st-accent','新角色'],['文档整理员','st-idle','内容未变']])}
+      ${binds}${diff}${pubNote}
+      <label class="check lg-confirm" style="margin-top:16px"><input type="checkbox" id="cf" onchange="DS.$('#pubBtn').disabled=!this.checked"><span style="font-size:13.5px">我已核对角色、权限、提示模板与激活差异</span></label>`;
+    foot = `<button class="btn ghost" onclick="DS.closeDrawer()">稍后再说</button><span class="grow"></span><button class="btn secondary">${I('refresh','sm')}重新校验</button><button class="btn primary" id="pubBtn" disabled onclick="DS.closeDrawer();DS.toast('已发布，之后新建的会话将使用新配置')">${I('upload','sm')}发布配置包</button>`;
+  }
+  return `<div class="drawer-head"><div class="grow"><h2 id="impT">导入角色配置</h2><div class="hint" style="margin-top:2px">旧版配置包 · 校验并明确核对差异后才能发布</div></div><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer()">${I('x')}</button></div>
+    <div class="drawer-body">${body}</div><div class="drawer-foot">${foot}</div>`;
+}
+
+function render(){
+  DS.$('.header').innerHTML = header();
+  const banner = LOCK
+    ? `<div class="banner unknown" style="margin-bottom:16px" role="alert">${I('help')}<div><b>配置包发布结果未明</b><br>已发出发布“opencode-workflow-roles-2026-10.zip”的请求，但没有收到确认。正在读取角色目录核对是否已经生效；核对清楚前不能导入新的配置包、再次发布或离开到职业目录。</div><div class="actions"><button class="btn secondary sm" onclick="DS.toast('正在核对原操作…','info')">${I('refresh','sm')}核对原操作</button></div></div>`
+    : (PENDING||IMPORT) && S!=='import-validating' ? `<div class="lg-pend">${I('archive')}<span class="grow"><b>opencode-workflow-roles-2026-10.zip</b> 已${S==='import-invalid'?'校验（未通过）':'校验'}，尚未发布</span><button class="btn secondary sm" onclick="DS.setState('import-ok')">打开导入结果</button></div>` : '';
+  DS.$('#view').innerHTML = `<p class="lede" style="margin-bottom:20px">旧版角色配置包的职责、权限与版本。新的职业请回到“职业目录”管理；这里的发布只影响新建的会话。</p>${banner}
+    <div class="lg-split">${directory()}${detail()}</div>`;
+  DS.icons(DS.$('#view'));
+  if (IMPORT) { const d=DS.$('#impDrawer'); d.innerHTML = importDrawer(); DS.icons(d); }
+}
+DS.mount({ header:'', state:S, states:[
+  {id:'catalog',label:'目录（未选择）'},{id:'loading',label:'读取中'},{id:'overview',label:'描述'},{id:'perms',label:'权限与 MCP'},{id:'prompt',label:'Prompt 模板'},
+  {id:'history',label:'版本历史'},{id:'history-open',label:'所选历史版本'},{id:'compare',label:'版本比较'},
+  {id:'pending',label:'有未发布的配置包'},{id:'import-validating',label:'导入 · 校验中'},{id:'import-ok',label:'导入 · 校验通过待核对'},{id:'import-invalid',label:'导入 · 校验未通过'},{id:'import-nodiff',label:'导入 · 无字段差异不能发布'},
+  {id:'import-replace',label:'替换配置包确认'},{id:'back-confirm',label:'返回职业目录确认'},{id:'publish-unknown',label:'发布结果未明'},{id:'read-error',label:'读取失败'},{id:'search-empty',label:'搜索无结果'}] });
+render();
+if (IMPORT) DS.openDrawer('impDrawer');
+if (S==='import-replace') DS.openDialog('replaceDlg');
+if (S==='back-confirm') DS.openDialog('backDlg');
+</script>
+</body>
+</html>

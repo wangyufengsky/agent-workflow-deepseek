@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>开始任务 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:28px;align-items:start}
+@media (max-width:1120px){.layout{grid-template-columns:1fr}}
+.step{display:grid;grid-template-columns:28px minmax(0,1fr);gap:14px}
+.step+.step{margin-top:28px}
+.step-no{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:12.5px;font-weight:500;background:var(--fill-4);color:var(--ink-2);transition:all var(--t-mid)}
+.step.ok .step-no{background:var(--ok-fill);color:var(--ok)}
+.step.off .goal{opacity:.45;pointer-events:none}
+.step.off .step-title{color:var(--sub)}
+.step-title{font-size:15px;font-weight:500;line-height:28px}
+.goal{border-radius:18px;background:var(--raised);border:1px solid var(--line-2);transition:border-color var(--t-fast),box-shadow var(--t-fast)}
+.goal:focus-within{border-color:rgba(169,188,255,.5);box-shadow:var(--ring)}
+.goal textarea{display:block;width:100%;min-height:120px;resize:vertical;border:0;outline:0;background:transparent;padding:16px 18px 6px;font-size:15px;line-height:1.65;color:var(--ink)}
+.goal-foot{display:flex;align-items:center;gap:8px;padding:8px 12px 12px 18px;flex-wrap:wrap}
+.name-inline{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);min-width:0}
+.name-inline input{height:28px;min-width:0;width:340px;max-width:100%;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--ink-2);padding:0 8px;font-size:12.5px;outline:none}
+.name-inline input:hover{border-color:var(--line-2)}
+.name-inline input:focus{border-color:rgba(169,188,255,.5);background:var(--bg-sunken)}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:14px;border:1px solid var(--line-2);background:var(--fill-1);text-align:left;transition:all var(--t-fast);min-width:0}
+.opt:hover{border-color:var(--line-3);background:var(--fill-2)}
+.opt[aria-checked="true"]{border-color:var(--accent-line);background:var(--accent-fill)}
+.opt .r{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-3);flex:none;margin-top:3px;display:grid;place-items:center}
+.opt[aria-checked="true"] .r{border-color:var(--accent)}
+.opt[aria-checked="true"] .r::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.opt .t{font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.opt .d{font-size:12px;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:8px}
+.chain span{font-size:11.5px;padding:2px 8px;border-radius:var(--r-pill);background:var(--fill-3);color:var(--ink-2)}
+.chain i{color:var(--faint);font-style:normal;font-size:11px}
+.more-opt{display:flex;align-items:center;justify-content:center;gap:8px;border-style:dashed;color:var(--sub)}
+.summary{position:sticky;top:24px}
+.sum-row{display:grid;grid-template-columns:56px minmax(0,1fr);gap:10px;font-size:13px;padding:6px 0}
+.sum-row dt{color:var(--muted)}.sum-row dd{margin:0;color:var(--ink-2);overflow-wrap:anywhere}
+.next{display:flex;flex-direction:column;gap:0;margin-top:4px}
+.nx{display:flex;gap:10px}
+.nx .rail{display:flex;flex-direction:column;align-items:center;width:18px}
+.nx .rail i{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;font-style:normal;background:var(--fill-4);color:var(--sub)}
+.nx .rail i.here{background:var(--primary-bg);color:var(--primary-ink)}
+.nx .rail b{flex:1;width:1px;background:var(--line-2);margin:3px 0}
+.nx .tx{padding-bottom:12px;font-size:12.5px;color:var(--muted)}
+.nx .tx strong{display:block;font-weight:500;font-size:13px;color:var(--ink-2)}
+.receipt{display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:48px 24px}
+.receipt .tile{width:56px;height:56px;border-radius:16px;background:var(--ok-fill);color:var(--ok)}
+.dlist .list-row{border-radius:12px}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="start">
+<main id="page" hidden><div class="page" style="max-width:1120px" id="view"></div></main>
+
+<aside class="drawer" id="projDrawer" role="dialog" aria-labelledby="pdT" aria-hidden="true" tabindex="-1">
+  <div class="drawer-head"><h2 id="pdT" class="grow">选择项目</h2><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer()" data-icon="x"></button></div>
+  <div style="padding:14px 20px 4px"><div class="input-wrap"><span data-icon="search"></span><input class="input ctl" placeholder="搜索项目名称或路径" aria-label="搜索项目" oninput="filterList(this,'#pdList')"></div></div>
+  <div class="drawer-body dlist" id="pdList"></div>
+  <div class="drawer-foot"><a class="btn ghost sm" href="projects.html?state=register" data-icon="plus">登记新项目</a></div>
+</aside>
+<aside class="drawer" id="flowDrawer" role="dialog" aria-labelledby="fdT" aria-hidden="true" tabindex="-1">
+  <div class="drawer-head"><h2 id="fdT" class="grow">选择流程</h2><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer()" data-icon="x"></button></div>
+  <div style="padding:14px 20px 4px"><div class="input-wrap"><span data-icon="search"></span><input class="input ctl" placeholder="搜索流程名称" aria-label="搜索流程" oninput="filterList(this,'#fdList')"></div></div>
+  <div class="drawer-body dlist" id="fdList"></div>
+  <div class="drawer-foot"><a class="btn ghost sm" href="workflows.html" data-icon="external">在流程目录中管理</a></div>
+</aside>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I = DS.icon, esc = DS.esc, P = DS.params;
+const S0 = DS.state || 'ready';
+const PROJECTS = [
+  {id:'p1', name:'OpenCode Loopper', path:'/workspace/opencode-loopper', hint:'Git 分支模式 · 12 个任务'},
+  {id:'p2', name:'客户服务平台 · 应用与接口整合', path:'/workspace/customer-service-platform', hint:'直接执行目录 · 6 个任务'},
+  {id:'p3', name:'支付网关', path:'/Users/liming/workspace/payment-gateway', hint:'Git 分支模式 · 0 个任务'},
+  {id:'p4', name:'用于核对长名称完整展示的企业级项目 · 跨团队协同与服务治理工作台', path:'/workspace/platform-services/enterprise-service-governance-console', hint:'路径不可用', disabled:true},
+];
+const FLOWS = [
+  {id:'f1', name:'需求开发', steps:['需求讨论','规划','实施','验收'], desc:'完整的从需求到交付，适合新功能。', rev:12},
+  {id:'f2', name:'小范围修复', steps:['定位问题','实施修复','验证'], desc:'问题明确、改动小，适合缺陷修复。', rev:5},
+  {id:'f3', name:'文档编写', steps:['收集资料','起草','评审'], desc:'产出设计文档或变更说明。', rev:3},
+  {id:'f4', name:'单元测试补齐', steps:['分析覆盖','编写测试','运行验证'], desc:'为已有代码补测试。', rev:7},
+];
+const st = {
+  goal: P.get('objective') || (['filled','reading','submitting','unknown','accepted','handoff-error','flow-error'].includes(S0) ? '让项目配置更容易找到，减少切换页面的次数。' : ''),
+  name: '', nameTouched:false,
+  project: P.get('project') ? PROJECTS.find(p=>p.name.startsWith(P.get('project').slice(0,6)))?.id || 'p1' : (S0==='ready'?null:'p1'),
+  flow: P.get('flow') ? FLOWS.find(f=>f.name===P.get('flow'))?.id || 'f1' : (S0==='ready'?null:'f1'),
+  flowCheck: S0==='reading' ? 'reading' : S0==='flow-error' ? 'error' : (S0==='ready'&&!P.get('flow')?null:'ok'),
+  phase: {submitting:'submitting', unknown:'unknown', accepted:'accepted', 'handoff-error':'handoff-error'}[S0] || 'edit',
+};
+function autoName(){ const g = st.goal.trim().replace(/\s+/g,' '); return g ? [...g].slice(0,60).join('') : ''; }
+function shownName(){ return st.nameTouched ? st.name : autoName(); }
+function why(){
+  if (!st.project) return '先选择项目';
+  if (!st.goal.trim()) return '写下目标后才能形成草稿';
+  if (!st.flow) return '还需要选择流程';
+  if (st.flowCheck==='reading') return '正在核对流程版本…';
+  if (st.flowCheck==='error') return '流程版本读取失败，请重试或换一个流程';
+  return '';
+}
+
+function render(){
+  const locked = st.phase!=='edit';
+  const P_ = PROJECTS.find(p=>p.id===st.project), F_ = FLOWS.find(f=>f.id===st.flow);
+  DS.$('.header').innerHTML = `<h1>${I('plus')}开始任务</h1><span class="spacer"></span><span class="hint">草稿 → 确认计划 → 执行，三步分开进行</span>`;
+  if (st.phase==='accepted' || st.phase==='handoff-error') { DS.$('#view').innerHTML = receipt(P_,F_); return; }
+  const rec = PROJECTS.filter(p=>!p.disabled).slice(0,3);
+  DS.$('#view').innerHTML = `
+  <div class="page-head"><div class="grow"><h2 class="title">开始一个任务</h2><p class="lede">选好项目，写下目标，再挑一个流程，opencode-workflow 会先形成一份需求草稿供你审阅——此时不会开始执行。</p></div></div>
+  ${st.phase==='unknown'?`<div class="banner unknown" style="margin-bottom:20px">${I('help')}<div><b>需求草稿是否已形成，暂时无法确认</b><br>请求已发出但没有收到回执。内容已锁定，重试会使用同一份请求，不会重复创建。</div><div class="actions"><button class="btn secondary sm" onclick="retry(this)">${I('refresh','sm')}用原请求重试</button></div></div>`:''}
+  <div class="layout">
+    <div>
+      <section class="step ${st.project?'ok':''}">
+        <span class="step-no">${st.project?I('check','sm'):'1'}</span>
+        <div class="col" style="gap:10px">
+          <span class="step-title">项目</span>
+          <div class="opts" role="radiogroup" aria-label="选择项目">
+            ${rec.map(p=>`<button class="opt" role="radio" aria-checked="${st.project===p.id}" ${locked?'disabled':''} onclick="setProject('${p.id}')"><span class="r"></span><span class="grow"><div class="t">${esc(p.name)}</div><div class="d mono">${esc(p.path)}</div></span></button>`).join('')}
+            ${P_ && !rec.includes(P_)?`<button class="opt" role="radio" aria-checked="true"><span class="r"></span><span class="grow"><div class="t">${esc(P_.name)}</div><div class="d mono">${esc(P_.path)}</div></span></button>`:''}
+            <button class="opt more-opt" ${locked?'disabled':''} onclick="openPick('projDrawer',this)">${I('search','sm')}其他项目…</button>
+          </div>
+          ${S0==='project-error'?`<div class="error-text">${I('alert','sm')}项目列表读取失败，已填写的目标保留。<button class="btn ghost sm" style="height:22px">重试</button></div>`:''}
+        </div>
+      </section>
+
+      <section class="step ${st.goal.trim()?'ok':''} ${st.project?'':'off'}" id="goalStep">
+        <span class="step-no">${st.goal.trim()?I('check','sm'):'2'}</span>
+        <div class="col" style="gap:10px">
+          <div class="row"><label class="step-title" for="goal">目标</label>${st.project?`<span class="hint">在 ${esc(PROJECTS.find(p=>p.id===st.project).name)} 中</span>`:'<span class="hint">先选择项目</span>'}</div>
+          <div class="goal">
+            <textarea id="goal" ${locked||!st.project?'readonly':''} placeholder="描述要做什么，以及完成后希望看到的结果。&#10;例如：让项目配置更容易找到，减少切换页面的次数。" oninput="st.goal=this.value;soft()">${esc(st.goal)}</textarea>
+            <div class="goal-foot">
+              <label class="name-inline" for="name">${I('edit','sm')}任务名称</label>
+              <span class="name-inline grow"><input id="name" ${locked?'readonly':''} value="${esc(shownName())}" placeholder="留空时从目标自动生成" oninput="st.name=this.value;st.nameTouched=true;soft()" aria-describedby="nameHint"></span>
+              <span class="counter" id="cnt">${[...st.goal].length} 字</span>
+            </div>
+          </div>
+          <span class="hint" id="nameHint">${st.nameTouched?'已使用你填写的名称。':'名称会从目标自动生成，形成草稿前都可以修改。'}</span>
+        </div>
+      </section>
+
+      <section class="step ${st.flow&&st.flowCheck==='ok'?'ok':''}">
+        <span class="step-no">${st.flow&&st.flowCheck==='ok'?I('check','sm'):'3'}</span>
+        <div class="col" style="gap:10px">
+          <div class="row"><span class="step-title">流程</span><span class="hint">决定任务会经过哪些步骤</span></div>
+          <div class="opts" role="radiogroup" aria-label="选择流程">
+            ${FLOWS.slice(0,3).map(f=>`<button class="opt" role="radio" aria-checked="${st.flow===f.id}" ${locked?'disabled':''} onclick="setFlow('${f.id}')"><span class="r"></span><span class="grow"><div class="t">${f.name}</div><div class="d">${f.desc}</div><div class="chain">${f.steps.map((s,i)=>`${i?'<i>→</i>':''}<span>${s}</span>`).join('')}</div></span></button>`).join('')}
+            <button class="opt more-opt" ${locked?'disabled':''} onclick="openPick('flowDrawer',this)">${I('search','sm')}全部流程…</button>
+          </div>
+          ${st.flowCheck==='reading'?`<span class="hint row">${'<span class="spin"></span>'}正在读取所选流程的当前版本…</span>`:''}
+          ${st.flowCheck==='error'?`<div class="error-text">${I('alert','sm')}“需求开发”的版本读取失败，不能据此创建草稿。<button class="btn ghost sm" style="height:22px" onclick="setFlow('${st.flow}')">重试</button></div>`:''}
+        </div>
+      </section>
+    </div>
+
+    <aside class="summary">
+      <div class="card">
+        <div style="padding:16px 18px 6px"><div class="eyebrow">将要创建</div>
+          <div style="font-size:15px;font-weight:500;margin-top:6px;overflow-wrap:anywhere" id="sumName">${esc(shownName()) || '<span class="muted">未命名任务</span>'}</div></div>
+        <dl style="margin:0;padding:4px 18px 10px">
+          <div class="sum-row"><dt>项目</dt><dd>${P_?esc(P_.name):'<span class="muted">未选择</span>'}</dd></div>
+          <div class="sum-row"><dt>流程</dt><dd>${F_?`${F_.name} ${st.flowCheck==='ok'?`<span class="badge st-ok" style="height:18px;margin-left:4px">版本 r${F_.rev} 已核对</span>`:''}`:'<span class="muted">未选择</span>'}</dd></div>
+        </dl>
+        <div style="padding:6px 18px 4px;box-shadow:inset 0 1px 0 var(--line)">
+          <div class="eyebrow" style="margin:10px 0 10px">接下来</div>
+          <div class="next">
+            <div class="nx"><div class="rail"><i class="here">1</i><b></b></div><div class="tx"><strong>形成需求草稿</strong>本页完成，不会入队或执行</div></div>
+            <div class="nx"><div class="rail"><i>2</i><b></b></div><div class="tx"><strong>在需求画布确认计划</strong>可调整步骤、模型与预算</div></div>
+            <div class="nx"><div class="rail"><i>3</i></div><div class="tx"><strong>开始执行</strong>确认后单独启动</div></div>
+          </div>
+        </div>
+        <div style="padding:12px 18px 18px">
+          <button class="btn primary lg" style="width:100%" id="go" ${why()||locked?'disabled':''} onclick="submit(this)">${st.phase==='submitting'?'<span class="spin"></span>正在形成草稿':'形成需求草稿'}</button>
+          <p class="hint" id="why" style="text-align:center;margin-top:8px;min-height:18px">${st.phase==='unknown'?'结果核对前不能再次提交':why()}</p>
+        </div>
+      </div>
+    </aside>
+  </div>`;
+}
+function soft(){ // 输入时只更新局部，避免丢焦点
+  DS.$('#cnt').textContent = [...st.goal].length + ' 字';
+  if (!st.nameTouched) DS.$('#name').value = autoName();
+  DS.$('#sumName').innerHTML = esc(shownName()) || '<span class="muted">未命名任务</span>';
+  DS.$('#go').disabled = !!why(); DS.$('#why').textContent = why();
+  DS.$('#nameHint').textContent = st.nameTouched ? '已使用你填写的名称。' : '名称会从目标自动生成，形成草稿前都可以修改。';
+  const s1 = DS.$('#goalStep'); const ok = !!st.goal.trim(); if (s1.classList.contains('ok')!==ok){ s1.classList.toggle('ok',ok); s1.querySelector('.step-no').innerHTML = ok?I('check','sm'):'2'; }
+}
+function setProject(id){ const first=!st.project; st.project=id; DS.closeDrawer(); render(); if(first) setTimeout(()=>DS.$('#goal').focus(),50); }
+function setFlow(id){ st.flow=id; st.flowCheck='reading'; DS.closeDrawer(); render(); setTimeout(()=>{ st.flowCheck='ok'; render(); }, 700); }
+function openPick(id,t){
+  if (id==='projDrawer') DS.$('#pdList').innerHTML = PROJECTS.map(p=>`<button class="list-row" ${p.disabled?'disabled style="opacity:.5"':''} onclick="setProject('${p.id}')"><span class="tile" style="width:32px;height:32px">${I(p.disabled?'alert':'folder','sm')}</span><span class="grow"><div style="font-size:13.5px;overflow-wrap:anywhere">${esc(p.name)}</div><div class="hint mono" style="overflow-wrap:anywhere">${esc(p.path)}</div><div class="hint">${p.hint}</div></span>${st.project===p.id?`<span style="color:var(--accent)">${I('check')}</span>`:''}</button>`).join('');
+  else DS.$('#fdList').innerHTML = FLOWS.map(f=>`<button class="list-row" onclick="setFlow('${f.id}')"><span class="tile" style="width:32px;height:32px">${I('flow','sm')}</span><span class="grow"><div style="font-size:13.5px">${f.name}</div><div class="hint">${f.steps.join(' → ')}</div></span>${st.flow===f.id?`<span style="color:var(--accent)">${I('check')}</span>`:''}</button>`).join('');
+  DS.openDrawer(id,t);
+}
+function filterList(inp,sel){ const v=inp.value.toLowerCase(); DS.$$(sel+' .list-row').forEach(r=>r.style.display=r.textContent.toLowerCase().includes(v)?'':'none'); }
+function submit(){ st.phase='submitting'; render(); setTimeout(()=>{ st.phase='accepted'; render(); }, 1200); }
+function retry(b){ b.innerHTML='<span class="spin"></span>核对中'; setTimeout(()=>{ st.phase='accepted'; render(); },1200); }
+function receipt(P_,F_){
+  const bad = st.phase==='handoff-error';
+  return `<div class="card" style="max-width:640px;margin:40px auto 0"><div class="receipt">
+    <span class="tile" style="${bad?'background:var(--warn-fill);color:var(--warn)':''}">${I(bad?'alert':'check','lg')}</span>
+    <h2 class="title" style="font-size:22px">${bad?'草稿已形成，但没能自动打开':'需求草稿已形成'}</h2>
+    <p class="lede" style="max-width:440px">${bad?'需求画布暂时没有响应。草稿已经保存，不需要重新创建——直接打开原草稿即可。':'下一步在需求画布里审阅计划。确认之前，任务不会开始执行。'}</p>
+    <dl class="kv" style="text-align:left;margin:8px 0 6px;width:100%;max-width:420px"><dt>任务</dt><dd>${esc(shownName())}</dd><dt>项目</dt><dd>${esc(P_.name)}</dd><dt>流程</dt><dd>${F_.name} · 版本 r${F_.rev}</dd></dl>
+    <div class="row" style="margin-top:8px"><a class="btn primary" href="requirement.html">${bad?'打开原草稿':'去确认计划'}${I('arrowRight','sm')}</a><a class="btn ghost" href="tasks.html">稍后，回到任务列表</a></div>
+  </div></div>`;
+}
+DS.mount({ header:'', state:S0, states:[
+  {id:'ready',label:'空白'},{id:'filled',label:'已填写'},{id:'reading',label:'核对流程版本中'},{id:'flow-error',label:'流程版本读取失败'},{id:'project-error',label:'项目列表读取失败'},
+  {id:'submitting',label:'提交中'},{id:'unknown',label:'结果未明（锁定）'},{id:'accepted',label:'草稿已形成'},{id:'handoff-error',label:'已形成但打开失败'}] });
+render();
+if (S0==='reading') setTimeout(()=>{ st.flowCheck='ok'; render(); }, 2500);
+</script>
+</body>
+</html>

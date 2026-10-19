@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>运行环境 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.hero{display:flex;gap:20px;align-items:center;padding:24px;flex-wrap:wrap}
+.hero .orb{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;flex:none;position:relative}
+.hero .orb svg{width:28px;height:28px}
+.hero .orb::after{content:"";position:absolute;inset:-6px;border-radius:22px;border:1px solid currentColor;opacity:.25}
+.hero h2{font-family:var(--font-display);font-weight:500;font-size:26px;letter-spacing:-.5px}
+.hero .sum{color:var(--sub);font-size:13.5px;margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px}
+.facts{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:16px}
+@media (max-width:1100px){.facts{grid-template-columns:1fr}}
+.fact{padding:18px 20px}
+.fact h3{font-size:13px;color:var(--muted);font-weight:500;letter-spacing:.3px;display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.fact .kv{grid-template-columns:80px minmax(0,1fr)}
+.copy{display:inline-flex;align-items:center;gap:6px}
+.copy button{opacity:0;transition:opacity var(--t-fast)}
+.copy:hover button,.copy button:focus-visible{opacity:1}
+.op{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:start;padding:14px 18px}
+.op+.op{box-shadow:inset 0 1px 0 var(--line)}
+.op .ic{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:var(--fill-3)}
+.stale{opacity:.55}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="runtime">
+<main id="page" hidden><div class="page" id="view"></div></main>
+
+<div class="dialog" id="confirm" role="alertdialog" aria-labelledby="cfT">
+  <div class="dialog-body"><h2 id="cfT"></h2><p id="cfB"></p>
+    <dl class="kv" style="margin-top:14px;font-size:13px" id="cfSnap"></dl></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>先不要</button><button class="btn primary" id="cfGo" onclick="doCmd()"></button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S=DS.state||'managed';
+const SNAP = {
+  managed:{status:'online', ver:'1.7.0', managed:true, pid:'24680', gen:'a1b2c3d4', ep:'http://127.0.0.1:49001', model:'example-provider/example-model', at:'19:30:01', mcp:['ok','已就绪','配置已注入']},
+  external:{status:'online', ver:'1.6.2', managed:false, pid:null, gen:null, ep:'http://127.0.0.1:4096', model:'example-provider/example-model', at:'19:30:01', mcp:['ok','已就绪','配置已注入']},
+  offline:{status:'offline', ver:null, managed:false, pid:null, gen:null, ep:'http://127.0.0.1:49001', model:'example-provider/example-model', at:'19:31:44', mcp:['idle','未启用','服务未连接'], fail:'在 30 秒内没有收到 OpenCode 的就绪响应（启动超时）。'},
+  starting:{status:'starting', ver:'1.7.0', managed:true, pid:'24711', gen:'b7c8d9e0', ep:'http://127.0.0.1:49001', model:'example-provider/example-model', at:'19:32:05', mcp:['wait','连接中','配置已注入']},
+  'unknown-status':{status:'unknown', raw:'DEGRADED', ver:'1.7.0', managed:true, pid:'24680', gen:'a1b2c3d4', ep:'http://127.0.0.1:49001', model:'example-provider/example-model', at:'19:30:01', mcp:['unknown','未知','']},
+};
+const snap = SNAP[S] || SNAP.managed;
+const ST = {online:['已连接','st-ok','check','var(--ok)','var(--ok-fill)'], offline:['离线','st-danger','alert','var(--danger)','var(--danger-fill)'], starting:['启动中','st-run','clock','var(--run)','var(--run-fill)'], unknown:['状态待核实','st-unknown','help','var(--unknown)','var(--unknown-fill)']};
+
+function hero(){
+  const st = ST[snap.status];
+  const canRestart = snap.managed && snap.status!=='unknown' && snap.status!=='starting' && !['cmd-unknown'].includes(S);
+  const canStart = !snap.managed && snap.status==='offline';
+  let act = '';
+  if (S==='cmd-unknown') act = `<button class="btn secondary" disabled title="原操作结果确认前不能再次操作">${I('lock','sm')}操作已锁定</button>`;
+  else if (canStart) act = `<button class="btn primary" onclick="ask('start',this)">${I('play','sm')}启动 OpenCode</button>`;
+  else if (canRestart) act = `<button class="btn secondary" onclick="ask('restart',this)">${I('refresh','sm')}重启 OpenCode…</button>`;
+  else if (snap.status==='unknown') act = `<button class="btn secondary" disabled title="状态未识别时不能启动或重启">${I('refresh','sm')}重启 OpenCode…</button>`;
+  const owner = snap.managed ? 'Loopper 受管进程' : (snap.status==='offline' ? '未找到可用进程' : '外部进程 · 由你自行启动');
+  return `<section class="card hero ${S==='read-error'?'stale':''}">
+    <span class="orb" style="color:${st[3]};background:${st[4]}">${I('server')}</span>
+    <div class="grow">
+      <div class="row wrap"><h2>OpenCode${snap.ver?' '+snap.ver:''}</h2><span class="badge ${st[1]}">${I(st[2],'sm')}${st[0]}${snap.raw?` · ${snap.raw}`:''}</span></div>
+      <div class="sum"><span>${I(snap.managed?'shield':'link','sm')} ${owner}</span><span>${I('clock','sm')} 上次检查 今天 ${snap.at}</span></div>
+    </div>
+    <div class="row">${act}</div>
+  </section>`;
+}
+function banners(){
+  const b = [];
+  if (S==='read-error') b.push(`<div class="banner danger">${I('alert')}<div><b>读取当前状态失败</b><br>本地服务没有响应。下面是 19:30:01 读取到的上一次结果，可能已经过时。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('managed')">${I('refresh','sm')}重新读取</button></div></div>`);
+  if (S==='offline') b.push(`<div class="banner warn">${I('alert')}<div><b>OpenCode 没有启动成功</b><br>${snap.fail} 任务和知识库暂时不能运行。检查 <a href="settings.html?state=model" style="color:var(--accent)">CLI 路径与模型设置</a> 后再启动。</div></div>`);
+  if (S==='starting') b.push(`<div class="banner">${I('clock')}<div><b>OpenCode 正在启动</b><br>已启动进程 24711，正在等待连接就绪。可以随时“读取当前状态”查看进展。</div><div class="actions"><span class="spin" style="color:var(--run)"></span></div></div>`);
+  if (S==='unknown-status') b.push(`<div class="banner unknown">${I('help')}<div><b>服务返回了无法识别的状态 “DEGRADED”</b><br>为避免误操作，启动与重启已停用。请重新读取，或查看 OpenCode 日志。</div><div class="actions"><button class="btn secondary sm">${I('refresh','sm')}重新读取</button></div></div>`);
+  if (S==='cmd-unknown') b.push(`<div class="banner unknown">${I('help')}<div><b>没有收到“重启 OpenCode”的结果</b><br>19:33:10 发出的重启请求超时了，进程可能已经重启，也可能没有。当前状态正常也不能证明重启完成。<br>在确认之前，不会重新发送，也不能再次启动或重启；离开本页会被提醒。</div><div class="actions"><button class="btn secondary sm" onclick="DS.toast('已读取当前状态：连接可用，但仍无法确认原重启结果','info')">${I('refresh','sm')}读取当前状态</button></div></div>`);
+  if (S==='external') b.push(`<div class="banner info">${I('info')}<div><b>这是你自己启动的 OpenCode</b><br>opencode-workflow 只连接它，不管理它的进程，所以这里不提供重启。需要重启时，请在你启动它的地方操作。</div></div>`);
+  return b.length ? `<div class="col" style="gap:10px;margin-top:16px">${b.join('')}</div>` : '';
+}
+function facts(){
+  const m = {ok:['st-ok','check'], idle:['st-idle','minus'], wait:['st-run','clock'], unknown:['st-unknown','help']}[snap.mcp[0]];
+  const v = (x, mono) => x ? `<span class="copy"><span class="${mono?'mono':''}">${esc(x)}</span><button class="icon-btn" style="width:24px;height:24px" aria-label="复制" onclick="DS.toast('已复制','info')">${I('copy','sm')}</button></span>` : '<span class="muted">未知</span>';
+  return `<div class="facts ${S==='read-error'?'stale':''}">
+    <section class="card fact"><h3>${I('server','sm')}服务</h3><dl class="kv" style="margin:0">
+      <dt>Loopper</dt><dd>0.4.93</dd><dt>OpenCode</dt><dd>${snap.ver||'<span class="muted">未知</span>'}</dd><dt>监听地址</dt><dd>${v(snap.ep,true)}</dd>
+      <dt>当前模型</dt><dd>${esc(snap.model)} <a href="settings.html?state=model" class="hint" style="color:var(--accent)">更改</a></dd></dl></section>
+    <section class="card fact"><h3>${I('shield','sm')}进程归属</h3><dl class="kv" style="margin:0">
+      <dt>管理方式</dt><dd>${snap.managed?'Loopper 受管':'外部 / 未受管'}</dd><dt>进程 PID</dt><dd>${v(snap.pid,true)}</dd><dt>受管代次</dt><dd>${snap.gen?`<span class="mono">${snap.gen}</span>`:'<span class="muted">—</span>'}</dd></dl>
+      <p class="hint" style="margin-top:12px">${snap.managed?'重启只作用于这个 Loopper 当前拥有的进程。':'外部进程不受 Loopper 管理。'}</p></section>
+    <section class="card fact"><h3>${I('link','sm')}内部 MCP</h3>
+      <span class="badge ${m[0]}">${I(m[1],'sm')}${snap.mcp[1]}</span>
+      <p class="hint" style="margin-top:12px;line-height:1.6">opencode-workflow 内置的辅助工具通道。${snap.mcp[2]?snap.mcp[2]+'。':''}“配置已注入”只表示已写入配置，不代表已连接或已授权。</p></section>
+  </div>`;
+}
+function history(){
+  const rows = S==='cmd-unknown'
+    ? [['help','var(--unknown)','重启 OpenCode','今天 19:33:10 · 等待结果超时','结果未明','st-unknown']]
+    : S==='offline' ? [['play','var(--danger)','启动 OpenCode','今天 19:31:14 · 请求已返回，但连接不可用','启动未成功','st-danger']]
+    : [['refresh','var(--ok)','重启 OpenCode','昨天 22:10:45 · 进程 24611 → 24680','已完成','st-ok']];
+  return `<section class="card" style="margin-top:16px">
+    <div class="row" style="padding:16px 18px 8px"><span class="section-title">最近一次操作</span><span class="hint">只记录本机发出的启动 / 重启</span></div>
+    ${rows.map(r=>`<div class="op"><span class="ic" style="color:${r[1]}">${I(r[0],'sm')}</span><span><div style="font-size:13.5px">${r[2]}</div><div class="hint">${r[3]}</div></span><span class="badge ${r[5]}">${r[4]}</span></div>`).join('')}
+  </section>`;
+}
+let pending = null;
+function ask(kind, t){
+  pending = kind;
+  DS.$('#cfT').textContent = kind==='restart' ? '重启 OpenCode？' : '启动 OpenCode？';
+  DS.$('#cfB').textContent = kind==='restart'
+    ? '会先停止 opencode-workflow 当前管理的 OpenCode 进程再重新启动。正在运行的任务和知识库对话会中断，之后需要在各自页面恢复。'
+    : 'opencode-workflow 会按设置中的 CLI 路径启动一个新的 OpenCode 进程，并由 opencode-workflow 管理。';
+  DS.$('#cfSnap').innerHTML = `<dt>确认时</dt><dd>${ST[snap.status][0]}${snap.pid?' · 进程 '+snap.pid:''}</dd><dt>监听地址</dt><dd class="mono">${snap.ep}</dd>`;
+  DS.$('#cfGo').textContent = kind==='restart' ? '重启' : '启动';
+  DS.openDialog('confirm', t);
+}
+function doCmd(){ DS.closeDialog(); DS.setState(pending==='restart'?'starting':'starting'); }
+function render(){
+  DS.$('#view').innerHTML = `
+    <div class="page-head"><div class="grow"><h2 class="title">运行环境</h2><p class="lede">opencode-workflow 通过本机的 OpenCode 执行任务与对话。这里查看连接是否正常，并在需要时启动或重启。</p></div></div>
+    ${hero()}${banners()}${facts()}${history()}`;
+}
+DS.mount({ header:`<h1>${I('server')}运行环境</h1><span class="spacer"></span><button class="btn secondary sm" onclick="DS.toast('已读取当前状态','info')">${I('refresh','sm')}读取当前状态</button>`, state:S, states:[
+  {id:'managed',label:'受管 · 已连接'},{id:'external',label:'外部进程 · 已连接'},{id:'offline',label:'离线 · 启动失败'},{id:'starting',label:'启动中'},
+  {id:'unknown-status',label:'状态无法识别'},{id:'read-error',label:'读取失败（保留上次结果）'},{id:'cmd-unknown',label:'重启结果未明（锁定）'}] });
+render();
+</script>
+</body>
+</html>

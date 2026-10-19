@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>节点执行详情 · opencode-workflow 设计样例</title>
+<!-- 隔离原型：不加载任何外部资源（原稿的字体 CDN 链接已去掉，字体按 ds.css 的回退栈显示） -->
+<link rel="stylesheet" href="assets/ds.css">
+<link rel="stylesheet" href="assets/skins.css">
+<link rel="stylesheet" href="assets/node-detail.css">
+<link rel="stylesheet" href="../../showcase/bridge.css">
+<script src="../../showcase/icons.js"></script>
+<script src="../../showcase/navigation.js"></script>
+<script defer src="../../showcase/catalog.js"></script>
+<script defer src="../../showcase/bridge.js"></script>
+</head>
+<body data-page="tasks">
+<main id="page" class="canvas-page" hidden>
+  <div class="canvas-bar" id="bar"></div>
+  <div id="situ"></div>
+  <div class="canvas-body" style="margin-top:12px"><div id="cv" class="cv" tabindex="0" aria-label="执行画布"></div><aside class="side hidden" id="side" aria-label="步骤详情"></aside></div>
+</main>
+<script src="assets/shell.js"></script>
+<script src="assets/canvas.js"></script>
+<script src="assets/fixtures.js"></script>
+<script src="assets/states.js"></script>
+<script src="assets/node-detail.js"></script>
+</body>
+</html>

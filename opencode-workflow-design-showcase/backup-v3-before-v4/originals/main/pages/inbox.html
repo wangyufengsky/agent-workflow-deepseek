@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>待处理中心 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.split{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:1100px){.split{grid-template-columns:300px minmax(0,1fr)}}
+.irow{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:12px;text-align:left;width:100%;transition:background var(--t-fast)}
+.irow:hover{background:var(--fill-2)}
+.irow[aria-selected="true"]{background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--line-2)}
+.irow .tile{width:32px;height:32px;border-radius:9px}
+.it{font-size:13.5px;font-weight:500;line-height:1.45}
+.im{font-size:12px;color:var(--muted);margin-top:3px}
+.ctx{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:var(--fill-2);border:1px solid var(--line);font-size:13px;flex-wrap:wrap}
+.q{padding:16px 0;box-shadow:inset 0 -1px 0 var(--line)}
+.q:last-of-type{box-shadow:none}
+.q-h{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.q-h .n{font-size:12px;color:var(--muted)}
+.q-h b{font-size:14.5px;font-weight:500}
+.ans{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;border:1px solid var(--line-2);text-align:left;width:100%;transition:all var(--t-fast)}
+.ans+.ans{margin-top:8px}
+.ans:hover{border-color:var(--line-3)}
+.ans[aria-checked="true"]{border-color:var(--accent-line);background:var(--accent-fill)}
+.ans .mk{width:16px;height:16px;border:1.5px solid var(--line-3);flex:none;margin-top:2px;display:grid;place-items:center}
+.ans .mk.radio{border-radius:50%}.ans .mk.box{border-radius:5px}
+.ans[aria-checked="true"] .mk.radio{border:5px solid var(--accent)}
+.ans[aria-checked="true"] .mk.box{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.ans .t{font-size:13.5px}.ans .d{font-size:12.5px;color:var(--muted);margin-top:2px}
+.rec{font-size:11px;padding:1px 7px;border-radius:99px;background:var(--ok-fill);color:var(--ok);margin-left:6px}
+.pat{font:12.5px/1.8 var(--font-mono);padding:12px 14px;border-radius:12px;background:var(--bg-sunken);border:1px solid var(--line);color:var(--ink-2)}
+.scope{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="inbox">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+<div class="dialog" id="switchDlg" role="alertdialog"><div class="dialog-body"><h2>保留这份未提交的回答？</h2><p>你已经选择了部分答案。切换到其他事项时，可以把草稿留在本机，回来继续。</p></div><div class="dialog-foot"><button class="btn ghost" onclick="discardSwitch()">放弃草稿</button><button class="btn primary" autofocus onclick="keepSwitch()">保留草稿</button></div></div>
+<div class="dialog" id="rejectDlg" role="alertdialog"><div class="dialog-body"><h2>拒绝这个事项？</h2><p id="rejTxt"></p></div><div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>返回</button><button class="btn danger" onclick="DS.closeDialog();resolve('rejected')">拒绝</button></div></div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S0=DS.state||'question';
+let ITEMS = [
+  {id:'i1', kind:'q', t:'本轮资料核对从哪里开始？', task:'订单服务单元测试补齐', step:'编写测试', at:'3 分钟前',
+    qs:[{id:'a', t:'本轮资料核对从哪里开始？', multi:false, opts:[['a1','先核对接口与错误恢复','先厘清请求、反馈和恢复入口，再展开。',true],['a2','先核对使用说明','围绕上手路径与常见问题逐项检查。']]},
+        {id:'b', t:'哪些信息需要保留在交接结果中？', multi:true, opts:[['b1','已确认的接口事实','',true],['b2','待确认的问题清单','',true],['b3','引用的原文位置','']]}]},
+  {id:'i2', kind:'p', t:'读取项目约定与接口说明', task:'登录页偶发 500 错误修复', step:'实施修复', at:'12 分钟前', pats:['read  /workspace/opencode-loopper/AGENTS.md','read  /workspace/opencode-loopper/docs/api-reference.md'], why:'修复前需要确认错误码约定。'},
+  {id:'i3', kind:'p', t:'访问项目外目录', task:'登录页偶发 500 错误修复', step:'实施修复', at:'14 分钟前', pats:['read  /etc/opencode/credentials'], why:'尝试读取系统凭据目录。', hard:true},
+];
+if (S0==='empty') ITEMS=[];
+let filter='all', sel = S0==='permission' ? 'i2' : S0==='hard' ? 'i3' : ITEMS[0]?.id;
+const draft = {a:new Set(), b:new Set()}; const custom={a:'',b:''};
+if (S0==='draft'){ draft.a.add('a1'); }
+let phase = {unknown:'unknown', readback:'readback'}[S0] || 'edit';
+let pendingSel=null;
+if (phase!=='edit'){ draft.a.add('a1'); draft.b.add('b1'); draft.b.add('b2'); }
+
+function answered(q){ return draft[q.id].size>0 || custom[q.id].trim(); }
+function listHTML(){
+  const rows = ITEMS.filter(i=>filter==='all'||i.kind===filter);
+  if (S0==='loading') return `<div class="col" style="gap:4px;padding:6px">${[0,1,2].map(()=>`<div class="row" style="padding:12px"><div class="skel" style="width:32px;height:32px;border-radius:9px"></div><div class="col grow"><div class="skel" style="height:12px;width:70%"></div><div class="skel" style="height:10px;width:45%"></div></div></div>`).join('')}</div>`;
+  if (!rows.length) return `<div class="empty" style="padding:40px 16px"><span class="tile" style="color:var(--ok)">${I('check','lg')}</span><h3>都处理完了</h3><p>任务需要你回答问题或授权时，会出现在这里。</p></div>`;
+  return `<div class="list" role="listbox" aria-label="待处理事项" style="padding:6px">${rows.map(i=>`<button class="irow" role="option" aria-selected="${sel===i.id}" onclick="pick('${i.id}')">
+    <span class="tile" style="color:var(--${i.kind==='q'?'wait':i.hard?'danger':'warn'})">${I(i.kind==='q'?'help':i.hard?'lock':'shield')}</span>
+    <span class="grow" style="min-width:0"><div class="it">${esc(i.t)}</div><div class="im">${i.kind==='q'?'问题':'权限'} · ${esc(i.task)} · ${i.at}</div>
+    ${i.id==='i1'&&(S0==='draft')?`<span class="badge st-accent" style="margin-top:6px;height:20px">有草稿</span>`:''}${i.hard?`<span class="badge st-danger" style="margin-top:6px;height:20px">策略禁止</span>`:''}${i.id===sel&&phase==='unknown'?`<span class="badge st-unknown" style="margin-top:6px;height:20px">结果未明</span>`:''}</span></button>`).join('')}</div>`;
+}
+function detailHTML(){
+  const i = ITEMS.find(x=>x.id===sel);
+  if (!i) return `<div class="card"><div class="empty"><span class="tile">${I('inbox','lg')}</span><h3>选择一个事项</h3><p>左侧是需要你处理的问题和授权请求。</p></div></div>`;
+  const ro = phase!=='edit';
+  const ctx = `<div class="ctx">${I('list','sm')}<span>来自 <b style="font-weight:500">${esc(i.task)}</b> · 步骤“${esc(i.step)}”<span class="hint" style="margin-left:6px">${i.kind==='q'?'等你回答，其他步骤继续':'等你授权'}</span></span><span class="grow"></span><a class="btn ghost sm" href="task.html?state=waiting">在执行画布中查看${I('chevRight','sm')}</a></div>`;
+  const banner = phase==='unknown' ? `<div class="banner unknown" style="margin-top:14px">${I('help')}<div><b>回答已发出，但没有收到确认</b><br>内容已锁定。这里只会重新读取事项状态，不会再次提交；事项从列表消失也不代表回答成功。</div><div class="actions"><button class="btn secondary sm" onclick="this.innerHTML='<span class=spin></span>读取中';setTimeout(()=>{phase='done';render();DS.toast('已确认：回答被接受')},1100)">${I('refresh','sm')}重新读取</button></div></div>`
+    : phase==='readback' ? `<div class="banner warn" style="margin-top:14px">${I('alert')}<div><b>回答已被接受，但列表刷新失败</b><br>不需要重新提交。稍后重新读取即可看到最新列表。</div><div class="actions"><button class="btn secondary sm" onclick="phase='done';render()">重新读取</button></div></div>`
+    : phase==='done' ? `<div class="banner ok" style="margin-top:14px">${I('check')}<div><b>已提交</b>，任务会继续执行。</div></div>` : '';
+  if (i.kind==='q') {
+    const n = i.qs.filter(answered).length;
+    return `<section class="card fade"><div style="padding:20px 22px 0"><span class="badge st-wait">${I('help','sm')}OpenCode 需要你的回答</span><h2 style="font-size:19px;font-weight:500;margin-top:10px">${esc(i.t)}</h2><div style="margin-top:14px">${ctx}</div>${banner}</div>
+      <div style="padding:6px 22px 4px">${i.qs.map((q,qi)=>`<div class="q"><div class="q-h"><span class="n">${qi+1} / ${i.qs.length}</span><b>${esc(q.t)}</b><span class="hint">${q.multi?'可多选':'单选'}</span></div>
+        <div role="${q.multi?'group':'radiogroup'}">${q.opts.map(([k,t,d,rec])=>`<button class="ans" role="${q.multi?'checkbox':'radio'}" aria-checked="${draft[q.id].has(k)}" ${ro?'disabled':''} onclick="toggle('${q.id}','${k}',${q.multi})"><span class="mk ${q.multi?'box':'radio'}">${q.multi&&draft[q.id].has(k)?I('check','sm'):''}</span><span><div class="t">${esc(t)}${rec?'<span class="rec">推荐</span>':''}</div>${d?`<div class="d">${esc(d)}</div>`:''}</span></button>`).join('')}</div>
+        <input class="input" style="margin-top:8px;height:38px" placeholder="其他回答（可选）" value="${esc(custom[q.id])}" ${ro?'readonly':''} oninput="custom['${q.id}']=this.value;foot()" aria-label="第 ${qi+1} 题的其他回答"></div>`).join('')}</div>
+      <div class="card-foot" id="foot" style="padding:14px 22px"></div></section>`;
+  }
+  return `<section class="card fade"><div style="padding:20px 22px 18px"><span class="badge ${i.hard?'st-danger':'st-fail'}">${I(i.hard?'lock':'shield','sm')}${i.hard?'策略禁止':'权限请求'}</span><h2 style="font-size:19px;font-weight:500;margin-top:10px">${esc(i.t)}</h2><div style="margin-top:14px">${ctx}</div>${banner}
+      <div class="sec" style="margin-top:20px"><div class="eyebrow" style="margin-bottom:8px">请求的操作</div><div class="pat">${i.pats.map(esc).join('<br>')}</div></div>
+      <div class="sec" style="margin-top:16px"><div class="eyebrow" style="margin-bottom:8px">原因</div><p style="font-size:13.5px;color:var(--ink-2)">${esc(i.why)}</p></div>
+      ${i.hard?`<div class="banner danger" style="margin-top:16px">${I('lock')}<div>这个操作被运行环境策略禁止，<b>不能在这里授权</b>。步骤会被告知无法读取，并继续处理其余部分。</div></div>`
+      :`<div class="sec" style="margin-top:16px"><div class="eyebrow" style="margin-bottom:8px">授权范围</div><div class="scope">
+        <div class="card pad" style="padding:14px"><div style="font-weight:500">仅这一次</div><div class="hint">只允许上面列出的这次读取。</div></div>
+        <div class="card pad" style="padding:14px"><div style="font-weight:500">本次会话内都允许</div><div class="hint">同一执行会话中再次读取这些文件时不再询问。</div></div></div></div>`}</div>
+    <div class="card-foot" style="padding:14px 22px">${i.hard?`<span class="grow"></span><button class="btn secondary" onclick="resolve('ack')">知道了</button>`
+      :`<button class="btn ghost" style="color:var(--danger)" ${ro?'disabled':''} onclick="askReject()">拒绝</button><span class="grow"></span><button class="btn secondary" ${ro?'disabled':''} onclick="resolve('session')">本次会话都允许</button><button class="btn primary" ${ro?'disabled':''} onclick="resolve('once')">允许这一次</button>`}</div></section>`;
+}
+function foot(){
+  const i=ITEMS.find(x=>x.id===sel); const el=DS.$('#foot'); if(!el||!i||i.kind!=='q') return;
+  const n=i.qs.filter(answered).length, all=n===i.qs.length, ro=phase!=='edit';
+  el.innerHTML = `<button class="btn ghost" style="color:var(--danger)" ${ro?'disabled':''} onclick="askReject()">拒绝回答</button><span class="grow"></span><span class="hint">${ro?'已提交':all?'全部已回答':`已回答 ${n} / ${i.qs.length}，每题至少选一项或填写`}</span><button class="btn secondary" ${ro?'disabled':''} onclick="useRec()">采用推荐答案</button><button class="btn primary" ${all&&!ro?'':'disabled'} onclick="resolve('reply')">提交回答</button>`;
+}
+function toggle(q,k,multi){ if(multi){ draft[q].has(k)?draft[q].delete(k):draft[q].add(k); } else { draft[q].clear(); draft[q].add(k); } render(); }
+function useRec(){ const i=ITEMS.find(x=>x.id===sel); i.qs.forEach(q=>{ draft[q.id].clear(); const r=q.opts.filter(o=>o[3]); (r.length?r:[q.opts[0]]).forEach(o=>{ draft[q.id].add(o[0]); if(!q.multi) return; }); if(!q.multi){ const f=[...draft[q.id]][0]; draft[q.id].clear(); draft[q.id].add(f);} }); render(); }
+function pick(id){ if (id===sel) return; const dirty=[...Object.values(draft)].some(s=>s.size)||Object.values(custom).some(v=>v); if (sel==='i1'&&dirty&&phase==='edit'){ pendingSel=id; DS.openDialog('switchDlg'); return; } sel=id; phase='edit'; render(); }
+function keepSwitch(){ DS.closeDialog(); sel=pendingSel; render(); DS.toast('草稿已保留在本机','info'); }
+function discardSwitch(){ DS.closeDialog(); Object.values(draft).forEach(s=>s.clear()); custom.a=custom.b=''; sel=pendingSel; render(); }
+function askReject(){ const i=ITEMS.find(x=>x.id===sel); DS.$('#rejTxt').textContent = i.kind==='q' ? '任务会收到“拒绝回答”，由执行中的步骤决定如何继续。' : '这一步不会获得读取权限，会尝试在没有这些文件的情况下继续。'; DS.openDialog('rejectDlg'); }
+function resolve(kind){ const i=ITEMS.find(x=>x.id===sel); const msg={reply:'已提交回答，任务继续执行',once:'已允许这一次',session:'本次会话内都允许',rejected:'已拒绝',ack:'已知晓'}[kind]; ITEMS=ITEMS.filter(x=>x.id!==sel); sel=ITEMS[0]?.id; phase='edit'; render(); DS.toast(msg); }
+/* v3 规划事项：规划的问题、候选审阅、待核对与总览选范围也在这里，点开回到同一任务的需求画布（不另建规划中心） */
+const PLAN_ITEMS=[
+  ['需要你答复','退货单按状态与日期筛选并导出','2 个问题：导出上限、日期字段 · 仓储服务','help','wait','pe11&task=T-2055&round=1'],
+  ['候选待审阅','售后单按状态与日期筛选并导出','新增 5 步、修改 2 步 · 需人工判断 3 项 · 售后服务','eye','wait','pe25&task=T-2054'],
+  ['结果待核对','补发单按状态与日期筛选并导出','停止结果未知，只核对原请求 · 仓储服务','help','unknown','pe21&task=T-2057'],
+  ['选择范围继续规划','会员积分体系重构','3 个分组未细化 · 会员服务','layers','unknown','pe37'],
+];
+function planHTML(){ return `<section class="card" style="margin-bottom:16px"><div class="row" style="padding:12px 16px 8px"><span class="grow" style="font-size:13.5px;font-weight:500">规划事项</span><span class="hint">${PLAN_ITEMS.length} 项 · 在需求画布处理</span></div><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:0 12px 12px">${PLAN_ITEMS.map(([k,t,d,ic,c,st])=>`<a class="irow" style="border:1px solid var(--line);border-radius:12px" href="../../planning/requirement.html?state=${st}&from=inbox&returnTo=inbox.html"><span class="tile" style="color:var(--${c})">${I(ic)}</span><span class="grow" style="min-width:0"><div class="im">${k}</div><div class="it ellipsis">${esc(t)}</div><div class="im">${esc(d)}</div></span></a>`).join('')}</div></section>`; }
+function render(){
+  const c = k => ITEMS.filter(i=>k==='all'||i.kind===k).length;
+  DS.$('#view').innerHTML = `
+  <div class="page-head"><div class="grow"><h2 class="title">待处理中心</h2><p class="lede">执行中的任务需要你回答问题或授权时，会停下来在这里等你。</p></div></div>
+  ${['question','draft','permission','hard'].includes(S0)?planHTML():''}
+  ${S0==='error'?`<div class="banner danger" style="margin-bottom:16px">${I('alert')}<div><b>待处理事项读取失败</b><br>待处理数量暂时未知，不代表没有事项。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('question')">${I('refresh','sm')}重试</button></div></div>`:''}
+  <div class="split">
+    <section class="card"><div style="padding:12px 12px 4px"><div class="seg" role="group" aria-label="类型">${[['all','全部'],['q','问题'],['p','权限']].map(([k,l])=>`<button aria-pressed="${filter===k}" onclick="filter='${k}';render()">${l}<span class="num muted">${S0==='error'||S0==='loading'?'—':c(k)}</span></button>`).join('')}</div></div>${S0==='error'?'':listHTML()}</section>
+    <div>${S0==='error'||S0==='loading'?'':detailHTML()}</div>
+  </div>`;
+  foot();
+}
+DS.mount({ header:`<h1>${I('inbox')}待处理中心</h1><span class="spacer"></span><button class="icon-btn" aria-label="刷新" onclick="DS.toast('已刷新','info')">${I('refresh')}</button>`, state:S0, states:[
+  {id:'question',label:'问题（单选 + 多选）'},{id:'draft',label:'问题 · 有草稿'},{id:'permission',label:'权限请求'},{id:'hard',label:'策略禁止'},
+  {id:'unknown',label:'提交结果未明'},{id:'readback',label:'已接受但刷新失败'},{id:'empty',label:'都处理完了'},{id:'loading',label:'加载中'},{id:'error',label:'读取失败'}] });
+render();
+</script>
+</body>
+</html>

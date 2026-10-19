@@ -1,0 +1,15 @@
+{
+  "name": "@agent-workflow/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "../../.build/desktop/main.mjs",
+  "scripts": {
+    "build": "node ../../scripts/build-desktop.mjs",
+    "start": "electron ../../.build/desktop/main.mjs"
+  },
+  "dependencies": {
+    "@agent-workflow/server": "0.1.0",
+    "@agent-workflow/shared": "0.1.0"
+  }
+}

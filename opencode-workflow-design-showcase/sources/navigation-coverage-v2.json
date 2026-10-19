@@ -1,0 +1,111 @@
+{
+  "version": 2,
+  "entry": "index.html",
+  "architecture": "Direct HTML documents, one common formal menu and one file-safe router; no iframe or bottom shortcut prerequisite",
+  "menu": [
+    "开始任务",
+    "主页",
+    "项目",
+    "Git 仓库",
+    "知识库",
+    "PPT 制作",
+    "流程",
+    "需求目录",
+    "任务列表",
+    "待处理中心",
+    "质量与用量",
+    "模板任务",
+    "运行环境",
+    "工具与 Skill",
+    "数据库",
+    "角色管理",
+    "设置"
+  ],
+  "paths": [
+    {
+      "start": "index.html",
+      "actions": [
+        "Git 仓库",
+        "订单服务 → 进入",
+        "主页",
+        "后退",
+        "后退",
+        "前进"
+      ],
+      "targets": [
+        "git/index.html?state=g01-overview",
+        "git/index.html?state=g10-commits",
+        "main/pages/home.html",
+        "git/index.html?state=g10-commits",
+        "git/index.html?state=g01-overview",
+        "git/index.html?state=g10-commits"
+      ]
+    },
+    {
+      "start": "任务列表",
+      "actions": [
+        "退款单分页查询与导出",
+        "点击实现接口",
+        "尝试与产出",
+        "执行现场",
+        "返回任务画布"
+      ],
+      "target": "node/index.html with caller URL, selected node and canvas view; returns to TD02 task"
+    },
+    {
+      "start": "任务列表",
+      "actions": [
+        "退款单分页查询与导出",
+        "查看变更并交付"
+      ],
+      "target": "delivery/git.html?state=td03-changes"
+    },
+    {
+      "start": "任务列表",
+      "actions": [
+        "月报改为按自然月汇总",
+        "查看变更并应用"
+      ],
+      "target": "delivery/apply.html?state=td05-overview"
+    },
+    {
+      "start": "开始任务",
+      "actions": [
+        "在需求画布查看"
+      ],
+      "target": "main/pages/requirement.html?state=confirmed"
+    },
+    {
+      "start": "项目详情",
+      "actions": [
+        "查看 Git"
+      ],
+      "target": "git/index.html?state=g10-commits"
+    },
+    {
+      "start": "主稿任务页",
+      "actions": [
+        "点击执行节点或查看执行现场"
+      ],
+      "target": "node/index.html with return to original task"
+    }
+  ],
+  "checks": {
+    "navigation": 170,
+    "htmlDocuments": 36,
+    "themes": 4,
+    "states": 468,
+    "exceptions": 0,
+    "externalRequests": 0,
+    "resourceFailures": 0
+  },
+  "reports": [
+    "evidence/navigation-v2-report.json",
+    "evidence/states-v2-report.json"
+  ],
+  "limitations": [
+    "All data and operations are local mock examples.",
+    "The original node fixture is richest for 实现接口; other node records retain the original limited detail.",
+    "Only local saved source versions were compared."
+  ]
+}

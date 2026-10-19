@@ -1,0 +1,217 @@
+{
+ "version": "v4",
+ "date": "2026-10-16",
+ "basedOn": "v3",
+ "mock": "设计样例 · 全部模拟",
+ "collection": "/Users/wangyufeng/Documents/opencode-workflow-design-showcase",
+ "supplement": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016",
+ "backup": "backup-v3-before-v4/",
+ "added": [
+  {
+   "path": "originals/planning/assets/ut-fixtures.js",
+   "sha256": "b248f16526f6305ddab7bec50421aa18974051825f5358434abd33b0df5d946e"
+  },
+  {
+   "path": "originals/planning/assets/prep-area.js",
+   "sha256": "292e4cc2a7eb6b21b2b630357620663484bbc3f8a3f70fc0ef05a2a43ef1f8ad"
+  },
+  {
+   "path": "originals/planning/assets/prep.css",
+   "sha256": "8bdc60bf5543698ae21c7df8e8b3e88a7c95aa73b6d1c21e9f9a5246c9d08e8f"
+  },
+  {
+   "path": "originals/delivery/assets/task-registry.js",
+   "sha256": "ee2fc2947a1d383b54a0ac0bbac359c6da37c2d67e979bb0ac751cdc49d7aa85"
+  },
+  {
+   "path": "originals/delivery/assets/td-states-v4.js",
+   "sha256": "fce8c2fb8f4131271e29447a90376d3ded60383267f3b2de6840c855f3996c62"
+  },
+  {
+   "path": "originals/delivery/assets/task-v4.css",
+   "sha256": "95373bc97a5834b5d9e3031bf9ebb3ab6b6e5699762a89d2013d659a7eef31a6"
+  }
+ ],
+ "modified": [
+  {
+   "path": "originals/delivery/assets/task.js",
+   "sha256": "e936c17bd88de679679a9bed9210f6b496b39fda5c5027b91e345fe8342cdf48",
+   "v3_sha256": "44dae90bc9e4e9382065eec68e2ddb4ba748ad234bec44113a49a0ece87df480"
+  },
+  {
+   "path": "originals/delivery/task.html",
+   "sha256": "013e4c48b7bf2c67f1b4f420e3e4e65410bba7d9966eff4333e8d82792f063b4",
+   "v3_sha256": "153bf9843d7fded047c7b13baf9efc102ec53b895066304b113f8582882ea342"
+  },
+  {
+   "path": "originals/main/pages/home.html",
+   "sha256": "1aa5af591d929b7d9b1c045cf28aacf34a080f8ab20e253c705aacfdd271f016",
+   "v3_sha256": "3c2972069129007ed285a45816640152336b70057303976cdce4820fa0e5359f"
+  },
+  {
+   "path": "originals/main/pages/inbox.html",
+   "sha256": "5ec181894106d618f7e8723fcf9f73a91baa6985da84832ec847004435270d1a",
+   "v3_sha256": "7235dcb25026061afb797def6c779e2f132d4fa9dcf8539c583d612a3999a14a"
+  },
+  {
+   "path": "originals/main/pages/recovery.html",
+   "sha256": "3d1d0f7e47dd5bffe68f3091dee0e5960d5393a4163616c77d682049a786cddd",
+   "v3_sha256": "b9b23d9d56b0d96d1ea6ef3fa8b21dabf9e35c11a6f9982eaa60a1ee4d0d828a"
+  },
+  {
+   "path": "originals/main/pages/requirements.html",
+   "sha256": "9e989e2b1560ddac172514cede18f081b0cd20481b14e149d489796d1c569179",
+   "v3_sha256": "a88dfa4aaaf752f08c4e93972d8ec4bf98f1a569851c5e0b7ce45ce3c41b6ad8"
+  },
+  {
+   "path": "originals/main/pages/tasks.html",
+   "sha256": "5dc80fbde4276a9162f54753f5f6705db8886e97704fefe9fcb9ac21fb3fcc7d",
+   "v3_sha256": "4d535c776d2229b1d609e5900b9f80dafbe3a3500399df2e3fdd224eac69f280"
+  },
+  {
+   "path": "originals/main/pages/templates.html",
+   "sha256": "c9a4ac1c6043f7f6482322f248acb103a472c3ae08b7d7a12508fdce98c2703d",
+   "v3_sha256": "0ff748a839f07f366c204c20721c8596f1225f3b20559fc3e7a2129017910fe3"
+  },
+  {
+   "path": "originals/node/assets/node-detail.js",
+   "sha256": "955b1a87def2e097b9e37609657a019143b5c7e3455db7457f27e7e8832b839a",
+   "v3_sha256": "48fa623a0743440880ca56be5d360de4a3838f0c4c8d58f0c59578b29a6062d2"
+  },
+  {
+   "path": "originals/planning/assets/pe-nav.js",
+   "sha256": "fa472d5cb5d2f45d9297eeab094cc0b46c289699f6ab6dc9839c553c552ff118",
+   "v3_sha256": "65634e4b4a18f7838d6ad071abcd477fad04cc912c7dcd46a4c1decce5e9e760"
+  },
+  {
+   "path": "originals/planning/assets/pe-states.js",
+   "sha256": "4a6ff6dfdcd5490cdef146299d35579ae07d0d8d2883046b1a92da1db3a4e4fb",
+   "v3_sha256": "76ac1ea138091075977eba5d03b8658c6d066bf69b123a9dc0c9e69fe2dacc58"
+  },
+  {
+   "path": "originals/planning/assets/requirement.js",
+   "sha256": "600e74e0c9477750f3b65b2921d93b40862a1d6b1f0640044c98f3b1353e1e3a",
+   "v3_sha256": "377c4166f4f9c3bceac4cee865cff93241bb72fa4417e6514c87a5e41613dfcd"
+  },
+  {
+   "path": "originals/planning/index.html",
+   "sha256": "e1f938ac104055adba752815fca7e1d9c830c69d352dd46f850fa2e8bd54d073",
+   "v3_sha256": "01793beddf5c3f2543a54a11bd879da83c69da01db90bad5c010b6b56d428444"
+  },
+  {
+   "path": "originals/planning/requirement.html",
+   "sha256": "5b302ecf286c1ed1cc8d2179ca3f56e1a7888e7309d23bace76ef3ec811f2f9e",
+   "v3_sha256": "b2fb96143d98e3c3a8faf155859be31de01cb6c12436d39ab8e70e42917a2736"
+  },
+  {
+   "path": "showcase/bridge.css",
+   "sha256": "f620ee3663ac0f9bad9377707bf2c7af13b7926fcb9b5a75c0c5c9706c444712",
+   "v3_sha256": "1f25969a56be29139c2390ae9cf7d436666bf36ae65d595842d5debdafee0af9"
+  },
+  {
+   "path": "showcase/bridge.js",
+   "sha256": "edc64392dea57e8c16d701aa596431316d4001133e9757070a2f85702d425f4a",
+   "v3_sha256": "16ca3e9d6b882e6b123b67c0c8dc829acd390a3f0549191a0b6f68d1174cce45"
+  },
+  {
+   "path": "showcase/catalog.js",
+   "sha256": "5a8ccade66bfe60444a51883ccdab436977c87553f1e329a02bedc1b97d68973",
+   "v3_sha256": "14d300a67d6ced9ebb3d530c245793aecd46164e744356de2b4a827834620c67"
+  },
+  {
+   "path": "showcase/navigation.js",
+   "sha256": "dca0ca5382c235cdd0ee5a7564b6c0640f4e2de4a2379b3eef3e6ad9dac6188d",
+   "v3_sha256": "5d04108aa31defcbe64788404b75caf39eaac0c5d3a87bcf8ebad641ff512d7f"
+  }
+ ],
+ "docsModified": [
+  {
+   "path": "README.md",
+   "v3_sha256": "91204365fe5218bf8e2620bc4c1e446c79c5dfad3cccedf7839bcde6ae604d76"
+  },
+  {
+   "path": "sources.html",
+   "v3_sha256": "0b5b764e061c3c72acbfb25456de8948de5939015ff8546eb499d0135e70422b"
+  },
+  {
+   "path": "sources/manifest.json",
+   "v3_sha256": "3e2a0c7bfcc1c2be1a8f0629dcafeb7334c5c1482e3daca0a11d1db5b7ba0ba2"
+  }
+ ],
+ "views": {
+  "start": "originals/planning/start.html",
+  "requirementCanvas": "originals/planning/requirement.html",
+  "taskCanvas": "originals/delivery/task.html"
+ },
+ "routes": [
+  {
+   "entry": "左侧 开始任务",
+   "to": "planning/start.html?state=pe01"
+  },
+  {
+   "entry": "需求画布 确认计划",
+   "to": "requirement.html?state=pe32&tab=ws"
+  },
+  {
+   "entry": "工作区 开始执行",
+   "to": "delivery/task.html?state=ut-running|ut-fixed-running&task=<id>&note=started"
+  },
+  {
+   "entry": "任务列表 准备样例行 T-2062..2067、T-2027",
+   "to": "planning/requirement.html?state=pe32&task=<id>&tab=ws"
+  },
+  {
+   "entry": "任务列表 / 需求目录 旧任务",
+   "to": "delivery/task.html?state=ut-*&task=<id>&returnTo=<list>"
+  },
+  {
+   "entry": "模板任务 创建 → 打开任务",
+   "to": "planning/requirement.html?state=fx01&task=T-2070..2075&tpl=<tpl>"
+  },
+  {
+   "entry": "任务画布 更多 → 任务恢复…",
+   "to": "main/pages/recovery.html?task=<id>&taskTitle=…&returnTo=…"
+  },
+  {
+   "entry": "旧深链 main/pages/task.html、planning/task.html、main/pages/requirement.html",
+   "to": "navigation.js legacyTarget()；archive=1 看原稿"
+  }
+ ],
+ "returnContext": {
+  "taskCanvas": [
+   "task",
+   "selectedNode",
+   "sidePanel",
+   "sideTab",
+   "canvasView",
+   "returnTo"
+  ],
+  "requirementCanvas": [
+   "task",
+   "sel",
+   "tab",
+   "view",
+   "at",
+   "returnTo"
+  ],
+  "commands": "replaceState（后退不重放命令）"
+ },
+ "simulated": [
+  "服务回执定时器（sim=1）",
+  "UTF.OUTCOME 准备结果",
+  "URL auto / prior",
+  "Git 工作台 TD 样例数据"
+ ],
+ "executed": {
+  "models": false,
+  "services": false,
+  "credentials": false,
+  "realTests": false,
+  "browserChecks": "本地 Chromium file://，见 TEST-REPORT-v4.md"
+ },
+ "undecided": [
+  "Q6",
+  "Q9",
+  "Q10"
+ ]
+}

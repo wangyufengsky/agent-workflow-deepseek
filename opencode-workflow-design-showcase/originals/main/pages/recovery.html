@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>任务恢复 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.rc-crumb-t{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:bottom}
+.rc-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:16px;align-items:start}
+@media (max-width:1100px){.rc-grid{grid-template-columns:minmax(0,1fr)}}
+.rc-h{display:flex;align-items:center;gap:10px;padding:16px 20px;box-shadow:inset 0 -1px 0 var(--line)}
+.rc-h h2{font-size:15px;font-weight:500}
+.rc-h .n{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:500 11.5px var(--font-mono);background:var(--fill-4);color:var(--sub);flex:none}
+.rc-b{padding:18px 20px 20px}
+.rc-goal{font-size:15px;font-weight:500;line-height:1.5}
+.rc-goal+p{font-size:13px;color:var(--sub);margin-top:6px;line-height:1.65}
+.rc-fail{padding:12px 14px;border-radius:var(--r-md);background:var(--warn-fill);border:1px solid var(--warn-line);font-size:13px;line-height:1.65;color:var(--ink-2)}
+.rc-fail+.rc-fail{margin-top:8px}
+.rc-fail b{color:var(--warn);font-weight:500;display:flex;align-items:center;gap:6px}
+.rc-fail ul{margin:4px 0 0;padding-left:18px}
+.rc-stg{display:flex;flex-direction:column}
+.rc-stg>div{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;font-size:13.5px}
+.rc-stg>div.from{background:var(--fill-2);box-shadow:inset 0 0 0 1px var(--line-2)}
+.rc-stg .no{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:500 11px var(--font-mono);background:var(--fill-3);color:var(--sub)}
+.rc-stg .from .no{background:var(--warn-fill);color:var(--warn)}
+.rc-from{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--accent);margin-left:8px}
+.rc-mode{display:flex;gap:14px;align-items:flex-start;width:100%;text-align:left;padding:16px;border-radius:var(--r-md);border:1px solid var(--line-2);transition:border-color var(--t-fast),background var(--t-fast)}
+.rc-mode+.rc-mode{margin-top:10px}
+.rc-mode:hover{border-color:var(--line-3)}
+.rc-mode[aria-checked="true"]{border-color:var(--accent-line);background:var(--accent-fill)}
+.rc-mode:disabled{cursor:not-allowed;opacity:.6}
+.rc-mode .r{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-3);flex:none;margin-top:2px}
+.rc-mode[aria-checked="true"] .r{border:5px solid var(--accent)}
+.rc-mode .t{font-size:14.5px;font-weight:500;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rc-mode .d{font-size:12.5px;color:var(--sub);margin-top:3px;line-height:1.6}
+.rc-strip{display:flex;gap:4px;margin-top:12px}
+.rc-strip span{flex:1;min-width:0;height:24px;border-radius:6px;display:grid;place-items:center;font:500 11px var(--font-mono);color:var(--faint);background:var(--fill-2);border:1px solid var(--line);position:relative}
+.rc-strip span.copy{background:var(--accent-fill);border-color:var(--accent-line);color:var(--accent)}
+.rc-strip span.verify{background:transparent;border:1px dashed var(--accent-line);color:var(--accent)}
+.rc-strip span.bad::after{content:"";position:absolute;top:-3px;right:-3px;width:7px;height:7px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px var(--panel)}
+.rc-cap{font-size:12px;color:var(--muted);margin-top:6px}
+.rc-key{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-top:14px}
+.rc-key span{display:inline-flex;align-items:center;gap:6px}
+.rc-key i{width:14px;height:10px;border-radius:3px;display:inline-block;background:var(--fill-2);border:1px solid var(--line)}
+.rc-key i.copy{background:var(--accent-fill);border-color:var(--accent-line)}
+.rc-key i.verify{background:transparent;border:1px dashed var(--accent-line)}
+.rc-key i.bad{width:7px;height:7px;border-radius:50%;background:var(--warn);border:0}
+.rc-act{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px;padding-top:16px;box-shadow:inset 0 1px 0 var(--line)}
+.rc-act .say{flex:1;min-width:220px;font-size:12.5px;color:var(--sub);line-height:1.6}
+.rc-act .say b{color:var(--ink);font-weight:500}
+.rc-tl{position:relative}
+.rc-tl::before{content:"";position:absolute;left:11.5px;top:26px;bottom:26px;width:1px;background:var(--line-2)}
+.rc-it{position:relative;display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px 0}
+.rc-it .no{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font:500 11px var(--font-mono);background:var(--raised);box-shadow:inset 0 0 0 1px var(--line-2);color:var(--sub);z-index:1}
+.rc-it.new .no{background:var(--ok-fill);box-shadow:inset 0 0 0 1px var(--ok-line);color:var(--ok)}
+.rc-it .t{font-size:14px;font-weight:500;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rc-it .m{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="tasks">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc;
+let S = DS.state || 'default';
+const PARENT = { title:'让项目配置更容易找到，减少切换页面的次数。', goal:'合并项目详情里分散的配置入口，在详情页加入配置状态清单，并同步更新接口说明。', project:'opencode-workflow 控制台' };
+/* v4：从统一任务画布进入时带真实任务身份与返回地址；没有身份时仍是原稿样例任务（T-2044） */
+const RQ=new URLSearchParams(location.search); if(RQ.get('taskTitle')){PARENT.title=RQ.get('taskTitle');PARENT.goal='（任务 '+(RQ.get('task')||'')+' 的目标与失败上下文由服务读回；原型以原稿样例展示恢复步骤）';if(RQ.get('project'))PARENT.project=RQ.get('project');}
+const BACK=(RQ.get('returnTo')&&/^delivery\/task\.html/.test(RQ.get('returnTo'))&&!RQ.get('returnTo').includes('..'))?SC.url(RQ.get('returnTo')):'task.html?state=failed';
+const STAGES = [['梳理配置入口','done'],['调整页面结构','done'],['补充接口说明','done'],['回归测试','fail'],['人工验收','idle']];
+const STL = {done:['已完成','st-done','check'], fail:['失败','st-fail','x'], idle:['未开始','st-idle','clock']};
+const MODES = {
+  FROM_FAILED_STAGE:{t:'从失败阶段恢复', d:'复制失败阶段与后续阶段，保留既有上下文。', copy:[4,5], verify:false, write:true, cap:'复制阶段 4–5；阶段 1–3 的产出作为上下文沿用'},
+  ALL_STAGES:{t:'复制全部阶段', d:'从冻结任务设置复制完整阶段。', copy:[1,2,3,4,5], verify:false, write:true, cap:'复制阶段 1–5，按开始时冻结的任务设置重新来过'},
+  VERIFY_ONLY:{t:'只读验证', d:'复用已有产物核对结果，不执行文件修改。', copy:[1,2,3,4,5], verify:true, write:false, cap:'对阶段 1–5 的已有产物只做核对，不改动任何文件'},
+};
+const ORDER = ['FROM_FAILED_STAGE','ALL_STAGES','VERIFY_ONLY'];
+let mode = {all:'ALL_STAGES', verify:'VERIFY_ONLY'}[S] || 'FROM_FAILED_STAGE';
+let recs = S==='multi' ? [['FROM_FAILED_STAGE',true],['VERIFY_ONLY',false],['ALL_STAGES',true]]
+         : S==='created' ? [['FROM_FAILED_STAGE',true]] : [];
+let fresh = S==='created' ? 0 : -1;
+const locked = ['unknown','creating'].includes(S);
+const ineligible = S==='ineligible';
+
+const perm = w => w ? `<span class="badge st-accent">${I('edit','sm')}可执行修改</span>` : `<span class="badge st-idle">${I('eye','sm')}只读验证</span>`;
+
+function header(){
+  const np = S==='no-parent';
+  return `<nav class="crumbs"><a href="tasks.html">任务列表</a><span class="sep">/</span>${np?'':`<a href="${BACK}" class="rc-crumb-t" title="${esc(PARENT.title)}">${['error','loading'].includes(S)?'原任务':esc(PARENT.title)}</a><span class="sep">/</span>`}<span class="cur">恢复</span></nav>
+    <span class="spacer"></span>
+    <button class="icon-btn" aria-label="重新读取恢复上下文" onclick="DS.toast('已重新读取恢复上下文','info')">${I('refresh')}</button>
+    ${np?'':`<a class="btn ghost sm" href="${BACK}">${I('arrowLeft','sm')}返回原任务</a>`}`;
+}
+
+function left(){
+  const st = ineligible ? ['已完成','st-done','check'] : ['失败','st-fail','x'];
+  const stages = ineligible ? STAGES.map(([t])=>[t,'done']) : STAGES;
+  return `<section class="card solid" aria-label="失败上下文">
+    <div class="rc-h"><span class="n">1</span><h2 class="grow">${ineligible?'原任务':'哪里失败了'}</h2><span class="badge ${st[1]}">${I(st[2],'sm')}${st[0]}</span></div>
+    <div class="rc-b">
+      <div class="rc-goal">${esc(PARENT.title)}</div><p>${esc(PARENT.goal)}</p>
+      <dl class="kv" style="margin:16px 0 0;grid-template-columns:84px minmax(0,1fr)"><dt>项目</dt><dd>${PARENT.project}</dd><dt>恢复起点</dt><dd>${ineligible?'<span class="sub">没有可复制阶段</span>':'阶段 4 · 回归测试'}</dd></dl>
+      ${ineligible?'':`<div class="sec" style="margin-top:18px"><div class="sec-t">失败原因</div>
+        <div class="rc-fail"><b>${I('x','sm')}验证未通过</b>回归测试中 3 个用例断言不通过：<ul><li>项目详情 › 配置状态清单 › GitLab 未绑定时显示“可选”</li><li>项目列表 › 路径不可用 › 禁用开始任务</li><li>配置保存 › 留空密钥不清除已保存值</li></ul></div>
+        <div class="rc-fail"><b>${I('alert','sm')}尝试次数已用完</b>已用尝试 3 / 3，原任务不会再自动重试。</div></div>`}
+      <div class="sec" style="margin-top:18px"><div class="sec-t">阶段</div><div class="rc-stg">${stages.map(([t,s],i)=>{const L=STL[s];const from=!ineligible&&i===3;return `<div class="${from?'from':''}"><span class="no">${i+1}</span><span class="ellipsis">${t}${from?`<span class="rc-from">${I('arrowLeft','sm')}恢复起点</span>`:''}</span><span class="badge ${L[1]}">${I(L[2],'sm')}${L[0]}</span></div>`}).join('')}</div></div>
+      <a class="btn ghost sm" style="margin:14px 0 0 -12px" href="${BACK}">${I('file','sm')}查看原任务证据${I('arrowRight','sm')}</a>
+    </div></section>`;
+}
+
+function strip(m){
+  const M=MODES[m];
+  return `<div class="rc-strip" aria-hidden="true">${STAGES.map(([t,s],i)=>{const n=i+1, on=M.copy.includes(n);return `<span class="${on?(M.verify?'verify':'copy'):''} ${s==='fail'?'bad':''}" title="阶段 ${n} · ${t}">${n}</span>`}).join('')}</div><div class="rc-cap">${M.cap}</div>`;
+}
+
+function right(){
+  let banner='';
+  if (S==='unknown') banner=`<div class="banner unknown" role="status" style="margin-bottom:14px">${I('help')}<div><b>上次创建恢复草稿的结果未明</b><br>请求已发出，但没有收到确认。核对前不能再次创建，以免重复生成草稿。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('created')">${I('refresh','sm')}核对原操作</button></div></div>`;
+  if (S==='create-failed') banner=`<div class="banner danger" role="alert" style="margin-bottom:14px">${I('alert')}<div><b>恢复未创建</b><br>服务端核对未通过：原任务的执行会话尚未确认停止。停止确认后可以重新创建。</div></div>`;
+  if (S==='created') banner=`<div class="banner ok" role="status" style="margin-bottom:14px">${I('check')}<div><b>恢复草稿已创建</b><br>它不会自动开始。打开草稿，在任务页确认后再开始执行。</div><div class="actions"><a class="btn primary sm" href="task.html">打开草稿</a></div></div>`;
+  const body = ineligible ? `<div class="empty" style="padding:40px 16px"><span class="tile">${I('lock','lg')}</span><h3>当前任务不可恢复</h3><p>这个任务已完成，没有可复制的失败阶段。是否允许恢复由服务端判定，页面不会绕过。</p><a class="btn secondary sm" href="task.html?state=completed">返回原任务</a></div>`
+  : `${banner}<div role="radiogroup" aria-label="恢复方式">${ORDER.map(k=>{const M=MODES[k];return `<button class="rc-mode" role="radio" aria-checked="${mode===k}" ${locked?'disabled':''} onclick="mode='${k}';render()"><span class="r"></span><span class="grow"><span class="t">${M.t}${perm(M.write)}</span><span class="d" style="display:block">${M.d}</span>${strip(k)}</span></button>`}).join('')}</div>
+    <div class="rc-key"><span><i class="copy"></i>复制到草稿</span><span><i class="verify"></i>只核对，不修改</span><span><i></i>不复制</span><span><i class="bad"></i>失败阶段</span></div>
+    <div class="rc-act">
+      <p class="say">${locked&&S==='unknown'?`${I('lock','sm')} 原恢复操作尚未结清，请先核对。`:`<b>只创建草稿，不会开始执行。</b>草稿准备好后，到任务页单独开始。创建前由服务端核对原任务已停止、你有权限。`}</p>
+      <button class="btn ${S==='created'?'secondary':'primary'}" ${locked?'disabled':''} ${S==='unknown'?'title="原恢复操作尚未结清，请先核对。"':''} onclick="create(this)">${S==='creating'?'<span class="spin"></span>正在创建…':`${I('layers','sm')}创建恢复草稿`}</button>
+    </div>`;
+  return `<section class="card solid" aria-label="恢复草稿设置">
+    <div class="rc-h"><span class="n">2</span><h2 class="grow">怎样恢复</h2><span class="hint">新建派生草稿</span></div>
+    <div class="rc-b">${body}</div></section>`;
+}
+
+function records(){
+  let inner;
+  if (S==='unknown') inner=`<div class="banner unknown">${I('help')}<div>核对原操作后，这里会显示是否已经生成了草稿。</div></div>`;
+  else if (!recs.length) inner=`<p class="hint" style="padding:6px 0 4px">尚无派生草稿。创建后会在这里保留恢复方式、执行权限与打开入口。</p>`;
+  else inner=`<div class="rc-tl">${recs.map(([m,w],i)=>`<div class="rc-it ${i===fresh?'new':''}"><span class="no">${i===fresh?I('check','sm'):i+1}</span><div class="grow"><div class="t">派生草稿 ${i+1}${i===fresh?'<span class="badge st-ok">刚创建</span>':''}</div><div class="m"><span class="chip">${I('refresh','sm')}${MODES[m].t}</span>${perm(w)}</div></div><a class="btn ${i===fresh?'secondary':'ghost'} sm" href="task.html">打开${I('arrowRight','sm')}</a></div>`).join('')}</div>`;
+  return `<section class="card solid" style="margin-top:16px" aria-label="派生草稿记录" aria-live="polite">
+    <div class="rc-h"><span class="n">3</span><h2 class="grow">派生草稿</h2>${recs.length?`<span class="hint num">${recs.length} 条</span>`:''}</div>
+    <div class="rc-b" style="padding-top:8px;padding-bottom:10px">${inner}</div></section>`;
+}
+
+function render(){
+  const v = DS.$('#view');
+  const head = `<div class="page-head"><div class="grow"><span class="eyebrow">任务恢复</span><h1 class="title">${ineligible?'这个任务目前不能恢复':'为这个任务创建恢复草稿'}</h1><p class="lede">原任务、执行证据和失败记录保持不变。恢复只生成一个派生草稿，开始执行要到任务页另行操作。</p></div></div>`;
+  if (S==='loading') { v.innerHTML = head + `<div class="rc-grid"><div class="card solid rc-b">${['60%','90%','40%','80%','70%'].map(w=>`<div class="skel" style="height:14px;width:${w};margin-bottom:14px"></div>`).join('')}</div><div class="card solid rc-b">${[0,1,2].map(()=>'<div class="skel" style="height:86px;margin-bottom:10px;border-radius:12px"></div>').join('')}</div></div>`; return; }
+  if (S==='error') { v.innerHTML = head + `<div class="banner danger" role="alert">${I('alert')}<div><b>恢复上下文读取失败</b><br>没有拿到原任务的失败记录和阶段。页面不会显示旧内容代替，也不能创建草稿。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('default')">${I('refresh','sm')}重试</button></div></div>`; return; }
+  if (S==='no-parent') { v.innerHTML = `<div class="card solid"><div class="empty"><span class="tile">${I('search','lg')}</span><h3>没有可读取的父任务</h3><p>这个恢复地址对应的任务不存在或已不可见。请返回任务列表核对。</p><a class="btn secondary sm" href="tasks.html">${I('arrowLeft','sm')}返回任务列表</a></div></div>`; return; }
+  v.innerHTML = head + `<div class="rc-grid">${left()}${right()}</div>${records()}`;
+}
+function create(b){
+  b.disabled=true; b.innerHTML='<span class="spin"></span>正在创建…';
+  DS.$$('.rc-mode').forEach(x=>x.disabled=true);
+  setTimeout(()=>{ recs=[...recs,[mode,MODES[mode].write]]; fresh=recs.length-1; S='created'; render(); DS.toast('恢复草稿已创建，未开始执行'); },900);
+}
+
+DS.mount({ header:header(), state:S, states:[
+  {id:'default',label:'默认 · 从失败阶段恢复'},{id:'all',label:'选择复制全部阶段'},{id:'verify',label:'选择只读验证'},
+  {id:'creating',label:'正在创建'},{id:'created',label:'已创建'},{id:'multi',label:'已有多条派生记录'},
+  {id:'ineligible',label:'不可恢复'},{id:'unknown',label:'原操作结果未明（锁定）'},{id:'create-failed',label:'创建失败'},
+  {id:'loading',label:'读取中'},{id:'error',label:'读取失败'},{id:'no-parent',label:'无父任务'}] });
+render();
+</script>
+</body>
+</html>

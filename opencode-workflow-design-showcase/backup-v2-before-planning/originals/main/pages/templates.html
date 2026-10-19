@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>模板任务 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.tpl-wrap{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+.tpl-list{position:sticky;top:24px;max-height:calc(100vh - 140px);overflow:auto}
+.tpl{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:12px;text-align:left;width:100%;transition:background var(--t-fast)}
+.tpl:hover{background:var(--fill-2)}
+.tpl[aria-selected="true"]{background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--line-2)}
+.tpl .tile{width:32px;height:32px;border-radius:9px}
+.tpl .t{font-size:13.5px;font-weight:500}.tpl .d{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.grp{font-size:11.5px;color:var(--muted);padding:12px 12px 4px;letter-spacing:.3px}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.chain span{font-size:12px;padding:3px 10px;border-radius:var(--r-pill);background:var(--fill-3);color:var(--ink-2)}
+.chain i{color:var(--faint);font-style:normal;font-size:11px}
+.fsec{padding:20px 22px;box-shadow:inset 0 -1px 0 var(--line)}
+.fsec h3{font-size:14px;font-weight:500;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.drop{display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px;border-radius:12px;border:1px dashed var(--line-3);color:var(--sub);text-align:center}
+.file{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px}
+.sumbar{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;padding:14px 22px;background:var(--panel);box-shadow:inset 0 1px 0 var(--line);border-radius:0 0 var(--r-lg) var(--r-lg)}
+.receipt{display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:44px 24px}
+/* 补充 · 历史模板与自动化记录（arc-） */
+.arc-top{flex:none;padding:14px 20px 0;display:flex;flex-direction:column;gap:12px}
+.arc-tabs{overflow-x:auto;scrollbar-width:none}
+.arc-tabs .tab{flex:none;white-space:nowrap}
+.arc-tabs .tab:disabled{opacity:.45;cursor:not-allowed}
+.arc-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.arc-tile{padding:14px 16px;border-radius:var(--r-md);background:var(--fill-1);border:1px solid var(--line);display:flex;flex-direction:column;gap:4px}
+.arc-tile b{font-family:var(--font-display);font-weight:400;font-size:26px;color:var(--ink);line-height:1.2}
+.arc-tile span{font-size:12.5px;color:var(--muted)}
+.arc-card{border-radius:var(--r-md);border:1px solid var(--line);background:var(--fill-1);padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.arc-card+.arc-card{margin-top:10px}
+.arc-card.on{border-color:var(--line-3);background:var(--fill-2)}
+.arc-card h3{font-size:14px;font-weight:500}
+.arc-meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--sub)}
+.arc-meta b{font-weight:400;color:var(--muted);margin-right:4px}
+.arc-health{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;background:var(--fill-2);font-size:12.5px;line-height:1.6}
+.arc-health .badge{align-self:flex-start}
+.arc-health .t{font-size:13px;color:var(--ink-2)}
+.arc-json{border-radius:10px;border:1px solid var(--line)}
+.arc-json>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;font-size:12.5px;color:var(--sub)}
+.arc-json>summary::-webkit-details-marker{display:none}
+.arc-json[open]>summary .chev{transform:rotate(90deg)}
+.arc-json .chev{transition:transform .2s}
+.arc-pre{margin:0;padding:12px 14px;font:12px/1.65 var(--font-mono);color:var(--ink-2);background:var(--bg-sunken);border-radius:0 0 10px 10px;box-shadow:inset 0 1px 0 var(--line);overflow:auto;max-height:240px;white-space:pre}
+.arc-pre.solo{border-radius:10px;border:1px solid var(--line);box-shadow:none}
+.arc-ver{border-top:1px solid var(--line)}
+.arc-ver:first-child{border-top:0}
+.arc-ver>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:10px 4px;font-size:13px}
+.arc-ver>summary::-webkit-details-marker{display:none}
+.arc-ver[open]>summary .chev{transform:rotate(90deg)}
+.arc-ver .chev{transition:transform .2s;color:var(--muted)}
+.arc-ver>div{padding:0 4px 12px 24px;display:flex;flex-direction:column;gap:8px}
+.arc-run{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:12px 14px;border-radius:var(--r-md);text-align:left;width:100%;transition:background var(--t-fast)}
+.arc-run:hover{background:var(--fill-2)}
+.arc-run[aria-current="true"]{background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--line-2)}
+.arc-run .id{font-family:var(--font-mono);font-size:12.5px;color:var(--ink)}
+.arc-run .m{grid-column:1;font-size:12px;color:var(--muted)}
+.arc-run .badge{grid-row:1 / span 2;grid-column:2}
+.arc-runwrap{flex:0 1 auto;min-height:0;max-height:52%;overflow-y:auto;padding:12px 20px 0}.arc-runwrap:empty{display:none}
+.arc-detail{padding:14px 16px;border-radius:var(--r-md);background:var(--surface);border:1px solid var(--line-2);display:flex;flex-direction:column;gap:12px;animation:fade .3s ease both}
+.arc-cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.arc-cols .arc-card{margin:0}
+.arc-cols ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--ink-2)}
+.arc-cols li{display:flex;gap:8px;align-items:center}
+.arc-sk{height:14px}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="templates">
+<main id="page" hidden><div class="page wide" id="view"></div>
+  <aside class="drawer xl" id="arc" aria-hidden="true" aria-labelledby="arcT">
+    <div class="drawer-head"><div class="grow"><div class="row wrap" style="gap:8px"><h2 id="arcT">历史模板与自动化记录</h2><span class="badge st-idle"><span data-icon="lock" data-icon-size="sm"></span>只读</span></div><div class="hint" id="arcSub" style="margin-top:4px"></div></div>
+      <button class="icon-btn" id="arcRefresh" aria-label="重新读取历史记录" title="重新读取" onclick="arcLoad()"><span data-icon="refresh"></span></button><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer('arc')"><span data-icon="x"></span></button></div>
+    <div class="arc-top" id="arcTop"></div>
+    <div id="arcRun" class="arc-runwrap"></div>
+    <div class="drawer-body" id="arcBody" role="tabpanel" tabindex="0"></div>
+  </aside>
+</main>
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S0=DS.state||'ready';
+const TPLS=[
+  {id:'weekly', g:'报告', t:'项目人员贡献周报', d:'分析代码贡献，生成贡献排名、项目总报告和个人周报。', v:10, steps:['采集 Git 证据','分析与生成报告'], date:true, out:true},
+  {id:'history', g:'报告', t:'历史提交审查', d:'审查历史 Git 提交，追溯作者、提交者与共同作者；不判断问题在当前版本是否仍存在。', v:4, steps:['采集提交','逐条审查','汇总'], date:true},
+  {id:'review', g:'代码审查', t:'代码审查', d:'审查冻结目标版本，支持日期增量和全面审查，仅复核发现的问题。', v:6, steps:['冻结版本','审查','复核'], date:true, full:true},
+  {id:'req', g:'代码审查', t:'需求代码评审', d:'核对分支代码的需求完整性、正确性和质量问题。', v:3, steps:['读取需求文档','对照代码','出具评审'], doc:true},
+  {id:'design', g:'开发', t:'详细设计编写', d:'根据指定路径的现有代码编写详细设计、流程图和源码覆盖清单。', v:5, steps:['读取源码','编写设计','覆盖核对'], path:true, out:true},
+  {id:'ut', g:'开发', t:'单元测试开发', d:'补齐指定源码路径下的单元测试，并运行测试与验收。', v:7, steps:['分析覆盖','编写测试','运行验收'], path:true},
+];
+let sel = DS.params.get('t') || (S0==='doc'?'req':S0==='source'?'ut':'weekly'), range='week', phase={submitting:'submitting',unknown:'unknown',created:'created','pending-start':'pending'}[S0]||'edit';
+function form(T){
+  const ro = phase!=='edit';
+  return `<section class="card fade">
+    <div style="padding:20px 22px 18px;box-shadow:inset 0 -1px 0 var(--line)"><div class="row wrap" style="gap:6px"><span class="badge outline">${T.g}</span><span class="badge outline num">模板版本 ${T.v}</span><span class="badge st-idle">${I('lock','sm')}固定流程</span></div>
+      <h2 style="font-size:20px;font-weight:500;margin-top:10px">${T.t}</h2><p class="sub" style="font-size:13.5px;margin-top:6px;line-height:1.65">${T.d}</p>
+      <div class="chain" style="margin-top:12px">${T.steps.map((s,i)=>`${i?'<i>→</i>':''}<span>${s}</span>`).join('')}</div></div>
+    ${phase==='unknown'?`<div style="padding:16px 22px 0"><div class="banner unknown">${I('help')}<div><b>启动请求没有收到回执</b><br>参数已锁定。重试会使用同一份请求，不会创建第二个任务。</div><div class="actions"><button class="btn secondary sm" onclick="this.innerHTML='<span class=spin></span>核对中';setTimeout(()=>{phase='created';render()},1100)">${I('refresh','sm')}用原请求重试</button></div></div></div>`:''}
+    <div class="fsec"><h3>${I('folder','sm')}项目与分支</h3><div class="grid-2">
+      <div class="field" style="margin:0"><label class="label" for="pj">项目 <span class="req">*</span></label><select class="select" id="pj" ${ro?'disabled':''}><option>OpenCode Loopper</option><option>客户服务平台</option></select></div>
+      <div class="field" style="margin:0"><label class="label" for="br">分支 <span class="req">*</span></label><select class="select mono" id="br" ${ro?'disabled':''}><option>main</option><option>release/2.4</option><option>feature/config-entry</option></select></div></div></div>
+    ${T.date?`<div class="fsec"><h3>${I('calendar','sm')}时间范围</h3>
+      <div class="seg" role="group" aria-label="时间范围">${[['week','最近 7 天'],['month','本月'],['custom','自定义'],...(T.full?[['full','全部历史']]:[])].map(([k,l])=>`<button aria-pressed="${range===k}" ${ro?'disabled':''} onclick="range='${k}';render()">${l}</button>`).join('')}</div>
+      ${range==='custom'?`<div class="grid-2" style="margin-top:14px"><div class="field" style="margin:0"><label class="label" for="d1">开始日期</label><input class="input" id="d1" type="date" value="2026-10-01"></div><div class="field" style="margin:0"><label class="label" for="d2">结束日期</label><input class="input" id="d2" type="date" value="2026-10-08"></div></div>`:''}
+      <p class="hint" style="margin-top:10px">${range==='full'?'审查全部历史提交，不限日期。':range==='week'?'10-03 至 10-09，包含结束日期当天 24:00 之前的提交。':range==='month'?'10-01 至 10-09。':'包含结束日期当天 24:00 之前的提交。'}</p></div>`:''}
+    ${T.path?`<div class="fsec"><h3>${I('file','sm')}源码范围</h3><div class="field" style="margin:0"><label class="label" for="sp">源码路径 <span class="req">*</span></label><div class="row"><input class="input mono grow" id="sp" value="src/main/java/com/loopper/task" ${ro?'readonly':''}><button class="btn secondary" ${ro?'disabled':''}>${I('folder','sm')}选择</button></div><span class="hint">相对项目目录。只处理这个目录下的文件。</span></div></div>`:''}
+    ${T.doc?`<div class="fsec"><h3>${I('doc','sm')}需求文档</h3>${S0==='doc'?`<div class="file">${I('doc','sm')}<span class="grow">登录与会话需求说明 v3.docx<div class="hint">218 KB · 已校验</div></span><button class="btn ghost sm" ${ro?'disabled':''}>移除</button></div>`:''}<div class="drop" style="margin-top:${S0==='doc'?'10px':'0'}">${I('upload','lg')}<span>拖入文档，或 <button class="btn ghost sm" style="display:inline-flex">选择文件</button></span><span class="hint">支持 .docx .md .pdf，可按顺序上传多份</span></div></div>`:''}
+    ${T.out?`<details class="fsec" style="padding-top:14px;padding-bottom:14px"><summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--sub)">${I('chevRight','sm')}输出位置<span class="hint">（可选，默认写入项目文档目录）</span></summary><div class="field" style="margin-top:12px"><input class="input mono" placeholder="docs/reports/weekly"></div></details>`:''}
+    <div class="sumbar"><span class="grow hint" style="font-size:13px">将在 <b class="ink" style="font-weight:500">OpenCode Loopper · main</b> 上运行“${T.t}”${T.date?`，范围 ${range==='full'?'全部历史':range==='week'?'最近 7 天':range==='month'?'本月':'自定义'}`:''}</span>
+      <a class="btn ghost" href="#" onclick="event.preventDefault();DS.toast('评分规则与模板说明（原型未展开）','info')">模板说明</a>
+      <button class="btn primary" ${ro?'disabled':''} onclick="start(this)">${phase==='submitting'?'<span class="spin"></span>正在启动':'启动模板任务'}</button></div>
+  </section>`;
+}
+function receipt(T){
+  const pend = phase==='pending';
+  return `<section class="card fade"><div class="receipt">
+    <span class="tile" style="width:56px;height:56px;border-radius:16px;background:${pend?'var(--wait-fill)':'var(--ok-fill)'};color:${pend?'var(--wait)':'var(--ok)'}">${I(pend?'clock':'check','lg')}</span>
+    <h2 class="title" style="font-size:22px">${pend?'任务已创建，等待开始':'模板任务已启动'}</h2>
+    <p class="lede" style="max-width:460px">${pend?'这类模板创建后需要单独开始。开始前会重新读取一次任务状态，避免重复启动。':'执行进度在执行画布里查看。模板任务使用固定流程，步骤结构不能修改。'}</p>
+    <dl class="kv" style="text-align:left;width:100%;max-width:420px;margin:6px 0"><dt>模板</dt><dd>${T.t} · 版本 ${T.v}</dd><dt>项目</dt><dd>OpenCode Loopper · main</dd>${T.date?`<dt>范围</dt><dd>10-03 至 10-09</dd>`:''}</dl>
+    <div class="row">${pend?`<button class="btn primary" onclick="phase='created';render();DS.toast('已开始')">${I('play','sm')}开始执行</button>`:`<a class="btn primary" href="task.html?state=template">打开执行画布${I('arrowRight','sm')}</a>`}<button class="btn ghost" onclick="phase='edit';render()">再启动一个</button></div>
+  </div></section>`;
+}
+function start(){ phase='submitting'; render(); setTimeout(()=>{ phase = TPLS.find(t=>t.id===sel).path ? 'pending':'created'; render(); },1100); }
+function render(){
+  const T=TPLS.find(t=>t.id===sel);
+  const groups=[...new Set(TPLS.map(t=>t.g))];
+  DS.$('#view').innerHTML = `
+  <div class="page-head"><div class="grow"><h2 class="title">模板任务</h2><p class="lede">选一个模板，填好必要参数，直接启动。模板使用固定流程，运行时结构不会变。</p></div></div>
+  <div class="tpl-wrap">
+    <aside class="card tpl-list" aria-label="模板"><div style="padding:12px 12px 0"><div class="input-wrap">${I('search')}<input class="input ctl" placeholder="搜索模板" aria-label="搜索模板" oninput="DS.$$('.tpl').forEach(b=>b.style.display=b.textContent.includes(this.value)?'':'none')"></div></div>
+      <div role="listbox" style="padding:4px 6px 8px">${groups.map(g=>`<div class="grp">${g}</div>${TPLS.filter(t=>t.g===g).map(t=>`<button class="tpl" role="option" aria-selected="${sel===t.id}" ${phase!=='edit'?'disabled':''} onclick="sel='${t.id}';range='week';render()"><span class="tile">${I(t.g==='报告'?'chart':t.g==='开发'?'terminal':'eye','sm')}</span><span style="min-width:0"><div class="t">${t.t}</div><div class="d">${t.d}</div></span></button>`).join('')}`).join('')}</div>
+      <div style="padding:12px;box-shadow:inset 0 1px 0 var(--line)"><a class="btn ghost sm" style="width:100%" href="start.html">${I('plus','sm')}没有合适的模板？开始一个需求任务</a></div></aside>
+    <div>${['created','pending'].includes(phase)?receipt(T):form(T)}</div>
+  </div>`;
+}
+DS.mount({ header:`<h1>${I('template')}模板任务</h1><span class="spacer"></span><a class="btn ghost sm" href="tasks.html">${I('list','sm')}历史任务</a><button class="btn secondary sm" onclick="openArc(this)">${I('archive','sm')}历史模板与自动化记录</button>`, state:S0, states:[
+  {id:'ready',label:'填写参数（周报）'},{id:'doc',label:'需求代码评审（上传文档）'},{id:'source',label:'单元测试开发（源码路径）'},
+  {id:'submitting',label:'启动中'},{id:'unknown',label:'启动结果未明'},{id:'created',label:'已启动'},{id:'pending-start',label:'已创建待开始'},
+  {id:'arc-overview',label:'补充 · 历史档案 · 归档概览'},{id:'arc-templates',label:'补充 · 历史档案 · 历史模板与冻结版本'},{id:'arc-rules',label:'补充 · 历史档案 · 旧规则与运行记录'},
+  {id:'arc-run',label:'补充 · 历史档案 · 运行详情'},{id:'arc-verify-ok',label:'补充 · 历史档案 · 核实关联任务成功'},{id:'arc-verify-fail',label:'补充 · 历史档案 · 核实关联任务失败'},
+  {id:'arc-export',label:'补充 · 历史档案 · 导出说明'},{id:'arc-loading',label:'补充 · 历史档案 · 读取中'},{id:'arc-error',label:'补充 · 历史档案 · 读取失败'},{id:'arc-empty',label:'补充 · 历史档案 · 空归档'}] });
+render();
+</script>
+<script>
+/* ---------- 补充 · 历史模板与自动化记录（只读档案抽屉） ---------- */
+const ARC_TPL=[
+  {id:'regress',name:'发布前回归测试',desc:'合并到 main 后运行完整回归测试，并汇总失败用例。',archived:false,v:5,at:'2026-08-02 10:14',
+   vers:[{n:5,imm:true,auto:true,sha:'7c41e9a03b6d2f58e1a4c97d0b3f6a21e85c4d90',at:'2026-08-02 10:14',spec:{workflow:'REGRESSION_TEST',stages:['准备环境','运行回归测试','汇总失败用例'],inputs:{branch:'main',suite:'full'},timeoutMinutes:90}},
+         {n:4,imm:true,auto:false,sha:'e2b8f0c4517a9d63b0e1c2f47a8d95b3c6e0f182',at:'2026-07-11 16:40',spec:{workflow:'REGRESSION_TEST',stages:['准备环境','运行回归测试'],inputs:{branch:'main',suite:'smoke'},timeoutMinutes:45}},
+         {n:3,imm:false,auto:false,sha:'51d0a7e9c3b2f84160e5d7a29c8b3f0e4a61d2c7',at:'2026-06-03 09:12',spec:{workflow:'REGRESSION_TEST',stages:['运行回归测试'],inputs:{suite:'smoke'}}}]},
+  {id:'deps',name:'夜间依赖升级检查',desc:'每晚检查依赖更新并生成升级建议草稿。',archived:true,v:3,at:'2026-06-18 21:05',vers:[]},
+  {id:'docs',name:'接口文档同步',desc:'工单关闭后，把接口变更同步到项目文档目录。',archived:true,v:2,at:'2026-04-11 15:30',vers:[]},
+];
+const ARC_RULES=[
+  {id:'r1',name:'main 分支提交后回归',trig:'Git 提交变化',on:true,auto:true,proj:'OpenCode Loopper',tpl:'发布前回归测试 · 版本 5',rev:7,
+   health:{s:'ok',checked:'2026-09-28 23:40',success:'2026-09-28 23:40'},cfg:{branch:'main',debounceSeconds:120,ignorePaths:['docs/**']}},
+  {id:'r2',name:'每晚依赖检查',trig:'定时',on:false,auto:false,proj:'客户服务平台',tpl:'夜间依赖升级检查 · 版本 3',rev:4,
+   health:{s:'fail',n:3,checked:'2026-09-27 02:00',success:'2026-09-24 02:00',err:'仓库凭据已失效，无法读取远程分支。'},cfg:{cron:'0 2 * * *',timezone:'Asia/Shanghai'}},
+  {id:'r3',name:'工单关闭后同步文档',trig:'Webhook',on:false,auto:false,proj:'OpenCode Loopper',tpl:'接口文档同步 · 版本 2',rev:2,health:null,cfg:{path:'/hooks/docs-sync',events:['ticket.closed']}},
+];
+const ARC_RUNS=[
+  {id:'R-0928-2340',rule:'r1',st:'已完成',trig:'Git 提交变化',at:'2026-09-28 23:40',draft:'D-1182',task:'T-3307',start:'2026-09-28 23:41:05',end:'2026-09-29 00:12:48',ev:{headSha:'9f3c2a7',previousSha:'b71e04c',queue:'default',attempt:1,decision:'AUTO_START'}},
+  {id:'R-0927-0200',rule:'r2',st:'失败',trig:'定时',at:'2026-09-27 02:00',draft:'',task:'',start:'2026-09-27 02:00:03',end:'2026-09-27 02:00:09',err:'读取远程分支失败：仓库凭据已失效。',ev:{cron:'0 2 * * *',attempt:3,lastError:'REMOTE_AUTH_FAILED'}},
+  {id:'R-0926-1815',rule:'r1',st:'已跳过',trig:'Git 提交变化',at:'2026-09-26 18:15',draft:'',task:'',start:'',end:'',ev:{headSha:'b71e04c',reason:'只改动了 docs/**，按规则跳过'}},
+  {id:'R-0925-0200',rule:'r2',st:'等待审批',trig:'定时',at:'2026-09-25 02:00',draft:'D-1150',task:'',start:'',end:'',ev:{cron:'0 2 * * *',decision:'REVIEW_REQUIRED'}},
+];
+const ARC_ST={'已检测':'st-accent','等待审批':'st-wait','已排队':'st-idle','运行中':'st-run','已完成':'st-done','失败':'st-fail','已跳过':'st-idle'};
+const ARC_TABS=[['overview','归档概览'],['templates','历史模板'],['rules','旧规则与检测记录'],['runs','运行记录'],['export','导出说明']];
+const AS=DS.state||'';
+const arc={tab:{'arc-templates':'templates','arc-rules':'rules','arc-run':'runs','arc-verify-ok':'runs','arc-verify-fail':'runs','arc-export':'export'}[AS]||'overview',
+  focus:null, loading:AS==='arc-loading', error:AS==='arc-error', empty:AS==='arc-empty', tpl:AS==='arc-templates'?'regress':null, rule:AS==='arc-rules'?'r1':null,
+  run:['arc-run','arc-verify-ok','arc-verify-fail'].includes(AS)?'R-0928-2340':null, verify:{'arc-verify-ok':'ok','arc-verify-fail':'fail'}[AS]||null};
+arc.focus=arc.tab;
+const SERVER_T='2026-10-10 14:22:05';
+const data=()=>arc.empty?{t:[],r:[],u:[]}:{t:ARC_TPL,r:ARC_RULES,u:ARC_RUNS};
+function json(o){ return esc(JSON.stringify(o,null,2)); }
+function arcEmpty(icon,t,d){ return `<div class="empty" style="padding:40px 16px"><span class="tile">${I(icon,'lg')}</span><h3>${t}</h3><p>${d}</p></div>`; }
+function ruleCard(r,withOpen){
+  const h=r.health, hb=!h?`<span class="badge st-idle">${I('minus','sm')}未检查</span>`:h.s==='ok'?`<span class="badge st-ok">${I('check','sm')}检测正常</span>`:`<span class="badge st-fail">${I('alert','sm')}检测失败 · 连续 ${h.n} 次</span>`;
+  const runs=ARC_RUNS.filter(u=>u.rule===r.id);
+  return `<article class="arc-card ${arc.rule===r.id&&withOpen?'on':''}">
+    <div class="row" style="align-items:flex-start;gap:10px"><div class="grow"><h3>${esc(r.name)}</h3><div class="arc-meta" style="margin-top:4px"><span>${r.trig}</span><span>${r.auto?'自动开始':'需要审批'}</span></div></div><span class="badge outline">${r.on?'历史启用':'历史禁用'}</span></div>
+    <div class="arc-meta"><span><b>项目</b>${esc(r.proj)}</span><span><b>冻结模板</b>${esc(r.tpl)}</span><span><b>规则修订</b>${r.rev}</span></div>
+    <div class="arc-health" aria-label="自动化检测状态"><div class="grow col" style="gap:4px">${hb}${h?`<span class="hint">最近检测 ${h.checked}${h.success?` · 最近成功 ${h.success}`:''}</span>`:'<span class="hint">这条规则没有留下检测记录。</span>'}${h&&h.s==='fail'?`<span class="t" role="alert">${esc(h.err||'检测未完成，请重新读取记录')}</span>`:''}</div></div>
+    <details class="arc-json"><summary>${I('chevRight','sm chev')}触发配置<span class="hint">只读</span></summary><pre class="arc-pre">${json(r.cfg)}</pre></details>
+    ${withOpen?`<div class="row"><button class="btn ${arc.rule===r.id?'ghost':'secondary'} sm" onclick="arcRule('${r.id}')" aria-expanded="${arc.rule===r.id}">${I(arc.rule===r.id?'chevDown':'clock','sm')}${arc.rule===r.id?'收起运行记录':`查看运行记录 · ${runs.length}`}</button></div>
+      ${arc.rule===r.id?`<div class="list" aria-label="旧规则运行记录" style="margin:0 -6px">${runs.length?runs.map(runRow).join(''):'<p class="hint" style="padding:6px">这条规则没有运行记录。</p>'}</div>`:''}`:''}
+  </article>`;
+}
+function runRow(u){ return `<button class="arc-run" aria-current="${arc.run===u.id}" onclick="arcOpenRun('${u.id}')"><span class="id">${u.id}</span><span class="badge ${ARC_ST[u.st]||'st-idle'}">${u.st}</span><span class="m">${u.trig} · ${u.at} · 任务 ${u.task||'未绑定'}</span></button>`; }
+function arcSk(n){ return Array.from({length:n},()=>`<div class="arc-card"><div class="skel arc-sk" style="width:42%"></div><div class="skel arc-sk" style="width:76%"></div><div class="skel arc-sk" style="width:58%"></div></div>`).join(''); }
+function arcPanel(){
+  const D=data();
+  if (arc.loading) return `<p class="hint row" role="status" style="margin-bottom:12px"><span class="spin"></span>正在读取历史记录…</p>${arc.tab==='overview'?`<div class="arc-tiles">${[0,1,2].map(()=>'<div class="arc-tile"><div class="skel" style="height:30px;width:40%"></div><div class="skel arc-sk" style="width:60%"></div></div>').join('')}</div><div style="margin-top:12px">${arcSk(2)}</div>`:arcSk(3)}`;
+  if (arc.error) return arcEmpty('archive','档案内容暂时不可用','重新读取成功后，这里会显示历史模板、旧规则和运行记录。');
+  if (arc.tab==='overview'){
+    return `<div class="arc-tiles">${[[D.t.length,'历史模板','templates'],[D.r.length,'旧规则','rules'],[D.u.length,'运行记录','runs']].map(([n,l,k])=>`<div class="arc-tile"><b class="num">${n}</b><span>${l}</span></div>`).join('')}</div>
+      <div class="row hint" style="margin:10px 2px 18px;gap:6px">${I('clock','sm')}服务器时间 ${SERVER_T}</div>
+      ${D.r.length?`<div class="sec-t">旧规则一览</div>${D.r.map(r=>ruleCard(r,false)).join('')}`:arcEmpty('archive','档案里没有记录','这个工作区没有留下旧模板合同、自动化规则或运行记录。当前的模板任务不受影响，可以照常启动。')}`;
+  }
+  if (arc.tab==='templates'){
+    if(!D.t.length) return arcEmpty('template','没有历史模板','旧自动化时期没有保存过模板合同。');
+    return `<p class="hint" style="margin-bottom:12px">打开一个模板，查看它当时冻结的每个版本。历史版本不能再用于启动。</p>`+D.t.map(t=>{const on=arc.tpl===t.id; return `<article class="arc-card ${on?'on':''}">
+      <div class="row" style="align-items:flex-start;gap:10px"><div class="grow"><h3>${esc(t.name)}</h3><p class="hint" style="margin-top:2px">${esc(t.desc)}</p></div><span class="badge ${t.archived?'st-idle':'outline'}">${t.archived?'已归档':'历史有效'}</span></div>
+      <div class="row"><span class="hint num grow">版本 ${t.v} · 更新于 ${t.at}</span><button class="btn ${on?'ghost':'secondary'} sm" aria-expanded="${on}" onclick="arcTpl('${t.id}')">${on?`${I('chevDown','sm')}收起版本`:`${I('layers','sm')}查看冻结版本`}</button></div>
+      ${on?`<section aria-label="冻结模板版本" style="border-top:1px solid var(--line);padding-top:4px">${t.vers.length?t.vers.map((v,i)=>`<details class="arc-ver" ${i===0?'open':''}><summary>${I('chevRight','sm chev')}<span class="num" style="font-weight:500">版本 ${v.n}</span><span class="badge ${v.imm?'st-idle':'st-fail'}" style="height:20px">${v.imm?'不可变':'原可变版本'}</span><span class="badge ${v.auto?'st-ok':'outline'}" style="height:20px">${v.auto?'原自动开始已批准':'原自动开始未批准'}</span></summary>
+          <div><div class="arc-meta"><span><b>SHA-256</b><span class="mono" title="${v.sha}">${v.sha.slice(0,12)}…${v.sha.slice(-6)}</span></span><span><b>冻结于</b>${v.at}</span></div><pre class="arc-pre solo">${json(v.spec)}</pre></div></details>`).join(''):'<p class="hint" style="padding:10px 4px">这个模板没有保存冻结版本。</p>'}
+        <div class="banner info" style="margin-top:8px;font-size:12.5px">${I('info','sm')}<div>导出的是此模板<b>最新的原合同（版本 ${t.v}）</b>，不是你正在查看的历史版本。</div><div class="actions"><button class="btn secondary sm" onclick="arcDl(this,'最新原合同')">${I('download','sm')}导出最新原合同</button></div></div></section>`:''}
+    </article>`}).join('');
+  }
+  if (arc.tab==='rules') return D.r.length?`<p class="hint" style="margin-bottom:12px">旧规则已停用，只保留配置和最后一次检测结果。</p>${D.r.map(r=>ruleCard(r,true)).join('')}`:arcEmpty('shield','没有旧规则','这个工作区没有留下自动化规则或检测记录。');
+  if (arc.tab==='runs') return D.u.length?`<div class="row hint" style="margin:0 2px 10px;gap:6px">${I('clock','sm')}服务器时间 ${SERVER_T} · 共 ${D.u.length} 条</div><div class="list" style="margin:0 -6px">${D.u.map(runRow).join('')}</div>`:arcEmpty('clock','没有运行记录','旧规则从未触发过运行。');
+  return `<div class="banner warn">${I('alert')}<div><b>这不是完整备份</b><br>旧格式 v1 只包含模板版本和部分规则配置，用来留档或迁移参考。</div></div>
+    <div class="arc-cols" style="margin-top:14px"><div class="arc-card"><div class="sec-t" style="margin:0">会包含</div><ul>${['历史模板版本（冻结合同）','旧规则的部分配置'].map(x=>`<li><span style="color:var(--ok)">${I('check','sm')}</span>${x}</li>`).join('')}</ul></div>
+      <div class="arc-card"><div class="sec-t" style="margin:0">不会包含</div><ul>${['运行记录','检测信息','Webhook 密钥'].map(x=>`<li><span style="color:var(--muted)">${I('x','sm')}</span>${x}</li>`).join('')}</ul></div></div>
+    <p class="hint" style="margin:14px 2px">导出只是下载一个文件，不会导入、启动或修改任何内容。</p>
+    <button class="btn primary" onclick="arcDl(this,'旧格式 v1 档案')">${I('download','sm')}导出旧格式 v1</button>`;
+}
+function arcRunDetail(){
+  const u=ARC_RUNS.find(x=>x.id===arc.run); if(!u||arc.loading) return '';
+  const r=ARC_RULES.find(x=>x.id===u.rule);
+  const v=arc.verify;
+  return `<section class="arc-detail" aria-label="历史运行详情">
+    <div class="row" style="gap:10px"><span class="grow"><span class="eyebrow">运行详情</span><div class="row" style="gap:8px;margin-top:2px"><span class="mono" style="font-size:14px">${u.id}</span><span class="badge ${ARC_ST[u.st]||'st-idle'}">${u.st}</span></div></span><button class="icon-btn" aria-label="收起运行详情" onclick="arc.run=null;arc.verify=null;arcRender()">${I('x','sm')}</button></div>
+    <dl class="kv" style="grid-template-columns:72px minmax(0,1fr);font-size:13px"><dt>规则</dt><dd>${esc(r.name)}</dd><dt>草稿</dt><dd class="mono">${u.draft||'未绑定'}</dd><dt>开始</dt><dd class="num">${u.start||'未开始'}</dd><dt>结束</dt><dd class="num">${u.end||'未结束'}</dd></dl>
+    ${u.err?`<div class="banner danger" style="font-size:12.5px">${I('alert','sm')}<div>${esc(u.err)}</div></div>`:''}
+    ${u.task?(v==='ok'?`<div class="banner ok" role="status">${I('check','sm')}<div>关联任务 <span class="mono">${u.task}</span> 仍然存在，可以打开查看。</div><div class="actions"><a class="btn secondary sm" href="task.html">查看关联任务${I('arrowRight','sm')}</a></div></div>`
+      :v==='fail'?`<div class="banner warn" role="alert">${I('alert','sm')}<div><b>无法核实关联任务</b><br>任务 <span class="mono">${u.task}</span> 已不存在，或你没有查看权限。运行记录本身仍保留。</div><div class="actions"><button class="btn ghost sm" onclick="arcVerify(this)">重新核实</button></div></div>`
+      :v==='busy'?`<div class="row hint" role="status"><span class="spin"></span>正在核实关联任务 <span class="mono">${u.task}</span>…</div>`
+      :`<div class="row"><span class="hint grow">这次运行记录了任务 <span class="mono">${u.task}</span>。先核实任务仍存在，再打开。</span><button class="btn secondary sm" onclick="arcVerify(this)">${I('shield','sm')}核实关联任务</button></div>`)
+      :'<p class="hint">这次运行没有关联任务。</p>'}
+    <details class="arc-json" open><summary>${I('chevRight','sm chev')}原始运行证据<span class="hint">只读</span></summary><pre class="arc-pre" style="max-height:140px">${json(u.ev)}</pre></details>
+  </section>`;
+}
+function arcRender(keepFocus){
+  DS.$('#arcSub').textContent = arc.loading?'正在读取…':arc.error?'读取失败 · 显示内容可能不完整':`旧模板合同、规则和运行记录 · 服务器时间 ${SERVER_T}`;
+  DS.$('#arcRefresh').innerHTML = arc.loading?'<span class="spin"></span>':I('refresh');
+  DS.$('#arcTop').innerHTML = `${arc.error?`<div class="banner danger" role="alert">${I('alert')}<div><b>历史记录读取失败</b><br>服务暂时没有返回档案（错误 503）。档案本身没有变化，可以重新读取。</div><div class="actions"><button class="btn secondary sm" onclick="arcLoad()">${I('refresh','sm')}重新读取</button></div></div>`
+      :`<div class="banner" style="font-size:12.5px;padding:10px 12px">${I('lock','sm')}<div>只读档案。原写入接口已退役，这里<b>不会启动、审批、导入或生成密钥</b>。</div></div>`}
+    <div class="tabs arc-tabs" role="tablist" aria-label="历史归档分类">${ARC_TABS.map(([k,l],i)=>`<button class="tab" role="tab" id="arc-t-${k}" aria-selected="${arc.tab===k}" aria-controls="arcBody" tabindex="${arc.focus===k?0:-1}" ${arc.tab===k?'autofocus':''} ${arc.loading?'disabled':''} onfocus="arc.focus='${k}'" onclick="arcTab('${k}')" onkeydown="arcKey(event,${i})">${l}</button>`).join('')}</div>`;
+  DS.$('#arcBody').setAttribute('aria-labelledby','arc-t-'+arc.tab);
+  DS.$('#arcRun').innerHTML = arcRunDetail();
+  DS.$('#arcBody').innerHTML = arcPanel();
+  if (keepFocus) DS.$('#arc-t-'+arc.focus)?.focus();
+}
+/* 页签手动激活：方向键只移动焦点，不读取；点击 / Enter / 空格才切换并读取 */
+function arcKey(e,i){ if(arc.loading) return; const k=['ArrowLeft','ArrowRight','Home','End']; if(!k.includes(e.key)) return; e.preventDefault();
+  const n=e.key==='Home'?0:e.key==='End'?ARC_TABS.length-1:(i+(e.key==='ArrowRight'?1:-1)+ARC_TABS.length)%ARC_TABS.length;
+  DS.$$('.arc-tabs .tab').forEach((b,j)=>b.tabIndex=j===n?0:-1); arc.focus=ARC_TABS[n][0]; DS.$('#arc-t-'+arc.focus).focus(); }
+function arcTab(k){ if(arc.loading) return; arc.tab=k; arc.focus=k; arc.loading=true; arcRender(true); setTimeout(()=>{arc.loading=false;arcRender(true)},380); }
+function arcLoad(){ arc.loading=true; arc.error=false; arcRender(); setTimeout(()=>{arc.loading=false;arcRender()},700); }
+function arcTpl(id){ arc.tpl=arc.tpl===id?null:id; arcRender(); }
+function arcRule(id){ arc.rule=arc.rule===id?null:id; arcRender(); }
+function arcOpenRun(id){ arc.run=id; arc.verify=null; arcRender(); DS.$('#arcRun .arc-detail')?.focus?.(); }
+function arcVerify(){ arc.verify='busy'; arcRender(); setTimeout(()=>{arc.verify='ok';arcRender()},900); }
+function arcDl(b,what){ b.innerHTML='<span class="spin"></span>正在导出'; b.disabled=true; setTimeout(()=>{DS.toast(`已下载${what}`);arcRender()},800); }
+function arcFocus(){ setTimeout(()=>{ const t=DS.$('#arc-t-'+arc.tab); if(t&&!t.disabled) t.focus(); },90); }
+function openArc(t){ arcRender(); DS.openDrawer('arc',t); arcFocus(); }
+if (AS.startsWith('arc-')){ arcRender(); DS.openDrawer('arc'); arcFocus(); }
+</script>
+</body>
+</html>

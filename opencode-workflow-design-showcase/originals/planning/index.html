@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>状态总览 · 普通流程 AI 规划补充稿 · 评审辅助</title>
+<link rel="stylesheet" href="assets/ds.css">
+<link rel="stylesheet" href="assets/skins.css">
+<link rel="stylesheet" href="../../showcase/bridge.css">
+<link rel="stylesheet" href="assets/pe.css">
+<style>
+.ov h2{font-size:18px;font-weight:500;margin:30px 0 10px}
+.ov .route{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--fill-1);margin-top:8px;font-size:12.5px}
+.ov .route b{min-width:150px;color:var(--ink);font-weight:500;font-size:13px}
+.ov .route a{display:inline-flex;align-items:center;height:24px;padding:0 9px;border-radius:var(--r-pill);background:var(--fill-3);border:1px solid var(--line-2);color:var(--ink-2)}
+.ov .route a:hover{border-color:var(--accent-line);color:var(--ink)}
+.ov .route .ar{color:var(--faint)}
+.ov table.tbl td{font-size:12.5px;padding:10px 12px;vertical-align:top}
+.ov table.tbl th{padding:10px 12px}
+.ov .sid{font:500 12px var(--font-mono);color:var(--accent)}
+.ov .grp td{background:var(--fill-2);font-weight:500;color:var(--ink);font-size:13px}
+.sm-svg{width:100%;height:auto;display:block;border-radius:14px;border:1px solid var(--line);background:var(--bg-sunken)}
+.sm-svg .bx{fill:var(--panel);stroke:var(--line-3);stroke-width:1.2}
+.sm-svg .bx.run{stroke:var(--run-line)}.sm-svg .bx.ok{stroke:var(--ok-line)}.sm-svg .bx.unk{stroke:var(--unknown-line);stroke-dasharray:5 4}.sm-svg .bx.bad{stroke:var(--danger-line)}.sm-svg .bx.need{stroke:var(--wait-line)}
+.sm-svg text{fill:var(--ink-2);font-size:12px;font-family:var(--font)}
+.sm-svg text.t{fill:var(--ink);font-size:13px;font-weight:500}
+.sm-svg text.pe{fill:var(--accent);font-size:11px;font-family:var(--font-mono)}
+.sm-svg path{fill:none;stroke:var(--edge-done);stroke-width:1.3}
+.sm-svg path.d{stroke-dasharray:4 4;stroke:var(--line-3)}
+.sm-svg .grp{fill:var(--fill-1);stroke:var(--line-2);stroke-dasharray:4 4}
+.sm-svg marker path{fill:var(--edge-done);stroke:none}
+</style>
+<script src="../../showcase/icons.js"></script>
+<script src="../../showcase/navigation.js"></script>
+<script src="assets/pe-nav.js"></script>
+<script defer src="../../showcase/catalog.js"></script>
+<script defer src="../../showcase/bridge.js"></script>
+</head>
+<body data-page="index">
+<main id="page" hidden><div class="page ov" style="max-width:1200px" id="view"></div></main>
+<script src="assets/shell.js"></script>
+<script src="assets/pe-states.js"></script>
+<script src="assets/pe-proto.js"></script>
+<script>
+(function () {
+  const I = DS.icon, esc = DS.esc;
+  const L = (id, extra) => PE.href(id, extra || {});
+  const lnk = (id, t, extra) => `<a href="${L(id, extra)}">${t || id.toUpperCase()}</a>`;
+  const ar = '<span class="ar">→</span>';
+  const routes = [
+    ['主线 · 首页冷启动', [`<a href="${PEN.url('home.html')}">主页</a>`, lnk('pe01', '开始任务 PE01'), lnk('pe02', '形成需求草稿 PE02', { round: 1, task: 'T-2051' }), lnk('pe03', '生成计划 · 预览 PE03', { round: 1 }), lnk('pe05', '确认开始 PE05', { round: 1 }), lnk('pe07', '正文与工具 PE07', { round: 1 }), lnk('pe08', '部分草稿 PE08', { round: 1 }), lnk('pe09', '检查 PE09', { round: 1 }), lnk('pe25', '候选审阅 PE25', { round: 1 }), lnk('pe31', '应用到草稿 PE31', { round: 1 }), lnk('pe32', '确认 → 准备工作区 PE32', { round: 1 }), lnk('pe33', '开始执行 → 任务画布', { sub: 'running', task: 'T-2051' })]],
+    ['离开与回来', [lnk('pe07', '规划中 PE07'), `<a href="${PEN.url('tasks.html', { state: 'pe14' })}">任务列表 PE14</a>`, lnk('pe15', '回到同任务 · 补读 PE15', { from: 'tasks', returnTo: 'tasks.html', sel: 's3' }), lnk('pe16', '断连 PE16'), lnk('pe17', '记录缺口 PE17'), lnk('pe30', '历史轮次 PE30', { back: 'pe25' })]],
+    ['补充、问题与修订', [lnk('pe13', '规划中补充 PE13'), lnk('pe10', '有界修订 1/1 PE10'), lnk('pe11', '需要答复 PE11', { round: 1 }), lnk('pe12', '达到上限 PE12'), lnk('pe04', '配置 / 依据不足 PE04'), lnk('b07', '方法未适配 B07')]],
+    ['停止、失败与未知', [lnk('pe18', '请求停止 PE18'), lnk('pe19', '正在停止 PE19'), lnk('pe20', '已停止 PE20'), lnk('pe21', '待核对 PE21'), lnk('pe22', '明确失败 PE22'), lnk('pe23', '重启核对 PE23'), lnk('pe24', '仅观察续接 PE24'), lnk('pe26', '候选到 · 未停稳 PE26'), lnk('b05', '应用结果未知 B05')]],
+    ['审阅中的问题', [lnk('pe27', '硬阻塞 PE27'), lnk('pe28', '并行写冲突 PE28 · 后续分期'), lnk('pe29', '漂移 PE29'), lnk('pe37', '大需求总览 PE37 · 后续分期')]],
+    ['执行中调整与固定模板', [lnk('pe33', '申请调整 PE33'), lnk('pe34', '编辑 · 领取竞态 PE34'), lnk('pe35', '重新确认 → 继续 PE35'), lnk('pe38', '局部细化 PE38 · 后续分期'), lnk('b08', '需求追踪（执行后）B08', { task: 'T-2051' }), `<a href="${PEN.url('templates.html')}">模板任务</a>`, lnk('pe36', '固定任务只读 PE36')]],
+  ];
+  let lastG = '';
+  const rows = PE.STATES.map((s) => { const g = s.group !== lastG ? `<tr class="grp"><td colspan="6">${esc(s.group)}</td></tr>` : ''; lastG = s.group; return g + `<tr><td><a class="sid" href="${L(s.id)}">${s.id.toUpperCase()}</a></td><td><a href="${L(s.id)}" style="color:var(--ink)">${esc(s.label)}</a><div class="muted" style="margin-top:2px">${esc(s.entry)}</div></td><td class="mono" style="font-size:11.5px">${s.page}</td><td>${esc(s.cat)}</td><td>${s.f.concat(s.a).join(' ')}</td><td>${esc(s.biz)} · ${esc(s.phase)}</td></tr>`; }).join('');
+  const sm = `<svg class="sm-svg" viewBox="0 0 1160 420" role="img" aria-label="规划轮次状态机与界面状态对应">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z"/></marker></defs>
+    <rect class="grp" x="150" y="28" width="520" height="118" rx="16"/><text x="166" y="48">running（phase 由服务事件推进，可能经过 revising）</text>
+    ${[[30, 76, '无', '', ''], [170, 66, 'preparing', 'PE05', 'run'], [300, 66, 'generating', 'PE06/07/08', 'run'], [430, 66, 'validating', 'PE09 · PE26', 'run'], [560, 66, 'revising 1/1', 'PE10', 'run'], [730, 66, 'ready', 'PE25/27/28/29', 'ok'], [880, 66, 'applied', 'PE31 → PE32', 'ok'], [1020, 66, 'dismissed', '不采用', '']].map(([x, y, t, p, c]) => `<rect class="bx ${c}" x="${x}" y="${y}" width="${t === '无' ? 90 : 116}" height="58" rx="12"/><text class="t" x="${x + 12}" y="${y + 24}">${t}</text><text class="pe" x="${x + 12}" y="${y + 43}">${p}</text>`).join('')}
+    <path d="M120 105H170" marker-end="url(#a)"/><path d="M286 95H300" marker-end="url(#a)"/><path d="M416 95H430" marker-end="url(#a)"/><path d="M546 95H560" marker-end="url(#a)"/><path d="M676 95H730" marker-end="url(#a)"/><path d="M846 95H880" marker-end="url(#a)"/><path d="M846 110C900 150 980 150 1030 124" marker-end="url(#a)"/><path class="d" d="M618 124C600 160 520 160 500 124" marker-end="url(#a)"/>
+    ${[[150, 210, 'needs_input', 'PE11 · PE12', 'need'], [300, 210, 'cancel_requested', 'PE18 → PE19', 'unk'], [450, 210, 'cancelled', 'PE20', ''], [600, 210, 'failed', 'PE22', 'bad'], [750, 210, 'unresolved', 'PE21', 'unk'], [900, 210, 'reconciling', 'PE23 → PE24', 'unk']].map(([x, y, t, p, c]) => `<rect class="bx ${c}" x="${x}" y="${y}" width="128" height="58" rx="12"/><text class="t" x="${x + 12}" y="${y + 24}">${t}</text><text class="pe" x="${x + 12}" y="${y + 43}">${p}</text>`).join('')}
+    <path d="M360 146V210" marker-end="url(#a)"/><path d="M428 239H450" marker-end="url(#a)"/><path d="M500 146C540 180 620 180 650 210" marker-end="url(#a)"/><path d="M220 146V210" marker-end="url(#a)"/><path class="d" d="M878 239H900" marker-end="url(#a)"/><path class="d" d="M960 268C900 300 860 300 820 268" marker-end="url(#a)"/><path d="M640 146C700 180 760 180 800 210" marker-end="url(#a)"/>
+    <text x="150" y="304">needs_input / cancelled / failed / applied / dismissed → 新一轮 = 新的 create（重新预览，previousRound 关联）；旧轮不会变回 running。</text>
+    <text x="150" y="324">unresolved 只能经 reconcile 按真实证据转为已知状态；仍不明保持原状，不重置计数、时限或原账。UNKNOWN 永不重发。</text>
+    <text x="150" y="350" class="pe">连接事实 live / disconnected / catching_up / gap 只是本页投影（PE15/16/17），不改 run.state。</text>
+    <text x="150" y="372" class="pe">任务画布另有编辑围栏：PE33 begin → PE34 编辑（CAS / 锁）→ PE35 重新确认 → 继续执行（恢复原自动推进）。固定模板 PE36 全语义锁。</text>
+    <text x="150" y="394" class="pe">PE28 / PE37 / PE38 为设计候选 · 后续分期，原型中不演示为可用。</text></svg>`;
+  document.getElementById('view').innerHTML = `<div class="eyebrow">评审辅助 · 不是产品页面</div><h1 class="title" style="font-size:28px;margin-top:6px">普通流程 AI 规划与节点细化 · 状态总览</h1>
+    <p class="lede" style="margin-top:8px;color:var(--sub);line-height:1.7">设计样例 · 全部模拟。不连接真实任务、模型、目录或服务，不发任何网络请求，不写浏览器本机存储。所有“已应用 / 已确认 / 已停止 / 已准备”都只是模拟画面。正式入口是左侧菜单与页面里的按钮；本页只用于评审跳转。</p>
+    <div class="banner unknown" style="margin-top:14px">${I('info')}<span>补稿 v4（2026-10-16，AD01–AD06 已批准）：确认后在本页“工作区”页签准备（PE32 / PW-*）；固定模板在需求画布确认（FX01）；业务问题明确回答（QA02 / QA03）；PE33–PE36 已迁入统一任务画布 <span class="mono">delivery/task.html</span>（UT 状态）。PE28 / PE38 仍为“设计候选 · 后续分期”。<br>补稿 v5（Q6 选 A · Q9 选 B · Q10 先开放 PE37）：PE37 大需求分组逐步细化可走通（LG-PLANNING / LG-CAND，全部细化后确认 → 工作区 → 开始执行）；角色管理与流程目录增加只读的“规划职责 / AI 规划”。</span></div>
+    <h2>推荐路线（按正常按钮走，不依赖本页）</h2>${routes.map(([n, l]) => `<div class="route"><b>${n}</b>${l.join(ar)}</div>`).join('')}
+    <h2>规划轮次状态机 ↔ 界面状态</h2>${sm}
+    <h2>全部状态（${PE.STATES.length}）</h2><div class="card" style="overflow:hidden"><table class="tbl"><thead><tr><th>ID</th><th>状态 · 正常入口</th><th>页面</th><th>类别</th><th>功能 / 验收</th><th>业务 · 分期</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <h2>页面与容器</h2><div class="card" style="overflow:hidden"><table class="tbl"><thead><tr><th>页面</th><th>合集中的位置</th><th>本稿做法</th></tr></thead><tbody>
+      <tr><td class="mono">start.html</td><td>开始任务（最新 TD 开始页）</td><td>修改：流程方法卡与“形成需求草稿”说明</td></tr>
+      <tr><td class="mono">requirement.html</td><td>需求画布（主稿 requirement）</td><td>主要增量：状态条、部分草稿、分组、候选对照、检查、规划记录、停止 / 未知、历史、确认 → TD</td></tr>
+      <tr><td class="mono">delivery/task.html</td><td>统一任务画布（最新 TD task · v4）</td><td>新旧普通任务、规划任务、固定模板同一画布：调整待执行计划（保留原自动 / 暂停模式）、整体 / 选中后继推进、恢复、快照评审、交付与工作区；planning/task.html 只作留档（PE38 后续分期仍在此）</td></tr>
+      <tr><td class="mono">tasks / requirements / inbox / home</td><td>原菜单页</td><td>增加规划状态与回到同任务的入口</td></tr>
+      <tr><td class="mono">templates.html</td><td>模板任务</td><td>修改：创建前参数与固定步骤预览；创建后锁</td></tr></tbody></table></div>`;
+  DS.mount({ proto: false, header: `<div class="row" style="gap:10px"><span style="color:var(--sub);display:flex">${I('layers')}</span><h1 style="font-size:15px;font-weight:500">状态总览</h1></div>` });
+  PE.init('index.html'); PE.mountProto();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>设置 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.split{display:grid;grid-template-columns:220px minmax(0,1fr);gap:28px;align-items:start}
+.snav{position:sticky;top:0;display:flex;flex-direction:column;gap:2px}
+.snav .cap{font-size:11.5px;color:var(--muted);padding:12px 10px 6px;letter-spacing:.3px}
+.snav a{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:13.5px;color:var(--sub);transition:background var(--t-fast),color var(--t-fast)}
+.snav a:hover{background:var(--fill-3);color:var(--ink)}
+.snav a[aria-current="true"]{background:var(--fill-4);color:var(--ink-strong)}
+.snav a .d{margin-left:auto}
+.sect{max-width:760px}
+.sect h2{font-family:var(--font-display);font-weight:500;font-size:20px;letter-spacing:-.3px}
+.sect .lede{font-size:13.5px;margin-top:4px}
+.frow{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px;padding:18px 0;align-items:start}
+.frow+.frow{box-shadow:inset 0 1px 0 var(--line)}
+.frow .l{font-size:13.5px;color:var(--ink);font-weight:500}
+.frow .l .hint{font-weight:400;margin-top:4px;display:block}
+.eff{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 8px;border-radius:var(--r-pill);font-size:11px;margin-top:8px}
+.eff.now{background:var(--ok-fill);color:var(--ok)}.eff.restart{background:var(--warn-fill);color:var(--warn)}
+.inl{display:flex;align-items:center;gap:8px}
+.inl .input{max-width:160px}
+.inl .u{font-size:13px;color:var(--muted)}
+.savebar{position:sticky;bottom:16px;margin-top:24px;display:flex;align-items:center;gap:12px;padding:12px 14px 12px 18px;border-radius:var(--r-pill);background:var(--float);backdrop-filter:blur(10px);box-shadow:var(--shadow-pop);animation:in .35s var(--ease) both}
+.skins{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.skin{border-radius:14px;border:1px solid var(--line-2);padding:8px;text-align:left;transition:border-color var(--t-fast);display:flex;flex-direction:column;gap:8px;background:var(--fill-1)}
+.skin:hover{border-color:var(--line-3)}
+.skin[aria-checked="true"]{border-color:var(--accent);box-shadow:var(--ring)}
+.skin .pv{height:78px;border-radius:9px;display:grid;grid-template-columns:28% 1fr;overflow:hidden}
+.skin .pv i{display:block}
+.skin .pv b{display:block;margin:12px 10px 0;height:8px;border-radius:4px}
+.skin .pv b+b{width:60%;margin-top:6px;opacity:.6}
+.skin .nm{font-size:13px;padding:0 4px 2px;display:flex;justify-content:space-between;align-items:center}
+.card-sec{padding:20px 22px;margin-top:16px}
+.radio-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.rcard{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:12px;border:1px solid var(--line-2);background:var(--fill-1);text-align:left;transition:all var(--t-fast)}
+.rcard[aria-checked="true"]{border-color:var(--accent-line);background:var(--accent-fill)}
+.rcard .r{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-3);flex:none;margin-top:2px;display:grid;place-items:center}
+.rcard[aria-checked="true"] .r{border-color:var(--accent)}
+.rcard[aria-checked="true"] .r::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+/* 补充：连接方式 / 设计监控间隔 / 执行限制分组（前缀 bx-） */
+.bx-opts{display:flex;flex-direction:column;gap:8px}
+.bx-opts .rcard{width:100%;padding:12px 14px}
+.bx-t{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500;color:var(--ink);flex-wrap:wrap}
+.bx-d{display:block;font-size:12.5px;color:var(--sub);line-height:1.55;margin-top:3px}
+.bx-tag{display:inline-flex;align-items:center;height:18px;padding:0 7px;border-radius:var(--r-pill);font-size:11px;font-weight:400;background:var(--fill-3);color:var(--muted)}
+.bx-tag.chg{background:var(--warn-fill);color:var(--warn)}
+.bx-grp{padding:16px 22px 4px;margin-top:16px}
+.bx-grp-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding-bottom:4px}
+.bx-grp-h b{font-size:14px;font-weight:500;color:var(--ink)}
+.bx-dep{margin:0 0 14px;padding:4px 0 0 16px;box-shadow:inset 2px 0 0 var(--accent-line)}
+.bx-dep .frow{padding:14px 0;grid-template-columns:204px minmax(0,1fr)}
+.bx-dep .frow+.frow{box-shadow:inset 0 1px 0 var(--line)}
+.bx-off{display:flex;gap:8px;align-items:flex-start;margin:0 0 16px;padding:10px 12px;border-radius:10px;background:var(--fill-2);font-size:12.5px;color:var(--sub);line-height:1.6}
+.bx-off .i{margin-top:2px;color:var(--muted)}
+.bx-sw{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--ink-2);min-height:40px}
+.bx-range{font-size:12px;color:var(--muted);white-space:nowrap}
+.bx .inl{flex-wrap:wrap;row-gap:4px}.bx .inl .u{white-space:nowrap}.bx .inl .input{min-width:96px}
+.bx .frow .l .eff{display:flex;width:fit-content}
+.bx .frow .error-text{margin-top:8px}
+@media (max-width:1100px){.bx .frow{grid-template-columns:170px minmax(0,1fr);gap:16px}.bx .bx-dep .frow{grid-template-columns:154px minmax(0,1fr)}}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="settings">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+
+<div class="dialog" id="leaveDlg" role="alertdialog" aria-labelledby="lvT">
+  <div class="dialog-body"><h2 id="lvT">离开前要放弃哪些修改？</h2><p>普通设置有 2 处未保存修改；Git 账号有 1 处未保存修改（含新的访问令牌）。</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>留在本页</button><button class="btn danger" onclick="DS.closeDialog()">全部放弃并离开</button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S=DS.state||'service';
+const sec = {service:'service', dirty:'service', 'save-unknown':'service', appearance:'look', model:'model', 'model-refresh':'model', limits:'limits', retry:'retry', git:'git', 'git-dirty':'git', network:'network', dev:'dev', 'conn-auto':'model', monitor:'service', 'monitor-range':'service', 'limits-off':'limits', 'limits-on':'limits'}[S] || 'service';
+const BX = ['conn-auto','monitor','monitor-range','limits-off','limits-on'].includes(S);
+const genDirty = ['dirty','save-unknown','git-dirty'].includes(S);
+const gitDirty = S==='git-dirty';
+const NAV = [['通用',[['service','服务','server'],['look','外观','eye']]],['模型与执行',[['model','模型服务','sparkle'],['limits','执行限制','shield'],['retry','重试等待','clock']]],['账号与网络',[['git','Git 账号','git'],['network','发布网络','link']]],['其他',[['dev','开发辅助','terminal']]]];
+const dot = k => (k==='model'&&S==='conn-auto') || (k==='service'&&S==='monitor-range') || (k==='limits'&&S==='limits-on') || (k==='git'&&gitDirty) || (k==='service'&&genDirty&&S!=='git-dirty') || (k==='model'&&genDirty&&S==='git-dirty') ? '<span class="dot d" style="color:var(--warn)" title="有未保存修改"></span>' : '';
+const eff = r => r ? '<span class="eff restart">'+I('refresh','sm')+'重启后生效</span>' : '<span class="eff now">'+I('check','sm')+'立即生效</span>';
+const row = (label, hint, ctl, restart) => `<div class="frow"><div class="l">${label}${hint?`<span class="hint">${hint}</span>`:''}${restart===undefined?'':eff(restart)}</div><div>${ctl}</div></div>`;
+const num = (v,u,min,max,changed) => `<div class="inl"><input class="input num" type="number" value="${v}" min="${min}" max="${max}" ${S==='save-unknown'?'readonly':''} style="${changed?'border-color:var(--warn-line)':''}"><span class="u">${u}</span><span class="hint">${min}–${max}</span></div>`;
+
+const SECTIONS = {
+  service:()=>`<div class="sect"><h2>服务</h2><p class="lede">opencode-workflow 本机服务的基础设置。</p>
+    <div class="card card-sec" style="padding-top:4px;padding-bottom:4px">
+      ${row('服务端口','浏览器访问 opencode-workflow 使用的端口', num(genDirty?8090:8080,'',1,65535,genDirty), true)}
+      ${row('启动时打开浏览器','', `<button class="switch" role="switch" aria-checked="true" aria-label="启动时打开浏览器"></button>`, true)}
+      ${row('允许的项目根目录','留空表示可以登记本机任意目录', `<input class="input mono" value="${genDirty?'/Users/liming/workspace':'/example/workspaces'}" style="${genDirty?'border-color:var(--warn-line)':''}" ${S==='save-unknown'?'readonly':''}><span class="hint" style="display:block;margin-top:6px">设置后，只能登记这个目录下的项目。</span>`, false)}
+    </div>
+    <details class="adv" style="margin-top:12px"><summary>${I('chevRight','sm chev')}高级</summary><div style="padding-bottom:6px">
+      ${row('任务状态检查间隔','', num(5,'秒',1,60), true)}${row('中止后清理尝试次数','', num(3,'次',1,10), false)}</div></details>
+    <p class="hint" style="margin-top:16px">${I('file','sm')} 启动配置文件（只读）：<span class="mono">/example/settings/startup.properties</span></p></div>`,
+  look:()=>`<div class="sect"><h2>外观</h2><p class="lede">只影响这台电脑上的显示，不影响任务。</p>
+    <div class="skins" style="margin-top:16px" role="radiogroup" aria-label="皮肤">
+      ${[['deepseek','deepseek 风','#0a0a0a','#151517','#a9bcff',1],['warm','claude 风','#f8f7f3','#eeede8','#89583f'],['spdb','SPDB','#ffffff','#f3f6fc','#004790'],['github-white','GitHub 白','#ffffff','#f6f8fa','#0969da']].map(([k,l,bg,sb,ac])=>{const on=document.documentElement.dataset.skin===k;return `<button class="skin" role="radio" aria-checked="${on}" onclick="DS.setSkin('${k}')"><span class="pv" style="background:${bg}"><i style="background:${sb}"></i><span><b style="background:${ac}"></b><b style="background:${ac}"></b></span></span><span class="nm">${l}${on?`<span style="color:var(--accent)">${I('check','sm')}</span>`:''}</span></button>`}).join('')}
+    </div>
+    <div class="card card-sec" style="padding-top:4px;padding-bottom:4px">${row('减少动态效果','跟随系统时，系统开启“减少动态效果”后自动关闭动画', `<select class="select" style="max-width:220px"><option>跟随系统</option><option>始终减少</option><option>不减少</option></select>`)}</div></div>`,
+  model:()=>`<div class="sect"><h2>模型服务</h2><p class="lede">opencode-workflow 通过 OpenCode 调用模型。这里决定使用哪个 OpenCode 和默认模型。</p>
+    <div class="card card-sec" style="padding-top:4px;padding-bottom:4px">
+      ${row('OpenCode CLI 路径','', `<input class="input mono" value="/usr/local/bin/opencode">`, false)}
+      ${row('默认模型', S==='model-refresh'?'':'从 OpenCode 读取的可用模型', S==='model-refresh'
+        ? `<div class="row hint" style="height:40px"><span class="spin"></span>正在读取可用模型（最多 40 秒）…</div>`
+        : `<div class="row" style="gap:8px"><select class="select" style="max-width:200px"><option>example-provider</option><option>another-provider</option></select><select class="select"><option>example-model</option><option>example-model-large</option></select><button class="icon-btn" aria-label="刷新模型列表" title="刷新模型列表" onclick="DS.setState('model-refresh')">${I('refresh')}</button></div><span class="hint" style="display:block;margin-top:6px">共 6 个可用模型 · 10:42 读取</span>`, false)}
+      ${row('运行方式','', `<div class="seg"><button aria-pressed="true">由程序托管</button><button aria-pressed="false">连接已有服务</button></div>`, true)}
+    </div>
+    <details class="adv" style="margin-top:12px"><summary>${I('chevRight','sm chev')}超时</summary><div style="padding-bottom:6px">${row('连接超时','',num(10,'秒',1,120),true)}${row('请求超时','',num(120,'秒',1,600),true)}${row('启动超时','',num(30,'秒',1,300),true)}</div></details></div>`,
+  limits:()=>`<div class="sect"><h2>执行限制</h2><p class="lede">防止任务无限重试或运行过久。</p><div class="card card-sec" style="padding-top:4px;padding-bottom:4px">
+    ${row('模板任务并发数','同时运行的模板任务上限',num(4,'个',1,16),false)}${row('单个阶段异常上限','',num(3,'次',1,10),false)}${row('单个任务异常上限','',num(10,'次',1,50),false)}
+    ${row('启用运行时长限制','', `<button class="switch" role="switch" aria-checked="true" aria-label="启用运行时长限制"></button>`, false)}${row('单个任务最长运行','',num(1440,'分钟',1,10080),false)}</div></div>`,
+  retry:()=>`<div class="sect"><h2>重试等待</h2><p class="lede">遇到限流或会话错误时，等多久再试。等待时间从“初始”开始逐次翻倍，不超过“最长”。</p><div class="card card-sec" style="padding-top:4px;padding-bottom:4px">
+    ${[['模型限流',30,300],['会话错误',10,120],['验证失败',15,300]].map(([l,b,m])=>row(l,'',`<div class="row" style="gap:16px;flex-wrap:wrap"><span class="col" style="gap:4px"><span class="hint">初始</span>${num(b,'秒',1,600)}</span><span class="col" style="gap:4px"><span class="hint">最长</span>${num(m,'秒',1,3600)}</span></div>`,false)).join('')}</div></div>`,
+  git:()=>`<div class="sect"><h2>Git 账号</h2><p class="lede">全局账号用于所有选择“继承全局”的项目。项目单独配置的账号不受这里影响。</p>
+    <div class="card card-sec">
+      <div class="row" style="margin-bottom:14px"><span class="section-title grow">账号</span>${gitDirty?'<span class="badge st-fail">'+I('edit','sm')+'未保存</span>':'<span class="badge st-ok">'+I('check','sm')+'已配置 · 版本 4</span>'}</div>
+      <div class="radio-cards" role="radiogroup"><button class="rcard" role="radio" aria-checked="true"><span class="r"></span><span><div style="font-weight:500">使用这个账号</div><div class="hint">继承全局的项目都用它</div></span></button><button class="rcard" role="radio" aria-checked="false"><span class="r"></span><span><div style="font-weight:500">停用全局账号</div><div class="hint">继承全局的项目改用系统 Git 凭据</div></span></button></div>
+      <div class="grid-2" style="margin-top:20px"><div class="field" style="margin:0"><label class="label" for="gs">服务器</label><input class="input mono" id="gs" value="https://git.example.test"></div><div class="field" style="margin:0"><label class="label" for="gu">用户名</label><input class="input" id="gu" value="liming"></div></div>
+      <div class="grid-2" style="margin-top:20px"><div class="field" style="margin:0"><span class="label">认证方式</span><div class="seg"><button aria-pressed="true">访问令牌</button><button aria-pressed="false">密码</button></div></div>
+        <div class="field" style="margin:0"><label class="label" for="gt">访问令牌</label><input class="input" id="gt" type="password" ${gitDirty?'value="••••••••••••" style="border-color:var(--warn-line)"':'placeholder="已保存 · 留空则不修改"'}></div></div>
+      <div class="field"><label class="label" for="gr">验证用仓库地址 <span class="opt">验证时必填</span></label><input class="input mono" id="gr" value="https://git.example.test/platform/opencode-loopper.git"></div>
+      <div class="divider"></div>
+      <div class="row"><button class="btn secondary" onclick="this.innerHTML='<span class=&quot;spin&quot;></span>验证中';setTimeout(()=>{this.innerHTML=DS.icon('link','sm')+'验证连接';DS.$('#gres').innerHTML='<span style=&quot;color:var(--ok)&quot;>'+DS.icon('check','sm')+' 可以读取 main 分支</span>'},1000)">${I('link','sm')}验证连接</button><span class="hint grow" id="gres">只检查能否读取仓库，不会推送，也不会保存。</span><button class="btn primary" ${gitDirty?'':'disabled'} onclick="DS.toast('Git 账号已保存，版本 5')">保存 Git 账号</button></div>
+    </div><p class="hint" style="margin-top:12px">Git 账号单独保存，和下方的“保存设置”互不影响。</p></div>`,
+  network:()=>`<div class="sect"><h2>发布网络</h2><p class="lede">发布到 GitLab 时使用的地址与超时。</p><div class="card card-sec" style="padding-top:4px;padding-bottom:4px">
+    ${row('GitLab 地址','',`<input class="input mono" value="https://git.example.test">`,true)}${row('API 地址','',`<input class="input mono" value="https://git.example.test/api/v4">`,true)}${row('允许的 HTTP 主机','每行一个',`<textarea class="textarea mono" style="min-height:80px">git.example.test
+registry.example.test</textarea>`,true)}${row('连接超时','',num(10,'秒',1,120),true)}${row('请求超时','',num(60,'秒',1,300),true)}</div></div>`,
+  dev:()=>`<div class="sect"><h2>开发辅助</h2><p class="lede">只用于本地调试。</p><div class="card card-sec" style="padding-top:4px;padding-bottom:4px">
+    ${row('显示示例数据','切换后任务、项目等页面显示内置示例，不写入设置；示例模式下不能保存或验证 Git 账号',`<button class="switch" role="switch" aria-checked="false" aria-label="显示示例数据"></button>`)}</div></div>`,
+};
+/* ---------- 补充分区（仅 BX 状态使用，不影响原有状态） ---------- */
+const num2 = (v,u,min,max,o={}) => `<div class="inl"><input class="input num${o.invalid?' invalid':''}" id="${o.id||''}" type="number" inputmode="numeric" value="${v}" min="${min}" max="${max}" aria-label="${o.label||''}（${u}）" ${o.invalid?'aria-invalid="true" aria-describedby="'+o.id+'-err"':''} style="${o.changed&&!o.invalid?'border-color:var(--warn-line)':''}"><span class="u">${u}</span><span class="bx-range">范围 ${min}–${max}</span></div>`;
+const MODES = [
+  ['managed','由程序托管','由程序启动并管理 OpenCode 服务。'],
+  ['auto','自动检测','启动时自动检测，决定怎样连接 OpenCode；会用到下面的服务地址。'],
+  ['http','连接现有服务','连接一个已经在运行的 OpenCode 服务，程序不负责启动它。'],
+];
+let mode = 'auto'; const savedMode = 'managed';
+function modeCards(){
+  return `<div class="bx-opts" role="radiogroup" aria-label="连接方式">${MODES.map(([k,l,d])=>`<button class="rcard" role="radio" aria-checked="${mode===k}" onclick="pickMode('${k}')"><span class="r"></span><span class="grow"><span class="bx-t">${l}${k===savedMode?'<span class="bx-tag">已保存</span>':''}${k===mode&&k!==savedMode?'<span class="bx-tag chg">未保存</span>':''}</span><span class="bx-d">${d}</span></span></button>`).join('')}</div>`;
+}
+function pickMode(k){ mode=k; DS.$('#bxModes').innerHTML=modeCards(); const n=mode===savedMode?0:1; const sb=DS.$('#bxSave'); if(sb) sb.outerHTML=bxSavebar(n?{n:1,restart:1}:{n:0}); }
+function bxSavebar(o){
+  if (!o.n && !o.fix) return `<div id="bxSave"></div>`;
+  const txt = o.fix ? `有 1 处需要修正 · ${o.fix}` : `有 ${o.n} 处未保存的修改${o.restart?` · 其中 ${o.restart} 处需要重启后生效`:''}`;
+  return `<div class="savebar sect" id="bxSave" role="region" aria-label="未保存的修改"><span class="dot" style="color:${o.fix?'var(--danger)':'var(--warn)'}"></span><span class="grow" style="font-size:13.5px">${txt}</span><button class="btn ghost sm" onclick="DS.setState('${o.back}')">放弃</button><button class="btn primary sm" ${o.fix?'disabled title="先修正超出范围的值"':''} onclick="DS.toast('设置已保存${o.restart?'；连接方式将在重启后生效':''}')">保存设置</button></div>`;
+}
+const SECTIONS2 = {
+  'conn-auto':()=>`<div class="sect bx"><h2>模型服务</h2><p class="lede">opencode-workflow 通过 OpenCode 调用模型。这里决定怎样连接 OpenCode，以及新会话默认用哪个模型。</p>
+    <div class="card card-sec" style="padding-top:4px;padding-bottom:4px">
+      ${row('OpenCode CLI 路径','下次会话生效', `<input class="input mono" value="/usr/local/bin/opencode" aria-label="OpenCode CLI 路径">`)}
+      ${row('连接方式','选择只改动草稿，保存并重启程序后生效', `<div id="bxModes">${modeCards()}</div>`, true)}
+      ${row('服务地址','OpenCode 服务的访问地址', `<input class="input mono" value="http://127.0.0.1:4096" aria-label="服务地址"><span class="hint" style="display:block;margin-top:6px">选择“自动检测”或“连接现有服务”时会用到这个地址。</span>`, true)}
+      ${row('默认模型','只用于新会话，已有会话保留原模型', `<div class="row" style="gap:8px"><select class="select" style="max-width:200px" aria-label="提供方"><option>example-provider</option><option>another-provider</option></select><select class="select" aria-label="模型"><option>example-model</option><option>example-model-large</option></select><button class="icon-btn" aria-label="刷新模型列表" title="刷新模型列表">${I('refresh')}</button></div><span class="hint" style="display:block;margin-top:6px">共 6 个可用模型 · 10:42 读取</span>`)}
+    </div>
+    <details class="adv" style="margin-top:12px"><summary>${I('chevRight','sm chev')}超时</summary><div style="padding-bottom:6px">${row('连接超时','',num2(10,'秒',1,120,{label:'连接超时'}),true)}${row('请求超时','',num2(120,'秒',1,600,{label:'请求超时'}),true)}${row('启动超时','',num2(30,'秒',1,300,{label:'启动超时'}),true)}</div></details>
+    ${bxSavebar({n:1,restart:1,back:'model'})}</div>`,
+  monitor:()=>bxService(false),
+  'monitor-range':()=>bxService(true),
+  'limits-off':()=>bxLimits(false),
+  'limits-on':()=>bxLimits(true),
+};
+function bxService(bad){
+  return `<div class="sect bx"><h2>服务</h2><p class="lede">opencode-workflow 本机服务的基础设置。每项的生效时间见标签下方。</p>
+    <div class="card card-sec" style="padding-top:4px;padding-bottom:4px">
+      ${row('服务端口','浏览器访问 opencode-workflow 使用的端口', num2(8080,'',1,65535,{label:'服务端口'}).replace('<span class="u"></span>',''), true)}
+      ${row('启动时打开浏览器','', `<button class="switch" role="switch" aria-checked="true" aria-label="启动时打开浏览器"></button>`, true)}
+      ${row('允许的项目根目录','留空表示可以登记本机任意目录', `<input class="input mono" value="/example/workspaces" aria-label="允许的项目根目录"><span class="hint" style="display:block;margin-top:6px">设置后，只能登记这个目录下的项目。</span>`, false)}
+    </div>
+    <details class="adv" style="margin-top:12px" open><summary>${I('chevRight','sm chev')}高级</summary><div style="padding-bottom:6px">
+      ${row('任务状态检查间隔','', num2(5,'秒',1,60,{label:'任务状态检查间隔'}), true)}
+      ${row('设计监控间隔','设计阶段状态的检查间隔', num2(bad?120:1000,'毫秒',250,10000,{id:'bxDm',label:'设计监控间隔',invalid:bad})+(bad?`<div class="error-text" id="bxDm-err" role="alert">${I('alert','sm')}<span>请输入 250 到 10000 之间的整数，上次保存为 1000。修正前不能保存。</span></div>`:`<span class="hint" style="display:block;margin-top:6px">1000 毫秒即每秒检查一次。</span>`), true)}
+      ${row('中止后清理尝试次数','', num2(3,'次',1,10,{label:'中止后清理尝试次数'}), false)}</div></details>
+    <p class="hint" style="margin-top:16px">${I('file','sm')} 启动配置文件（只读）：<span class="mono">/example/settings/startup.properties</span></p>
+    ${bad?bxSavebar({fix:'设计监控间隔超出范围',back:'monitor'}):''}</div>`;
+}
+function bxLimits(on){
+  return `<div class="sect bx"><h2>执行限制</h2><p class="lede">防止任务无限重试或运行过久。保存后用于新任务，已有任务保留创建时的配置。</p>
+    <div class="card bx-grp"><div class="bx-grp-h"><b>并发</b></div>
+      ${row('模板任务并发数','只用于新建模板任务，不适用于需求任务',num2(4,'个',1,16,{label:'模板任务并发数'}))}
+    </div>
+    <div class="card bx-grp"><div class="bx-grp-h"><b>重试与异常</b><span class="hint">达到上限后不再自动重试</span></div>
+      ${row('阶段最多尝试','单个阶段的尝试次数上限',num2(3,'次',1,10,{label:'阶段最多尝试'}))}
+      ${row('任务最多尝试','单个任务的尝试次数上限',num2(10,'次',1,50,{label:'任务最多尝试'}))}
+      ${row('会话异常阈值','会话出错达到这个次数时，视为会话异常',num2(3,'次',1,10,{label:'会话异常阈值'}))}
+    </div>
+    <div class="card bx-grp"><div class="bx-grp-h"><b>超时</b></div>
+      ${row('验证超时','单次验证的最长时间，始终生效',num2(30,'分钟',1,120,{label:'验证超时'}))}
+      ${row('业务超时限制','默认关闭：任务不会因为运行时间长而被中断', `<div class="bx-sw"><button class="switch" role="switch" aria-checked="${on}" aria-label="启用业务超时限制" onclick="DS.setState('${on?'limits-off':'limits-on'}')"></button><span>${on?'已开启':'关闭'}</span>${on?'<span class="bx-tag chg">未保存</span>':''}</div>`)}
+      ${on?`<div class="bx-dep" role="group" aria-label="业务超时">
+        <div class="banner warn" style="margin:6px 0 4px">${I('alert')}<div>开启后，超过下列时长的<b>新任务</b>会被中断。已在运行的任务不受影响。</div></div>
+        ${row('最大时长','单个任务从开始到结束的总时长',num2(1440,'分钟',1,10080,{label:'最大时长'})+'<span class="hint" style="display:block;margin-top:6px">上限 10080 分钟，即 7 天。</span>')}
+        ${row('尝试超时','单次尝试的最长时间',num2(120,'分钟',1,1440,{label:'尝试超时'}))}
+        ${row('设计超时','设计阶段的最长时间',num2(240,'分钟',1,1440,{label:'设计超时'}))}
+      </div>`:`<div class="bx-off">${I('info','sm')}<span>开启后可以设置最大时长、尝试超时和设计超时。之前填写的时长会保留，关闭期间不生效。</span></div>`}
+    </div>
+    ${on?bxSavebar({n:1,back:'limits-off'}):''}</div>`;
+}
+function render(){
+  const unk = S==='save-unknown';
+  DS.$('#view').innerHTML = `<div class="split">
+    <nav class="snav" aria-label="设置分区">${NAV.map(([g,items])=>`<div class="cap">${g}</div>${items.map(([k,l,ic])=>`<a href="?state=${k==='look'?'appearance':k}" aria-current="${sec===k}">${I(ic)}${l}${dot(k)}</a>`).join('')}`).join('')}</nav>
+    <div>${unk?`<div class="banner unknown sect" style="margin-bottom:16px">${I('help')}<div><b>没有收到保存结果</b><br>正在重新读取设置，核对 2 处修改是否已经生效。确认前普通设置保持只读；Git 账号仍可单独查看。</div><div class="actions"><button class="btn secondary sm">${I('refresh','sm')}重新读取</button></div></div>`:''}
+      ${BX?SECTIONS2[S]():SECTIONS[sec]()}
+      ${genDirty && sec!=='git' ? `<div class="savebar sect" role="region" aria-label="未保存的修改"><span class="dot" style="color:var(--warn)"></span><span class="grow" style="font-size:13.5px">${unk?'正在核对上一次保存':'有 2 处未保存的修改 · 其中 1 处需要重启后生效'}</span><button class="btn ghost sm" ${unk?'disabled':''}>放弃</button><button class="btn primary sm" ${unk?'disabled':''} onclick="DS.toast('设置已保存；服务端口将在重启后生效')">${unk?'<span class="spin"></span>核对中':'保存设置'}</button></div>`:''}
+      ${S==='git-dirty' && sec==='git' ? `<div class="savebar sect"><span class="dot" style="color:var(--warn)"></span><span class="grow" style="font-size:13.5px">普通设置还有 1 处未保存（模型服务）</span><a class="btn ghost sm" href="?state=dirty">去查看</a></div>`:''}
+    </div></div>`;
+  DS.icons(DS.$('#view'));
+}
+DS.mount({ header:`<h1>${I('settings')}设置</h1><span class="spacer"></span>`, state:S, states:[
+  {id:'service',label:'服务'},{id:'dirty',label:'服务 · 有未保存修改'},{id:'save-unknown',label:'保存结果未明'},{id:'appearance',label:'外观（皮肤）'},{id:'model',label:'模型服务'},{id:'model-refresh',label:'读取模型中'},
+  {id:'limits',label:'执行限制'},{id:'retry',label:'重试等待'},{id:'git',label:'Git 账号'},{id:'git-dirty',label:'Git 与普通设置都有修改'},{id:'network',label:'发布网络'},{id:'dev',label:'开发辅助'},
+  {id:'conn-auto',label:'补充 · 连接方式自动检测'},{id:'monitor',label:'补充 · 设计监控间隔'},{id:'monitor-range',label:'补充 · 间隔超出范围'},{id:'limits-off',label:'补充 · 执行限制（超时关闭）'},{id:'limits-on',label:'补充 · 执行限制（超时开启）'}] });
+render();
+if(S==='limits-on'||S==='limits-off'){const sw=document.querySelector('.bx-sw');if(sw)requestAnimationFrame(()=>sw.closest('.card,section,div')?.scrollIntoView({block:'center'}));}
+document.addEventListener('skinchange',()=>{ if(sec==='look') render(); });
+</script>
+</body>
+</html>

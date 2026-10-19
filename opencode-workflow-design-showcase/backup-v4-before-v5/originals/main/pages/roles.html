@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>角色管理 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.split{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px;align-items:start}
+.plist{padding:8px;position:sticky;top:0}
+.pr{display:flex;gap:12px;align-items:center;padding:10px;border-radius:12px;width:100%;text-align:left;transition:background var(--t-fast)}
+.pr:hover{background:var(--fill-3)}
+.pr[aria-current="true"]{background:var(--fill-4);box-shadow:inset 0 0 0 1px var(--line-2)}
+.av{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font:600 14px var(--font-display);flex:none}
+.av.lg{width:56px;height:56px;border-radius:15px;font-size:20px}
+.av.a1{background:rgba(169,188,255,.14);color:#a9bcff}.av.a2{background:rgba(115,199,153,.14);color:#73c799}.av.a3{background:rgba(201,181,239,.14);color:#c9b5ef}
+.av.none{border:1px dashed var(--line-3);color:var(--muted);background:transparent}
+.head{display:flex;gap:16px;align-items:center;padding:20px 22px;flex-wrap:wrap}
+.capg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.capc{padding:14px 16px}
+.capc h4{font-size:13px;font-weight:500;color:var(--ink-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.tog{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:var(--r-pill);border:1px solid var(--line-2);font-size:12.5px;color:var(--sub);margin:0 6px 6px 0;transition:all var(--t-fast)}
+.tog:hover{border-color:var(--line-3);color:var(--ink)}
+.tog[aria-pressed="true"]{background:var(--accent-fill);border-color:var(--accent-line);color:var(--accent)}
+.perm-sec{padding:0}
+.perm-h{display:flex;align-items:center;gap:10px;padding:14px 18px}
+.perm-h h4{font-size:14px;font-weight:500}
+.prow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 18px;box-shadow:inset 0 1px 0 var(--line)}
+.prow:hover .acts{opacity:1}
+.acts{opacity:.55;transition:opacity var(--t-fast);display:flex;gap:2px}
+.kind{font:500 10.5px var(--font-mono);padding:3px 7px;border-radius:5px;background:var(--fill-3);color:var(--sub);letter-spacing:.3px}
+.argv{display:flex;flex-wrap:wrap;gap:4px}
+.argv span{font:12px var(--font-mono);padding:2px 7px;border-radius:5px;background:var(--bg-sunken);border:1px solid var(--line-2);color:var(--ink-2);white-space:pre}
+.argv span.empty{color:var(--muted);border-style:dashed}
+.edit-row{padding:14px 18px 16px;box-shadow:inset 0 1px 0 var(--line);background:var(--fill-1)}
+.tok{display:flex;align-items:center;gap:6px}
+.tok .n{font:11px var(--font-mono);color:var(--muted);width:18px;text-align:right}
+.flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--sub)}
+.flow span{padding:3px 9px;border-radius:var(--r-pill);background:var(--fill-3);border:1px solid var(--line)}
+.flow span.me{background:var(--accent-fill);border-color:var(--accent-line);color:var(--accent)}
+.checklist .it{display:flex;gap:10px;align-items:flex-start;padding:10px 0}
+.checklist .it+.it{box-shadow:inset 0 1px 0 var(--line)}
+/* 补充 · 已发布版本核对（rv-）与权限预估（pv-） */
+.pr:disabled:not([aria-current="true"]){opacity:.5;cursor:not-allowed}
+.rv-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}
+.rv-bar .seg button:disabled{opacity:.45;cursor:not-allowed}
+.rv-head{display:flex;align-items:flex-start;gap:14px;padding:18px 20px;box-shadow:inset 0 -1px 0 var(--line)}
+.rv-title{font-family:var(--font-display);font-size:18px;font-weight:500;letter-spacing:-.2px}
+.rv-body{padding:18px 20px 20px;display:flex;flex-direction:column;gap:20px}
+.rv-doc{position:relative;padding:14px 16px;border-radius:var(--r-md);background:var(--bg-sunken);border:1px solid var(--line);font-size:13.5px;line-height:1.75;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.rv-chips{display:flex;flex-wrap:wrap;gap:6px}
+.rv-chips .chip{color:var(--ink-2)}
+.rv-chips .chip .i{color:var(--ok)}
+.rv-dig>summary .mono{color:var(--sub)}
+.rv-dig .rv-hash{display:flex;align-items:center;gap:10px;padding:0 0 14px;font:12px/1.6 var(--font-mono);color:var(--sub);overflow-wrap:anywhere}
+.rv-dig .rv-hash span{flex:1;min-width:0}
+.rv-foot{gap:10px;font-size:12.5px;color:var(--muted);line-height:1.55;padding:12px 20px}
+.rv-foot .i{color:var(--muted)}
+.rv-empty{padding:44px 24px}
+.rv-empty .tile{border:1px dashed var(--line-3);background:transparent;color:var(--muted)}
+.rv-lockrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.pv{margin-top:16px;overflow:hidden}
+.pv-step{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.pv-step .field{flex:1;min-width:240px;max-width:420px;margin:0}
+.pv-step .pv-arrow{height:40px;display:flex;align-items:center;color:var(--faint)}
+.pv-step .btn{height:var(--form-h)}
+.pv-n{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--fill-4);color:var(--sub);font:500 11px var(--font-mono)}
+.pv-caveat{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:10px 12px;border-radius:var(--r-md);background:var(--fill-2);border:1px solid var(--line);font-size:12.5px;color:var(--sub);line-height:1.6}
+.pv-caveat .i{color:var(--accent);margin-top:2px}
+.pv-caveat b{color:var(--ink-2);font-weight:500}
+.pv-res{margin-top:18px;padding-top:18px;box-shadow:inset 0 1px 0 var(--line);display:flex;flex-direction:column;gap:18px}
+.pv-list{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.pv-list li{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink-2);line-height:1.6}
+.pv-list.info li .i{color:var(--accent);margin-top:3px}
+.pv-list.warn li{padding:8px 12px;border-radius:var(--r-sm);background:var(--warn-fill);border:1px solid var(--warn-line)}
+.pv-list.warn li .i{color:var(--warn);margin-top:3px}
+.pv-tools{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.pv-tools .pv-tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:center;padding:10px 14px;font-size:13px}
+.pv-tools .pv-tr+.pv-tr{box-shadow:inset 0 1px 0 var(--line)}
+.pv-tools .pv-th{background:var(--fill-2);font-size:12px;color:var(--muted);padding:8px 14px}
+.pv-tools .pv-tr .mono{color:var(--sub);overflow-wrap:anywhere}
+.pv-none{display:flex;gap:14px;align-items:center;padding:4px 0}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="roles">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+
+<div class="dialog" id="discardDlg" role="alertdialog" aria-labelledby="dcT" aria-describedby="dcB">
+  <div class="dialog-body"><h2 id="dcT">放弃未保存的修改？</h2><p id="dcB">“软件工程师”的草稿 v5 有未保存的修改。切换到“测试工程师”会丢弃这些修改；已发布修订 3 保持原样。</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>继续编辑</button><button class="btn danger" onclick="DS.closeDialog();DS.toast('已放弃本地修改','info')">放弃并切换</button></div>
+</div>
+
+<div class="dialog" id="pubDlg" role="alertdialog" aria-labelledby="pbT">
+  <div class="dialog-body"><h2 id="pbT">发布“软件工程师”修订 4？</h2><p>发布后，新创建的流程步骤可以选用这个修订。已经冻结了修订 3 的任务继续使用修订 3，不会改变。</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>先不发布</button><button class="btn primary" onclick="DS.closeDialog();DS.toast('已发布修订 4')">发布</button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S=DS.state||'overview';
+const PUB = S.startsWith('pub-'), PV = S.startsWith('perm-pv-'), LOCK = S==='pub-unknown';
+const tab = PV ? 'perms' : ({overview:'overview', caps:'caps', perms:'perms', 'perm-edit':'perms', 'subform-block':'perms', publish:'overview', 'save-unknown':'overview', appearance:'look'}[S] || 'overview');
+const ROLES = [
+  {id:'r1', n:'软件工程师', a:'工', c:'a1', pub:'已发布修订 3', draft:'草稿 v5 · 有未发布修改', st:'st-wait'},
+  {id:'r2', n:'测试工程师', a:'测', c:'a2', pub:'已发布修订 2', draft:'与发布一致', st:'st-ok'},
+  {id:'r3', n:'需求分析师', a:'析', c:'a3', pub:'未发布', draft:'草稿 v1', st:'st-idle'},
+];
+const dirty = ['perm-edit','subform-block','save-unknown','pub-dirty-switch','pub-conflict'].includes(S);
+const SEL = S==='pub-dep' ? 2 : 0;
+
+function header(){
+  const unk = S==='save-unknown';
+  return `<h1>${I('users')}角色管理</h1><span class="spacer"></span>${PUB||PV?`<a class="btn ghost sm" href="roles-legacy.html" ${LOCK?'aria-disabled="true" tabindex="-1"':''}>${I('archive','sm')}历史角色配置</a>`:''}
+    <button class="btn ghost sm" ${LOCK?'disabled':''}>${I('plus','sm')}新建职业</button>`;
+}
+function head(){
+  if (S==='pub-dep') return `<section class="card head">
+    <span class="av lg a3">析</span>
+    <div class="grow"><div class="row wrap"><h2 class="title" style="font-size:22px">需求分析师</h2><span class="badge st-idle">未发布</span><span class="badge st-wait">草稿 v1</span></div>
+      <div class="hint" style="margin-top:6px">把模糊需求整理成可核对的需求说明。还没有流程步骤使用它。</div></div>
+    <div class="row"><button class="btn secondary">保存草稿</button><button class="btn primary">检查并发布</button></div></section>`;
+  const unk = S==='save-unknown';
+  return `<section class="card head">
+    <span class="av lg a1">工</span>
+    <div class="grow"><div class="row wrap"><h2 class="title" style="font-size:22px">软件工程师</h2><span class="badge st-ok">${I('check','sm')}已发布修订 3</span><span class="badge ${dirty?'st-fail':'st-wait'}">${dirty?I('edit','sm')+'有未保存修改':'草稿 v5 · 未发布'}</span></div>
+      <div class="hint" style="margin-top:6px">负责按冻结计划实现功能、修复问题。被 4 个流程的 9 个步骤使用。</div></div>
+    <div class="row">
+      <button class="btn secondary" ${unk||S==='subform-block'||LOCK||S==='pub-conflict'?'disabled':''} onclick="DS.toast('草稿已保存为 v6')">${unk?'<span class="spin"></span>核对中':'保存草稿'}</button>
+      <button class="btn primary" ${dirty?'disabled title="先保存草稿再发布"':LOCK?'disabled title="原操作未核对"':''} onclick="DS.setState('publish')">检查并发布</button>
+    </div>
+  </section>
+  ${unk?`<div class="banner unknown" style="margin-top:12px">${I('help')}<div><b>保存结果未明</b><br>请求已发出但没有收到确认。正在读取草稿核对全部字段与权限是否一致，确认前所有内容保持锁定，不会重新保存。</div></div>`:''}
+  ${S==='pub-conflict'?`<div class="banner warn" style="margin-top:12px" role="alert">${I('alert')}<div><b>版本冲突：服务器上的草稿已更新到 v6</b><br>有人在你之后保存了这个职业。你的本地修改和原来的草稿都保留着，没有覆盖任何内容。已发布修订 3 不受影响。</div><div class="actions"><button class="btn secondary sm" onclick="DS.toast('已读取服务器草稿 v6','info')">放弃本地修改，读取服务器草稿</button></div></div>`:''}
+  ${LOCK?`<div class="banner unknown" style="margin-top:12px" role="alert">${I('help')}<div><b>上一次发布的结果未明</b><br>已发出“发布修订 4”的请求，但没有收到确认。核对清楚之前，编辑、切换职业和再次发布都已锁定，不会重复发布。</div><div class="actions"><button class="btn secondary sm" onclick="DS.toast('正在核对原操作…','info')">${I('refresh','sm')}核对原操作</button></div></div>`:''}
+  ${S==='subform-block'?`<div class="banner warn" style="margin-top:12px">${I('alert')}<div><b>还有一项权限修改没有应用</b><br>“命令 · python3 -c …”的编辑还没点“应用”。应用或放弃这项修改后，才能保存或切换职业。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('perm-edit')">回到这项修改</button></div></div>`:''}`;
+}
+function tabs(){
+  return `<div class="tabs" role="tablist" style="margin-top:16px">${[['overview','职责与指令'],['caps','能力范围'],['perms','资源权限'],['look','形象']].map(([k,l])=>`<button class="tab" role="tab" aria-selected="${tab===k}" ${LOCK?'disabled style="opacity:.5;cursor:not-allowed"':''} onclick="DS.setState('${k==='look'?'appearance':k}')">${l}</button>`).join('')}</div>`;
+}
+function overview(){
+  if (PUB) return pubView();
+  if (S==='publish') return `<div style="display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;margin-top:16px">
+    <section class="card pad"><div class="section-title">发布前检查 · 草稿 v5</div><div class="checklist" style="margin-top:8px">
+      ${[['ok','职责与指令完整',''],['ok','能力范围 8 项','与修订 3 相比 +1：数据库读取'],['ok','资源权限 11 项全部合法',''],['warn','形象沿用当前绑定','没有为这个修订单独记录形象，历史任务会显示占位']].map(c=>`<div class="it"><span style="color:var(--${c[0]==='ok'?'ok':'warn'})">${I(c[0]==='ok'?'check':'alert','sm')}</span><span><div style="font-size:13.5px">${c[1]}</div>${c[2]?`<div class="hint">${c[2]}</div>`:''}</span></div>`).join('')}
+    </div><div class="divider"></div><div class="row"><span class="grow hint">检查通过，可以发布为修订 4</span><button class="btn primary" onclick="DS.openDialog('pubDlg',this)">发布修订 4</button></div></section>
+    <aside class="card pad"><div class="eyebrow" style="margin-bottom:10px">与修订 3 的差异</div><div class="col" style="gap:8px;font-size:13px"><span style="color:var(--ok)">+ 能力：数据库读取</span><span style="color:var(--ok)">+ 文件：WRITE draft/结果.json</span><span style="color:var(--warn)">~ 指令：补充“先读约定再改代码”</span></div></aside></div>`;
+  return draftBody();
+}
+function draftBody(){
+  const ro = S==='save-unknown' ? 'readonly' : '';
+  return `<div style="display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px;margin-top:16px">
+    <section class="card pad">
+      <div class="grid-2"><div class="field" style="margin:0"><label class="label" for="nm">职业名称</label><input class="input" id="nm" value="软件工程师" ${ro}></div>
+        <div class="field" style="margin:0"><label class="label" for="idf">标识</label><input class="input mono" id="idf" value="software-engineer" readonly><span class="hint">保存后不可修改</span></div></div>
+      <div class="field"><label class="label" for="ins">职责与基本指令</label><textarea class="textarea" id="ins" style="min-height:160px" ${ro}>依据已核对的资料整理技术说明，清楚记录来源和边界。
+先阅读项目公约（AGENTS.md）再修改代码；每次改动附上验证方式。
+具体任务由各流程步骤单独指定。</textarea><span class="hint">所有使用这个职业的步骤都会带上这段指令；步骤自己的任务说明在流程画布里写。</span></div>
+      <div class="grid-2" style="margin-top:20px"><div class="field" style="margin:0"><label class="label" for="ms">模型</label><select class="select" id="ms" ${ro?'disabled':''}><option>跟随项目默认</option><option>Claude Sonnet 4.6</option><option>Claude Opus 4.6</option></select></div>
+        <div class="field" style="margin:0"><label class="label" for="rs">单步最长运行</label><select class="select" id="rs" ${ro?'disabled':''}><option>跟随设置（60 分钟）</option><option>30 分钟</option><option>120 分钟</option></select></div></div>
+    </section>
+    <aside class="col" style="gap:12px">
+      <div class="card pad"><div class="eyebrow" style="margin-bottom:10px">使用情况</div><div class="col" style="gap:8px;font-size:13px"><span class="row between"><span>需求开发</span><span class="hint">3 个步骤</span></span><span class="row between"><span>小范围修复</span><span class="hint">2 个步骤</span></span><span class="row between"><span>单元测试补齐</span><span class="hint">2 个步骤</span></span><span class="row between"><span>文档编写</span><span class="hint">2 个步骤</span></span></div></div>
+      <div class="card pad"><div class="eyebrow" style="margin-bottom:10px">版本</div><div class="col" style="gap:8px;font-size:13px"><span class="row between"><span>草稿 v5</span><span class="badge st-wait">编辑中</span></span><span class="row between"><span>修订 3</span><span class="badge st-ok">当前发布</span></span><span class="row between"><span class="muted">修订 2</span><span class="hint">9月18日</span></span></div></div>
+    </aside></div>`;
+}
+const CAPS = [['知识与资料','book',[['项目知识',1],['知识对话',1],['公共知识检索',1],['文档读取',1],['文档写入',0]]],['数据','db',[['数据库结构',1],['数据库读取',1]]],['任务','list',[['任务证据',1],['GitLab 读取',0]]],['工具','tool',[['原生工具',1],['外部 MCP',1]]]];
+function caps(){
+  return `<div class="banner info" style="margin-top:16px">${I('info')}<div>能力范围决定这个职业<b>可以参与</b>哪些事；具体能用哪些工具、文件和命令，在“资源权限”里逐项设定。修改其中一项不会自动改变另一项。</div></div>
+  <div class="capg" style="margin-top:12px">${CAPS.map(([g,ic,items])=>`<section class="card capc"><h4>${I(ic,'sm')}${g}</h4>${items.map(([l,on])=>`<button class="tog" aria-pressed="${!!on}" onclick="this.setAttribute('aria-pressed',this.getAttribute('aria-pressed')!=='true')">${on?I('check','sm'):''}${l}</button>`).join('')}</section>`).join('')}</div>
+  <section class="card pad" style="margin-top:12px"><div class="section-title" style="margin-bottom:10px">可承担的职责</div><label class="check"><input type="checkbox" checked><span><div style="font-size:13.5px">流程中的“实施”类步骤</div><div class="hint">流程画布中只有勾选了的职责才会出现在“谁来做”的选项里</div></span></label></section>`;
+}
+function perms(){
+  const editing = S==='perm-edit' || S==='subform-block';
+  const sec = (title, ic, n, rows) => `<section class="card perm-sec" style="margin-top:12px"><div class="perm-h">${I(ic,'sm')}<h4 class="grow">${title} <span class="hint num">${n}</span></h4><button class="btn ghost sm">${I('plus','sm')}添加</button></div>${rows}</section>`;
+  const row = (kind, body, extra='') => `<div class="prow"><span class="kind">${kind}</span><div style="min-width:0">${body}</div><div class="acts">${extra||`<button class="icon-btn" aria-label="编辑">${I('edit','sm')}</button><button class="icon-btn" aria-label="移除">${I('trash','sm')}</button>`}</div></div>`;
+  const argv = a => `<div class="argv">${a.map(x=>x===''?'<span class="empty">空参数</span>':`<span>${esc(x)}</span>`).join('')}</div>`;
+  const cmdEdit = `<div class="edit-row">
+    <div class="row" style="margin-bottom:10px"><span class="label grow">编辑命令 · 每个参数单独一格，不会按空格拆分</span><span class="hint">工作区 example-workspace-01</span></div>
+    <div class="col" style="gap:6px">${['python3','-c','print("保留 空格")',''].map((x,i)=>`<div class="tok"><span class="n">${i}</span><input class="input mono" style="height:34px;font-size:12.5px" value='${esc(x)}' placeholder="${i===3?'空参数（保留）':''}"><button class="icon-btn" aria-label="删除参数 ${i}">${I('x','sm')}</button></div>`).join('')}
+      <button class="btn ghost sm" style="align-self:flex-start">${I('plus','sm')}添加参数</button></div>
+    <div class="row" style="margin-top:12px"><span class="hint grow">只修改职业草稿，不授予实际运行权限</span><button class="btn ghost sm" onclick="DS.setState('perms')">放弃这项修改</button><button class="btn primary sm" onclick="DS.setState('perms')">应用</button></div></div>`;
+  return `<div class="card pad" style="margin-top:16px"><div class="row wrap" style="gap:12px"><span class="section-title grow">这里设的是权限上限</span>
+    <div class="flow"><span class="me">职业上限</span>∩<span>项目</span>∩<span>运行环境</span>∩<span>冻结范围</span>= 实际可用</div></div>
+    <p class="hint" style="margin-top:6px">运行时会取这几层的交集。在这里添加一项，不等于任务马上就能用它。</p></div>
+  ${sec('工具','tool',3,
+    row('NATIVE','<span class="mono" style="font-size:13px">read_file</span> <span class="hint">· 原生工具</span>')+
+    row('ASSIST','<span class="mono" style="font-size:13px">search_public_knowledge</span> <span class="hint">· opencode-workflow 辅助</span>')+
+    row('MCP','<span class="mono" style="font-size:13px">read_document</span> <span class="hint">· 来自 example.docs.mcp</span>'))}
+  ${sec('文件','file',2,
+    row('READ','<span class="mono" style="font-size:13px">docs/原始说明.md</span> <span class="hint">· example-workspace-01</span>')+
+    row('WRITE','<span class="mono" style="font-size:13px">draft/结果.json</span> <span class="hint">· example-workspace-01</span>'))}
+  ${sec('命令','terminal',2,
+    (editing?`<div class="prow" style="background:var(--accent-fill)"><span class="kind">ARGV</span><div>${argv(['python3','-c','print("保留 空格")',''])}</div><div class="acts" style="opacity:1"><span class="badge st-accent">编辑中</span></div></div>${cmdEdit}`:row('ARGV',argv(['python3','-c','print("保留 空格")',''])+'<div class="hint" style="margin-top:4px">example-workspace-01</div>'))+
+    row('ARGV',argv(['git','status','--porcelain=v1'])+'<div class="hint" style="margin-top:4px">example-workspace-02</div>'))}
+  ${sec('资源能力','layers',4, row('CAP','文档读取')+row('CAP','原生工具')+row('CAP','外部 MCP')+row('CAP','公共知识检索'))}
+  <div class="row" style="margin-top:12px"><span class="grow"></span><button class="btn ghost sm">${I('file','sm')}查看完整权限原文（JSON）</button></div>${PV?pvCard():''}`;
+}
+function look(){
+  return `<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px">
+    ${[['a1','工','当前绑定','用于新任务的步骤卡片'],['none','?','修订 2 的历史形象','未记录 · 历史任务显示占位'],['a3','工','备选形象','未绑定']].map((x,i)=>`<section class="card pad col" style="align-items:center;text-align:center;gap:10px"><span class="av lg ${x[0]}">${x[1]}</span><div style="font-size:13.5px;font-weight:500">${x[2]}</div><div class="hint">${x[3]}</div>${i===2?'<button class="btn secondary sm">设为当前形象</button>':''}</section>`).join('')}</div>
+    <p class="hint" style="margin-top:12px">形象只影响显示。已经冻结的任务显示它当时记录的形象；没有记录时显示占位，不用当前形象替代。</p>`;
+}
+function render(){
+  DS.$('.header').innerHTML = header();
+  DS.$('#view').innerHTML = `<div class="split">
+    <aside class="card plist" aria-label="职业">
+      <div style="padding:4px 4px 8px"><div class="input-wrap"><span data-icon="search"></span><input class="input ctl" placeholder="搜索职业" aria-label="搜索职业"></div></div>
+      ${ROLES.map((r,i)=>`<button class="pr" aria-current="${i===SEL}" ${LOCK?'disabled title="原操作未核对，暂不能切换"':''} ${S==='pub-dirty-switch'&&i===1?'style="box-shadow:inset 0 0 0 1px var(--line-3)"':''} ${dirty&&i?'title="有未保存修改，先保存或放弃"':''}><span class="av ${r.c}">${r.a}</span><span class="grow"><div style="font-size:13.5px">${r.n}</div><div class="hint" style="margin-top:2px">${r.pub}</div><div class="hint">${i===0&&dirty?'<span style="color:var(--warn)">有未保存修改</span>':r.draft}</div></span></button>`).join('')}
+    </aside>
+    <section>${head()}${tabs()}${{overview,caps,perms,look}[tab]()}</section></div>`;
+  DS.icons(DS.$('#view'));
+}
+
+/* ---------- 补充 · 已发布版本核对 ---------- */
+const REV3_TEXT = `依据已核对的资料整理技术说明，清楚记录来源和边界。
+每次改动附上验证方式。
+具体任务由各流程步骤单独指定。`;
+const REV3_CAPS = ['项目知识','知识对话','公共知识检索','文档读取','数据库结构','任务证据','原生工具','外部 MCP'];
+const REV3_SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9';
+function pubSeg(pub){
+  const draftLabel = S==='pub-dep' ? '草稿 v1' : '草稿 v5';
+  const note = pub
+    ? (S==='pub-dirty-switch'||S==='pub-conflict' ? `<span class="rv-lockrow">${I('edit','sm')}<span>草稿的本地修改已保留，切回“草稿”继续编辑</span></span>` : `<span class="rv-lockrow">${I('lock','sm')}<span>只读 · 查看已发布版本不会发布，也不会改动草稿</span></span>`)
+    : `<span class="rv-lockrow">${I('info','sm')}<span>保存草稿不会生成可执行版本；新版本要经过“检查并发布”</span></span>`;
+  return `<div class="rv-bar"><div class="seg" role="group" aria-label="查看草稿或已发布版本">
+    <button aria-pressed="${!pub}" ${LOCK?'disabled':''} onclick="DS.setState('pub-draft')">${I('edit','sm')}${draftLabel}</button>
+    <button aria-pressed="${pub}" ${LOCK?'disabled':''} onclick="DS.setState('pub-view')">${I('check','sm')}已发布版本</button></div>${note}</div>`;
+}
+function receipt(){
+  const busy = S==='pub-loading';
+  const refBtn = `<button class="btn secondary sm" ${LOCK||busy?'disabled':''} onclick="DS.toast('发布引用一致：仍为修订 3','info')">${busy?'<span class="spin"></span>读取中':I('refresh','sm')+'核对当前发布引用'}</button>`;
+  if (busy) return `<section class="card" aria-busy="true"><div class="rv-head"><span class="tile">${I('doc')}</span><div class="grow col" style="gap:8px"><div class="skel" style="height:18px;width:160px"></div><div class="hint">正在读取固定的发布修订…</div></div>${refBtn}</div>
+    <div class="rv-body"><div class="col" style="gap:8px"><div class="skel" style="height:12px;width:120px"></div><div class="skel" style="height:96px"></div></div><div class="row" style="gap:6px">${[72,64,90,70,80].map(w=>`<div class="skel" style="height:24px;width:${w}px;border-radius:999px"></div>`).join('')}</div><div class="skel" style="height:42px"></div></div></section>`;
+  return `<section class="card" aria-label="本页核对的已发布职业">
+    <div class="rv-head"><span class="tile">${I('doc')}</span>
+      <div class="grow"><div class="row wrap" style="gap:8px"><h3 class="rv-title">发布修订 3</h3><span class="badge st-ok">${I('check','sm')}已核对</span><span class="badge outline">${I('lock','sm')}只读</span></div>
+        <div class="hint" style="margin-top:6px">软件工程师 · 这是精确的发布修订。当前草稿、已绑定的实例和运行中的任务都与它相互独立。</div></div>
+      ${refBtn}</div>
+    <div class="rv-body">
+      <div><div class="sec-t">职责与基本指令</div><div class="rv-doc">${esc(REV3_TEXT)}</div></div>
+      <div><div class="sec-t">能力范围 · ${REV3_CAPS.length} 项</div><div class="rv-chips">${REV3_CAPS.map(c=>`<span class="chip">${I('check','sm')}${c}</span>`).join('')}</div></div>
+      <details class="adv rv-dig"><summary>${I('chevRight','sm chev')}<span class="grow">内容摘要</span><span class="mono">${REV3_SHA.slice(0,7)}</span></summary>
+        <div class="rv-hash"><span>${REV3_SHA}</span><button class="icon-btn" aria-label="复制内容摘要" onclick="DS.toast('已复制内容摘要')">${I('copy','sm')}</button></div></details>
+    </div>
+    <div class="card-foot rv-foot">${I('shield','sm')}<span>在这里核对不会发布新修订、不会改动草稿，也不会改变已冻结任务、实例绑定或运行中步骤所用的修订。</span></div></section>`;
+}
+function pubView(){
+  if (S==='pub-draft') return pubSeg(false) + draftBody().replace('margin-top:16px','margin-top:12px');
+  let main;
+  if (S==='pub-unchecked') main = `<section class="card"><div class="empty rv-empty"><span class="tile">${I('doc','lg')}</span><h3>尚未核对发布回执</h3>
+      <p>这里只显示从服务器读取并核对过的发布修订。保存草稿不会生成可执行的版本；要得到新版本，需要在草稿里“检查并发布”。</p>
+      <button class="btn primary" style="margin-top:6px" onclick="DS.setState('pub-view')">${I('refresh','sm')}核对当前发布引用</button></div></section>`;
+  else if (S==='pub-dep') main = `<div class="banner info" role="status">${I('info')}<div><b>这个职业还没有发布过</b><br>当前只有草稿 v1。发布修订 1 之后，才能在这里核对发布内容、配置形象和预估权限。</div><div class="actions"><button class="btn secondary sm">${I('refresh','sm')}核对当前发布引用</button></div></div>
+    <section class="card" style="margin-top:12px"><div class="empty rv-empty"><span class="tile">${I('doc','lg')}</span><h3>暂无发布修订</h3><p>保存草稿不会生成可执行的版本。新建的流程步骤只能选用已发布的修订。</p></div></section>`;
+  else if (S==='pub-error') main = `<div class="banner danger" role="alert">${I('alert')}<div><b>没能读取发布修订</b><br>服务暂时没有响应。草稿和已发布修订都没有变化。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('pub-view')">${I('refresh','sm')}重试</button></div></div>
+    <section class="card" style="margin-top:12px"><div class="empty rv-empty"><span class="tile">${I('doc','lg')}</span><h3>尚未核对发布回执</h3><p>重试成功后，这里显示发布修订 3 的内容。</p></div></section>`;
+  else main = receipt();
+  return pubSeg(true) + `<div style="margin-top:12px">${main}</div>`;
+}
+
+/* ---------- 补充 · 已发布版本权限预估 ---------- */
+function pvCard(){
+  const st = S.slice(8);
+  const head = `<div class="card-head"><span class="tile">${I('shield')}</span><div class="grow"><div class="section-title">已发布版本权限预估</div><div class="hint">按已核对的发布修订，预估某个职责位置最多能用到哪些工具</div></div>${st!=='none'?`<span class="badge st-ok">${I('check','sm')}发布修订 3</span>`:''}<span class="badge outline">${I('eye','sm')}只读预估</span></div>`;
+  if (st==='none') return `<section class="card pv" id="pvCard">${head}<div class="card-body"><div class="pv-none"><span class="tile" style="border:1px dashed var(--line-3);background:transparent;color:var(--muted)">${I('lock')}</span>
+    <div class="grow"><div style="font-size:14px;font-weight:500">先核对发布修订</div><div class="hint" style="margin-top:2px">预估只按已核对的发布修订计算。请先在“职责与指令”里打开“已发布版本”完成核对。</div></div>
+    <button class="btn secondary sm" onclick="DS.setState('pub-view')">查看已发布版本${I('arrowRight','sm')}</button></div></div></section>`;
+  const busy = st==='loading', picked = st!=='pick';
+  const opts = [['','请选择职责位置'],['impl','实施 · 需求开发、小范围修复'],['doc','文档编写'],['legacy','该发布版本的职责位置（目录未登记）']];
+  const val = st==='notools' ? 'doc' : st==='diag' ? 'legacy' : picked ? 'impl' : '';
+  const step = `<div class="pv-step"><div class="field"><label class="label" for="pvSlot"><span class="pv-n">1</span>预估职责位置</label>
+      <select class="select" id="pvSlot" ${busy?'disabled':''}>${opts.map(([v,l])=>`<option value="${v}" ${v===val?'selected':''} ${v===''?'disabled':''}>${l}</option>`).join('')}</select></div>
+    <span class="pv-arrow">${I('arrowRight')}</span>
+    <button class="btn secondary" ${!picked||busy?'disabled':''} onclick="DS.setState('perm-pv-result')">${busy?'<span class="spin"></span>读取中…':`<span class="pv-n">2</span>读取预估`}</button>
+    ${!picked?'<span class="hint" style="height:40px;display:flex;align-items:center">只列出发布修订 3 允许的职责位置</span>':''}</div>
+    <div class="pv-caveat">${I('info','sm')}<span><b>预估 ≠ 实际授权。</b>运行时还要经过本次会话的授权、工具发现和工作区许可，实际能用的可能更少。在这里选择或读取都不会写入任何配置。</span></div>`;
+  let res = '';
+  const tools = (rows) => `<div><div class="sec-t">有效工具上限 · ${rows.length} 项</div><div class="pv-tools" role="table"><div class="pv-tr pv-th" role="row"><span>用途</span><span>工具名</span></div>${rows.map(([d,n])=>`<div class="pv-tr" role="row"><span>${d}</span><span class="mono">${n}</span></div>`).join('')}</div></div>`;
+  const lim = (items) => `<div><div class="sec-t">限制说明</div><ul class="pv-list info">${items.map(t=>`<li>${I('info','sm')}<span>${t}</span></li>`).join('')}</ul></div>`;
+  const diag = (items) => `<div><div class="sec-t">诊断 · ${items.length} 项</div><ul class="pv-list warn">${items.map(t=>`<li>${I('alert','sm')}<span>${t}</span></li>`).join('')}</ul></div>`;
+  const meta = (slot) => `<div class="row wrap" style="gap:8px"><span class="badge st-ok">${I('check','sm')}已读取</span><span class="hint">职责位置“${slot}” · 发布修订 3 · 10月10日 14:32</span></div>`;
+  if (busy) res = `<div class="pv-res" aria-busy="true"><div class="hint">正在按发布修订 3 计算“实施”的权限上限…</div>${[0,1,2].map(()=>`<div class="skel" style="height:36px"></div>`).join('')}</div>`;
+  else if (st==='error') res = `<div class="pv-res"><div class="banner danger" role="alert">${I('alert')}<div><b>没能读取权限预估</b><br>服务暂时没有响应，没有写入任何配置。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('perm-pv-result')">${I('refresh','sm')}重试</button></div></div></div>`;
+  else if (st==='result') res = `<div class="pv-res">${meta('实施')}
+      ${lim(['只按发布修订 3 的上限计算，没有叠加项目与运行环境的限制。','外部 MCP 工具只核对名称；能否调用，由运行时的工具发现决定。'])}
+      ${tools([['读取工作区文件','read_file'],['搜索公开知识','search_public_knowledge'],['读取外部文档','read_document'],['查看任务证据','read_task_evidence']])}
+      <div class="row" style="gap:8px;color:var(--ok);font-size:12.5px">${I('check','sm')}<span>没有诊断问题</span></div></div>`;
+  else if (st==='notools') res = `<div class="pv-res">${meta('文档编写')}
+      ${lim(['只按发布修订 3 的上限计算，没有叠加项目与运行环境的限制。'])}
+      <div><div class="sec-t">有效工具上限 · 0 项</div><div class="pv-tools"><div class="empty" style="padding:28px 20px"><span class="tile">${I('tool','lg')}</span><h3>这个位置没有有效工具</h3><p>发布修订 3 没有为“文档编写”声明可用的工具。空清单不表示不受限制，运行时这个位置不能调用任何工具。</p></div></div></div></div>`;
+  else if (st==='diag') res = `<div class="pv-res">${meta('该发布版本的职责位置')}
+      ${lim(['只按发布修订 3 的上限计算，没有叠加项目与运行环境的限制。','这个职责位置不在当前流程目录里，按发布时的原样保留。'])}
+      ${tools([['读取工作区文件','read_file'],['读取外部文档','read_document']])}
+      ${diag(['“读取外部文档”来自外部服务，当前格式无法确认服务身份，预估里只作为声明列出。','发布修订 3 含有实例文件或命令授权，预估没有计算这部分；它们保留原样，不会被改动。'])}</div>`;
+  return `<section class="card pv" id="pvCard" aria-label="已发布版本权限核对">${head}<div class="card-body">${step}${res}</div></section>`;
+}
+
+DS.mount({ header:'', state:S, states:[{id:'overview',label:'职责与指令'},{id:'caps',label:'能力范围'},{id:'perms',label:'资源权限'},{id:'perm-edit',label:'编辑命令参数'},{id:'subform-block',label:'有未应用的权限修改'},{id:'publish',label:'发布前检查'},{id:'save-unknown',label:'保存结果未明'},{id:'appearance',label:'形象'},
+  {id:'pub-draft',label:'补充 · 草稿 / 已发布版本切换'},{id:'pub-view',label:'补充 · 已发布版本'},{id:'pub-unchecked',label:'补充 · 已发布版本 · 未核对'},{id:'pub-loading',label:'补充 · 已发布版本 · 读取中'},{id:'pub-error',label:'补充 · 已发布版本 · 读取失败'},{id:'pub-dep',label:'补充 · 已发布版本 · 尚未发布'},{id:'pub-dirty-switch',label:'补充 · 有本地修改时切换职业'},{id:'pub-conflict',label:'补充 · 版本冲突'},{id:'pub-unknown',label:'补充 · 原操作未结清'},
+  {id:'perm-pv-none',label:'补充 · 权限预估 · 未核对发布版本'},{id:'perm-pv-pick',label:'补充 · 权限预估 · 待选择位置'},{id:'perm-pv-loading',label:'补充 · 权限预估 · 读取中'},{id:'perm-pv-result',label:'补充 · 权限预估 · 结果'},{id:'perm-pv-notools',label:'补充 · 权限预估 · 无有效工具'},{id:'perm-pv-diag',label:'补充 · 权限预估 · 有诊断'},{id:'perm-pv-error',label:'补充 · 权限预估 · 读取失败'}] });
+render();
+if (S==='pub-dirty-switch') DS.openDialog('discardDlg');
+if (PV) requestAnimationFrame(()=>{const c=DS.$('.content'), k=DS.$('#pvCard'); if(c&&k) c.scrollTop = k.getBoundingClientRect().top - c.getBoundingClientRect().top + c.scrollTop - 96;});
+</script>
+</body>
+</html>

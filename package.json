@@ -1,0 +1,51 @@
+{
+  "name": "agent-workflow",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent Workflow — requirement-to-plan-to-execution workflow desktop app backed by a managed OpenCode runtime",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "node --import tsx --watch packages/server/src/main.ts",
+    "dev:web": "npm run dev --workspace @agent-workflow/web",
+    "start": "node --import tsx packages/server/src/main.ts",
+    "desktop": "node scripts/desktop-dev.mjs",
+    "build": "npm run typecheck && npm run build:web && npm run build:server && npm run build:desktop",
+    "build:web": "npm run build --workspace @agent-workflow/web",
+    "build:server": "node scripts/build-server.mjs",
+    "build:desktop": "node scripts/build-desktop.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/test.mjs",
+    "test:unit": "node scripts/test.mjs packages/shared packages/storage packages/git packages/database packages/mcp packages/opencode",
+    "test:integration": "node scripts/test.mjs tests/integration",
+    "test:e2e": "node scripts/test-e2e.mjs",
+    "test:model": "node --import tsx scripts/model-smoke.mjs",
+    "verify": "npm run typecheck && npm run test",
+    "clean": "rm -rf .build dist apps/web/dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "eventsource-parser": "3.1.1",
+    "fastify": "5.6.2",
+    "mysql2": "3.24.6"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "5.1.0",
+    "concurrently": "9.2.1",
+    "electron": "44.7.0",
+    "esbuild": "0.25.12",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vite": "7.1.9"
+  }
+}

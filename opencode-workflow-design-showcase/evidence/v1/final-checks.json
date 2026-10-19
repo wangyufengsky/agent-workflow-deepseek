@@ -1,0 +1,225 @@
+{
+  "checks": [
+    {
+      "name": "theme deepseek main/pages/settings.html",
+      "value": {
+        "skin": "deepseek",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme deepseek node/index.html?state=n13-tool-json",
+      "value": {
+        "skin": "deepseek",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme deepseek git/index.html?state=g32-review-result",
+      "value": {
+        "skin": "deepseek",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme deepseek delivery/git.html?state=td04-goal",
+      "value": {
+        "skin": "deepseek",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme warm main/pages/settings.html",
+      "value": {
+        "skin": "warm",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme warm node/index.html?state=n13-tool-json",
+      "value": {
+        "skin": "warm",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme warm git/index.html?state=g32-review-result",
+      "value": {
+        "skin": "warm",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme warm delivery/git.html?state=td04-goal",
+      "value": {
+        "skin": "warm",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme spdb main/pages/settings.html",
+      "value": {
+        "skin": "spdb",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme spdb node/index.html?state=n13-tool-json",
+      "value": {
+        "skin": "spdb",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme spdb git/index.html?state=g32-review-result",
+      "value": {
+        "skin": "spdb",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme spdb delivery/git.html?state=td04-goal",
+      "value": {
+        "skin": "spdb",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme github-white main/pages/settings.html",
+      "value": {
+        "skin": "github-white",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme github-white node/index.html?state=n13-tool-json",
+      "value": {
+        "skin": "github-white",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme github-white git/index.html?state=g32-review-result",
+      "value": {
+        "skin": "github-white",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "theme github-white delivery/git.html?state=td04-goal",
+      "value": {
+        "skin": "github-white",
+        "visible": true,
+        "overflow": false
+      }
+    },
+    {
+      "name": "Current navigation matches TD04 selection",
+      "value": {
+        "selected": "9",
+        "src": "file:///Users/wangyufeng/Documents/Codex/2026-10-16/task/showcase-build/opencode-workflow-design-showcase/originals/delivery/git.html?state=td04-goal&theme=deepseek&skin=deepseek"
+      }
+    },
+    {
+      "name": "Unified presentation + theme",
+      "value": {
+        "theme": "warm",
+        "present": true,
+        "controlHidden": true
+      }
+    },
+    {
+      "name": "Original state control changes URL",
+      "value": true
+    },
+    {
+      "name": "TD state reload",
+      "value": {
+        "src": "file:///Users/wangyufeng/Documents/Codex/2026-10-16/task/showcase-build/opencode-workflow-design-showcase/originals/delivery/git.html?state=td04-goal&theme=deepseek&skin=deepseek",
+        "hash": "#delivery/git.html?theme=warm&state=td04-push-unknown"
+      }
+    },
+    {
+      "name": "Dialog controls inspect",
+      "value": [
+        {
+          "text": "取消",
+          "a": "close-dialog"
+        },
+        {
+          "text": "确认推送",
+          "a": "ps-do"
+        }
+      ]
+    },
+    {
+      "name": "Git diff controls",
+      "value": [
+        {
+          "text": "统一金额字段为「分」\n        刘刘洋·10月10日5d4c3b2",
+          "a": "commit"
+        },
+        {
+          "text": "统一",
+          "a": "diff-mode",
+          "k": "unified"
+        },
+        {
+          "text": "并排",
+          "a": "diff-mode",
+          "k": "split"
+        }
+      ]
+    },
+    {
+      "name": "Node historical controls",
+      "value": [
+        {
+          "text": "尝试 #1 · 历史",
+          "a": "att-menu"
+        },
+        {
+          "text": "回到当前尝试",
+          "a": "back-current"
+        },
+        {
+          "text": "回到当前尝试",
+          "a": "back-current"
+        }
+      ]
+    },
+    {
+      "name": "Responsive outer 1280",
+      "value": {
+        "width": 1280,
+        "overflow": false,
+        "iframeHeight": 752
+      }
+    },
+    {
+      "name": "Responsive outer 1024",
+      "value": {
+        "width": 1024,
+        "overflow": false,
+        "iframeHeight": 752
+      }
+    }
+  ],
+  "errors": [],
+  "externalRequests": []
+}

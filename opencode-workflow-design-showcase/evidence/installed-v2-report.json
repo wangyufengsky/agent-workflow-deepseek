@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "date": "2026-10-16T01:41:19.186Z",
+  "checks": [
+    {
+      "name": "Installed cold home",
+      "pass": true,
+      "path": "main/pages/home.html"
+    },
+    {
+      "name": "Installed Git workbench",
+      "pass": true,
+      "path": "git/index.html?state=g10-commits&theme=deepseek&skin=deepseek&project=order"
+    },
+    {
+      "name": "Installed native back",
+      "pass": true
+    },
+    {
+      "name": "Installed new node details",
+      "pass": true,
+      "path": "node/index.html?state=n11-done&theme=deepseek&skin=deepseek&stream=paused&nodeId=n2&nodeTitle=%E5%AE%9E%E7%8E%B0%E6%8E%A5%E5%8F%A3&taskTitle=%E9%80%80%E6%AC%BE%E5%8D%95%E5%88%86%E9%A1%B5%E6%9F%A5%E8%AF%A2%E4%B8%8E%E5%AF%BC%E5%87%BA&returnTo=delivery%2Ftask.html%3Fstate%3Dtd02-awaiting%26theme%3Ddeepseek%26skin%3Ddeepseek%26selectedNode%3Dn2%26canvasView%3D%257B%2522tx%2522%253A-427.55999999999995%252C%2522ty%2522%253A336%252C%2522k%2522%253A0.82%257D"
+    },
+    {
+      "name": "Installed attempts tab",
+      "pass": true
+    },
+    {
+      "name": "Installed restore original task and viewport",
+      "pass": true,
+      "view": {
+        "tx": -427.55999999999995,
+        "ty": 336,
+        "k": 0.82
+      },
+      "expected": {
+        "tx": -427.55999999999995,
+        "ty": 336,
+        "k": 0.82
+      }
+    },
+    {
+      "name": "Installed task delivery context",
+      "pass": true,
+      "path": "delivery/git.html?theme=deepseek&state=td03-changes&from=task&fromState=td02-awaiting&skin=deepseek"
+    }
+  ],
+  "exceptions": [],
+  "externalRequests": [],
+  "resourceFailures": []
+}

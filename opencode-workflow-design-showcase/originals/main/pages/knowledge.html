@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>知识库 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.kb{display:flex;height:100%;min-height:0}
+.kb-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.kb-scroll{flex:1;min-height:0;overflow-y:auto}
+.kb-axis{max-width:760px;margin:0 auto;padding:28px 24px 24px;display:flex;flex-direction:column;gap:18px}
+.welcome{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:12px;padding:0 24px}
+.avatar{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;background:var(--accent-fill);color:var(--accent);font-family:var(--font-display);font-size:22px;box-shadow:inset 0 0 0 1px var(--line-2)}
+.welcome h2{font-family:var(--font-display);font-weight:400;font-size:32px;letter-spacing:-.6px}
+.composer-wrap{flex:none;width:100%;max-width:808px;margin:0 auto;padding:0 24px 14px}
+.composer{border-radius:20px;background:var(--raised);border:1px solid var(--line-2);padding:14px 12px 10px 16px;box-shadow:var(--shadow-lift);transition:box-shadow var(--t-fast),border-color var(--t-fast)}
+.composer:focus-within{border-color:var(--accent-line);box-shadow:var(--shadow-lift),var(--ring)}
+.composer textarea{width:100%;resize:none;border:0;outline:0;background:transparent;font-size:15px;line-height:1.6;color:var(--ink);min-height:48px}
+.cbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px}
+.pick{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px;border-radius:var(--r-pill);border:1px solid var(--line-2);font-size:12.5px;color:var(--ink-2)}
+.pick:hover{background:var(--fill-3)}
+.pick .n{min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--accent-fill);color:var(--accent);font-size:11px;display:inline-flex;align-items:center;justify-content:center}
+.send{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--primary-bg);color:var(--primary-ink)}
+.send:disabled{background:var(--fill-4);color:var(--muted);cursor:not-allowed}
+.sugg{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:4px}
+.sugg button{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:var(--r-pill);border:1px solid var(--line-2);background:var(--fill-1);color:var(--ink-2);font-size:13px}
+.sugg button:hover{background:var(--fill-3)}
+.bubble{align-self:flex-end;max-width:82%;padding:10px 16px;border-radius:18px 18px 4px 18px;background:var(--bubble);font-size:14.5px;line-height:1.7}
+.who{display:flex;align-items:center;gap:10px}
+.who .avatar{width:28px;height:28px;border-radius:8px;font-size:13px}
+.research{border-radius:14px;border:1px solid var(--line);background:var(--panel);overflow:hidden}
+.research>button{width:100%;display:flex;align-items:center;gap:10px;padding:12px 14px;text-align:left}
+.step{display:flex;gap:12px}
+.step .rail{width:16px;display:flex;flex-direction:column;align-items:center;padding-top:3px}
+.step .rail b{flex:1;width:1px;background:var(--line-2);margin-top:4px;min-height:10px}
+.ok-dot{width:14px;height:14px;border-radius:50%;background:var(--ok-fill);color:var(--ok);display:grid;place-items:center}
+.ok-dot svg{width:9px;height:9px;stroke-width:3.2}
+.shimmer{-webkit-mask-image:linear-gradient(90deg,#000 30%,rgba(0,0,0,.3) 50%,#000 70%);mask-image:linear-gradient(90deg,#000 30%,rgba(0,0,0,.3) 50%,#000 70%);-webkit-mask-size:260% 100%;mask-size:260% 100%;animation:sh 1.6s linear infinite}
+@keyframes sh{from{-webkit-mask-position:120% 0;mask-position:120% 0}to{-webkit-mask-position:-20% 0;mask-position:-20% 0}}
+.hits{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.hit{text-align:left;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;gap:6px;min-width:0;transition:border-color var(--t-fast)}
+.hit.on{border-color:var(--accent)}
+.answer{font-size:15px;line-height:1.85;color:var(--ink-2);display:flex;flex-direction:column;gap:14px}
+.answer h3{font-family:var(--font-display);font-weight:500;font-size:20px;color:var(--ink);letter-spacing:-.3px;line-height:1.45}
+.answer h4{font-size:15px;font-weight:600;color:var(--ink)}
+.cite{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;margin-left:4px;padding:0 5px;vertical-align:.15em;border-radius:6px;background:var(--accent-fill);color:var(--accent);font-size:11px;line-height:1;animation:pop .4s cubic-bezier(.3,1.4,.5,1) both}
+.cite.on{background:var(--accent);color:var(--bg)}
+@keyframes pop{0%{opacity:0;transform:scale(.3)}100%{opacity:1;transform:none}}
+.caret{display:inline-block;width:2px;height:1.05em;margin-left:3px;vertical-align:-.18em;background:var(--accent);animation:bl 1s steps(1) infinite}
+@keyframes bl{50%{opacity:0}}
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:12px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
+.flow span{padding:4px 10px;border-radius:99px;font-size:12.5px;background:var(--fill-3);border:1px solid var(--line)}
+.flow i{color:var(--faint);font-style:normal}
+.tbl{border-radius:12px;border:1px solid var(--line);overflow:hidden;font-size:13.5px}
+.tbl div{display:grid;grid-template-columns:110px 1fr 1fr;padding:9px 14px;gap:10px}
+.tbl div+div{box-shadow:inset 0 1px 0 var(--line)}
+.tbl .h{background:var(--fill-3);color:var(--muted);font-size:12.5px}
+.panel{flex:none;width:0;overflow:hidden;background:var(--panel);box-shadow:inset 1px 0 0 var(--line);transition:width .4s var(--ease)}
+.panel.open.cite-p{width:var(--drawer-lg)}.panel.open.src-p{width:var(--drawer-sm)}
+.panel>div{width:var(--drawer-lg);height:100%;display:flex;flex-direction:column}
+.panel.src-p>div{width:var(--drawer-sm)}
+.para{padding:12px 14px;border-radius:10px;transition:background .5s,box-shadow .5s}
+.para.hl{background:rgba(169,188,255,.1);box-shadow:inset 0 0 0 1px rgba(169,188,255,.38)}
+.para span{font-size:11.5px;color:var(--muted)}.para.hl span{color:var(--accent)}
+.para p{margin-top:4px;font-size:14px;line-height:1.8;color:var(--sub)}.para.hl p{color:var(--ink)}
+/* 补充 · 知识研究员当前工作（rs-） */
+button.avatar{cursor:pointer;transition:box-shadow var(--t-fast)}
+button.avatar:hover,button.avatar[aria-expanded="true"]{box-shadow:inset 0 0 0 1px var(--accent-line),0 0 0 4px var(--accent-fill)}
+.rs-intro{display:flex;gap:16px;align-items:center;padding-bottom:18px;box-shadow:inset 0 -1px 0 var(--line)}
+.rs-big{width:72px;height:72px;border-radius:20px;font-size:28px;flex:none}
+.rs-neutral{background:var(--fill-3);color:var(--sub)}
+.rs-neutral svg.i{width:30px;height:30px}
+.rs-sec{padding-top:20px}
+.rs-sec h3{font-size:13px;font-weight:500;color:var(--ink-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.rs-sec h3 .hint{font-weight:400;margin-left:auto}
+.rs-ev{display:flex;flex-direction:column;border-radius:var(--r-md);border:1px solid var(--line);overflow:hidden}
+.rs-ev>div{display:grid;grid-template-columns:20px 64px minmax(0,1fr);gap:10px;padding:11px 14px;font-size:13px;line-height:1.6;align-items:start}
+.rs-ev>div+div{box-shadow:inset 0 1px 0 var(--line)}
+.rs-ev dt{color:var(--muted)}.rs-ev dd{margin:0;color:var(--ink-2)}
+.rs-ic{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;margin-top:1px}
+.rs-ic svg{width:11px;height:11px;stroke-width:2.6}
+.rs-ic.ok{background:var(--ok-fill);color:var(--ok)}
+.rs-ic.miss{background:var(--warn-fill);color:var(--warn)}
+.rs-ic.neu{background:var(--fill-4);color:var(--sub)}
+.rs-quote{padding:10px 14px;border-radius:12px;background:var(--bubble);font-size:13.5px;line-height:1.7;white-space:pre-wrap}
+.rs-quote.draft{background:transparent;border:1px dashed var(--line-3);color:var(--sub)}
+.rs-tl{list-style:none;margin:0;padding:0}
+.rs-tl li{display:grid;grid-template-columns:16px minmax(0,1fr);gap:12px}
+.rs-tl .rail{display:flex;flex-direction:column;align-items:center;padding-top:4px}
+.rs-tl .rail b{flex:1;width:1px;background:var(--line-2);margin-top:4px;min-height:10px}
+.rs-tl li:last-child .rail b{display:none}
+.rs-tl .body{padding-bottom:14px;min-width:0}
+.rs-tl .t{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.rs-cite{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill-1)}
+.rs-cite+.rs-cite{margin-top:8px}
+.rs-cite .n{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;background:var(--accent-fill);color:var(--accent);font-size:11px}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="knowledge">
+<main id="page" style="height:100%" hidden><div class="kb"><div class="kb-main" id="main"></div><aside class="panel" id="panel" aria-label="侧边面板"><div id="panelIn"></div></aside></div>
+  <aside class="drawer md" id="rs" aria-hidden="true" aria-labelledby="rsT"><div class="drawer-head"><div class="grow"><h2 id="rsT">知识研究员当前工作</h2><div class="hint" style="margin-top:2px">只读 · 查看不会执行或修改任何内容</div></div><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer('rs')"><span data-icon="x"></span></button></div><div class="drawer-body" id="rsB"></div></aside>
+</main>
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc; let S=DS.state||'idle';
+const Q0='这个项目如何处理任务执行、资料读取和错误恢复？请说明各模块的职责，并给出原文依据。';
+const BLOCKS=[
+  {type:'h3', text:'任务执行与资料读取，分别由服务端持有边界。'},
+  {type:'p', cite:1, text:'项目把任务生命周期、资料访问与界面展示分开处理。界面负责呈现当前状态、保留输入和提供恢复入口；任务是否可执行、能读取哪些来源，以及结果是否接受，由对应服务决定。'},
+  {type:'p', cite:2, text:'创建任务后先保存需求与执行设置。正式启动时才申请队列和租约，进入准备阶段。一次执行完成后，系统收集产物和验收证据，再判断是否推进到下一阶段。'},
+  {type:'flow', len:36},
+  {type:'h4', text:'模块职责'},
+  {type:'table', len:45},
+  {type:'p', cite:3, text:'来源选择会保存为本轮问答的输入。读取文件时仍需要核对当前许可，避免在开关变化后继续呈现迟到的内容；公共检索与原资料读取分属不同许可。'},
+];
+let off=0; BLOCKS.forEach(b=>{b.start=off;b.len=b.len||b.text.length;off+=b.len}); const TOTAL=off, R_END=3400;
+const HITS=[{n:1,t:'系统架构与模块边界',p:'docs/architecture.md',r:.92},{n:2,t:'设计与执行约定',p:'docs/design-contract.md',r:.86},{n:3,t:'接口与错误恢复说明',p:'docs/api-reference.md',r:.81}];
+const DOCS={1:{t:'模块职责说明',p:'docs/architecture.md',w:'第 2 段',hi:[1],ps:['项目包含任务执行、资料访问与界面展示三个部分，各自维护当前状态，通过明确的接口交换信息。','界面负责呈现当前状态、保留输入和提供恢复入口。任务是否可执行，由任务服务决定；能读取哪些来源，由资料服务核对当前许可；结果是否接受，由对应服务完成判断。','任务服务保存需求与执行设置，管理生命周期和执行调度。']},
+  2:{t:'任务执行说明',p:'docs/design-contract.md',w:'第 3 段',hi:[2],ps:['本约定描述任务从提交到交付的阶段划分。','任务需求被创建后进入等待启动状态，此时只保存需求与执行设置。','正式启动时，任务服务申请队列与租约，进入准备阶段；执行完成后收集产物与验收证据，再判断是否推进。']},
+  3:{t:'资料许可与恢复说明',p:'docs/api-reference.md',w:'第 1 段',hi:[0],ps:['来源选择保存为本轮问答的输入；每次读取文件前，资料服务仍会核对当前许可。','当一次投递的结果未知时，客户端应先读取原操作状态，确认后再提供继续、停止或重试。','公共检索与原资料读取是两项独立许可。']}};
+const st={phase:{run:'run',done:'done',stopped:'stopped'}[S]||'idle', t:S==='done'?R_END:S==='run'?900:0, chars:S==='done'?TOTAL:S==='stopped'?120:0, q:S==='idle'?'':Q0, open:null, panel:null, cite:1, sel:{code:1,doc:3,db:1}, web:false};
+if (S==='cite'){ st.phase='done'; st.t=R_END; st.chars=TOTAL; st.q=Q0; st.panel='cite'; }
+if (S==='sources'){ st.panel='src'; }
+
+function header(){
+  const locked = st.phase!=='idle';
+  DS.$('.header').innerHTML = `<h1>${I('book')}知识库</h1>
+    <button class="btn secondary sm" style="margin-left:8px" title="${locked?'已有对话不可更换项目，新建对话后可切换':'选择项目'}">${I('folder','sm')}OpenCode Loopper${locked?I('lock','sm'):I('chevDown','sm')}</button>
+    <span class="spacer"></span><a class="btn ghost sm" href="knowledge-history.html">${I('clock','sm')}历史对话</a><button class="btn secondary sm" onclick="reset()">${I('plus','sm')}新建对话</button>`;
+}
+function composer(){
+  const n=st.sel.code+st.sel.doc+st.sel.db, run=st.phase==='run';
+  return `<div class="composer-wrap"><div class="composer"><label for="qin" class="sr">向项目提问</label>
+    <textarea id="qin" rows="2" placeholder="${st.phase==='idle'?'描述你的问题，或粘贴需要理解的内容…':'继续追问这个项目…'}" oninput="DS.$('#sendB')&&(DS.$('#sendB').disabled=!this.value.trim()||${n===0})" onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();ask(this.value)}"></textarea>
+    <div class="cbar"><button class="pick" onclick="togglePanel('src')">${I('book','sm')}资料来源<span class="n">${n}</span></button>
+      <span class="pick" style="border-color:transparent;color:var(--sub)" title="${st.phase==='idle'?'问答模型':'已有对话不可更换模型'}">Claude Sonnet 4.6${st.phase==='idle'?'':I('lock','sm')}</span>
+      <span class="grow"></span><span class="hint">${n===0?'请至少选择 1 项资料':'Enter 发送 · Shift Enter 换行'}</span>
+      ${run?`<button class="send" aria-label="停止生成" onclick="stop()">${I('stop','sm')}</button>`:`<button class="send" id="sendB" aria-label="发送" disabled onclick="ask(DS.$('#qin').value)">${I('arrowUp','sm')}</button>`}</div></div>
+    <p class="hint" style="text-align:center;margin-top:8px">回答需结合原文核对</p></div>`;
+}
+function render(){
+  header();
+  if (st.phase==='idle'){
+    DS.$('#main').innerHTML = `<div class="welcome in"><button class="avatar" aria-label="查看知识研究员当前工作" title="查看知识研究员当前工作" aria-expanded="${window.RS_ON==='welcome'}" onclick="openRs(this,'welcome')">研</button><span class="hint">知识研究员 · 只读当前项目已授权的资料</span><h2>关于这个项目，你想了解什么？</h2><p class="lede">从代码、文档和数据库中查找依据，每个结论都能回到原文。</p></div>
+      ${composer()}<div style="max-width:808px;margin:0 auto 28px;padding:0 24px;width:100%"><div class="row wrap" style="gap:6px;font-size:12.5px;color:var(--sub);justify-content:center;margin-bottom:12px">将从 <span class="chip">代码 ${st.sel.code}</span><span class="chip">文档 ${st.sel.doc}</span><span class="chip">数据库 ${st.sel.db}</span> 中查找依据 · 网络检索${st.web?'已开启':'关闭'}</div>
+      <div class="sugg">${['这个项目如何处理任务执行、资料读取和错误恢复？','任务从创建到交付要经过哪些阶段？','哪些操作需要单独的读取许可？'].map((t,i)=>`<button onclick="ask(${i===0?'Q0':`'${t}'`})">${I('arrowRight','sm')}${t}</button>`).join('')}</div></div>`;
+  } else conv();
+  panel();
+}
+function conv(){
+  const researching = st.t<R_END, running=st.phase==='run';
+  const steps=[['理解问题',0,700,'拆成 3 个子问题'],['检索资料',700,2100,`扫描 ${Math.round(263*Math.min(1,Math.max(0,(st.t-700)/1400)))} / 263 个片段`],['读取原文',2100,3000,'核对许可后读取 3 份原文'],['组织回答',3000,3400,'标注 3 处引用']];
+  const showSteps = st.open===null ? researching : st.open;
+  const vis = HITS.filter((h,i)=>st.t>=1100+i*320);
+  const blocks = BLOCKS.map(b=>{ const v=Math.max(0,Math.min(b.len,st.chars-b.start)); if(!v) return ''; const done=v>=b.len, caret=running&&!done&&b.text;
+    if (b.type==='flow') return `<div class="flow">${['任务需求','等待启动','排队与准备','执行','验证','接受结果'].slice(0,Math.floor(v/6)).map((c,i,a)=>`${i?'<i>→</i>':''}<span>${c}</span>`).join('')}</div>`;
+    if (b.type==='table') return `<div class="tbl"><div class="h"><span>模块</span><span>主要职责</span><span>界面中的体现</span></div>${[['任务服务','生命周期与执行调度','状态、开始、停止、恢复'],['资料服务','来源许可与读取校验','来源选择与原文引用'],['知识研究员','解释资料与组织回答','问题、回答、工具记录']].slice(0,Math.floor(v/15)).map(r=>`<div><span style="color:var(--ink)">${r[0]}</span><span>${r[1]}</span><span>${r[2]}</span></div>`).join('')}</div>`;
+    const tag=b.type==='p'?'p':b.type; return `<${tag}>${esc(b.text.slice(0,v))}${caret?'<span class="caret"></span>':''}${done&&b.cite?`<button class="cite ${st.panel==='cite'&&st.cite===b.cite?'on':''}" aria-label="查看引用 ${b.cite}" onclick="openCite(${b.cite})">${b.cite}</button>`:''}</${tag}>`; }).join('');
+  DS.$('#main').innerHTML = `<div class="kb-scroll" id="scr"><div class="kb-axis">
+    <div class="bubble">${esc(st.q)}</div>
+    <div class="who"><button class="avatar" aria-label="查看知识研究员当前工作" title="查看知识研究员当前工作" aria-expanded="${window.RS_ON==='msg'}" onclick="openRs(this,'msg')">研</button><span style="font-weight:500;font-size:13.5px">知识研究员</span><span class="badge ${running?'st-accent':st.phase==='stopped'?'st-idle':'st-ok'}">${running?(researching?'研究中':'撰写中'):st.phase==='stopped'?'已停止':'已完成'}</span></div>
+    <div class="research"><button onclick="st.open=!${showSteps};conv()" aria-expanded="${showSteps}">${researching&&running?'<span class="spin" style="color:var(--accent)"></span>':`<span style="color:var(--ok)">${I('check','sm')}</span>`}<span class="${researching&&running?'shimmer':''}" style="font-size:13.5px">${researching?(steps.find(s=>st.t>=s[1]&&st.t<s[2])||steps[0])[0]+'中…':'研究过程 · 3 份来源 · 用时 3.4s'}</span><span class="grow"></span><span class="hint num">${researching?(st.t/1000).toFixed(1)+'s':''}</span>${I(showSteps?'chevDown':'chevRight','sm')}</button>
+      ${showSteps?`<div style="padding:2px 14px 6px">${steps.map((s,i)=>{const d=st.t>=s[2],a=st.t>=s[1]&&!d;return `<div class="step"><div class="rail">${d?`<span class="ok-dot">${I('check')}</span>`:a?'<span class="spin" style="width:12px;height:12px;color:var(--accent)"></span>':'<span style="width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line-3);margin:2px"></span>'}${i<3?'<b></b>':''}</div><div style="padding-bottom:12px;opacity:${d||a?1:.5}"><div style="font-size:13.5px">${s[0]}</div><div class="hint">${d||a?s[3]:'等待'}</div></div></div>`}).join('')}</div>`:''}</div>
+    ${vis.length?`<div class="hits">${vis.map(h=>`<button class="hit in ${st.panel==='cite'&&st.cite===h.n?'on':''}" onclick="openCite(${h.n})"><span class="row" style="gap:8px"><span class="cite" style="margin:0;animation:none">${h.n}</span><span class="ellipsis" style="font-size:13px">${h.t}</span></span><span class="mono hint ellipsis">${h.p}</span><span class="row" style="gap:8px"><span class="grow" style="height:3px;border-radius:3px;background:var(--line);overflow:hidden"><i style="display:block;height:100%;width:${h.r*100}%;background:var(--accent)"></i></span><span class="hint num">${h.r.toFixed(2)}</span></span></button>`).join('')}</div>`:''}
+    <div class="answer">${blocks}</div>
+    ${st.phase==='stopped'?`<div class="banner">${I('stop','sm')}<div>已停止生成。已写出的内容保留，引用只对已完成的句子生效。</div><div class="actions"><button class="btn secondary sm" onclick="st.phase='run';loop()">继续生成</button></div></div>`:''}
+    ${st.phase==='done'?`<div class="row" style="gap:4px;color:var(--sub)"><button class="btn ghost sm">${I('copy','sm')}复制</button><button class="btn ghost sm" onclick="ask(Q0)">${I('refresh','sm')}重新生成</button><span class="grow"></span><span class="hint">3 处引用 · 3 份原文</span></div>`:''}
+  </div></div>${composer()}`;
+  const sc=DS.$('#scr'); if (running) sc.scrollTop=sc.scrollHeight;
+}
+function panel(){
+  const p=DS.$('#panel'), inn=DS.$('#panelIn');
+  p.className='panel'+(st.panel?' open '+(st.panel==='cite'?'cite-p':'src-p'):'');
+  if (st.panel==='cite'){ const d=DOCS[st.cite]; inn.innerHTML=`
+    <div class="drawer-head"><div class="grow"><div class="hint num">引用来源 · ${st.cite} / 3</div><h2 style="margin-top:4px">${d.t}</h2><div class="mono hint" style="margin-top:4px">${d.p}</div><div class="row wrap" style="gap:6px;margin-top:8px"><span class="badge st-accent">引用位置 · ${d.w}</span><span class="badge st-idle">示例原文</span></div></div>
+      <button class="icon-btn" aria-label="上一个引用" onclick="openCite(st.cite===1?3:st.cite-1)">${I('chevLeft')}</button><button class="icon-btn" aria-label="下一个引用" onclick="openCite(st.cite%3+1)">${I('chevRight')}</button><button class="icon-btn" aria-label="关闭原文" onclick="st.panel=null;render()">${I('x')}</button></div>
+    <div class="drawer-body col" style="gap:4px">${d.ps.map((t,i)=>`<div class="para fade ${d.hi.includes(i)?'hl':''}"><span>第 ${i+1} 段${d.hi.includes(i)?' · 引用位置':''}</span><p>${t}</p></div>`).join('')}</div>`; }
+  else if (st.panel==='src'){ inn.innerHTML=`
+    <div class="drawer-head"><div class="grow"><h2>资料来源</h2><div class="hint" style="margin-top:2px">已选 ${st.sel.code+st.sel.doc+st.sel.db} 项 · 下一轮问答生效</div></div><button class="icon-btn" aria-label="关闭" onclick="st.panel=null;render()">${I('x')}</button></div>
+    <div class="drawer-body"><div class="card" style="padding:4px 14px">${[['原资料读取','使用已选项目资料',true],['网络公共检索','独立许可 · 不访问网络时关闭',st.web]].map(([l,d,on],i)=>`<div class="row" style="padding:10px 0;${i?'box-shadow:inset 0 1px 0 var(--line)':''}"><span class="grow"><div style="font-size:13.5px">${l}</div><div class="hint">${d}</div></span><button class="switch" role="switch" aria-checked="${on}" aria-label="${l}" onclick="${i?'st.web=!st.web;render()':''}"></button></div>`).join('')}</div>
+      <div class="input-wrap" style="margin-top:14px">${I('search')}<input class="input ctl" placeholder="搜索资料名称或路径" aria-label="搜索资料"></div>
+      ${[['代码',[['项目源代码','main · src/ · 248 个文件',1]]],['文档',[['设计与执行约定','docs/design-contract.md',1],['系统架构与模块边界','docs/architecture.md',1],['接口与错误恢复说明','docs/api-reference.md',1],['迭代记录与交接文档','docs/deliveries/ · 18 篇',0]]],['数据库',[['本地演示数据库','只读 · 12 张表',1]]]].map(([g,items])=>`<div class="row hint" style="padding:14px 4px 6px"><span class="grow">${g}</span><span class="num">${items.filter(x=>x[2]).length} / ${items.length}</span></div>${items.map(([n,p,on])=>`<label class="list-row" style="cursor:pointer"><input type="checkbox" ${on?'checked':''} style="accent-color:var(--brand)"><span class="grow"><div style="font-size:13px">${n}</div><div class="mono hint ellipsis">${p}</div></span></label>`).join('')}`).join('')}</div>
+    <div class="drawer-foot"><span class="grow"></span><button class="btn primary" onclick="st.panel=null;render()">完成</button></div>`; }
+}
+function togglePanel(k){ st.panel = st.panel===k?null:k; render(); }
+function openCite(n){ st.panel='cite'; st.cite=n; render(); }
+let timer=null;
+function loop(){ clearInterval(timer); timer=setInterval(()=>{ if(st.phase!=='run'){clearInterval(timer);return;} if(st.t<R_END) st.t+=50; else { st.chars=Math.min(TOTAL,st.chars+4); if(st.chars>=TOTAL){ st.phase='done'; S='done'; } } render(); },50); }
+function ask(q){ q=(q||'').trim(); if(!q) return; Object.assign(st,{phase:'run',t:0,chars:0,q,open:null,panel:null}); render(); loop(); }
+function stop(){ st.phase='stopped'; render(); }
+function reset(){ clearInterval(timer); Object.assign(st,{phase:'idle',t:0,chars:0,q:'',panel:null}); render(); }
+DS.mount({ header:'', state:S, states:[{id:'idle',label:'开始提问'},{id:'run',label:'研究中'},{id:'done',label:'回答完成'},{id:'cite',label:'查看引用原文'},{id:'sources',label:'资料来源面板'},{id:'stopped',label:'已停止'},
+  {id:'rs-welcome',label:'补充 · 研究员面板 · 欢迎区打开（无消息）'},{id:'rs-full',label:'补充 · 研究员面板 · 选中回答，证据完整'},{id:'rs-partial',label:'补充 · 研究员面板 · 证据不完整'},
+  {id:'rs-hist',label:'补充 · 研究员面板 · 历史消息未冻结外观'},{id:'rs-loading',label:'补充 · 研究员面板 · 证据读取中'},{id:'rs-denied',label:'补充 · 研究员面板 · 读取失败（无权限）'},
+  {id:'rs-changed',label:'补充 · 研究员面板 · 读取失败（版本已变化）'},{id:'rs-stale',label:'补充 · 研究员面板 · 会话版本不一致'},{id:'rs-notools',label:'补充 · 研究员面板 · 无工具记录'}] });
+DS.$('#content').style.overflow='hidden';
+render(); if (st.phase==='run') loop();
+</script>
+<script>
+/* ---------- 补充 · 知识研究员当前工作（480 只读抽屉） ---------- */
+const RS_TOOLS=[['检索项目资料','已完成','扫描 263 个片段，命中 12 个'],['读取文件','已完成','docs/architecture.md · 第 2 段'],['读取文件','已完成','docs/design-contract.md · 第 3 段'],['读取文件','已完成','docs/api-reference.md · 第 1 段']];
+const RS_SRC=['项目源代码','设计与执行约定','系统架构与模块边界','接口与错误恢复说明','本地演示数据库'];
+const RS_EV={
+  full:[['ok','执行角色','已核对本条消息的冻结角色版本。'],['ok','发布职业','已核对与原执行角色一致的发布职业版本。'],['ok','职业外观','已核对原投递时冻结的职业外观；仅使用对应资源版本。']],
+  partial:[['ok','执行角色','已核对本条消息的冻结角色版本。'],['miss','发布职业','未找到与原执行角色完全对应的发布职业版本。'],['miss','职业外观','本条消息投递时未配置职业外观。保持中性形象，不套用当前设置。']],
+  hist:[['ok','执行角色','已核对本条消息的冻结角色版本。'],['ok','发布职业','已核对与原执行角色一致的发布职业版本。'],['neu','职业外观','本条历史消息未冻结外观，保持中性形象；不会套用当前职业设置或播放角色动画。']]};
+const RS=DS.state||'';
+let rs={kind:null, ev:{'rs-partial':'partial','rs-hist':'hist','rs-loading':'loading','rs-denied':'denied','rs-changed':'changed','rs-stale':'stale'}[RS]||'full'};
+function rsEvidence(){
+  const head=`<h3>角色证据<span class="hint">本条回答投递时</span></h3>`;
+  if (rs.ev==='loading') return `<section class="rs-sec" aria-busy="true">${head}<p class="hint row" role="status" style="margin-bottom:10px"><span class="spin"></span>正在核对本条消息的角色证据…</p><div class="rs-ev">${['执行角色','发布职业','职业外观'].map(l=>`<div><span class="skel" style="width:18px;height:18px;border-radius:50%"></span><dt>${l}</dt><dd><div class="skel" style="height:12px;width:80%;margin-top:4px"></div></dd></div>`).join('')}</div></section>`;
+  if (rs.ev==='denied'||rs.ev==='changed') return `<section class="rs-sec">${head}<div class="banner danger" role="alert">${I('alert','sm')}<div>${rs.ev==='denied'?'<b>没有读取权限</b><br>暂时没有读取这条消息角色证据的权限，请核对原会话。':'<b>证据版本已变化</b><br>消息角色证据的版本已变化，请重新读取原会话后再核对。'}</div><div class="actions"><button class="btn secondary sm" onclick="rsRetry()">${I('refresh','sm')}重试</button></div></div></section>`;
+  if (rs.ev==='stale') return `<section class="rs-sec">${head}<div class="banner unknown" role="alert">${I('help','sm')}<div><b>会话版本与页面不一致</b><br>读取时会话已更新到修订 15，页面仍是修订 14。请重新读取原会话后再核对，期间不显示证据结论。</div><div class="actions"><button class="btn secondary sm" onclick="rsRetry()">${I('refresh','sm')}重新读取会话</button></div></div></section>`;
+  return `<section class="rs-sec">${head}<dl class="rs-ev" style="margin:0">${RS_EV[rs.ev].map(([k,l,t])=>`<div><span class="rs-ic ${k}" aria-label="${k==='ok'?'已核对':k==='miss'?'证据缺失':'保持中性'}">${I(k==='ok'?'check':k==='miss'?'alert':'minus')}</span><dt>${l}</dt><dd>${t}</dd></div>`).join('')}</dl>
+    <p class="hint" style="margin-top:8px">读取版本：会话 修订 14 · 消息 修订 3 · 仅为原消息的只读证据，不授予执行权限。</p></section>`;
+}
+function rsBody(){
+  const welcome=rs.kind==='welcome', stopped=st.phase==='stopped', neutral=!welcome&&['partial','hist'].includes(rs.ev);
+  const draft=(DS.$('#qin')?.value||'').trim();
+  const tools=welcome||stopped?[]:RS_TOOLS, cites=welcome||stopped?[]:HITS;
+  return `<div class="rs-intro">${neutral?`<span class="avatar rs-big rs-neutral" aria-hidden="true">${I('users')}</span>`:`<span class="avatar rs-big" aria-hidden="true">研</span>`}
+      <div class="grow col" style="gap:4px"><div class="row" style="gap:8px"><span style="font-size:16px;font-weight:500">知识研究员</span><span class="badge ${welcome?'st-idle':stopped?'st-idle':'st-ok'}">${welcome?'未发送':stopped?'已停止':'已完成'}</span></div><span class="hint">从代码、文档和数据库中查找依据。</span>${neutral?'<span class="hint">这条回答保持中性形象。</span>':welcome?'':`<span class="hint num">${stopped?'停止于':'回答于'} 2026-10-10 14:32</span>`}</div></div>
+    ${welcome?`<p class="hint" style="padding-top:16px">发送问题后，可以在每条回答上核对当时的执行角色、发布职业和职业外观。</p>`:rsEvidence()}
+    <section class="rs-sec"><h3>已发送问题</h3>${welcome?'<p class="hint">尚未发送问题。</p>':`<div class="rs-quote">${esc(st.q)}</div>`}
+      ${welcome&&draft?`<h3 style="margin-top:14px">待发送草稿<span class="badge st-idle" style="margin-left:0">未发送</span></h3><div class="rs-quote draft">${esc(draft)}</div>`:''}</section>
+    <section class="rs-sec"><h3>工具记录${tools.length?`<span class="hint">${tools.length} 次调用</span>`:''}</h3>${tools.length?`<ol class="rs-tl">${tools.map(([t,s,d])=>`<li><span class="rail"><span class="ok-dot">${I('check')}</span><b></b></span><div class="body"><div class="t">${t}<span class="badge st-done" style="height:20px">${s}</span></div><div class="hint mono" style="margin-top:2px">${esc(d)}</div></div></li>`).join('')}</ol>`
+      :`<div class="banner" style="font-size:13px">${I('info','sm')}<div>本轮还没有工具调用记录。${stopped?'回答在读取资料前已停止。':''}</div></div>`}</section>
+    <section class="rs-sec"><h3>引用材料${cites.length?'<span class="hint">打开原文时会关闭本面板</span>':''}</h3>${cites.length?cites.map(h=>`<div class="rs-cite"><span class="n">${h.n}</span><span style="min-width:0"><div class="ellipsis" style="font-size:13.5px">${h.t}</div><div class="mono hint ellipsis">${h.p}</div></span><button class="btn ghost sm" aria-label="查看原文：${h.t} · ${h.p}" onclick="rsCite(${h.n})">${I('external','sm')}原文</button></div>`).join(''):'<p class="hint">引用会在实际读取资料后显示。</p>'}</section>
+    <section class="rs-sec"><h3>资料来源</h3><div class="row" style="gap:8px;margin-bottom:10px">${I('folder','sm')}<span style="font-size:13.5px">OpenCode Loopper</span>${welcome?'':'<span class="hint">· 本次对话固定</span>'}</div><div class="row wrap" style="gap:6px">${RS_SRC.map(n=>`<span class="chip">${n}</span>`).join('')}</div></section>`;
+}
+function openRs(btn,kind){ const v=DS.$('#qin')?.value||''; st.panel=null; window.RS_ON=kind; rs.kind=kind; render(); if(v){ DS.$('#qin').value=v; const sb=DS.$('#sendB'); if(sb) sb.disabled=false; } DS.$('#rsB').innerHTML=rsBody(); DS.openDrawer('rs', DS.$(kind==='welcome'?'.welcome .avatar':'.who .avatar')||btn); }
+function rsCite(n){ DS.closeDrawer('rs'); window.RS_ON=null; openCite(n); }
+function rsRetry(){ rs.ev='loading'; DS.$('#rsB').innerHTML=rsBody(); setTimeout(()=>{rs.ev='full';DS.$('#rsB').innerHTML=rsBody()},900); }
+new MutationObserver(()=>{ if(!DS.$('#rs').classList.contains('open') && window.RS_ON){ window.RS_ON=null; DS.$$('button.avatar[aria-expanded="true"]').forEach(b=>b.setAttribute('aria-expanded','false')); } }).observe(DS.$('#rs'),{attributes:true,attributeFilter:['class']});
+if (RS.startsWith('rs-')){
+  if (RS==='rs-welcome'){ render(); const q=DS.$('#qin'); q.value='哪些操作需要单独的读取许可？请列出对应的设置位置。'; DS.$('#sendB').disabled=false; openRs(null,'welcome'); }
+  else { Object.assign(st, RS==='rs-notools'?{phase:'stopped',t:0,chars:120,q:Q0}:{phase:'done',t:R_END,chars:TOTAL,q:Q0}); openRs(null,'msg'); }
+}
+</script>
+</body>
+</html>

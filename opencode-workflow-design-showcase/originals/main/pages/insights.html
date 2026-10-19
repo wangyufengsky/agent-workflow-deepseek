@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>质量与用量 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.tiles{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:12px;margin-bottom:16px}
+@media (max-width:1100px){.tiles{grid-template-columns:1fr}}
+.tilebox{padding:18px 20px}
+.tilebox .k{font-size:12.5px;color:var(--muted)}
+.tilebox .v{font-family:var(--font-display);font-weight:500;font-size:28px;letter-spacing:-.6px;margin-top:6px;font-variant-numeric:tabular-nums}
+.tilebox .v small{font-family:var(--font);font-size:13px;color:var(--sub);font-weight:400;margin-left:6px;letter-spacing:0}
+.tilebox .s{font-size:12.5px;color:var(--sub);margin-top:6px}
+.cur{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px}
+.cur div{font-family:var(--font-display);font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
+.cur span{font-size:12px;color:var(--muted);margin-right:4px;font-family:var(--font)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start}
+.layout.no{grid-template-columns:minmax(0,1fr)}
+@media (max-width:1180px){.layout{grid-template-columns:minmax(0,1fr)}}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-weight:500;font-size:12px;color:var(--muted);padding:10px 14px;box-shadow:inset 0 -1px 0 var(--line)}
+td{padding:12px 14px;box-shadow:inset 0 -1px 0 var(--line);vertical-align:middle}
+tbody tr{cursor:pointer;transition:background var(--t-fast)}
+tbody tr:hover{background:var(--fill-2)}
+tbody tr[aria-selected="true"]{background:var(--fill-3)}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td .badge{white-space:nowrap}
+.tbar{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+.tbar i{display:block;height:6px;border-radius:3px;background:var(--accent);opacity:.75}
+.unk{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--unknown);border:1px dashed var(--unknown-line);border-radius:99px;padding:0 7px;height:20px}
+.chk{display:flex;align-items:center;gap:10px;padding:10px 0;box-shadow:inset 0 -1px 0 var(--line);font-size:13.5px}
+.chk:last-child{box-shadow:none}
+.mini{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border-radius:12px;overflow:hidden}
+.mini>div{background:var(--panel);padding:10px 12px}
+.mini .k{font-size:11.5px;color:var(--muted)}.mini .v{font-size:15px;font-weight:500;margin-top:2px;font-variant-numeric:tabular-nums}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="insights">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S0=DS.state||'content';
+const ROWS=[
+  {id:'r1', t:'完成订阅去重与回归验证', st:['已完成','st-done'], q:['质量通过','st-ok','check'], tok:82460, cost:'USD 0.31', dur:'12 分 8 秒', retry:1, unk:0,
+    checks:[['程序验收','9 / 9 项通过','st-ok','通过'],['需求评审','','st-ok','通过'],['风险评审','','st-ok','通过'],['人工认定','','st-idle','未认定']]},
+  {id:'r2', t:'核对高频事件的重试边界', st:['等待输入','st-wait'], q:['待验收','st-wait','clock'], tok:18420, cost:'USD 0.07', dur:'4 分 20 秒', retry:0, unk:1,
+    checks:[['程序验收','尚未运行','st-idle','—'],['需求评审','','st-idle','—'],['风险评审','','st-idle','—'],['人工认定','','st-idle','未认定']]},
+  {id:'r3', t:'整理事件投递的错误处理说明', st:['等待决策','st-wait'], q:['待评审','st-fail','eye'], tok:27010, cost:'USD 0.09 · CNY 0.12', dur:'7 分 02 秒', retry:2, unk:0,
+    checks:[['程序验收','6 / 6 项通过','st-ok','通过'],['需求评审','','st-ok','通过'],['风险评审','两位评审结论不一致','st-fail','待人工'],['人工认定','','st-idle','未认定']]},
+  {id:'r4', t:'核对批量订阅的行为约束', st:['已取消','st-idle'], q:['待验收','st-wait','clock'], tok:null, cost:'—', dur:'1 分 10 秒', retry:0, unk:1, checks:[]},
+  {id:'r5', t:'订阅使用说明与示例', st:['已完成','st-done'], q:['质量通过','st-ok','check'], tok:null, cost:'—', dur:'5 分 45 秒', retry:0, unk:1, checks:[['程序验收','4 / 4 项通过','st-ok','通过']]},
+];
+let sel = S0==='content' ? 'r1' : null, quality='all', q='';
+const max = Math.max(...ROWS.map(r=>r.tok||0));
+function panel(){
+  const r=ROWS.find(x=>x.id===sel); if(!r) return '';
+  return `<aside class="card solid fade" style="position:sticky;top:24px" aria-label="任务明细">
+    <div class="row" style="padding:18px 16px 0 20px;align-items:flex-start"><div class="grow"><div class="row wrap" style="gap:6px"><span class="badge ${r.st[1]}">${r.st[0]}</span><span class="badge ${r.q[1]}">${I(r.q[2],'sm')}${r.q[0]}</span></div><h2 style="font-size:17px;font-weight:500;margin-top:10px">${esc(r.t)}</h2></div><button class="icon-btn" aria-label="关闭明细" onclick="sel=null;render()">${I('x')}</button></div>
+    <div style="padding:16px 20px"><div class="eyebrow" style="margin-bottom:4px">验收与评审</div>
+      ${r.checks.length?r.checks.map(c=>`<div class="chk"><span class="grow">${c[0]}${c[1]?`<div class="hint">${c[1]}</div>`:''}</span><span class="badge ${c[2]}">${c[3]}</span></div>`).join(''):'<p class="hint" style="padding:8px 0">任务已取消，没有验收记录。</p>'}
+      ${r.checks.length?'<p class="hint" style="margin-top:6px">人工认定单独记录，不改变两项 AI 评审的原结论。</p>':''}</div>
+    <div style="padding:0 20px 16px"><div class="eyebrow" style="margin-bottom:8px">用量</div><div class="mini">
+      <div><div class="k">已记录 Tokens</div><div class="v">${r.tok==null?'<span class="unk">'+I('help','sm')+'未知</span>':r.tok.toLocaleString()}</div></div>
+      <div><div class="k">未知记录</div><div class="v">${r.unk} 条</div></div>
+      <div><div class="k">耗时</div><div class="v">${r.dur}</div></div>
+      <div><div class="k">重试</div><div class="v">${r.retry} 次</div></div></div>
+      <div class="row" style="margin-top:10px;font-size:13px"><span class="muted">成本</span><span class="grow num" style="text-align:right">${r.cost}</span></div></div>
+    <div style="padding:14px 20px 18px;box-shadow:inset 0 1px 0 var(--line)"><a class="btn secondary" style="width:100%" href="task.html?state=review">${I('eye','sm')}查看任务评审</a></div></aside>`;
+}
+function render(keep){
+  const pos=keep&&document.activeElement.selectionStart;
+  const rows=ROWS.filter(r=>(quality==='all'||r.q[0]===quality)&&(!q||r.t.includes(q)));
+  let tbl;
+  if (S0==='loading') tbl=`<div style="padding:14px">${[0,1,2,3].map(()=>`<div class="skel" style="height:14px;margin:14px 0"></div>`).join('')}</div>`;
+  else if (S0==='error') tbl=`<div style="padding:16px"><div class="banner danger">${I('alert')}<div><b>读取失败</b><br>上一次结果已保留在下方之前的快照中。筛选条件未改变。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('content')">${I('refresh','sm')}重试</button></div></div></div>`;
+  else if (!rows.length) tbl=`<div class="empty"><span class="tile">${I('search','lg')}</span><h3>没有符合条件的任务</h3><p>清除筛选后重试。</p></div>`;
+  else tbl=`<div style="overflow-x:auto"><table><thead><tr><th>任务</th><th>状态</th><th>质量</th><th class="n">Tokens</th><th class="n">耗时</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr aria-selected="${sel===r.id}" tabindex="0" onclick="sel='${r.id}';render()" onkeydown="if(event.key==='Enter'){sel='${r.id}';render()}"><td style="font-weight:500">${esc(r.t)}</td><td><span class="badge ${r.st[1]}">${r.st[0]}</span></td><td><span class="badge ${r.q[1]}">${I(r.q[2],'sm')}${r.q[0]}</span></td>
+      <td class="n">${r.tok==null?'<span class="unk">'+I('help','sm')+'未知</span>':`<div class="tbar"><i style="width:${Math.round(r.tok/max*80)}px"></i>${r.tok.toLocaleString()}</div>${r.unk?`<div class="hint">另有 ${r.unk} 条未知</div>`:''}`}</td><td class="n hint">${r.dur}</td></tr>`).join('')}</tbody></table></div>
+    <div class="row" style="padding:10px 14px 12px"><span class="hint grow">已加载 ${rows.length} 个任务 · 18:00 快照</span><button class="btn ghost sm">加载更多</button></div>`;
+  DS.$('#view').innerHTML = `
+  <div class="page-head"><div class="grow"><h2 class="title">质量与用量</h2><p class="lede">按任务核对消耗、验收与评审结果。汇总覆盖整个筛选范围，不只是已加载的行。</p></div></div>
+  <div class="row wrap" style="gap:10px;margin-bottom:16px">
+    <div class="input-wrap" style="width:240px">${I('search')}<input class="input ctl" placeholder="搜索任务标题" value="${esc(q)}" oninput="q=this.value;render(true)" aria-label="搜索任务标题"></div>
+    <select class="select ctl" style="width:auto" aria-label="项目"><option>全部项目</option><option>OpenCode Loopper</option><option>客户服务平台</option></select>
+    <select class="select ctl" style="width:auto" aria-label="任务状态"><option>全部状态</option><option>执行中</option><option>已完成</option><option>已取消</option></select>
+    <div class="seg" role="group" aria-label="质量">${[['all','全部质量'],['质量通过','通过'],['待验收','待验收'],['待评审','待评审']].map(([k,l])=>`<button aria-pressed="${quality===k}" onclick="quality='${k}';render()">${l}</button>`).join('')}</div>
+    <span class="grow"></span>
+    <label class="check" style="align-items:center;font-size:13px;color:var(--sub)"><input type="checkbox">包含已归档</label>
+  </div>
+  <div class="tiles">
+    <div class="card tilebox"><div class="k">已记录用量</div><div class="v">${S0==='loading'?'<span class="skel" style="display:inline-block;width:140px;height:26px"></span>':S0==='unknown-usage'?'<span class="unk" style="font-size:14px;height:28px;padding:0 12px">'+I('help','sm')+'未知</span>':'131,490<small>Tokens</small>'}</div><div class="s">${S0==='unknown-usage'?'筛选范围内的记录都没有用量数据':'另有 3 条记录用量未知，未计入'}</div></div>
+    <div class="card tilebox"><div class="k">成本 · 按币种分列</div><div class="cur"><div title="USD 0.471234567890123456"><span>USD</span>0.4712</div><div title="CNY 0.12"><span>CNY</span>0.12</div></div><div class="s">不同币种不换算、不相加</div></div>
+    <div class="card tilebox"><div class="k">已加载且有用量的任务</div><div class="v">3<small>/ 已加载 5 个</small></div><div class="s">只统计当前已加载的行</div></div>
+  </div>
+  <div class="layout ${sel?'':'no'}"><section class="card">${tbl}</section>${panel()}</div>`;
+  if (keep){ const el=DS.$('input[aria-label="搜索任务标题"]'); el.focus(); el.setSelectionRange(pos,pos); }
+}
+DS.mount({ header:`<h1>${I('chart')}质量与用量</h1><span class="spacer"></span><button class="icon-btn" aria-label="刷新" onclick="DS.toast('已刷新','info')">${I('refresh')}</button>`, state:S0, states:[
+  {id:'content',label:'列表 + 明细'},{id:'list',label:'列表'},{id:'unknown-usage',label:'用量全部未知'},{id:'loading',label:'加载中'},{id:'error',label:'读取失败'}] });
+render();
+</script>
+</body>
+</html>

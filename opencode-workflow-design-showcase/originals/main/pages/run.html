@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>运行内容 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.wrap{max-width:1240px;margin:0 auto;padding:24px 28px 64px}
+.top{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.top .meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:12.5px;color:var(--muted)}
+.top .meta span{display:inline-flex;align-items:center;gap:6px}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}
+.stat{padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.stat .k{font-size:12px;color:var(--muted)}
+.stat .v{font-family:var(--font-display);font-size:22px;letter-spacing:-.4px;line-height:1.1}
+.stat .v small{font-family:var(--font);font-size:13px;color:var(--muted);letter-spacing:0;margin-left:4px}
+.stat .d{font-size:12px;color:var(--sub);display:flex;flex-wrap:wrap;gap:4px 10px}
+.stack{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--fill-3);gap:2px}
+.stack i{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--sub)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.body{display:grid;grid-template-columns:264px minmax(0,1fr);gap:20px;margin-top:20px;align-items:start}
+.nav2{position:sticky;top:0;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-radius:var(--r-lg);background:var(--fill-1);border:1px solid var(--line)}
+.nav2 .cap{font-size:11.5px;color:var(--muted);letter-spacing:.3px;padding:10px 10px 6px;display:flex;justify-content:space-between}
+.n2{display:flex;align-items:flex-start;gap:10px;padding:9px 10px;border-radius:10px;text-align:left;width:100%;transition:background var(--t-fast)}
+.n2:hover{background:var(--fill-3)}
+.n2[aria-current="true"]{background:var(--fill-4);box-shadow:inset 0 0 0 1px var(--line-2)}
+.n2 .t{font-size:13.5px;color:var(--ink);line-height:1.4;overflow-wrap:anywhere}
+.n2 .s{font-size:12px;color:var(--muted);margin-top:2px}
+.n2 .ic{flex:none;margin-top:1px;color:var(--sub)}
+.bt{display:flex;gap:10px;padding:9px 10px;border-radius:10px;text-align:left;width:100%;transition:background var(--t-fast)}
+.bt:hover{background:var(--fill-3)}
+.bt[aria-current="true"]{background:var(--fill-4);box-shadow:inset 0 0 0 1px var(--line-2)}
+.bt .rail{display:flex;flex-direction:column;align-items:center;width:20px;flex:none}
+.bt .no{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:500 10.5px var(--font-mono);background:var(--fill-4);color:var(--sub)}
+.bt .no.ok{background:var(--ok-fill);color:var(--ok)}.bt .no.bad{background:var(--warn-fill);color:var(--warn)}
+.bt .no svg{width:11px;height:11px;stroke-width:2.6}
+.reader{max-width:var(--read-max)}
+.doc-h{font-family:var(--font-display);font-weight:500;font-size:24px;letter-spacing:-.4px;margin-top:6px}
+.doc p{font-size:14.5px;line-height:1.85;color:var(--ink-2);margin-top:12px}
+.doc h3{font-size:16px;font-weight:500;margin-top:28px}
+.tbl{width:100%;border-collapse:separate;border-spacing:0;margin-top:12px;font-size:13.5px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.tbl th{text-align:left;font-weight:500;color:var(--sub);font-size:12.5px;padding:10px 14px;background:var(--fill-2)}
+.tbl td{padding:11px 14px;border-top:1px solid var(--line);vertical-align:middle}
+.tbl tr.click{cursor:pointer;transition:background var(--t-fast)}
+.tbl tr.click:hover td{background:var(--fill-2)}
+.tbl tr.on td{background:var(--accent-fill)}
+.quote{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--fill-1);border:1px solid var(--line);font-size:13px;color:var(--sub);display:flex;gap:10px;align-items:center}
+.code{background:var(--bg-sunken);border:1px solid var(--line);border-radius:12px;font:12.5px/1.8 var(--font-mono);overflow:auto}
+.code .ln{display:grid;grid-template-columns:44px 1fr;padding-right:12px}
+.code .ln span{white-space:pre}
+.code .ln b{font-weight:400;color:var(--faint);text-align:right;padding-right:14px;user-select:none}
+.code .ln.hl{background:var(--accent-fill);box-shadow:inset 2px 0 0 var(--accent)}
+.code .k{color:#c9b5ef}.code .s{color:#a6e3b7}.code .c{color:#6f747c}.code .t{color:#a9bcff}
+.para{padding:12px 14px;border-radius:10px;font-size:14px;line-height:1.8;color:var(--sub)}
+.para.hl{background:var(--accent-fill);box-shadow:inset 0 0 0 1px var(--accent-line);color:var(--ink)}
+.para .lb{display:block;font-size:11.5px;color:var(--muted);margin-bottom:4px}
+.para.hl .lb{color:var(--accent)}
+.res{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.res .card{padding:12px 14px}
+.res .card .v{font-family:var(--font-display);font-size:20px;margin-top:4px}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="tasks">
+<main id="page" hidden><div class="wrap" id="view"></div></main>
+
+<aside class="drawer lg" id="cite" aria-hidden="true" role="dialog" aria-labelledby="citeT" tabindex="-1">
+  <div class="drawer-head"><div class="grow"><div class="eyebrow" id="citeE">依据原文</div><h2 id="citeT" style="margin-top:3px"></h2><div class="hint mono" id="citeP" style="margin-top:4px"></div></div><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer('cite')" data-icon="x"></button></div>
+  <div class="drawer-body" id="citeB"></div>
+  <div class="drawer-foot"><span class="hint grow" id="citeF">原文来自冻结时的资料版本，之后的修改不会影响这份依据。</span><button class="btn secondary" onclick="DS.closeDrawer('cite')">关闭</button></div>
+</aside>
+
+<div class="dialog" id="cancelDlg" role="alertdialog" aria-labelledby="cT">
+  <div class="dialog-body"><h2 id="cT">取消这次运行？</h2><p>正在进行的批次会先停下来，停止完成前状态显示为“正在停止”，这期间不能再次取消或重试。已完成的批次和产物都会保留。</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>继续运行</button><button class="btn danger" onclick="DS.closeDialog();DS.setState('stopping')">取消运行</button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I = DS.icon, esc = DS.esc;
+const S = DS.state || (DS.params.get('kind')==='source' ? 'source' : DS.params.get('kind')==='unit-test' ? 'unit-test' : 'document');
+const fromCanvas = DS.params.get('from') !== 'list';
+const KIND = ['loading','error','unknown-id'].includes(S) ? 'none' : S.startsWith('source') || S==='stopping' ? 'source' : S.startsWith('unit') ? 'unit' : 'doc';
+
+/* ---------------- 示例数据 ---------------- */
+const DOC = {
+  name:'需求代码核对', tpl:'需求代码核对 · 模板 v3', project:'OpenCode Loopper',
+  files:[{n:'项目执行约定.md', s:'8 节 · Markdown', ok:true},{n:'需求说明.pdf', s:'5 节 · 1 处表格未解析', ok:false}],
+  reports:[{id:'r1', n:'执行边界审阅报告', s:'审阅结论 · 4 项需求'},{id:'r2', n:'需求覆盖清单', s:'JSON · 机器可读'},{id:'r3', n:'未完成范围与限制', s:'限制说明'}],
+  reqs:[
+    {t:'任务状态由程序持有', st:'ok', l:'已满足', src:'项目执行约定.md · 第 2 节', para:1},
+    {t:'引用应定位到冻结原文', st:'part', l:'部分满足', src:'项目执行约定.md · 第 4 节', para:3},
+    {t:'未知结果须先核对原操作', st:'ask', l:'需要澄清', src:'需求说明.pdf · 第 3 节', para:2},
+    {t:'已完成范围在恢复时保留', st:'ok', l:'已满足', src:'项目执行约定.md · 第 5 节', para:0},
+  ],
+};
+const BADGE = {ok:['st-ok','check'], part:['st-fail','alert'], ask:['st-wait','help'], run:['st-run','play'], idle:['st-idle','clock'], ex:['st-idle','minus'], bad:['st-fail','alert']};
+const SRC = {
+  name: KIND==='unit' ? '订单服务单元测试开发' : '源码详细设计编写',
+  tpl: KIND==='unit' ? '单元测试开发 · 模板 v2' : '源码详细设计 · 模板 v1',
+  project:'OpenCode Loopper', scope:'src/', total:21, cov:14, ex:3,
+  batches:[
+    {n:'阅读与职责核对', f:8, st:'ok', l:'已验证'},
+    {n:'读取接口与引用范围', f:6, st:'ok', l:'已验证'},
+    {n:'错误恢复与未完成范围', f:4, st:'bad', l:'待恢复', why:'RecoveryCoordinator.java 缺少“原操作核对”的依据，复核未通过。'},
+    {n:'产物整理与目录检查', f:3, st:'idle', l:'未开始'},
+  ],
+  files:[
+    {p:'src/DocumentReader.java', d:'冻结原文读取', st:'ok', l:'已覆盖'},
+    {p:'src/SourcePolicy.java', d:'来源许可校验', st:'ok', l:'已覆盖'},
+    {p:'src/RecoveryCoordinator.java', d:'原操作身份与停止证明', st:'part', l:'待核对'},
+    {p:'src/PreviewJob.java', d:'本批次尚未处理', st:'idle', l:'未覆盖'},
+    {p:'generated/schema.json', d:'生成文件，不作为本轮目标', st:'ex', l:'已排除'},
+  ],
+};
+
+/* ---------------- 头部 ---------------- */
+function header(){
+  const name = KIND==='doc' ? DOC.name : KIND==='none' ? '运行内容' : SRC.name;
+  const kindLbl = {doc:'文档任务', source:'源码任务', unit:'单元测试', none:''}[KIND];
+  const stb = {document:['st-done','check','已完成'], 'doc-running':['st-run','play','核对中'], source:['st-fail','alert','有批次待恢复'], 'source-unknown':['st-unknown','help','重试结果未明'], stopping:['st-wait','clock','正在停止'], 'unit-test':['st-fail','alert','有批次待恢复'], loading:['st-idle','clock','读取中'], error:['st-danger','alert','读取失败'], 'unknown-id':['st-unknown','help','无法确认']}[S];
+  const more = [
+    {label:KIND==='doc'?'冻结的输入资料':'冻结的上下文', icon:'lock', run(){openFrozen()}},
+    {label:'会话诊断', icon:'terminal', run(){DS.toast('会话诊断：只读，显示最近一次执行的消息与工具摘要','info')}},
+    {label:'刷新', icon:'refresh', run(){DS.toast('已重新读取运行快照','info')}},
+    '-',
+    KIND==='doc' ? {label:'归档…', icon:'archive', run(){DS.toast('已完成的文档任务可归档（原型未展开）','info')}} : {label:'取消运行…', icon:'stop', danger:true, run(){DS.openDialog('cancelDlg')}},
+  ];
+  DS.$('.header').innerHTML = `<nav class="crumbs" aria-label="位置"><a href="tasks.html">任务列表</a><span class="sep">/</span><a href="task.html?state=template">${esc(name)}</a><span class="sep">/</span><span class="cur">运行内容</span></nav>
+    ${stb?`<span class="badge ${stb[0]}">${I(stb[1],'sm')}${stb[2]}</span>`:''}
+    <span class="spacer"></span>
+    ${fromCanvas && KIND!=='none' ? `<a class="btn secondary sm" href="task.html?state=template">${I('arrowLeft','sm')}回到执行画布</a>` : ''}
+    ${KIND!=='none'?`<button class="icon-btn" aria-label="更多操作" onclick="DS.menu(this,MORE)">${I('more')}</button>`:''}`;
+  window.MORE = more;
+}
+
+/* ---------------- 文档任务 ---------------- */
+let curDoc = 'r1', curReq = null;
+function docView(){
+  const running = S==='doc-running';
+  const ok = DOC.reqs.filter(r=>r.st==='ok').length;
+  return `
+  <div class="top"><div class="grow">
+    <div class="eyebrow">${DOC.tpl}</div>
+    <h2 class="title" style="margin-top:6px">${DOC.name}</h2>
+    <div class="meta"><span>${I('folder','sm')}${DOC.project}</span><span>${I('lock','sm')}资料修订 3 · 需求修订 3</span><span>${I('clock','sm')}${running?'开始于 14:02':'完成于 10月9日 16:40'}</span></div>
+  </div>${running?`<button class="btn ghost sm" onclick="DS.openDialog('cancelDlg',this)">${I('stop','sm')}取消运行</button>`:`<button class="btn primary" onclick="DS.toast('正在打包报告…','info')">${I('download','sm')}下载报告</button>`}</div>
+
+  <div class="stats">
+    <div class="card stat"><span class="k">输入资料</span><span class="v">2<small>份</small></span><span class="d"><span style="color:var(--warn)">${I('alert','sm')} 需求说明.pdf 有 1 处表格未解析</span></span></div>
+    <div class="card stat"><span class="k">需求核对</span><span class="v">${running?'2':'4'}<small>/ 4 项</small></span>
+      ${running?`<div class="stack" aria-label="已核对 2 项，共 4 项"><i style="flex:2;background:var(--ok)"></i><i style="flex:2;background:transparent"></i></div><span class="d">正在核对第 3 项 · 1 个批次进行中</span>`
+      :`<div class="stack" aria-label="满足 2，部分满足 1，需要澄清 1"><i style="flex:${ok};background:var(--ok)"></i><i style="flex:1;background:var(--warn)"></i><i style="flex:1;background:var(--wait)"></i></div>
+        <span class="legend"><span><i style="background:var(--ok)"></i>满足 ${ok}</span><span><i style="background:var(--warn)"></i>部分满足 1</span><span><i style="background:var(--wait)"></i>需要澄清 1</span></span>`}</div>
+    <div class="card stat"><span class="k">产出报告</span><span class="v">${running?'0':'3'}<small>份</small></span><span class="d">${running?'核对完成后生成':'审阅报告 · 覆盖清单 · 限制说明'}</span></div>
+  </div>
+
+  <div class="body">
+    <nav class="nav2" aria-label="内容">
+      <div class="cap"><span>产出报告</span><span class="num">${running?0:3}</span></div>
+      ${running?`<div class="hint" style="padding:4px 10px 10px">核对完成后生成。</div>`:DOC.reports.map(r=>`<button class="n2" aria-current="${curDoc===r.id}" onclick="curDoc='${r.id}';render()"><span class="ic">${I('file','sm')}</span><span><div class="t">${r.n}</div><div class="s">${r.s}</div></span></button>`).join('')}
+      <div class="cap"><span>需求与依据</span><span class="num">4</span></div>
+      <button class="n2" aria-current="${curDoc==='reqs'}" onclick="curDoc='reqs';render()"><span class="ic">${I('target','sm')}</span><span><div class="t">逐项核对结果</div><div class="s">${running?'2 项已核对':'每项可查看原文依据'}</div></span></button>
+      <div class="cap"><span>输入资料</span><span class="num">2</span></div>
+      ${DOC.files.map((f,i)=>`<button class="n2" aria-current="${curDoc==='f'+i}" onclick="curDoc='f${i}';render()"><span class="ic" style="${f.ok?'':'color:var(--warn)'}">${I(f.ok?'doc':'alert','sm')}</span><span><div class="t">${f.n}</div><div class="s">${f.s}</div></span></button>`).join('')}
+    </nav>
+    <section class="reader fade">${docMain(running)}</section>
+  </div>`;
+}
+function reqTable(rows){
+  return `<table class="tbl"><thead><tr><th>需求</th><th style="width:130px">结论</th><th style="width:220px">依据</th></tr></thead><tbody>
+    ${rows.map((r,i)=>{const b=BADGE[r.st];return `<tr class="click ${curReq===i?'on':''}" tabindex="0" onclick="openCite(${i})" onkeydown="if(event.key==='Enter')openCite(${i})"><td>${r.t}</td><td><span class="badge ${b[0]}">${I(b[1],'sm')}${r.l}</span></td><td><span style="color:var(--accent);font-size:13px">${r.src}</span></td></tr>`}).join('')}
+  </tbody></table>`;
+}
+function docMain(running){
+  if (curDoc==='reqs') {
+    const rows = running ? DOC.reqs.slice(0,2).concat(DOC.reqs.slice(2).map(r=>({...r,st:'idle',l:'待核对',src:'—'}))) : DOC.reqs;
+    return `<div class="eyebrow">需求与依据</div><h3 class="doc-h">逐项核对结果</h3><p class="hint" style="margin-top:6px">点击任意一行，在右侧查看冻结原文中的依据段落。</p>${reqTable(rows)}`;
+  }
+  if (curDoc.startsWith('f')) {
+    const f = DOC.files[+curDoc[1]];
+    return `<div class="eyebrow">输入资料 · 冻结于资料修订 3</div><h3 class="doc-h">${f.n}</h3>
+      ${f.ok?'':`<div class="banner warn" style="margin-top:14px">${I('alert')}<div><b>第 3 节的图像型表格没有解析</b><br>这张表里的内容没有参与核对，相关需求不能据此判定为已覆盖。</div></div>`}
+      <div class="doc">${[0,1,2,3].map(i=>`<div class="para" style="margin-top:8px"><span class="lb">第 ${i+1} 节</span>${PARAS[i]}</div>`).join('')}</div>`;
+  }
+  if (running) return `<div class="card pad"><div class="row"><span class="spin" style="color:var(--run)"></span><b style="font-weight:500">正在核对需求</b><span class="hint">报告会在 4 项全部核对后生成</span></div><div class="col" style="margin-top:18px;gap:10px">${[70,92,84,60].map(w=>`<div class="skel" style="height:12px;width:${w}%"></div>`).join('')}</div></div>`;
+  if (curDoc==='r2') return `<div class="eyebrow">产出报告 · JSON</div><h3 class="doc-h">需求覆盖清单</h3><div class="code" style="margin-top:14px;padding:12px 0">${COV.map((l,i)=>`<div class="ln"><b>${i+1}</b><span>${l}</span></div>`).join('')}</div>`;
+  if (curDoc==='r3') return `<div class="eyebrow">产出报告</div><h3 class="doc-h">未完成范围与限制</h3><div class="doc"><p>示例 PDF 的图像型表格未解析；表格内容不能据此判定覆盖。</p><p>本次运行没有执行构建、测试命令，也没有调用真实模型。报告只代表静态审阅结论。</p></div>`;
+  return `<div class="eyebrow">产出报告 · 资料修订 3 · 10月9日</div>
+    <h3 class="doc-h">执行边界审阅报告</h3>
+    <div class="banner info" style="margin-top:16px">${I('info')}<div><b>4 项需求中 2 项满足，1 项部分满足，1 项需要澄清。</b><br>这是静态审阅结论，不代表已完成构建、测试或业务验收。</div></div>
+    <div class="doc">
+      <h3>范围与结论</h3>
+      <p>本次按上传资料逐项核对任务状态、资料读取与错误恢复。程序的状态权威和读取边界已经明确；未知投递的恢复路径仍需补充“先核对原操作”的依据。</p>
+      ${reqTable(DOC.reqs)}
+      <h3>错误恢复的条件</h3>
+      <p>恢复需要原输入身份与版本一致、活动会话停止明确，并保留已完成范围。请求失败或工具返回不构成停止证明。</p>
+      <button class="quote" style="width:100%;text-align:left" onclick="openCite(0)">${I('link','sm')}<span class="grow">依据：项目执行约定.md · 第 2 节</span>${I('chevRight','sm')}</button>
+    </div>`;
+}
+const PARAS = [
+  '项目包含任务执行、资料访问与界面展示三个部分。它们各自维护当前状态，通过明确的接口交换信息。',
+  '界面负责呈现当前状态、保留输入和提供恢复入口。任务是否可执行，由任务服务决定；结果是否接受，由对应服务完成判断。',
+  '当一次投递的结果未知时，客户端应先读取原操作状态，确认后再提供继续、停止或重试，不得静默重发。',
+  '回答中的引用关联到所采用的文档段落，方便读者回到上下文核对；引用只对冻结时的资料版本有效。',
+];
+const COV = ['{','  <span class="t">"requirements"</span>: [','    { <span class="t">"id"</span>: <span class="s">"R1"</span>, <span class="t">"status"</span>: <span class="s">"SATISFIED"</span> },','    { <span class="t">"id"</span>: <span class="s">"R2"</span>, <span class="t">"status"</span>: <span class="s">"PARTIAL"</span> },','    { <span class="t">"id"</span>: <span class="s">"R3"</span>, <span class="t">"status"</span>: <span class="s">"NEEDS_CLARIFICATION"</span> },','    { <span class="t">"id"</span>: <span class="s">"R4"</span>, <span class="t">"status"</span>: <span class="s">"SATISFIED"</span> }','  ]','}'];
+function openCite(i){
+  curReq = i; const r = DOC.reqs[i];
+  DS.$('#citeE').textContent = '依据原文 · ' + r.l; DS.$('#citeT').textContent = r.t; DS.$('#citeP').textContent = r.src;
+  DS.$('#citeB').innerHTML = PARAS.map((p,k)=>`<div class="para ${k===r.para?'hl':''}" style="margin-bottom:4px"><span class="lb">第 ${k+1} 节${k===r.para?' · 引用位置':''}</span>${p}</div>`).join('');
+  DS.$('#citeF').textContent = '原文来自冻结时的资料版本，之后的修改不会影响这份依据。';
+  render(); DS.openDrawer('cite');
+  setTimeout(()=>DS.$('#citeB .hl')?.scrollIntoView({block:'center'}),80);
+}
+
+/* ---------------- 源码 / 单测 ---------------- */
+let curBatch = 2, srcTab = 'cov';
+function srcView(){
+  const unit = KIND==='unit', unknown = S==='source-unknown', stopping = S==='stopping';
+  const b = SRC.batches[curBatch];
+  const pend = SRC.total - SRC.cov - SRC.ex;
+  return `
+  <div class="top"><div class="grow">
+    <div class="eyebrow">${SRC.tpl}</div>
+    <h2 class="title" style="margin-top:6px">${SRC.name}</h2>
+    <div class="meta"><span>${I('folder','sm')}${SRC.project}</span><span>${I('lock','sm')}冻结范围 <span class="mono">${SRC.scope}</span> · ${SRC.total} 个目标文件</span><span>${I('clock','sm')}开始于 13:20</span></div>
+  </div></div>
+  ${stopping?`<div class="banner" style="margin-top:16px">${I('clock')}<div><b>正在停止</b><br>当前批次会在安全点停下。停止完成前不能重试或再次取消；已完成的 2 个批次与产物都会保留。</div><div class="actions"><span class="spin"></span></div></div>`:''}
+
+  <div class="stats">
+    <div class="card stat" style="grid-column:span 2"><span class="k">文件覆盖</span><span class="v">${SRC.cov}<small>/ ${SRC.total} 个文件</small></span>
+      <div class="stack" aria-label="已覆盖 ${SRC.cov}，已排除 ${SRC.ex}，待处理 ${pend}"><i style="flex:${SRC.cov};background:var(--ok)"></i><i style="flex:${SRC.ex};background:var(--fill-5)"></i><i style="flex:${pend};background:transparent"></i></div>
+      <span class="legend"><span><i style="background:var(--ok)"></i>已覆盖 ${SRC.cov}</span><span><i style="background:var(--fill-5)"></i>已排除 ${SRC.ex}</span><span><i style="border:1px solid var(--line-3)"></i>待处理 ${pend}</span><span class="muted">写作与复核分别记录</span></span></div>
+    <div class="card stat"><span class="k">${unit?'测试结果':'批次'}</span>${unit?`<span class="v">18<small>通过 · 2 失败</small></span><span class="d">最近一次运行 13:48 · 批次 2 / 4</span>`:`<span class="v">2<small>/ 4 已验证</small></span><span class="d" style="color:var(--warn)">${I('alert','sm')} 第 3 批待恢复</span>`}</div>
+  </div>
+
+  <div class="body">
+    <nav class="nav2" aria-label="批次">
+      <div class="cap"><span>批次</span><span class="num">4</span></div>
+      ${SRC.batches.map((x,i)=>{const cls=x.st==='ok'?'ok':x.st==='bad'?'bad':'';return `<button class="bt" aria-current="${curBatch===i}" onclick="curBatch=${i};render()"><span class="rail"><span class="no ${cls}">${x.st==='ok'?I('check'):x.st==='bad'?I('alert'):'0'+(i+1)}</span></span><span class="grow"><div style="font-size:13.5px;line-height:1.4">${x.n}</div><div class="hint" style="margin-top:2px">${x.f} 个文件 · 尝试 1 · ${x.l}</div></span></button>`}).join('')}
+      <p class="hint" style="padding:10px 10px 6px;line-height:1.6">每个批次保留状态、尝试与版本。恢复时已完成的批次不会被清空。</p>
+    </nav>
+    <section class="fade">
+      <div class="row" style="align-items:flex-end"><div class="grow"><div class="eyebrow">第 ${curBatch+1} 批 · ${b.f} 个文件</div><h3 class="doc-h">${b.n}</h3></div><span class="badge ${BADGE[b.st][0]}">${I(BADGE[b.st][1],'sm')}${b.l}</span></div>
+      ${b.st==='bad' && !stopping ? (unknown
+        ? `<div class="banner unknown" style="margin-top:14px">${I('help')}<div><b>重试请求已发出，但没有收到结果</b><br>正在用原请求版本重新读取这一批的状态。确认之前不会再次发送，也不能修改重试范围。</div><div class="actions"><button class="btn secondary sm" onclick="DS.toast('已重新读取，仍在等待确认','info')">${I('refresh','sm')}重新读取</button></div></div>`
+        : `<div class="banner warn" style="margin-top:14px">${I('alert')}<div><b>这一批需要恢复</b><br>${b.why}</div><div class="actions"><button class="btn primary sm" onclick="DS.setState('source-unknown')">${I('refresh','sm')}重试这一批</button></div></div>`) : ''}
+      ${b.st==='idle'?`<div class="card" style="margin-top:14px"><div class="empty" style="padding:36px 20px"><span class="tile">${I('clock','lg')}</span><h3>这一批还没开始</h3><p>前一批验证通过后会自动开始。</p></div></div>`:`
+      <div class="tabs" role="tablist" style="margin-top:16px">${[['cov','覆盖与依据'],['out',unit?'生成的测试':'生成产物'],['res',unit?'测试结果':'批次结果']].map(([k,l])=>`<button class="tab" role="tab" aria-selected="${srcTab===k}" onclick="srcTab='${k}';render()">${l}</button>`).join('')}</div>
+      <div style="margin-top:14px">${srcTabBody(unit)}</div>`}
+    </section>
+  </div>`;
+}
+function srcTabBody(unit){
+  if (srcTab==='out') return `<div class="list card" style="padding:6px">${(unit?['src/test/RecoveryCoordinatorTest.java','src/test/SourcePolicyTest.java']:['docs/design/recovery.md','docs/design/source-policy.md']).map(p=>`<button class="list-row" onclick="openFile('${p}')"><span class="tile" style="width:30px;height:30px">${I('file','sm')}</span><span class="grow mono" style="font-size:12.5px">${p}</span><span class="hint">${unit?'新增 · 6 个用例':'新增 · 2.1k 字'}</span>${I('chevRight','sm')}</button>`).join('')}</div>`;
+  if (srcTab==='res') return unit
+    ? `<div class="res"><div class="card"><div class="hint">通过</div><div class="v" style="color:var(--ok)">18</div></div><div class="card"><div class="hint">失败</div><div class="v" style="color:var(--warn)">2</div></div><div class="card"><div class="hint">跳过</div><div class="v">0</div></div></div>
+       <div class="card" style="margin-top:12px;padding:6px">${['shouldKeepCompletedScopeOnRetry','shouldRejectRetryWhenVersionChanged'].map(t=>`<button class="list-row" onclick="openFile('src/test/RecoveryCoordinatorTest.java')"><span style="color:var(--warn)">${I('alert','sm')}</span><span class="grow"><div class="mono" style="font-size:12.5px">RecoveryCoordinatorTest.${t}</div><div class="hint">期望 COMPLETED，实际 STOPPING</div></span>${I('chevRight','sm')}</button>`).join('')}</div>`
+    : `<div class="card pad"><dl class="kv" style="margin:0"><dt>写作</dt><dd>完成 · 4 个文件</dd><dt>复核</dt><dd><span class="badge st-fail">${I('alert','sm')}未通过</span> 1 处依据不足</dd><dt>尝试</dt><dd>1 次 · 版本 v7</dd></dl></div>`;
+  return `<div class="row" style="margin-bottom:10px"><div class="input-wrap" style="width:280px"><span data-icon="search"></span><input class="input ctl" placeholder="筛选已加载的文件" aria-label="筛选文件"></div><span class="hint">只筛选已加载的记录，不代表整个冻结范围的搜索结果</span></div>
+    <table class="tbl"><thead><tr><th>文件</th><th style="width:130px">覆盖</th><th style="width:44px"></th></tr></thead><tbody>
+    ${SRC.files.map(f=>{const b=BADGE[f.st];return `<tr class="click" tabindex="0" onclick="openFile('${f.p}')"><td><div class="mono" style="font-size:12.5px">${f.p}</div><div class="hint">${f.d}</div></td><td><span class="badge ${b[0]}">${I(b[1],'sm')}${f.l}</span></td><td style="color:var(--muted)">${I('chevRight','sm')}</td></tr>`}).join('')}
+    </tbody></table><div class="row" style="margin-top:10px"><span class="hint grow">已加载 5 条覆盖记录</span><button class="btn ghost sm">加载更多</button></div>`;
+}
+const CODE = [
+  ['c','// 恢复前必须先确认原操作的结果'],
+  ['', '<span class="k">public</span> <span class="t">RecoveryPlan</span> prepare(<span class="t">RunSnapshot</span> run) {'],
+  ['', '  <span class="k">if</span> (run.state() == <span class="t">State</span>.UNKNOWN) {'],
+  ['hl','    <span class="k">return</span> <span class="t">RecoveryPlan</span>.readBack(run.requestKey());'],
+  ['', '  }'],
+  ['', '  <span class="k">if</span> (!run.stopProven()) {'],
+  ['', '    <span class="k">throw new</span> <span class="t">ConflictException</span>(<span class="s">"STOP_NOT_PROVEN"</span>);'],
+  ['', '  }'],
+  ['', '  <span class="k">return</span> <span class="t">RecoveryPlan</span>.resume(run.completedScope());'],
+  ['', '}'],
+];
+function openFile(p){
+  DS.$('#citeE').textContent = '冻结时的文件内容'; DS.$('#citeT').textContent = p.split('/').pop(); DS.$('#citeP').textContent = p;
+  DS.$('#citeB').innerHTML = `<div class="banner warn" style="margin-bottom:12px">${I('alert')}<div><b>复核意见</b><br>第 44 行只处理了 UNKNOWN，没有说明 STOPPING 时如何确认原操作。</div></div>
+    <div class="code" style="padding:10px 0">${CODE.map((l,i)=>`<div class="ln ${l[0]==='hl'?'hl':''}"><b>${41+i}</b><span class="${l[0]==='c'?'c':''}">${l[1]}</span></div>`).join('')}</div>`;
+  DS.$('#citeF').textContent = '代码来自冻结范围，行号为文件中的绝对行号。';
+  DS.openDrawer('cite');
+}
+function openFrozen(){
+  DS.$('#citeE').textContent = '只读'; DS.$('#citeT').textContent = KIND==='doc'?'冻结的输入资料':'冻结的上下文'; DS.$('#citeP').textContent = '开始运行时固定，之后的修改不会影响本次运行';
+  DS.$('#citeB').innerHTML = `<dl class="kv" style="margin:0">${KIND==='doc'?'<dt>模板</dt><dd>需求代码核对 v3</dd><dt>资料修订</dt><dd>3</dd><dt>需求修订</dt><dd>3</dd><dt>资料</dt><dd>项目执行约定.md<br>需求说明.pdf</dd>':'<dt>模板</dt><dd>'+SRC.tpl+'</dd><dt>项目</dt><dd>OpenCode Loopper · main</dd><dt>范围</dt><dd class="mono">src/</dd><dt>目标文件</dt><dd>21 个（排除 3 个生成文件）</dd>'}</dl>`;
+  DS.openDrawer('cite');
+}
+
+/* ---------------- 其他状态 ---------------- */
+function otherView(){
+  if (S==='loading') return `<div class="skel" style="height:14px;width:180px"></div><div class="skel" style="height:28px;width:320px;margin-top:12px"></div><div class="stats">${[0,1,2].map(()=>'<div class="card stat"><div class="skel" style="height:12px;width:40%"></div><div class="skel" style="height:24px;width:60%"></div></div>').join('')}</div>`;
+  if (S==='error') return `<div class="banner danger">${I('alert')}<div><b>运行内容读取失败</b><br>没有拿到这次运行的快照。页面不会显示示例内容代替。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('document')">${I('refresh','sm')}重试</button></div></div>`;
+  return `<div class="card" style="max-width:560px;margin:60px auto 0"><div class="empty"><span class="tile" style="color:var(--unknown)">${I('help','lg')}</span><h3>无法确认这是哪一次运行</h3><p>链接里的运行标识不完整，或与读取到的运行不一致。为避免看错内容，这里不显示任何产物，也不提供操作。</p><a class="btn secondary" href="tasks.html" style="margin-top:8px">回到任务列表</a></div></div>`;
+}
+
+function render(){
+  header();
+  DS.$('#view').innerHTML = KIND==='doc' ? docView() : (KIND==='source'||KIND==='unit') ? srcView() : otherView();
+  DS.icons(DS.$('#view'));
+}
+DS.mount({ header:'', state:S, states:[
+  {id:'document',label:'文档任务 · 已完成'},{id:'doc-running',label:'文档任务 · 核对中'},
+  {id:'source',label:'源码任务 · 有批次待恢复'},{id:'source-unknown',label:'源码任务 · 重试结果未明'},{id:'stopping',label:'源码任务 · 正在停止'},
+  {id:'unit-test',label:'单元测试 · 执行中'},{id:'loading',label:'读取中'},{id:'error',label:'读取失败'},{id:'unknown-id',label:'运行身份无法确认'}] });
+render();
+</script>
+</body>
+</html>

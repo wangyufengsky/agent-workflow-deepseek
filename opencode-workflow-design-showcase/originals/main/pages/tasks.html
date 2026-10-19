@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>任务列表 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.attn{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:24px}
+@media (max-width:1100px){.attn{grid-template-columns:1fr}}
+.attn a{display:flex;gap:12px;align-items:flex-start;padding:14px 16px}
+.attn .tile{width:32px;height:32px;border-radius:9px}
+.trow{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) 150px 92px 32px;gap:16px;align-items:center;padding:14px 16px;border-radius:12px;transition:background var(--t-fast);cursor:pointer}
+.trow:hover{background:var(--fill-2)}
+.trow+.trow{box-shadow:inset 0 1px 0 var(--line)}
+.trow:hover+.trow,.trow:hover{box-shadow:none}
+.thead{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) 150px 92px 32px;gap:16px;padding:10px 16px;font-size:12px;color:var(--muted);box-shadow:inset 0 -1px 0 var(--line)}
+.tname{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsub{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;gap:8px;align-items:center;min-width:0}
+.tsub span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.need{font-size:12.5px;line-height:1.5;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.bars{display:flex;gap:3px;align-items:center}
+.bars i{flex:1;height:5px;border-radius:3px;background:var(--fill-4)}
+.bars i.done{background:var(--done)}.bars i.run{background:var(--run)}.bars i.stall{background:var(--stall)}.bars i.fail{background:var(--warn)}.bars i.wait{background:var(--wait)}.bars i.unk{background:transparent;border:1px dashed var(--unknown-line)}
+.bars-cap{font-size:11.5px;color:var(--muted);margin-top:5px}
+.time{font-size:12.5px;color:var(--muted);text-align:right}
+.group-h{display:flex;align-items:center;gap:8px;padding:16px 16px 6px;font-size:12.5px;color:var(--sub)}
+@media (max-width:1100px){.trow,.thead{grid-template-columns:minmax(0,1fr) 140px 32px}.trow>.c-need,.thead>.c-need,.trow>.time,.thead>.time{display:none}}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="tasks">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S0=DS.state||'ready';
+const TASKS = [
+  /* v4（补稿）：每一行都带真实任务身份，打开统一视图（需求画布 / 统一任务画布）；不再进入旧任务画布或旧需求画布 */
+  {id:'sc-running',t:'优惠券过期提醒',p:'订单服务',type:'需求任务',st:'run',need:'',steps:['done','run','run','idle','idle'],cap:'T-2042 · 在独立工作区执行',at:'刚刚',showcaseRoute:'delivery/task.html?state=td02-running&task=T-2042&returnTo=main/pages/tasks.html'},
+  {id:'sc-delivery',t:'退款单分页查询与导出',p:'订单服务',type:'需求任务',st:'wait',need:'执行已结束，等待选择交付目标',steps:['done','done','done','done'],cap:'T-2041 · 等待交付',at:'2 分钟前',showcaseRoute:'delivery/task.html?state=td02-awaiting&returnTo=main/pages/tasks.html'},
+  {id:'sc-dir',t:'月报改为按自然月汇总',p:'运营报表脚本',type:'需求任务',st:'wait',need:'验证通过，等待应用到原目录',steps:['done','done','done'],cap:'T-2043 · 非 Git 独立副本',at:'5 分钟前',showcaseRoute:'delivery/task.html?state=td02-awaiting&kind=dir&returnTo=main/pages/tasks.html'},
+  {id:'pl-2051',t:'退款单按状态与日期筛选并导出',p:'订单服务',type:'需求任务',st:'plan',need:'规划中 · 生成候选 · 最近活动 14:07:58',steps:[],cap:'第 2 轮 · 草稿节点 5',at:'6 分钟前开始',showcaseRoute:'planning/requirement.html?state=pe15&task=T-2051&from=tasks&returnTo=tasks.html&sel=s3&tab=records'},
+  {id:'pl-2055',t:'退货单按状态与日期筛选并导出',p:'仓储服务',type:'需求任务',st:'plneed',need:'需要你回答 2 个业务问题（导出上限、日期字段）',steps:[],cap:'第 1 轮 · 已停在问题',at:'3 分钟前',showcaseRoute:'planning/requirement.html?state=pe11&task=T-2055&from=tasks&returnTo=tasks.html&round=1'},
+  {id:'pl-2054',t:'售后单按状态与日期筛选并导出',p:'售后服务',type:'需求任务',st:'plreview',need:'候选待审阅：新增 5 步、修改 2 步',steps:[],cap:'第 2 轮 · 检查完成',at:'12 分钟前',showcaseRoute:'planning/requirement.html?state=pe25&task=T-2054&from=tasks&returnTo=tasks.html'},
+  {id:'pl-2056',t:'换货单按状态与日期筛选并导出',p:'订单服务',type:'需求任务',st:'plstop',need:'正在停止：等待原进程停稳与结账',steps:[],cap:'第 2 轮',at:'1 分钟前',showcaseRoute:'planning/requirement.html?state=pe19&task=T-2056&from=tasks&returnTo=tasks.html'},
+  {id:'pl-2057',t:'补发单按状态与日期筛选并导出',p:'仓储服务',type:'需求任务',st:'plunk',need:'停止结果待核对（只核对原请求，不重新生成）',steps:[],cap:'第 2 轮',at:'20 分钟前',showcaseRoute:'planning/requirement.html?state=pe21&task=T-2057&from=tasks&returnTo=tasks.html'},
+  {id:'pl-2060',t:'会员积分体系重构',p:'会员服务',type:'需求任务',st:'ploverview',need:'规划总览：3 组未细化，请选择范围继续规划',steps:[],cap:'总览 · 6 组',at:'1 小时前',showcaseRoute:'planning/requirement.html?state=pe37&from=tasks&returnTo=tasks.html'},
+  {id:'pr-2062',t:'工单按状态与日期筛选并导出',p:'客服服务',type:'需求任务',st:'prep',need:'计划已确认 · 待准备独立工作区',steps:[],cap:'计划修订 3 · Git',at:'4 分钟前',showcaseRoute:'planning/requirement.html?state=pe32&task=T-2062&from=tasks&returnTo=tasks.html&tab=ws'},
+  {id:'pr-2063',t:'发票按状态与日期筛选并导出',p:'财务服务',type:'需求任务',st:'prep',need:'计划已确认 · 待准备独立工作区',steps:[],cap:'计划修订 3 · Git',at:'7 分钟前',showcaseRoute:'planning/requirement.html?state=pe32&task=T-2063&from=tasks&returnTo=tasks.html&tab=ws'},
+  {id:'pr-2064',t:'对账单按状态与日期筛选并导出',p:'运营报表脚本',type:'需求任务',st:'prep',need:'计划已确认 · 待准备独立副本（非 Git）',steps:[],cap:'计划修订 3 · 非 Git',at:'9 分钟前',showcaseRoute:'planning/requirement.html?state=pe32&task=T-2064&from=tasks&returnTo=tasks.html&tab=ws'},
+  {id:'pr-2065',t:'积分单按状态与日期筛选并导出',p:'会员服务',type:'需求任务',st:'prep',need:'计划已确认 · 待准备独立工作区',steps:[],cap:'计划修订 3 · Git',at:'11 分钟前',showcaseRoute:'planning/requirement.html?state=pe32&task=T-2065&from=tasks&returnTo=tasks.html&tab=ws'},
+  {id:'pr-2066',t:'支付单按状态与日期筛选并导出',p:'支付网关',type:'需求任务',st:'prep',need:'计划已确认 · 准备前发现项目无法读取',steps:[],cap:'计划修订 3 · Git',at:'13 分钟前',showcaseRoute:'planning/requirement.html?state=pe32&task=T-2066&from=tasks&returnTo=tasks.html&tab=ws'},
+  {id:'pr-2067',t:'通知单按状态与日期筛选并导出',p:'通知中心',type:'需求任务',st:'prep',need:'计划已确认 · 仓库还没有提交',steps:[],cap:'计划修订 3 · Git',at:'15 分钟前',showcaseRoute:'planning/requirement.html?state=pe32&task=T-2067&from=tasks&returnTo=tasks.html&tab=ws'},
+  {id:'pl-2050',t:'赔付单按状态与日期筛选并导出',p:'订单服务',type:'需求任务',st:'run',need:'',steps:['done','done','run','idle','idle'],cap:'第 3 段 · 可调整待执行计划',at:'刚刚',showcaseRoute:'delivery/task.html?state=ut-running-mid&task=T-2050&returnTo=main/pages/tasks.html'},
+  {id:'pl-2070',t:'单元测试开发 · OpenCode Loopper · loopper/task',p:'OpenCode Loopper',type:'模板任务',st:'wait',need:'固定模板 r7：计划待确认（创建后不能修改步骤）',steps:[],cap:'3 个固定步骤',at:'30 分钟前',showcaseRoute:'planning/requirement.html?state=fx01&task=T-2070&tpl=ut&returnTo=main/pages/tasks.html'},
+  {id:'pl-2071',t:'详细设计编写 · OpenCode Loopper · loopper/scheduler',p:'OpenCode Loopper',type:'模板任务',st:'wait',need:'固定模板 r5：计划待确认（创建后不能修改步骤）',steps:[],cap:'3 个固定步骤',at:'35 分钟前',showcaseRoute:'planning/requirement.html?state=fx01&task=T-2071&tpl=design&returnTo=main/pages/tasks.html'},
+  {id:'t1', t:'登录页偶发 500 错误修复', p:'OpenCode Loopper', type:'需求任务', st:'stall', need:'“实施修复”停滞：等待读取数据库连接配置的权限', steps:['done','stall','done','idle','idle'], cap:'第 2 / 5 步', at:'3 分钟前', showcaseRoute:'delivery/task.html?state=ut-stalled&task=T-2038&returnTo=main/pages/tasks.html'},
+  {id:'t2', t:'订单服务单元测试补齐', p:'客户服务平台', type:'需求任务', st:'paused', need:'你于 11:20 暂停 · “编写测试”有 1 个问题待回答', steps:['done','paused','paused','idle','idle'], cap:'已暂停 · 第 2 / 5 步', at:'今天 11:20', showcaseRoute:'delivery/task.html?state=ut-paused&task=T-2030&returnTo=main/pages/tasks.html'},
+  {id:'t2f', t:'退款对账脚本重写，兼容新旧两套结算口径并补齐异常单据的人工复核流程', p:'客户服务平台', type:'需求任务', st:'fail', need:'“回归测试”失败：3 个用例断言不通过，可恢复', steps:['done','done','done','fail','idle'], cap:'第 4 / 5 步', at:'12 分钟前', showcaseRoute:'delivery/task.html?state=ut-failed&task=T-2004&returnTo=main/pages/tasks.html'},
+  {id:'t3', t:'接口文档整理与变更说明', p:'OpenCode Loopper', type:'需求任务', st:'prep', need:'计划已确认（旧需求迁入）· 待准备独立工作区', steps:[], cap:'计划修订 1 · 旧版流程', at:'25 分钟前', showcaseRoute:'planning/requirement.html?state=pe32&task=T-2027&from=tasks&returnTo=tasks.html&tab=ws'},
+  {id:'t4', t:'任务执行结果的状态反馈', p:'OpenCode Loopper', type:'需求任务', st:'run', need:'自动推进已关闭：执行中的步骤验收后由你推进', steps:['done','run','run','idle','idle'], cap:'2 步并行执行中', at:'刚刚', showcaseRoute:'delivery/task.html?state=ut-auto-off&task=T-2035&returnTo=main/pages/tasks.html'},
+  {id:'t5', t:'本周代码质量分析报告', p:'OpenCode Loopper', type:'模板任务', st:'run', need:'', steps:['done','run','idle'], cap:'固定模板 · 代码审查 r6', at:'6 分钟前', showcaseRoute:'delivery/task.html?state=ut-fixed-snapshot&task=T-2003&returnTo=main/pages/tasks.html'},
+  {id:'t6', t:'导出任务报告的异常恢复', p:'客户服务平台', type:'需求任务', st:'unknown', need:'状态未核对：最近一次读取失败，可立即重新读取', steps:['done','unk','idle'], cap:'进度待核对', at:'8 分钟前', showcaseRoute:'delivery/task.html?state=ut-unknown&task=T-1998&returnTo=main/pages/tasks.html'},
+  {id:'t7', t:'任务筛选条件的地址同步', p:'OpenCode Loopper', type:'需求任务', st:'done', need:'', steps:['done','done','done','done'], cap:'4 步全部通过 · 旧版记录', at:'今天 09:47', showcaseRoute:'delivery/task.html?state=ut-legacy-done&task=T-2019&returnTo=main/pages/tasks.html'},
+  {id:'t8', t:'需求说明文档生成', p:'客户服务平台', type:'文档任务', st:'done', need:'', steps:['done','done'], cap:'2 步全部通过 · 旧版记录', at:'昨天', showcaseRoute:'delivery/task.html?state=ut-legacy-done&task=T-1975&returnTo=main/pages/tasks.html'},
+  {id:'t9', t:'旧版报表接口迁移', p:'OpenCode Loopper', type:'需求任务', st:'stopped', need:'', steps:['done','skip','skip'], cap:'已终止于第 2 步 · 旧版记录', at:'昨天', showcaseRoute:'delivery/task.html?state=ut-legacy-stopped&task=T-2011&returnTo=main/pages/tasks.html'},
+];
+const ST = {prep:['待准备工作区','st-wait','folder'], paused:['已暂停','st-idle','pause'], plan:['规划中','st-accent','sparkle'], plneed:['需要处理','st-wait','help'], plreview:['等待审阅','st-wait','eye'], plstop:['正在停止','st-idle','stop'], plunk:['待核对','st-unknown','help'], ploverview:['规划总览','st-unknown','layers'], run:['执行中','st-run','play'], stall:['停滞','st-stall','alert'], fail:['失败','st-fail','x'], wait:['待确认计划','st-wait','clock'], done:['已完成','st-done','check'], unknown:['状态未核对','st-unknown','help'], stopped:['已终止','st-idle','stop']};
+let f='all', q='', proj='all', grouped=false;
+const groupOf = t => ['stall','fail','wait','unknown','plneed','plreview','plunk','ploverview','prep'].includes(t.st)?'attention':['run','plan','plstop','paused'].includes(t.st)?'active':'closed';
+function row(t){
+  const s=ST[t.st];
+  return `<div class="trow" role="link" tabindex="0" onclick="openTask('${t.id}')" onkeydown="if(event.key==='Enter')openTask('${t.id}')" aria-label="${esc(t.t)}，${s[0]}">
+    <div style="min-width:0"><div class="row" style="gap:8px"><span class="tname">${esc(t.t)}</span>${t.type!=='需求任务'?`<span class="badge outline" style="height:20px">${t.type}</span>`:''}</div>
+      <div class="tsub">${I('folder','sm')}<span>${esc(t.p)}</span></div></div>
+    <div class="c-need">${t.need?`<div class="need">${esc(t.need)}</div>`:`<span class="hint">—</span>`}</div>
+    <div>${t.steps.length?`<div class="bars" aria-hidden="true">${t.steps.map(x=>`<i class="${x==='unk'?'unk':x}"></i>`).join('')}</div>`:''}<div class="bars-cap">${t.cap}</div></div>
+    <div class="time"><span class="badge ${s[1]}" style="margin-bottom:4px">${I(s[2],'sm')}${s[0]}</span><br>${t.at}</div>
+    <button class="icon-btn" aria-label="更多：${esc(t.t)}" onclick="event.stopPropagation();DS.menu(this,[{label:'打开执行画布',icon:'arrowRight',run(){openTask('${t.id}')}},{label:'复制任务链接',icon:'link',run(){DS.toast('已复制链接','info')}}${['done','stopped'].includes(t.st)?`,'-',{label:'归档',icon:'archive',run(){DS.toast('已归档','info')}}`:''}])">${I('more')}</button>
+  </div>`;
+}
+function openTask(id){ const t=TASKS.find(x=>x.id===id); if(t.showcaseRoute){SC.go(t.showcaseRoute);return;} /* v4：没有身份的行不进旧画布 */ DS.toast('该行缺少任务身份（原型数据）','warn'); }
+function render(keep){
+  const pos=keep&&document.activeElement.selectionStart;
+  const counts={all:TASKS.length, attention:TASKS.filter(t=>groupOf(t)==='attention').length, active:TASKS.filter(t=>groupOf(t)==='active').length, closed:TASKS.filter(t=>groupOf(t)==='closed').length};
+  const rows=TASKS.filter(t=>(f==='all'||groupOf(t)===f)&&(proj==='all'||t.p===proj)&&(!q||(t.t+t.p+t.need).includes(q)));
+  let body;
+  if (S0==='loading') body=`<div style="padding:8px">${[0,1,2,3,4].map(()=>`<div class="row" style="padding:16px"><div class="col grow"><div class="skel" style="height:13px;width:45%"></div><div class="skel" style="height:11px;width:25%"></div></div><div class="skel" style="height:6px;width:140px"></div><div class="skel" style="height:20px;width:70px;border-radius:99px"></div></div>`).join('')}</div>`;
+  else if (S0==='error') body=`<div style="padding:16px"><div class="banner danger">${I('alert')}<div><b>任务列表读取失败</b><br>本地服务没有响应。筛选条件已保留。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('ready')">${I('refresh','sm')}重试</button></div></div></div>`;
+  else if (S0==='empty') body=`<div class="empty"><span class="tile">${I('list','lg')}</span><h3>还没有任务</h3><p>从一个目标开始：选项目、写目标、选流程，先得到一份需求草稿。</p><a class="btn primary" href="start.html" style="margin-top:6px">${I('plus','sm')}开始任务</a></div>`;
+  else if (!rows.length) body=`<div class="empty"><span class="tile">${I('search','lg')}</span><h3>没有符合条件的任务</h3><p>换个关键词或清除筛选。</p><button class="btn secondary sm" onclick="f='all';q='';proj='all';render()">清除筛选</button></div>`;
+  else if (grouped) body = [...new Set(rows.map(t=>t.p))].map(p=>`<div class="group-h">${I('folder','sm')}${esc(p)}<span class="muted num">${rows.filter(t=>t.p===p).length}</span></div>${rows.filter(t=>t.p===p).map(row).join('')}`).join('');
+  else body = rows.map(row).join('');
+  DS.$('#view').innerHTML = `
+  <div class="page-head"><div class="grow"><h2 class="title">任务</h2><p class="lede">每个任务都在执行画布里：哪一步在跑、哪一步卡住、下一步做什么。</p></div></div>
+  ${S0==='ready'||S0==='grouped'?`<div class="attn" aria-label="需要你处理">${TASKS.filter(t=>groupOf(t)==='attention'&&!['unknown','plunk','ploverview'].includes(t.st)).slice(0,6).map(t=>`<a class="card hoverable" href="#" onclick="event.preventDefault();openTask('${t.id}')"><span class="tile" style="color:var(--${t.st==='stall'?'stall':t.st==='fail'?'warn':'wait'})">${I(ST[t.st][2])}</span><span class="grow" style="min-width:0"><div style="font-size:13.5px;font-weight:500" class="ellipsis">${esc(t.t)}</div><div class="hint" style="margin-top:2px">${esc(t.need)}</div></span></a>`).join('')}</div>`:''}
+  <div class="row wrap" style="gap:10px;margin-bottom:14px">
+    <div class="input-wrap" style="width:260px">${I('search')}<input class="input ctl" placeholder="搜索任务、项目或原因" value="${esc(q)}" oninput="q=this.value.trim();render(true)" aria-label="搜索任务"></div>
+    <div class="seg" role="group" aria-label="状态">${[['all','全部'],['attention','需要处理'],['active','进行中'],['closed','已结束']].map(([k,l])=>`<button aria-pressed="${f===k}" onclick="f='${k}';render()">${l}<span class="num muted">${counts[k]}</span></button>`).join('')}</div>
+    <select class="select ctl" style="width:auto" aria-label="项目" onchange="proj=this.value;render()"><option value="all">全部项目</option>${[...new Set(TASKS.map(t=>t.p))].map(p=>`<option ${proj===p?'selected':''}>${p}</option>`).join('')}</select>
+    <span class="grow"></span>
+    <label class="check" style="align-items:center;font-size:13px;color:var(--sub)"><input type="checkbox" ${grouped?'checked':''} onchange="grouped=this.checked;render()">按项目分组</label>
+  </div>
+  <section class="card"><div class="thead"><span>任务</span><span class="c-need">需要处理</span><span>步骤</span><span class="time">状态</span><span></span></div><div style="padding:4px 6px 6px">${body}</div>
+  ${!['loading','error','empty'].includes(S0)&&rows.length?`<div class="row" style="padding:10px 16px 14px;box-shadow:inset 0 1px 0 var(--line)"><span class="hint grow">已加载 ${rows.length} 个 · 最近更新优先</span><button class="btn ghost sm">加载更多</button><a class="btn ghost sm" href="#" onclick="event.preventDefault();DS.toast('已切换到归档任务','info')">${I('archive','sm')}已归档</a></div>`:''}</section>`;
+  if (keep){ const el=DS.$('input[aria-label="搜索任务"]'); el.focus(); el.setSelectionRange(pos,pos); }
+}
+if (S0==='grouped') grouped=true;
+DS.mount({ header:`<h1>${I('list')}任务列表</h1><span class="spacer"></span><button class="icon-btn" aria-label="刷新" onclick="DS.toast('已刷新','info')">${I('refresh')}</button><a class="btn primary sm" href="start.html">${I('plus','sm')}开始任务</a>`, state:S0, states:[
+  {id:'ready',label:'日常'},{id:'grouped',label:'按项目分组'},{id:'loading',label:'加载中'},{id:'error',label:'读取失败'},{id:'empty',label:'没有任务'}] });
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PPT 制作 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.pw{max-width:1040px;margin:0 auto;padding:40px 32px 96px}
+.hero{text-align:center;padding:24px 0 28px}
+.hero h2{font-family:var(--font-display);font-weight:400;font-size:40px;letter-spacing:-1px;line-height:1.2}
+.box{max-width:780px;margin:0 auto;border-radius:22px;background:var(--raised);border:1px solid var(--line-2);box-shadow:var(--shadow-lift)}
+.box:focus-within{border-color:var(--accent-line);box-shadow:var(--shadow-lift),var(--ring)}
+.box .top{display:flex;align-items:center;gap:8px;padding:12px 14px;box-shadow:inset 0 -1px 0 var(--line)}
+.box textarea{display:block;width:100%;min-height:120px;resize:none;border:0;outline:0;background:transparent;padding:16px 18px 6px;font-size:15.5px;line-height:1.65;color:var(--ink)}
+.box textarea:disabled{cursor:not-allowed}
+.box .bot{display:flex;align-items:center;gap:8px;padding:10px 14px 14px;flex-wrap:wrap}
+.att{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 6px 0 10px;border-radius:9px;background:var(--fill-3);border:1px solid var(--line);font-size:12.5px}
+.att .icon-btn{width:22px;height:22px}
+.proj{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:var(--r-pill);border:1px dashed var(--line-3);color:var(--ink-2);font-size:13px}
+.proj.set{border-style:solid;border-color:var(--line-2);background:var(--fill-2)}
+.proj.need{border-color:var(--accent);color:var(--accent);box-shadow:var(--ring)}
+.ideas{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px}
+.ideas button{padding:8px 14px;border-radius:var(--r-pill);border:1px solid var(--line-2);background:var(--fill-1);font-size:13px;color:var(--ink-2)}
+.ideas button:hover{background:var(--fill-3)}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:52px}
+.how .card{padding:18px}
+.how .n{font-family:var(--font-mono);font-size:12px;color:var(--accent)}
+.how h4{font-size:14.5px;font-weight:500;margin:8px 0 4px}
+.mini{height:84px;border-radius:10px;background:var(--fill-2);border:1px solid var(--line);margin-bottom:14px;position:relative;overflow:hidden}
+.recent{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px}
+.thumb{aspect-ratio:16/9;border-radius:10px;border:1px solid var(--line);background:linear-gradient(135deg,#16181f,#0e0f12);position:relative;overflow:hidden}
+.thumb i{position:absolute;left:10%;height:6%;border-radius:2px;background:var(--fill-5)}
+.wk{display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:14px;transition:background var(--t-fast)}
+.wk:hover{background:var(--fill-2)}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="ppt">
+<main id="page" hidden><div class="pw" id="root"></div></main>
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S=DS.state||'empty'; let SUB=S==='submitting';
+const st={proj:['ready','files','submitting','error'].includes(S)?'OpenCode Loopper':null, text:['ready','files','submitting','error'].includes(S)?'面向新加入的工程师，介绍 opencode-workflow 的整体架构、任务从创建到交付的流程，以及常见的错误恢复方式。控制在 8 页以内。':'', files:S==='files'||S==='submitting'?[['architecture.md','12 KB'],['design-contract.md','8 KB']]:[], need:false};
+const PROJ=['OpenCode Loopper','R05 设计系统','数据平台迁移'];
+function thumb(seed){ return `<div class="thumb">${[18,32,44,56].map((y,i)=>`<i style="top:${y}%;width:${[42,64,52,30][(i+seed)%4]}%;${i?'':'height:9%;background:var(--ink-2)'}"></i>`).join('')}<span style="position:absolute;right:8%;bottom:12%;width:26%;height:38%;border-radius:4px;background:rgba(77,107,254,${.18+seed*.06})"></span></div>`; }
+function render(){
+  const ok = st.proj && st.text.trim().length>=6, sub=SUB;
+  DS.$('#root').innerHTML = `
+  <div class="hero"><div class="eyebrow">PPT 制作</div><h2 style="margin-top:10px">把想法，整理成一份演示。</h2><p class="lede" style="margin-top:10px">先和助手讨论清楚要讲什么，再逐页制作。全程可以改。</p></div>
+  ${S==='error'?`<div class="banner danger" style="max-width:780px;margin:0 auto 14px">${I('alert','sm')}<div><b>没能开始讨论</b><div class="hint">服务暂时不可用。你写的内容和资料都还在，可以直接重试。</div></div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('ready')">重试</button></div></div>`:''}
+  <div class="box">
+    <div class="top">
+      <button class="proj ${st.proj?'set':''} ${st.need?'need':''}" onclick="pickProj(this)" aria-label="选择项目">${I('folder','sm')}${st.proj?esc(st.proj):'先选择项目'}${I('chevDown','sm')}</button>
+      <span class="hint">${st.proj?'演示会使用这个项目的资料和公约':'演示归属于一个项目，便于引用资料'}</span>
+    </div>
+    <label for="t" class="sr">你希望这份 PPT 讲什么</label>
+    <textarea id="t" ${st.proj?'':'disabled'} placeholder="${st.proj?'你希望这份 PPT 讲什么？给谁看、想达到什么效果、大概几页…':'选择项目后填写'}" oninput="st.text=this.value;upd()">${esc(st.text)}</textarea>
+    <div class="bot">
+      ${st.files.map((f,i)=>`<span class="att">${I('file','sm')}${f[0]}<span class="hint">${f[1]}</span><button class="icon-btn" aria-label="移除 ${f[0]}" onclick="st.files.splice(${i},1);render()">${I('x','sm')}</button></span>`).join('')}
+      <button class="btn ghost sm" ${st.proj?'':'disabled'} onclick="st.files.push(['meeting-notes.pdf','240 KB']);render()">${I('upload','sm')}添加资料</button>
+      <span class="grow"></span>
+      <span class="hint" id="cnt">${st.text.length} 字</span>
+      <button class="btn primary" id="go" ${ok&&!sub?'':'disabled'} onclick="go()">${sub?'<span class="spin"></span>正在创建…':'开始讨论'+I('arrowRight','sm')}</button>
+    </div>
+  </div>
+  ${st.proj?'':`<div class="ideas">${['新人入门：项目架构说明','季度复盘：交付与质量','技术方案评审：恢复机制'].map(t=>`<button onclick="st.proj='OpenCode Loopper';st.text='${t}';render();DS.$('#t').focus()">${t}</button>`).join('')}</div>`}
+  <div class="how">${[['01','讨论需求','助手会问清对象、目的和篇幅，必要时读取项目资料。','q'],['02','确认制作方向','给出大纲和视觉方向，你确认后才开始逐页制作。','o'],['03','逐页制作与检查','每页生成后自动检查文字溢出与一致性，可随时手动改。','s']].map(([n,h,d,k])=>`<div class="card"><div class="mini">${k==='q'?`<span style="position:absolute;left:12px;top:14px;width:46%;height:16px;border-radius:8px;background:var(--fill-4)"></span><span style="position:absolute;right:12px;top:40px;width:38%;height:16px;border-radius:8px;background:rgba(77,107,254,.35)"></span><span style="position:absolute;left:12px;top:62px;width:30%;height:10px;border-radius:5px;background:var(--fill-4)"></span>`:k==='o'?[0,1,2].map(i=>`<span style="position:absolute;left:14px;top:${14+i*22}px;width:${[70,55,62][i]}%;height:10px;border-radius:5px;background:var(--fill-${i?4:5})"></span><span style="position:absolute;right:14px;top:${12+i*22}px;width:14px;height:14px;border-radius:50%;background:var(--ok-fill);color:var(--ok);display:grid;place-items:center">${I('check','sm')}</span>`).join(''):[0,1,2,3].map(i=>`<span style="position:absolute;left:${12+i*24}%;top:18px;width:20%;aspect-ratio:16/9;border-radius:4px;border:1px solid ${i===1?'var(--accent)':'var(--line-2)'};background:var(--fill-3)"></span>`).join('')}</div><div class="n">${n}</div><h4>${h}</h4><p class="hint" style="line-height:1.6">${d}</p></div>`).join('')}</div>
+  <div class="row" style="margin-top:44px"><h3 style="font-size:15px;font-weight:500" class="grow">最近的演示</h3><a class="btn ghost sm" href="ppt-works.html">全部作品${I('arrowRight','sm')}</a></div>
+  <div class="recent">${[['项目入门与架构说明','制作检查 · 6 页','2 小时前'],['Q3 交付复盘','设计方案','昨天'],['恢复机制方案评审','讨论需求','10月6日'],['设计系统介绍','已导出 · 12 页','10月2日']].map((w,i)=>`<a class="wk" href="ppt-studio.html">${thumb(i)}<div style="font-size:13.5px" class="ellipsis">${w[0]}</div><div class="hint">${w[1]} · ${w[2]}</div></a>`).join('')}</div>`;
+}
+function upd(){ const ok=st.proj&&st.text.trim().length>=6; DS.$('#go').disabled=!ok; DS.$('#cnt').textContent=st.text.length+' 字'; }
+function pickProj(b){ DS.menu(b, PROJ.map(p=>({label:p,icon:'folder',run:()=>{ const first=!st.proj; st.proj=p; st.need=false; render(); if(first) DS.$('#t').focus(); }}))); }
+function go(){ SUB=true; render(); setTimeout(()=>SC.href ='ppt-studio.html?state=discuss',900); }
+DS.mount({header:`<h1>${I('slides')}PPT 制作</h1><span class="spacer"></span><a class="btn ghost sm" href="ppt-works.html">${I('list','sm')}全部作品</a>`, state:S, states:[{id:'empty',label:'初始（未选项目）'},{id:'ready',label:'已填写'},{id:'files',label:'已添加资料'},{id:'submitting',label:'正在创建'},{id:'error',label:'创建失败'}]});
+render();
+</script>
+</body>
+</html>

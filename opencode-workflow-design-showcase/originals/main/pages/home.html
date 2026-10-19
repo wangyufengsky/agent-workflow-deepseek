@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>主页 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+/* 主页是展示页：讲清 opencode-workflow 是什么、怎么工作，不承载执行操作 */
+.hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:16px;padding:56px 0 0}
+.hero h2{font-family:var(--font-display);font-weight:400;font-size:52px;letter-spacing:-1.3px;line-height:1.1;text-wrap:balance}
+.hero h2 em{font-family:Georgia,"Times New Roman",serif;font-style:italic;font-weight:400;color:var(--accent);letter-spacing:-.6px}
+.hero p{color:var(--sub);font-size:16px;line-height:1.7;max-width:560px}
+.hero .row{margin-top:8px}
+
+/* 产品窗口：流程演示 */
+.window{margin:48px auto 0;max-width:1000px;border-radius:var(--r-lg);background:var(--panel);border:1px solid var(--line-2);box-shadow:var(--shadow-lift),inset 0 1px 0 var(--fill-2);overflow:hidden}
+.win-bar{display:flex;align-items:center;gap:12px;height:46px;padding:0 16px;box-shadow:inset 0 -1px 0 var(--line)}
+.lights{display:flex;gap:7px}.lights i{width:11px;height:11px;border-radius:50%;background:var(--fill-5)}
+.demo{position:relative;height:300px;background-color:var(--bg-sunken);background-image:var(--dots);background-size:22px 22px;overflow-x:auto}
+.demo-inner{position:relative;width:900px;height:300px;margin:0 auto}
+.demo-inner>svg{position:absolute;inset:0}
+.demo-inner>svg path{fill:none;stroke-width:1.5;transition:stroke .65s}
+.dnode{position:absolute;width:200px;padding:12px 14px;border-radius:12px;background:var(--node-bg);border:1px solid var(--idle-line);display:flex;flex-direction:column;gap:6px;transition:border-color .65s,box-shadow .65s}
+.dnode .n{font-size:14px;font-weight:500}.dnode .d{font-size:12px;color:var(--muted)}
+.dnode[data-s="run"]{border-color:var(--run-line);box-shadow:0 0 0 4px rgba(115,199,153,.1)}
+.dnode[data-s="stall"]{border-color:var(--stall-line);box-shadow:0 0 0 4px rgba(255,145,155,.1)}
+.dnode[data-s="done"]{border-color:var(--done-line)}
+.caption{position:absolute;left:0;right:0;bottom:14px;text-align:center;font-size:12.5px;color:var(--sub)}
+.phase{display:flex;align-items:center;gap:8px;padding:10px 14px;box-shadow:inset 0 1px 0 var(--line);flex-wrap:wrap}
+
+/* 能力介绍 */
+.cap-head{text-align:center;margin:96px 0 28px}
+.cap-head h3{font-family:var(--font-display);font-weight:400;font-size:32px;letter-spacing:-.7px}
+.cap-head p{color:var(--sub);margin-top:10px}
+.caps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:1000px){.caps{grid-template-columns:1fr}}
+.cap{display:flex;flex-direction:column;gap:8px;padding:24px 24px 0;overflow:hidden;min-height:300px}
+.cap h4{font-size:18px;font-weight:500}
+.cap>p{color:var(--sub);font-size:14px;line-height:1.7;max-width:420px}
+.cap .go{font-size:13px;color:var(--accent);display:inline-flex;align-items:center;gap:4px;margin-top:2px}
+.cap .vis{margin-top:auto;padding:20px 0 24px;display:flex;justify-content:center}
+.mini{width:100%;max-width:420px;border-radius:12px;background:var(--bg-sunken);border:1px solid var(--line);padding:14px}
+.chain{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.chain span{padding:5px 11px;border-radius:var(--r-pill);font-size:12.5px;background:var(--fill-3);border:1px solid var(--line)}
+.chain i{color:var(--faint);font-style:normal}
+.q-card{display:flex;flex-direction:column;gap:10px}
+.q-opt{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;border:1px solid var(--line-2);font-size:13px}
+.q-opt.on{border-color:var(--accent-line);background:var(--accent-fill)}
+.q-opt .r{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line-3)}
+.q-opt.on .r{border:4px solid var(--accent)}
+.cite{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;margin-left:3px;border-radius:5px;background:var(--accent-fill);color:var(--accent);font-size:10.5px;vertical-align:.15em}
+
+.entries{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}
+@media (max-width:1000px){.entries{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.entry{display:flex;align-items:center;gap:12px;padding:14px 16px}
+.entry .t{font-size:14px;font-weight:500}.entry .d{font-size:12.5px;color:var(--muted)}
+
+.foot{margin-top:96px;padding:64px 0 24px;text-align:center;background-image:radial-gradient(rgba(169,188,255,.16) 1px,transparent 1.3px);background-size:18px 18px;-webkit-mask-image:linear-gradient(transparent,#000 40%);mask-image:linear-gradient(transparent,#000 40%)}
+.foot h3{font-family:var(--font-display);font-weight:400;font-size:28px;letter-spacing:-.5px}
+.foot p{color:var(--sub);margin:10px auto 22px;max-width:520px;line-height:1.7}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="home">
+<main id="page" hidden>
+  <div class="page" style="max-width:1080px">
+
+    <section class="hero in">
+      <span class="badge outline"><span data-icon="sparkle" data-icon-size="sm"></span>本地开发工作区</span>
+      <h2>Everything is a <em>Workflow.</em></h2>
+      <p>万事皆流程，执行由你掌控。<br>先把想法说清楚，再让工作沿流程展开，每一步都有迹可循。</p>
+      <div class="row">
+        <a class="btn primary lg" href="start.html">开始任务<span data-icon="arrowRight" data-icon-size="sm"></span></a>
+        <a class="btn secondary lg" href="projects.html"><span data-icon="folder" data-icon-size="sm"></span>查看项目</a>
+      </div>
+    </section>
+
+    <section class="card in" style="animation-delay:.06s;margin:0 0 28px;padding:6px" aria-label="进行中">
+      <div class="row" style="padding:10px 14px 6px"><span class="eyebrow grow">进行中</span><a class="btn ghost sm" href="tasks.html">全部任务<span data-icon="chevRight" data-icon-size="sm"></span></a></div>
+      <a class="list-row" href="../../planning/requirement.html?state=pe15&task=T-2051&from=home&returnTo=home.html&sel=s3&tab=records"><span class="tile" data-icon="sparkle"></span><span class="grow" style="min-width:0"><span style="font-weight:500">退款单按状态与日期筛选并导出</span><br><span class="hint">规划中 · 生成候选 · 最近活动 14:07:58 · 离开不会停止规划</span></span><span class="badge st-accent">规划中</span></a>
+      <a class="list-row" href="../../planning/requirement.html?state=pe11&task=T-2055&round=1&from=home&returnTo=home.html"><span class="tile" data-icon="help"></span><span class="grow" style="min-width:0"><span style="font-weight:500">退货单按状态与日期筛选并导出</span><br><span class="hint">需要你回答 2 个业务问题</span></span><span class="badge st-wait">需要处理</span></a>
+      <a class="list-row" href="../../delivery/task.html?state=ut-running-mid&task=T-2050&returnTo=main/pages/home.html"><span class="tile" data-icon="play"></span><span class="grow" style="min-width:0"><span style="font-weight:500">赔付单按状态与日期筛选并导出</span><br><span class="hint">执行中 · 第 3 段 · 可调整待执行计划</span></span><span class="badge st-run">执行中</span></a>
+    </section>
+
+    <section class="window in" style="animation-delay:.12s" aria-label="流程演示">
+      <div class="win-bar">
+        <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span style="font-size:13px">流程演示</span><span class="muted" style="font-size:13px">· 非实时任务</span>
+        <span class="grow"></span>
+        <button class="btn ghost sm" id="playBtn" onclick="togglePlay()"><span id="playIco"></span><span id="playLbl">暂停</span></button>
+      </div>
+      <div class="demo"><div class="demo-inner" id="demo">
+        <svg viewBox="0 0 900 300" width="900" height="300" aria-hidden="true">
+          <path id="e1" d="M240 140 C300 140 300 70 360 70"/><path id="e2" d="M240 140 C300 140 300 210 360 210"/>
+          <path id="e3" d="M560 70 C620 70 620 140 680 140"/><path id="e4" d="M560 210 C620 210 620 140 680 140"/>
+        </svg>
+        <p class="caption" id="cap"></p>
+      </div></div>
+      <div class="phase" id="phase" role="group" aria-label="演示阶段"></div>
+    </section>
+
+    <section aria-labelledby="capT">
+      <div class="cap-head"><h3 id="capT">能力不断拓展，工作由你掌握</h3><p>从一个目标出发，规划、执行、确认、交付，都在同一套流程里完成。</p></div>
+      <div class="caps">
+        <a class="card hoverable cap" href="workflows.html">
+          <h4>可复用的流程</h4><p>把团队做事的方法沉淀成流程：需求讨论、规划、实施、验收。下一次直接套用。</p><span class="go">流程目录<span data-icon="chevRight" data-icon-size="sm"></span></span>
+          <div class="vis"><div class="mini"><div class="eyebrow" style="margin-bottom:10px">需求开发 · 版本 r12</div><div class="chain"><span>需求讨论</span><i>→</i><span>规划</span><i>→</i><span>实施</span><i>→</i><span>验收</span></div></div></div>
+        </a>
+        <a class="card hoverable cap" href="tasks.html">
+          <h4>看得见的执行</h4><p>每个任务都有一张执行画布：哪一步在跑、哪一步停滞、为什么失败，一眼可见。</p><span class="go">任务列表<span data-icon="chevRight" data-icon-size="sm"></span></span>
+          <div class="vis"><div class="mini col" style="gap:8px">
+            <div class="row between"><span style="font-size:13px">定位问题</span><span class="badge st-done"><span data-icon="check" data-icon-size="sm"></span>已完成</span></div>
+            <div class="row between"><span style="font-size:13px">实施修复</span><span class="badge st-stall"><span data-icon="alert" data-icon-size="sm"></span>停滞 · 等待权限</span></div>
+            <div class="row between"><span style="font-size:13px">验证</span><span class="badge st-idle"><span data-icon="clock" data-icon-size="sm"></span>待执行</span></div>
+          </div></div>
+        </a>
+        <a class="card hoverable cap" href="inbox.html">
+          <h4>关键决定留给你</h4><p>执行中遇到需要判断的问题、需要授权的操作，会停下来等你，而不是自作主张。</p><span class="go">待处理中心<span data-icon="chevRight" data-icon-size="sm"></span></span>
+          <div class="vis"><div class="mini q-card"><span style="font-size:13px">本轮资料核对从哪里开始？</span><div class="q-opt on"><span class="r"></span>先核对接口与错误恢复</div><div class="q-opt"><span class="r"></span>先核对使用说明</div></div></div>
+        </a>
+        <a class="card hoverable cap" href="knowledge.html">
+          <h4>每个结论都有出处</h4><p>知识库只读你授权的代码、文档和数据库，回答里的每一处引用都能回到原文。</p><span class="go">知识库<span data-icon="chevRight" data-icon-size="sm"></span></span>
+          <div class="vis"><div class="mini" style="font-size:13px;line-height:1.75;color:var(--ink-2)">任务是否可执行由任务服务决定<span class="cite">1</span>；能读取哪些来源，由资料服务核对当前许可<span class="cite">2</span>。</div></div>
+        </a>
+      </div>
+      <div class="entries">
+        <a class="card hoverable entry" href="projects.html"><span class="tile" data-icon="folder"></span><span><div class="t">项目</div><div class="d">接入本地项目</div></span></a>
+        <a class="card hoverable entry" href="templates.html"><span class="tile" data-icon="template"></span><span><div class="t">模板任务</div><div class="d">固定流程，填参即跑</div></span></a>
+        <a class="card hoverable entry" href="ppt.html"><span class="tile" data-icon="slides"></span><span><div class="t">PPT 制作</div><div class="d">把想法讲清楚</div></span></a>
+        <a class="card hoverable entry" href="insights.html"><span class="tile" data-icon="chart"></span><span><div class="t">质量与用量</div><div class="d">看效果，算成本</div></span></a>
+      </div>
+    </section>
+
+    <section class="foot">
+      <h3>从一个目标开始</h3>
+      <p>选一个项目，写下想完成的事。opencode-workflow 先给你一份需求草稿，确认之后才会执行。</p>
+      <a class="btn primary lg" href="start.html">开始任务<span data-icon="arrowRight" data-icon-size="sm"></span></a>
+    </section>
+  </div>
+</main>
+
+<script src="../assets/shell.js"></script>
+<script>
+DS.mount({ header: `<h1>${DS.icon('home')}主页</h1><span class="spacer"></span>` });
+
+/* 流程演示：五阶段 × 2 秒 = 10 秒一轮（沿用已批准的节奏与状态色） */
+const nodes = [
+  {n:'梳理需求', d:'明确输入与目标', x:40, y:108},
+  {n:'实现功能', d:'形成可用变更', x:360, y:38},
+  {n:'编写测试', d:'验证执行结果', x:360, y:178},
+  {n:'核对交付', d:'检查并交付', x:680, y:108},
+];
+const plan = [['run','idle','idle','idle'],['done','run','run','idle'],['done','run','stall','idle'],['done','done','run','idle'],['done','done','done','run']];
+const caps = ['先把想法说清楚，明确输入与目标。','规划完成后，两个步骤并行执行。','“编写测试”停滞：缺少数据库读取权限，等待处理。','授权后恢复执行，验证通过。','全部步骤通过验收，核对交付。'];
+const LBL = {run:['执行中','st-run','play'], idle:['待执行','st-idle','clock'], done:['已完成','st-done','check'], stall:['停滞','st-stall','alert']};
+const phases = ['梳理需求','并行执行','停滞示例','恢复验证','核对交付'];
+DS.$('#demo').insertAdjacentHTML('beforeend', nodes.map((n,i)=>`<div class="dnode" id="n${i}" style="left:${n.x}px;top:${n.y}px"><div class="row between"><span class="n">${n.n}</span><span class="badge" id="b${i}"></span></div><span class="d">${n.d}</span></div>`).join(''));
+let step = 0, playing = !matchMedia('(prefers-reduced-motion: reduce)').matches, timer;
+function render(){
+  const s = plan[step];
+  s.forEach((v,i)=>{ DS.$('#n'+i).dataset.s=v; const b=DS.$('#b'+i); b.className='badge '+LBL[v][1]; b.innerHTML=DS.icon(LBL[v][2],'sm')+LBL[v][0]; });
+  const edge=(a,b)=> s[b]==='stall'?'var(--stall-line)': (s[a]==='done'&&s[b]!=='idle')?'var(--edge-done)':'var(--edge)';
+  [['e1',0,1],['e2',0,2],['e3',1,3],['e4',2,3]].forEach(([id,a,b])=>DS.$('#'+id).style.stroke=edge(a,b));
+  DS.$('#cap').textContent = caps[step];
+  DS.$('#phase').innerHTML = `<div class="seg">${phases.map((p,i)=>`<button type="button" aria-pressed="${i===step}" onclick="jump(${i})"><span class="num muted">0${i+1}</span>${p}</button>`).join('')}</div><span class="grow"></span><span class="hint">约 10 秒一轮 · 点阶段可停留查看</span>`;
+}
+function tick(){ clearTimeout(timer); if(playing) timer=setTimeout(()=>{ step=(step+1)%5; render(); tick(); },2000); }
+function jump(i){ step=i; playing=false; updPlay(); render(); clearTimeout(timer); }
+function togglePlay(){ playing=!playing; updPlay(); tick(); }
+function updPlay(){ DS.$('#playLbl').textContent = playing?'暂停':'播放'; DS.$('#playIco').innerHTML = DS.icon(playing?'pause':'play','sm'); }
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) clearTimeout(timer); else tick(); });
+render(); updPlay(); tick();
+</script>
+</body>
+</html>

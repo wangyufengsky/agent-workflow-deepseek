@@ -1,0 +1,144 @@
+{
+ "version": "v5",
+ "date": "2026-10-16",
+ "basedOn": "v4",
+ "mock": "设计样例 · 全部模拟",
+ "decisions": {
+  "Q6": "A · 维持现状，计数同一口径",
+  "Q9": "B · 目录只读规划职责",
+  "Q10": "先开放 PE37；PE38、PE28 继续禁用",
+  "rules": [
+   "已细化的组不先执行，全部细化后才能确认",
+   "每次继续规划选区是新的一轮，各有 1 次修订机会"
+  ]
+ },
+ "collection": "/Users/wangyufeng/Documents/opencode-workflow-design-showcase",
+ "supplement": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v5-20261016",
+ "backup": "backup-v4-before-v5/",
+ "added": [],
+ "modified": [
+  {
+   "path": "originals/delivery/assets/task-registry.js",
+   "sha256": "a55e2cb35360556e2186ca4bfeabfed8d86bd63351e80273d0e38fd139242987",
+   "v4_sha256": "ee2fc2947a1d383b54a0ac0bbac359c6da37c2d67e979bb0ac751cdc49d7aa85"
+  },
+  {
+   "path": "originals/main/pages/inbox.html",
+   "sha256": "2f9043b5c7ba8f78de365857cafa443de267bb87e8b4166f0b5417d4631bbb50",
+   "v4_sha256": "5ec181894106d618f7e8723fcf9f73a91baa6985da84832ec847004435270d1a"
+  },
+  {
+   "path": "originals/main/pages/roles.html",
+   "sha256": "562852c96122ff22dc37aac92cfe76cea60cbce1e4b499c241c201e2fe3b2db7",
+   "v4_sha256": "a7aef9ec80473d37a91bdf6067950669405e1f66d1502fee39fa72a47649486e"
+  },
+  {
+   "path": "originals/main/pages/workflows.html",
+   "sha256": "f34104e00983831de5a12328e2e0183b31ac19344839737f85723bfcf94a22e5",
+   "v4_sha256": "4e1b00442aca3dee91c3dfcda789881937ecb84dbf6876389b72785db6c38808"
+  },
+  {
+   "path": "originals/planning/assets/pe-fixtures.js",
+   "sha256": "68837bcaf6e7e991ddb6c96f9b2f8c46b53ffc4877929640faaa9ee930bb8c1f",
+   "v4_sha256": "627c4bfe2fa872d21008da1e7e2d538bc70c67b09a819a165f4adbbe7df53409"
+  },
+  {
+   "path": "originals/planning/assets/pe-states.js",
+   "sha256": "dc2b09e0aa67aad1d404f271899983ec094f5dba22a2ac931488c08e420ea436",
+   "v4_sha256": "4a6ff6dfdcd5490cdef146299d35579ae07d0d8d2883046b1a92da1db3a4e4fb"
+  },
+  {
+   "path": "originals/planning/assets/requirement.js",
+   "sha256": "f5fe94af62bc127e28b8e2cf65b804ca65548df631e0671b264e687cdc4bfa59",
+   "v4_sha256": "600e74e0c9477750f3b65b2921d93b40862a1d6b1f0640044c98f3b1353e1e3a"
+  },
+  {
+   "path": "originals/planning/index.html",
+   "sha256": "e9425429ea5e6794bec559e140e5198b54a24b9deaf95ba00d67e2bfada21318",
+   "v4_sha256": "e1f938ac104055adba752815fca7e1d9c830c69d352dd46f850fa2e8bd54d073"
+  },
+  {
+   "path": "showcase/catalog.js",
+   "sha256": "6bdd80789e62384e1512e5f5169b648672309f016a10aba87cd6d91ea8d01afd",
+   "v4_sha256": "5a8ccade66bfe60444a51883ccdab436977c87553f1e329a02bedc1b97d68973"
+  }
+ ],
+ "docsModified": [
+  {
+   "path": "README.md",
+   "v4_sha256": "f25b2477ce60a0fa097b8f0aa11dffe26d86ab41a58d5b5470c4bc90b8b81d51"
+  },
+  {
+   "path": "sources.html",
+   "v4_sha256": "dea11136ddcba78822a4948609ddfa66f5319b6b2a57a68f8515fd50119476b3"
+  },
+  {
+   "path": "sources/manifest.json",
+   "v4_sha256": "98eb990fa1dbdf474185579527ffb76f72b23ba92e0807cafceca07bbb7abd11"
+  }
+ ],
+ "newStates": {
+  "planning/requirement.html": [
+   "lg-planning",
+   "lg-cand"
+  ],
+  "main/pages/roles.html": [
+   "planning-role"
+  ],
+  "main/pages/workflows.html": [
+   "detail-planning"
+  ]
+ },
+ "changedStates": [
+  "pe37"
+ ],
+ "newTaskIdentity": "T-2060（18 步，n1–n18）",
+ "routes": [
+  {
+   "entry": "任务列表 / 需求目录“会员积分体系重构”；待处理“选择范围继续规划”",
+   "to": "planning/requirement.html?state=pe37&task=T-2060"
+  },
+  {
+   "entry": "PE37 继续规划选区 → 确认开始",
+   "to": "requirement.html?state=lg-planning&gp=<组>&sim=1"
+  },
+  {
+   "entry": "LG-PLANNING 服务事件",
+   "to": "requirement.html?state=lg-cand&gp=<组>"
+  },
+  {
+   "entry": "LG-CAND 应用 / 不采用；LG-PLANNING 停止",
+   "to": "requirement.html?state=pe37&done=…&applied|rejected|stopped=<组>"
+  },
+  {
+   "entry": "PE37 全部细化 → 确认计划",
+   "to": "requirement.html?state=pe32&task=T-2060&tab=ws"
+  },
+  {
+   "entry": "需求画布“规划策略 v1 / 需求分析师（规划职责）”",
+   "to": "main/pages/workflows.html?state=detail-planning&back=… / main/pages/roles.html?state=planning-role&back=…"
+  }
+ ],
+ "returnContext": {
+  "catalog": [
+   "back（点击时取当前需求画布地址）"
+  ],
+  "commands": "replaceState（分组命令不增加历史）"
+ },
+ "simulated": [
+  "分组规划服务回执定时器（sim=1）",
+  "URL done / gp / applied / rejected / stopped 模拟服务读模型",
+  "目录版本、摘要与最近使用为样例数据"
+ ],
+ "executed": {
+  "models": false,
+  "services": false,
+  "credentials": false,
+  "realTests": false,
+  "browserChecks": "本地 Chromium file://，见 TEST-REPORT-v5.md"
+ },
+ "stillClosed": [
+  "PE38",
+  "PE28 子隔离与汇合"
+ ]
+}

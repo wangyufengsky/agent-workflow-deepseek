@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>数据库 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.dgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:1180px){.dgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.dc{display:flex;flex-direction:column;gap:12px;padding:18px;cursor:pointer;text-align:left}
+.dc.off{opacity:.7}
+.dc .nm{font-size:15px;font-weight:500;line-height:1.4;overflow-wrap:anywhere}
+.eng{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font:600 11px var(--font-mono);flex:none;letter-spacing:.3px}
+.eng.my{background:rgba(242,196,109,.12);color:#f2c46d}.eng.ss{background:rgba(255,145,155,.12);color:#ff919b}.eng.pg{background:rgba(169,188,255,.12);color:#a9bcff}
+.dc .host{font:12.5px var(--font-mono);color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dc .grow{min-width:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.probe{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);padding-top:12px;box-shadow:inset 0 1px 0 var(--line);margin-top:auto}
+.sec{padding:18px 0}
+.sec+.sec{box-shadow:inset 0 1px 0 var(--line)}
+.sec-h{font-size:13px;color:var(--muted);letter-spacing:.3px;margin-bottom:14px;font-weight:500}
+.pr{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.pr div{padding:10px 12px;border-radius:10px;background:var(--fill-2);border:1px solid var(--line);font-size:12.5px}
+.pr b{display:flex;align-items:center;gap:6px;font-weight:500;margin-bottom:3px}
+.tagin{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:40px;padding:6px 8px;border-radius:10px;background:var(--raised);border:1px solid var(--line-2)}
+.tagin .chip button{display:grid;place-items:center;color:var(--muted)}
+.tagin input{flex:1;min-width:80px;border:0;outline:0;background:transparent;color:var(--ink);font-size:13.5px}
+/* 补充：扩展数据库类型（前缀 bx-） */
+.eng.bx-og{background:var(--done-fill);color:var(--done)}.eng.bx-gs{background:var(--danger-fill);color:var(--danger)}.eng.bx-gd{background:var(--warn-fill);color:var(--warn)}
+.eng.bx-dm{background:var(--wait-fill);color:var(--wait)}.eng.bx-db2{background:var(--ok-fill);color:var(--ok)}.eng.bx-ora{background:var(--fill-4);color:var(--ink-2)}
+.eng.bx-my{background:var(--warn-fill);color:var(--warn)}.eng.bx-ms{background:var(--stall-fill);color:var(--stall)}
+.bx-types{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.bx-type{display:flex;align-items:center;gap:7px;height:44px;padding:0 8px;border-radius:10px;border:1px solid var(--line-2);background:var(--fill-1);font-size:13px;color:var(--ink-2);text-align:left;transition:border-color var(--t-fast),background var(--t-fast);min-width:0}
+.bx-type:hover{border-color:var(--line-3)}
+.bx-type[aria-checked="true"]{border-color:var(--accent-line);background:var(--accent-fill);color:var(--ink-strong)}
+.bx-type:disabled{opacity:.5;cursor:not-allowed}
+.bx-type .eng{width:auto;min-width:26px;height:26px;padding:0 3px;border-radius:7px;font-size:9px;letter-spacing:-.2px}
+.bx-type span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bx-tinfo{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--fill-2);border:1px solid var(--line);display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--sub);line-height:1.55}
+.bx-tinfo .row{gap:8px;align-items:flex-start}
+.bx-tinfo .i{margin-top:2px}
+.bx-tinfo .mono{color:var(--ink-2);overflow-wrap:anywhere}
+.bx-tinfo .bx-drv{box-shadow:inset 0 1px 0 var(--line);padding-top:8px;margin-top:2px;color:var(--ink-2)}
+.bx-tinfo .bx-drv .i{color:var(--accent)}
+.pr .bx-unk{background:var(--unknown-fill);border:1px dashed var(--unknown-line)}
+.bx-pfoot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:12.5px;color:var(--muted)}
+.bx-pfoot .grow{min-width:0}
+.bx-kv{grid-template-columns:110px minmax(0,1fr)}
+.bx-ta{min-height:64px;font-size:13px}
+.bx-view .input[readonly],.bx-view .textarea[readonly]{background:var(--fill-2);color:var(--sub);resize:none}
+.bx-view .tagin{background:var(--fill-2)}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="databases">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+
+<aside class="drawer xl" id="dr" role="dialog" aria-labelledby="drT" aria-hidden="true" tabindex="-1">
+  <div class="drawer-head" id="drHead"></div>
+  <div class="drawer-body" id="drBody"></div>
+  <div class="drawer-foot" id="drFoot"></div>
+</aside>
+<div class="dialog" id="arcDlg" role="alertdialog" aria-labelledby="aT">
+  <div class="dialog-body"><h2 id="aT">归档“项目资料只读库”？</h2><p>归档后它会被停用，并从默认列表中隐藏，新任务不能再使用它。已经冻结了这个连接的任务继续使用当时的配置。</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>保留</button><button class="btn danger" onclick="DS.closeDialog();DS.closeDrawer('dr');DS.toast('已归档','info')">归档</button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S=DS.state||'list';
+const DBS = [
+  {id:'d1', n:'项目资料只读库', e:'my', el:'MySQL', host:'db-docs.internal:3306', on:true, projects:['OpenCode Loopper'], scope:['evidence'], probe:['ok','已连接 · 只读已强制 · 2 天前']},
+  {id:'d2', n:'协作事项只读库', e:'my', el:'MySQL', host:'db-collab.internal:3306', on:false, projects:['客户服务平台'], scope:['evidence'], probe:['idle','已停用']},
+  {id:'d3', n:'跨部门归档证据与历史字段的长名称连接示例', e:'ss', el:'SQL Server', host:'archive.internal:1433', on:true, projects:[], scope:['dbo'], probe:['warn','会话非只读，由连接强制只读 · 昨天']},
+  {id:'d4', n:'订单分析库', e:'pg', el:'PostgreSQL', host:'pg-orders.internal:5432', on:true, projects:['客户服务平台','OpenCode Loopper'], scope:['public','report'], probe:['none','尚未检查']},
+];
+let filter='live';
+function listView(){
+  if (S==='empty') return `<div class="card"><div class="empty"><span class="tile">${I('db','lg')}</span><h3>还没有数据库连接</h3><p>添加只读连接后，任务和知识库可以按你授权的范围读取表结构和数据。</p><button class="btn primary" style="margin-top:6px" onclick="openNew(this)">${I('plus','sm')}添加连接</button></div></div>`;
+  const rows = DBS.filter(d=>filter==='all'||filter==='live'||(filter==='on'?d.on:!d.on));
+  const pb = {ok:['var(--ok)','check'], warn:['var(--warn)','shield'], idle:['var(--muted)','minus'], none:['var(--muted)','clock']};
+  return `${S==='types-fail'?bxTypesFailBanner():''}<div class="toolbar">
+    <div class="input-wrap" style="width:260px"><span data-icon="search"></span><input class="input ctl" placeholder="搜索名称或主机" aria-label="搜索连接"></div>
+    <select class="select ctl" style="width:auto" aria-label="数据库类型"><option>全部类型</option><option>MySQL</option><option>PostgreSQL</option><option>SQL Server</option><option>Oracle</option></select>
+    <div class="seg" role="group" aria-label="状态">${[['live','未归档',4],['on','已启用',3],['off','已停用',1],['arc','已归档',2]].map(([k,l,n])=>`<button aria-pressed="${filter===k}" onclick="filter='${k}';render()">${l}<span class="num muted">${n}</span></button>`).join('')}</div>
+  </div>
+  <div class="dgrid">${rows.map((d,i)=>`<button class="card hoverable dc in ${d.on?'':'off'}" style="animation-delay:${i*40}ms" onclick="openEdit('${d.id}',this)">
+    <div class="row" style="align-items:flex-start;gap:12px"><span class="eng ${d.e}">${d.el==='SQL Server'?'MSSQL':d.el==='PostgreSQL'?'PG':'MY'}</span><span class="grow"><div class="nm">${esc(d.n)}</div><div class="host" style="margin-top:3px">${d.host}</div></span>
+      <span class="badge ${d.on?'st-ok':'st-idle'}">${d.on?'<span class="dot"></span>已启用':'已停用'}</span></div>
+    <div class="col" style="gap:8px">
+      <div class="row" style="gap:8px"><span class="hint" style="width:52px">可读范围</span><span class="chips">${d.scope.map(s=>`<span class="chip mono">${s}</span>`).join('')}</span></div>
+      <div class="row" style="gap:8px;align-items:flex-start"><span class="hint" style="width:52px;padding-top:3px">授权项目</span><span class="chips">${d.projects.length?d.projects.map(p=>`<span class="chip">${p}</span>`).join(''):'<span class="hint" style="color:var(--warn)">尚未授权给任何项目，任务读不到它</span>'}</span></div>
+    </div>
+    <div class="probe"><span style="color:${pb[d.probe[0]][0]}">${I(pb[d.probe[0]][1],'sm')}</span>${d.probe[1]}</div>
+  </button>`).join('')}${BX?bxCards():''}</div>
+  <div class="row" style="margin-top:16px"><span class="hint grow">已加载 ${BX?8:4} 个连接</span><button class="btn ghost sm">加载更多</button></div>`;
+}
+
+/* -------- 抽屉：编辑 / 新增 -------- */
+let editing=null, isNew=false, probe=null, dirty=false;
+function openNew(t){ editing={n:'',e:'my',el:'MySQL',host:'',on:true,projects:[],scope:[]}; isNew=true; probe=null; dirty=false; fillDrawer(); DS.openDrawer('dr',t); }
+function openEdit(id,t){ editing={...DBS.find(d=>d.id===id)}; isNew=false; probe=(S==='probe-ok'?'ok':S==='probe-fail'?'fail':null); dirty=S==='save-unknown'; fillDrawer(); DS.openDrawer('dr',t); }
+function fillDrawer(){
+  const d=editing, unk=S==='save-unknown';
+  DS.$('#drHead').innerHTML = `<div class="grow"><div class="eyebrow">${isNew?'新增连接':'数据库连接'}</div><h2 id="drT" style="margin-top:3px">${isNew?'添加只读连接':esc(d.n)}</h2>${isNew?'':`<div class="row" style="margin-top:8px;gap:6px"><span class="badge ${d.on?'st-ok':'st-idle'}">${d.on?'已启用':'已停用'}</span><span class="badge outline">版本 v7</span></div>`}</div>
+    ${isNew?'':`<button class="icon-btn" aria-label="更多" ${unk?'disabled':''} onclick="DS.menu(this,[{label:'${d.on?'停用':'启用'}',icon:'${d.on?'pause':'play'}',run(){DS.toast('已${d.on?'停用':'启用'}','info')}},'-',{label:'归档…',icon:'archive',danger:true,run(){DS.openDialog('arcDlg')}}])">${I('more')}</button>`}
+    <button class="icon-btn" aria-label="关闭" ${unk?'disabled title="结果确认前不能关闭"':''} onclick="DS.closeDrawer('dr')">${I('x')}</button>`;
+  const ro = unk?'readonly':'';
+  DS.$('#drBody').innerHTML = `
+    ${unk?`<div class="banner unknown" style="margin-bottom:6px">${I('help')}<div><b>保存结果未明</b><br>请求已发出但没有收到确认。表单已锁定，正在逐页读取全部连接，核对这一条是否已更新为 v8。确认前不会重新保存。</div><div class="actions"><span class="spin" style="color:var(--unknown)"></span></div></div>`:''}
+    <div class="sec"><div class="sec-h">连接</div>
+      <div class="grid-2"><div class="field" style="margin:0"><label class="label" for="fN">名称 <span class="req">*</span></label><input class="input" id="fN" autofocus ${ro} value="${esc(d.n)}" placeholder="例如：订单分析库" oninput="touch()"></div>
+      <div class="field" style="margin:0"><label class="label" for="fT">数据库类型 <span class="req">*</span></label><select class="select" id="fT" ${unk?'disabled':''} onchange="touch()"><option ${d.el==='MySQL'?'selected':''}>MySQL</option><option ${d.el==='PostgreSQL'?'selected':''}>PostgreSQL</option><option ${d.el==='SQL Server'?'selected':''}>SQL Server</option><option>Oracle</option></select><span class="hint">使用内置驱动 · 切换类型会清空连接地址</span></div></div>
+      <div class="field"><label class="label" for="fU">JDBC 地址 <span class="req">*</span></label><input class="input mono" id="fU" ${ro} value="${d.host?'jdbc:'+(d.e==='ss'?'sqlserver':d.e==='pg'?'postgresql':'mysql')+'://'+d.host+'/'+(d.scope[0]||''):''}" placeholder="jdbc:mysql://host:3306/db" oninput="touch()"><span class="hint">地址里不要包含用户名或密码。</span></div>
+      <div class="grid-2" style="margin-top:20px"><div class="field" style="margin:0"><label class="label" for="fUser">用户名 <span class="req">*</span></label><input class="input" id="fUser" ${ro} value="${isNew?'':'readonly_user'}" oninput="touch()"></div>
+      <div class="field" style="margin:0"><label class="label" for="fP">密码 ${isNew?'<span class="req">*</span>':''}</label><input class="input" id="fP" ${ro} type="password" placeholder="${isNew?'':'已保存 · 留空则不修改'}" oninput="touch()"></div></div>
+    </div>
+    <div class="sec"><div class="sec-h">访问范围</div>
+      <div class="field"><span class="label">可读的 ${d.e==='ss'?'schema':'数据库'} <span class="req">*</span></span><div class="tagin">${d.scope.map(s=>`<span class="chip mono">${s}<button aria-label="移除 ${s}" ${unk?'disabled':''}>${I('x','sm')}</button></span>`).join('')}<input ${ro} placeholder="${d.scope.length?'':'输入后回车添加'}" aria-label="添加范围"></div><span class="hint">只能读取这里列出的${d.e==='ss'?' schema':'库'}，至少一项。</span></div>
+      <div class="field"><span class="label">授权给项目</span><div class="col" style="gap:8px">${['OpenCode Loopper','客户服务平台','支付网关'].map(p=>`<label class="check"><input type="checkbox" ${d.projects.includes(p)?'checked':''} ${unk?'disabled':''} onchange="touch()"><span style="font-size:13.5px">${p}</span></label>`).join('')}</div><span class="hint">只有授权项目中的新任务能发现这个连接；已冻结的任务不受影响。</span></div>
+    </div>
+    <details class="adv sec" style="padding:0 14px"><summary>${I('chevRight','sm chev')}查询限制</summary>
+      <div class="grid-2" style="padding-bottom:14px"><div class="field" style="margin:0"><label class="label" for="fTo">查询超时（秒）</label><input class="input" id="fTo" type="number" value="10" min="1" max="30" ${ro}><span class="hint">1–30</span></div><div class="field" style="margin:0"><label class="label" for="fR">单次最多返回行数</label><input class="input" id="fR" type="number" value="200" min="1" max="1000" ${ro}><span class="hint">1–1000</span></div></div></details>
+    <div class="sec"><div class="row"><span class="sec-h grow" style="margin:0">连接检查</span><button class="btn secondary sm" id="pBtn" ${unk?'disabled':''} onclick="runProbe(this)">${I('link','sm')}检查连接</button></div>
+      <div id="probeBox">${probeHTML()}</div></div>`;
+  DS.$('#drFoot').innerHTML = `<span class="hint grow" id="whyF">${unk?'结果确认前不能再次保存':dirty?'有未保存的修改':isNew?'填写必填项后可以保存':'没有修改'}</span>
+    <button class="btn ghost" ${unk?'disabled':''} onclick="DS.closeDrawer('dr')">取消</button><button class="btn primary" id="saveB" ${dirty&&!unk?'':'disabled'} onclick="save(this)">${unk?'<span class="spin"></span>核对中':'保存'}</button>`;
+}
+function probeHTML(){
+  if (!probe) return `<p class="hint" style="margin-top:8px">检查不会保存任何设置。修改字段后需要重新检查。</p>`;
+  if (probe==='run') return `<div class="row hint" style="margin-top:10px"><span class="spin"></span>正在连接…</div>`;
+  if (probe==='fail') return `<div class="banner danger" style="margin-top:10px">${I('alert')}<div><b>认证失败</b><br>数据库拒绝了用户名或密码（DATABASE_AUTHENTICATION_FAILED）。填写的内容已保留。</div></div>`;
+  const ss = editing.e==='ss';
+  return `<div class="pr">
+    <div><b style="color:var(--ok)">${I('check','sm')}已连接</b><span class="hint">用时 182ms</span></div>
+    <div><b style="color:${ss?'var(--warn)':'var(--ok)'}">${I(ss?'minus':'check','sm')}会话只读</b><span class="hint">${ss?'数据库未开启会话只读':'会话为只读'}</span></div>
+    <div><b style="color:var(--ok)">${I('shield','sm')}只读已强制</b><span class="hint">由连接设置保证</span></div></div>
+    <p class="hint" style="margin-top:10px">${I('info','sm')} 现场兼容性尚未验证：连接成功不代表所有查询都能正常执行。</p>`;
+}
+function touch(){ dirty=true; probe=null; DS.$('#probeBox').innerHTML=probeHTML(); DS.$('#saveB').disabled=false; DS.$('#whyF').textContent='有未保存的修改'; }
+function runProbe(b){ probe='run'; DS.$('#probeBox').innerHTML=probeHTML(); DS.$('#saveB').disabled=true; setTimeout(()=>{ probe='ok'; DS.$('#probeBox').innerHTML=probeHTML(); DS.$('#saveB').disabled=!dirty; },1100); }
+function save(b){ b.innerHTML='<span class="spin"></span>保存中'; b.disabled=true; setTimeout(()=>{ DS.closeDrawer('dr'); DS.toast(isNew?'已添加连接':'已保存，版本 v8'); },900); }
+
+/* ---------- 补充：五种扩展数据库类型（仅 BX 状态使用，不影响原有状态） ---------- */
+const BXS = ['og-new','dm-probe','db2-fail','gd-edit','legacy-type','types-fail'];
+const BX = BXS.includes(S);
+// 类型清单示例：真实选项、驱动文件名、地址示例均以服务返回的类型清单为准
+const BXT = [
+  {t:'MYSQL', l:'MySQL', a:'MY', c:'bx-my', drv:'mysql-connector-j-8.4.0.jar', url:'jdbc:mysql://host:3306/db'},
+  {t:'OPENGAUSS', l:'openGauss', a:'OG', c:'bx-og', drv:'opengauss-jdbc-6.0.0.jar', url:'jdbc:opengauss://host:5432/db'},
+  {t:'GAUSSDB', l:'GaussDB', a:'GS', c:'bx-gs', drv:'gaussdbjdbc-505.2.0.jar', url:'jdbc:gaussdb://host:8000/db'},
+  {t:'GOLDENDB', l:'GoldenDB', a:'GD', c:'bx-gd', drv:'goldendb-jdbc-5.2.1.jar', url:'jdbc:mysql://host:3306/db'},
+  {t:'DAMENG', l:'达梦', a:'DM', c:'bx-dm', drv:'DmJdbcDriver18-8.1.3.62.jar', url:'jdbc:dm://host:5236'},
+  {t:'ORACLE', l:'Oracle', a:'ORA', c:'bx-ora', drv:'ojdbc11-23.4.0.jar', url:'jdbc:oracle:thin:@//host:1521/service'},
+  {t:'DB2', l:'DB2', a:'DB2', c:'bx-db2', drv:'db2jcc4-11.5.9.0.jar', url:'jdbc:db2://host:50000/db'},
+  {t:'SQLSERVER', l:'SQL Server', a:'MSSQL', c:'bx-ms', drv:'mssql-jdbc-12.6.1.jre11.jar', url:'jdbc:sqlserver://host:1433;databaseName=db'},
+];
+// 本状态下服务返回的类型（历史类型状态里服务不再返回 Oracle）
+const bxTypes = () => S==='legacy-type' ? BXT.filter(x=>x.t!=='ORACLE') : BXT;
+const bxT = t => BXT.find(x=>x.t===t);
+const DBX = [
+  {id:'x1', n:'人事档案只读库', t:'DAMENG', host:'dm-hr.internal:5236', url:'jdbc:dm://dm-hr.internal:5236', user:'hr_reader', on:true, projects:['客户服务平台'], scope:['HR_ARCHIVE'], probe:['none','尚未检查'], v:5},
+  {id:'x2', n:'交易查询只读库', t:'GOLDENDB', host:'gdb-trade.internal:3306', url:'jdbc:mysql://gdb-trade.internal:3306/trade_q', user:'trade_ro', on:true, projects:['支付网关'], scope:['trade_q'], probe:['ok','已连接 · 只读已强制 · 3 天前'], v:3},
+  {id:'x3', n:'核心账务只读库', t:'DB2', host:'db2-core.internal:50000', url:'jdbc:db2://db2-core.internal:50000/COREACC', user:'acct_view', on:true, projects:['OpenCode Loopper'], scope:['ACCT','LEDGER'], probe:['warn','本次检查失败 · 今天 10:18'], v:7},
+  {id:'x4', n:'旧版结算只读库', t:'ORACLE', host:'ora-settle.internal:1521', url:'jdbc:oracle:thin:@//ora-settle.internal:1521/SETTLE', user:'settle_ro', on:false, projects:['支付网关'], scope:['SETTLE'], probe:['idle','已停用'], v:2},
+];
+const bxEng = t => { const x=bxT(t); return `<span class="eng ${x.c}">${x.a}</span>`; };
+function bxCards(){
+  const pb = {ok:['var(--ok)','check'], warn:['var(--warn)','alert'], idle:['var(--muted)','minus'], none:['var(--muted)','clock']};
+  return DBX.map((d,i)=>`<button class="card hoverable dc in ${d.on?'':'off'}" style="animation-delay:${(i+4)*40}ms" onclick="bxOpen('${d.id}',this)">
+    <div class="row" style="align-items:flex-start;gap:12px">${bxEng(d.t)}<span class="grow"><div class="nm">${esc(d.n)}</div><div class="host" style="margin-top:3px">${d.host}</div></span>
+      <span class="badge ${d.on?'st-ok':'st-idle'}">${d.on?'<span class="dot"></span>已启用':'已停用'}</span></div>
+    <div class="col" style="gap:8px">
+      <div class="row" style="gap:8px"><span class="hint" style="width:52px">可读范围</span><span class="chips">${d.scope.map(s=>`<span class="chip mono">${s}</span>`).join('')}</span></div>
+      <div class="row" style="gap:8px;align-items:flex-start"><span class="hint" style="width:52px;padding-top:3px">授权项目</span><span class="chips">${d.projects.map(p=>`<span class="chip">${p}</span>`).join('')}</span></div>
+    </div>
+    <div class="probe"><span style="color:${pb[d.probe[0]][0]}">${I(pb[d.probe[0]][1],'sm')}</span>${d.probe[1]}${S==='legacy-type'&&d.t==='ORACLE'?'<span class="badge outline" style="margin-left:auto">历史类型 · 只能查看</span>':''}</div>
+  </button>`).join('');
+}
+function bxTypesFailBanner(){
+  return `<div class="banner danger" role="alert" style="margin-bottom:16px">${I('alert')}<div><b>数据库类型清单读取失败</b><br>连接列表仍可查看。重新读取成功前，不能添加或编辑连接。</div><div class="actions"><button class="btn secondary sm" onclick="DS.toast('正在重新读取类型清单','info')">${I('refresh','sm')}重新读取</button></div></div>`;
+}
+
+let bx = null; // 当前抽屉草稿
+function bxOpen(id, trigger){
+  if (S==='types-fail') { DS.toast('类型清单读取失败，暂时不能编辑连接','warn'); return; }
+  const d = id ? DBX.find(x=>x.id===id) : null;
+  if (S==='legacy-type' && id && !d) return;
+  bx = d ? {...d, isNew:false} : {isNew:true, n:'', t:'OPENGAUSS', url:'', user:'', on:true, projects:[], scope:[], v:0};
+  bx.probe = {'dm-probe':'ok-unk','db2-fail':'fail'}[S] || null;
+  bx.view = !!d && !bxTypes().some(x=>x.t===d.t);
+  bxFill(); DS.openDrawer('dr', trigger);
+}
+function bxPick(t){
+  if (bx.view || bx.t===t) return;
+  bx.t=t; bx.url=''; bx.probe=null; bx.dirty=true; bx.urlCleared=true; bxFill();
+}
+function bxTypeInfo(){
+  const p = bxT(bx.t), drvChanged = S==='gd-edit';
+  return `<div class="bx-tinfo" aria-live="polite">
+    <div class="row">${I('check','sm')}<span>已内置 ${p.l} 驱动 · <span class="mono">${p.drv}</span></span></div>
+    <div class="row">${I('info','sm')}<span>完整兼容性：待现场版本联调</span></div>
+    ${drvChanged?`<div class="row bx-drv">${I('refresh','sm')}<span>测试和保存将使用上述驱动；保存后供新会话使用，历史任务保留原驱动。</span></div>`:''}
+  </div>`;
+}
+function bxProbe(){
+  const p = bxT(bx.t);
+  if (!bx.probe) return `<p class="hint" style="margin-top:8px">检查不会保存任何设置。修改字段后需要重新检查。</p>`;
+  if (bx.probe==='run') return `<div class="row hint" style="margin-top:10px"><span class="spin"></span>正在连接 ${p.l}…</div>`;
+  if (bx.probe==='fail') return `<div class="banner danger" role="alert" style="margin-top:10px">${I('alert')}<div><b>连接检查失败，请检查只读账号、地址和网络</b><br>填写的内容已保留。检查不会保存任何设置。</div><div class="actions"><button class="btn secondary sm" onclick="bxRun()">${I('refresh','sm')}重新检查</button></div></div>
+    <div class="bx-pfoot">${I('info','sm')}<span class="grow">完整兼容性：待现场版本联调</span></div>`;
+  return `<div class="pr" role="status" aria-label="连接检查结果">
+    <div><b style="color:var(--ok)">${I('check','sm')}已连接</b><span class="hint">DM Database Server 8.1.3.62</span></div>
+    <div><b style="color:var(--ok)">${I('check','sm')}会话只读</b><span class="hint">已确认只读标记</span></div>
+    <div class="bx-unk"><b style="color:var(--unknown)">${I('help','sm')}只读强制待核实</b><span class="hint">检查结果未包含这一项，不能视为已强制只读</span></div></div>
+    <div class="bx-pfoot">${I('info','sm')}<span class="grow">完整兼容性：待现场版本联调</span><span>检查于 10:42</span></div>`;
+}
+function bxRun(){ bx.probe='run'; DS.$('#probeBox').innerHTML=bxProbe(); setTimeout(()=>{ bx.probe = S==='db2-fail'?'fail':'ok-unk'; DS.$('#probeBox').innerHTML=bxProbe(); DS.icons(DS.$('#probeBox')); },1000); }
+function bxTouch(){ if(!bx) return; bx.dirty=true; bx.probe=null; DS.$('#probeBox').innerHTML=bxProbe(); DS.$('#whyF').textContent='连接输入尚未保存'; }
+function bxFill(){
+  const d=bx, p=bxT(d.t), view=d.view, ro=view?'readonly':'', dis=view?'disabled':'';
+  const typeName = p.l;
+  DS.$('#drHead').innerHTML = `<div class="grow"><div class="eyebrow">${d.isNew?'新增连接':view?'查看连接':'编辑连接'}</div><h2 id="drT" style="margin-top:3px">${d.isNew?'添加只读连接':esc(d.n)}</h2>${d.isNew?'':`<div class="row" style="margin-top:8px;gap:6px"><span class="badge ${d.on?'st-ok':'st-idle'}">${d.on?'已启用':'已停用'}</span><span class="badge outline">版本 v${d.v}</span>${view?'<span class="badge outline">'+I('lock','sm')+'只能查看</span>':''}</div>`}</div>
+    <button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer('dr')">${I('x')}</button>`;
+  const types = bxTypes();
+  const picker = view
+    ? `<div class="row" style="gap:10px;height:40px">${bxEng(d.t)}<span style="font-size:14px">${typeName}</span><span class="badge outline">历史类型</span></div>`
+    : `<div class="bx-types" role="radiogroup" aria-label="数据库类型">${types.map(x=>`<button class="bx-type" role="radio" aria-checked="${d.t===x.t}" title="${x.l}" onclick="bxPick('${x.t}')"><span class="eng ${x.c}">${x.a}</span><span>${x.l}</span></button>`).join('')}</div>
+       <span class="hint">切换类型会清空连接地址。${d.urlCleared?'<span style="color:var(--warn)">已清空，请重新填写。</span>':''}</span>${bxTypeInfo()}`;
+  DS.$('#drBody').classList.toggle('bx-view', view);
+  DS.$('#drBody').innerHTML = `
+    ${view?`<div class="banner warn" style="margin:4px 0 6px">${I('lock')}<div><b>此历史类型暂不支持新增或修改连接配置</b><br>服务当前的类型清单不包含 ${typeName}。可以查看配置和检查连接；已归档的连接同样只能查看。</div></div>`:''}
+    <div class="sec"><div class="sec-h">连接</div>
+      <div class="field" style="margin:0"><label class="label" for="bxN">连接名称 ${view?'':'<span class="req">*</span>'}</label><input class="input" id="bxN" ${ro} value="${esc(d.n)}" placeholder="例如：运营报表只读库" oninput="bxTouch()"></div>
+      <div class="field"><span class="label" id="bxTL">数据库类型 ${view?'':'<span class="req">*</span>'}${view?'':`<span class="opt">· 服务提供 ${types.length} 种</span>`}</span>${picker}</div>
+      <div class="field"><label class="label" for="bxU">JDBC URL ${view?'':'<span class="req">*</span>'}</label><textarea class="textarea mono bx-ta" id="bxU" rows="2" ${ro} placeholder="${p.url}" oninput="bxTouch()">${esc(d.url)}</textarea><span class="hint">地址中不要包含用户名或密码。${d.t==='GOLDENDB'?'GoldenDB 按 MySQL 协议地址填写。':''}</span></div>
+      <div class="grid-2" style="margin-top:20px"><div class="field" style="margin:0"><label class="label" for="bxUs">用户名 ${view?'':'<span class="req">*</span>'}</label><input class="input" id="bxUs" ${ro} autocomplete="off" value="${esc(d.user)}" oninput="bxTouch()"></div>
+      <div class="field" style="margin:0">${view?`<span class="label">密码</span><input class="input" readonly value="已配置 · 不显示" aria-label="密码">`:`<label class="label" for="bxP">${d.isNew?'密码 <span class="req">*</span>':'新密码'}</label><input class="input" id="bxP" type="password" autocomplete="new-password" placeholder="${d.isNew?'使用数据库只读账号的密码':'留空保留原密码'}" oninput="bxTouch()">`}</div></div>
+    </div>
+    <div class="sec"><div class="sec-h">访问范围</div>
+      <div class="field"><span class="label">允许访问的 schema ${view?'':'<span class="req">*</span>'}</span><div class="tagin">${d.scope.map(s=>`<span class="chip mono">${s}${view?'':`<button aria-label="移除范围：${s}" onclick="bxTouch()">${I('x','sm')}</button>`}</span>`).join('')}${view?'':`<input placeholder="${d.scope.length?'':'输入 schema 后回车添加'}" aria-label="允许访问的 schema">`}</div><span class="hint">任务只能读取这里列出的 schema。</span></div>
+      <div class="field"><span class="label">绑定项目</span><div class="col" style="gap:8px">${['OpenCode Loopper','客户服务平台','支付网关'].map(pj=>`<label class="check"><input type="checkbox" ${d.projects.includes(pj)?'checked':''} ${dis} onchange="bxTouch()"><span style="font-size:13.5px">${pj}</span></label>`).join('')}</div><span class="hint">未绑定项目时，任务无法发现此连接。</span></div>
+    </div>
+    <details class="adv sec" style="padding:0 14px"><summary>${I('chevRight','sm chev')}高级</summary>
+      <div class="grid-2" style="padding-bottom:14px"><div class="field" style="margin:0"><label class="label" for="bxTo">查询超时（秒）</label><input class="input" id="bxTo" type="number" value="10" min="1" max="30" ${ro}><span class="hint">1–30</span></div><div class="field" style="margin:0"><label class="label" for="bxR">最多返回行数</label><input class="input" id="bxR" type="number" value="200" min="1" max="1000" ${ro}><span class="hint">1–1000</span></div></div></details>
+    <div class="sec" style="padding-top:14px"><label class="check"><input type="checkbox" ${d.on?'checked':''} ${dis} onchange="bxTouch()"><span style="font-size:13.5px">启用连接，供绑定项目的新会话使用</span></label></div>
+    <div class="sec"><div class="row"><span class="sec-h grow" style="margin:0">连接检查</span><button class="btn secondary sm" onclick="bxRun()">${I('link','sm')}检查连接</button></div>
+      <div id="probeBox">${bxProbe()}</div></div>`;
+  DS.$('#drFoot').innerHTML = view
+    ? `<span class="hint grow" id="whyF">历史类型或归档连接不能编辑</span><button class="btn ghost" onclick="DS.closeDrawer('dr')">关闭</button><button class="btn primary" disabled title="历史类型或归档连接不能编辑">${I('edit','sm')}编辑</button>`
+    : `<span class="hint grow" id="whyF">${d.dirty||d.isNew?'连接输入尚未保存':'配置供新会话使用'}</span><button class="btn ghost" onclick="DS.closeDrawer('dr')">取消</button><button class="btn primary" onclick="DS.toast('${d.isNew?'已添加连接':'已保存，版本 v'+(d.v+1)}')">保存</button>`;
+  DS.icons(DS.$('#dr'));
+}
+function bxBoot(){
+  const scrollProbe = () => setTimeout(()=>DS.$('#probeBox').scrollIntoView({block:'end'}),500);
+  if (S==='og-new') setTimeout(()=>{ bxOpen(null); bx.n='运营报表只读库'; bx.dirty=true; bx.scope=['report']; bx.projects=['客户服务平台']; bxFill(); },200);
+  if (S==='dm-probe') setTimeout(()=>{ bxOpen('x1'); scrollProbe(); },200);
+  if (S==='db2-fail') setTimeout(()=>{ bxOpen('x3'); scrollProbe(); },200);
+  if (S==='gd-edit') setTimeout(()=>bxOpen('x2'),200);
+  if (S==='legacy-type') setTimeout(()=>bxOpen('x4'),200);
+}
+
+function render(){
+  DS.$('#view').innerHTML = `<div class="page-head"><div class="grow"><h2 class="title">数据库</h2><p class="lede">管理只读数据库连接，决定哪些项目的任务可以读取、读取哪些库。修改只影响新建的会话。</p></div></div>${listView()}`;
+  DS.icons(DS.$('#view'));
+}
+DS.mount({ header:`<h1>${I('db')}数据库</h1><span class="spacer"></span><button class="icon-btn" aria-label="刷新" onclick="DS.toast('已刷新','info')">${I('refresh')}</button><button class="btn primary sm" ${S==='types-fail'?'disabled title="请先读取类型清单"':''} onclick="${BX?'bxOpen(null,this)':'openNew(this)'}">${I('plus','sm')}添加连接</button>`, state:S, states:[
+  {id:'list',label:'连接列表'},{id:'empty',label:'没有连接'},{id:'edit',label:'编辑连接（600 抽屉）'},{id:'new',label:'添加连接'},{id:'probe-ok',label:'检查通过（SQL Server）'},{id:'probe-fail',label:'检查失败'},{id:'save-unknown',label:'保存结果未明'},
+  {id:'og-new',label:'补充 · 新增 openGauss'},{id:'dm-probe',label:'补充 · 达梦检查通过（只读待核实）'},{id:'db2-fail',label:'补充 · DB2 检查失败'},{id:'gd-edit',label:'补充 · GoldenDB 编辑（已切换驱动提示）'},{id:'legacy-type',label:'补充 · 历史类型不可编辑'},{id:'types-fail',label:'补充 · 类型清单读取失败'}] });
+render();
+if (BX) bxBoot();
+if (S==='edit') setTimeout(()=>openEdit('d1'),200);
+if (S==='new') setTimeout(()=>openNew(),200);
+if (S==='probe-ok') setTimeout(()=>{openEdit('d3'); setTimeout(()=>DS.$('#probeBox').scrollIntoView({block:'end'}),500);},200);
+if (S==='probe-fail'||S==='save-unknown') setTimeout(()=>{openEdit('d1'); if(S==='probe-fail') setTimeout(()=>DS.$('#probeBox').scrollIntoView({block:'end'}),500);},200);
+</script>
+</body>
+</html>

@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>需求画布 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.stages{display:flex;align-items:center;gap:4px;padding:4px;border-radius:var(--r-pill);background:var(--fill-2);border:1px solid var(--line)}
+.stage{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px 0 6px;border-radius:var(--r-pill);font-size:12.5px;color:var(--muted)}
+.stage i{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:10.5px;background:var(--fill-4);color:var(--sub)}
+.stage.done{color:var(--sub)}.stage.done i{background:var(--ok-fill);color:var(--ok)}
+.stage.cur{background:var(--fill-5);color:var(--ink-strong)}.stage.cur i{background:var(--primary-bg);color:var(--primary-ink)}
+.task-title{font-family:var(--font-display);font-weight:500;font-size:17px;letter-spacing:-.2px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.goal-box{padding:12px 14px;border-radius:12px;background:var(--fill-2);border:1px solid var(--line);font-size:13.5px;line-height:1.65;color:var(--ink-2)}
+.set-row{display:flex;align-items:center;gap:10px;padding:10px 0;box-shadow:inset 0 -1px 0 var(--line);font-size:13.5px}
+.set-row:last-child{box-shadow:none}
+.set-row .k{width:72px;color:var(--muted);flex:none}
+.chk{display:flex;gap:10px;align-items:flex-start;font-size:13px;padding:6px 0}
+.chk .ic{flex:none;margin-top:1px}
+.center-card{left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100% - 48px));border-radius:18px;background:var(--panel);border:1px solid var(--line-2);box-shadow:var(--shadow-pop);cursor:default;max-height:calc(100% - 40px);overflow:auto}
+.cands{left:50%;top:20px;transform:translateX(-50%);display:flex;gap:12px;cursor:default}
+.cand{width:300px;text-align:left;padding:14px 16px;border-radius:14px;background:var(--float);border:1px solid var(--line-2);display:flex;flex-direction:column;gap:6px;transition:all var(--t-fast)}
+.cand[aria-pressed="true"]{border-color:var(--accent-line);box-shadow:0 0 0 4px var(--accent-fill)}
+.qopt{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line-2);font-size:13.5px;text-align:left;width:100%}
+.qopt[aria-checked="true"]{border-color:var(--accent-line);background:var(--accent-fill)}
+.qopt .r{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line-3);flex:none}
+.qopt[aria-checked="true"] .r{border:4px solid var(--accent)}
+.role-pick{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--fill-1);width:100%;text-align:left}
+.role-pick.unbound{border-style:dashed;border-color:var(--warn-line)}
+.av{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:600;font-size:14px;flex:none}
+/* ---- 补充 B-05：澄清与规划面板（520） ---- */
+.side.pl-side{width:var(--drawer-lg)}
+.pl-strip{flex:none;display:flex;flex-direction:column;gap:8px;padding:12px 16px;box-shadow:inset 0 -1px 0 var(--line)}
+.pl-nav{flex:none;display:flex;gap:2px;padding:8px 14px 8px 16px;box-shadow:inset 0 -1px 0 var(--line);overflow-x:auto}
+.pl-nav button{height:28px;padding:0 10px;border-radius:var(--r-pill);font-size:12.5px;color:var(--sub);display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background var(--t-fast),color var(--t-fast)}
+.pl-nav button:hover{color:var(--ink);background:var(--fill-2)}
+.pl-nav button[aria-current="true"]{background:var(--fill-4);color:var(--ink-strong)}
+.pl-nav .n{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pl-nav .mk{width:6px;height:6px;border-radius:50%;flex:none}
+.pl-sec{scroll-margin-top:12px}
+.pl-sec+.pl-sec{margin-top:28px}
+.pl-h{display:flex;align-items:center;gap:8px;margin-bottom:10px;min-height:24px}
+.pl-h h3{font-size:14px;font-weight:500}
+.pl-h .cnt{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pl-card{border:1px solid var(--line);border-radius:var(--r-md);background:var(--fill-1);min-width:0}
+.pl-card.pad{padding:14px}
+.pl-row{display:flex;align-items:center;gap:10px;padding:11px 12px;width:100%;text-align:left;min-width:0}
+.pl-row+.pl-row,.pl-row+.pl-open,.pl-open+.pl-row{box-shadow:inset 0 1px 0 var(--line)}
+button.pl-row{transition:background var(--t-fast)}
+button.pl-row:hover{background:var(--fill-2)}
+button.pl-row[aria-expanded="true"]{background:var(--fill-2)}
+.pl-t{font-size:13.5px;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-s{font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-open{padding:4px 14px 14px;background:var(--fill-2)}
+.pl-cfg{display:flex;align-items:center;gap:12px;padding:12px 14px;min-width:0}
+.pl-cfg+.pl-cfg{box-shadow:inset 0 1px 0 var(--line)}
+.pl-cfg .tile{width:32px;height:32px;border-radius:9px}
+.pl-ver{font-size:11.5px;color:var(--sub);padding:0 7px;height:20px;border-radius:var(--r-pill);border:1px solid var(--line-2);display:inline-flex;align-items:center;white-space:nowrap}
+.pl-qa{display:flex;flex-direction:column;gap:10px;margin:0;padding:12px 0 0}
+.pl-qa dt{font-size:12.5px;color:var(--muted)}
+.pl-qa dd{margin:3px 0 0;font-size:13px;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere}
+.pl-qa dd.none{color:var(--faint)}
+.pl-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.pl-map{padding:12px 14px}
+.pl-map+.pl-map{box-shadow:inset 0 1px 0 var(--line)}
+.pl-map ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.pl-map li{display:grid;grid-template-columns:minmax(0,.8fr) 18px minmax(0,1.2fr);gap:6px;align-items:center;font-size:12.5px}
+.pl-map li .tg{color:var(--ink-2);padding:4px 8px;border-radius:7px;background:var(--fill-3);overflow-wrap:anywhere}
+.pl-map li .src{color:var(--sub);overflow-wrap:anywhere}
+.pl-map li .ar{color:var(--muted);display:flex;justify-content:center}
+.pl-res{display:flex;gap:8px;align-items:flex-start;margin-top:10px;font-size:12.5px;line-height:1.5;color:var(--sub)}
+.pl-res .i{margin-top:2px;flex:none}
+.pl-chk{list-style:none;margin:0;padding:4px 14px}
+.pl-chk li{display:flex;gap:10px;align-items:flex-start;padding:10px 0;font-size:13px;line-height:1.5}
+.pl-chk li+li{box-shadow:inset 0 1px 0 var(--line)}
+.pl-chk .ic{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;flex:none}
+.pl-chk .ic .i{width:12px;height:12px}
+.pl-chk .ok{background:var(--ok-fill);color:var(--ok)}
+.pl-chk .no{background:var(--warn-fill);color:var(--warn)}
+.pl-ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.pl-ul li{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--ink-2);line-height:1.55}
+.pl-ul li>.i{margin-top:3px;color:var(--muted);flex:none}
+.pl-proof{display:flex;gap:10px;align-items:flex-start;padding:10px 12px}
+.pl-proof+.pl-proof{box-shadow:inset 0 1px 0 var(--line)}
+.pl-steps{display:flex;flex-wrap:wrap;gap:6px}
+.pl-off{opacity:.55}
+.dialog .pl-quote{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--fill-2);border:1px solid var(--line);font-size:13px;color:var(--ink-2);line-height:1.6}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="tasks">
+<main id="page" class="canvas-page" hidden>
+  <div class="canvas-bar" id="bar"></div>
+  <div id="banner"></div>
+  <div class="canvas-body"><div id="cv" class="cv" tabindex="0" aria-label="计划画布"></div><aside class="side narrow" id="side" aria-label="计划"></aside></div>
+</main>
+<div class="dialog" id="startDlg" role="alertdialog"><div class="dialog-body"><h2>开始执行这个计划？</h2><p>将按计划启动第一批步骤：<b class="ink">澄清需求</b>。执行中仍可以在画布上直接修改还没开始的步骤；“自动节点推进”默认开启，可在执行画布关闭。</p></div><div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()">再看看</button><button class="btn primary" autofocus onclick="DS.closeDialog();startRun()">开始执行</button></div></div>
+<!-- 补充 B-05：规划面板的三个确认 -->
+<div class="dialog" id="plStopDlg" role="alertdialog" aria-labelledby="plStopT"><div class="dialog-body"><h2 id="plStopT">停止第 3 轮规划？</h2><p>已有的问题、答案和草案都会保留。停止完成前会继续等待原轮次，这段时间不能开始新一轮。</p></div><div class="dialog-foot"><button class="btn ghost" autofocus onclick="DS.closeDialog()">继续规划</button><button class="btn danger" onclick="DS.closeDialog();plStop()">停止本轮规划</button></div></div>
+<div class="dialog" id="plApplyDlg" role="alertdialog" aria-labelledby="plApplyT"><div class="dialog-body"><h2 id="plApplyT">应用第 3 轮规划草案？</h2><p>草案会写入生效计划（修订 2 → 修订 3）。应用不会执行任何步骤：之后你需要<b class="ink">重新确认计划</b>，再<b class="ink">明确开始执行</b>。</p></div><div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()">再看看</button><button class="btn primary" autofocus onclick="DS.closeDialog();plApply()">应用草案</button></div></div>
+<div class="dialog" id="plRejectDlg" role="alertdialog" aria-labelledby="plRejectT"><div class="dialog-body"><h2 id="plRejectT">退回第 3 轮规划草案？</h2><p>当前生效计划保持不变，原草案和来源记录都会保留。退回说明：</p><div class="pl-quote" id="plRejectQuote"></div></div><div class="dialog-foot"><button class="btn ghost" autofocus onclick="DS.closeDialog()">取消</button><button class="btn danger" onclick="DS.closeDialog();plReject()">退回草案</button></div></div>
+
+<script src="../assets/shell.js"></script>
+<script src="../assets/canvas.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc;
+let S = DS.state || 'ready';
+const GOAL = '让项目配置更容易找到，减少切换页面的次数。';
+let nodes = [
+  {id:'start', title:'开始', system:true},
+  {id:'n1', title:'梳理配置入口', role:'产品经理', output:'入口清单与调整方案', what:'盘点现有配置入口，标出重复与难找的位置，提出合并方案。'},
+  {id:'n2', title:'调整页面结构', role:'前端工程师', output:'代码变更', what:'按方案合并配置入口，项目详情加入配置状态清单。'},
+  {id:'n3', title:'补充接口说明', role:'技术写作', output:'接口文档更新', what:'更新配置相关接口与页面说明。'},
+  {id:'n4', title:'回归测试', role:'测试工程师', output:'测试报告', what:'覆盖项目列表、详情、配置保存的回归用例。'},
+  {id:'n5', title:'人工验收', role:'人工', output:'验收结论', what:'由你确认改动是否达到目标。'},
+  {id:'end', title:'交付', system:true},
+];
+let edges = [['start','n1'],['n1','n2'],['n1','n3'],['n2','n4'],['n3','n4'],['n4','n5'],['n5','end']].map(([from,to])=>({from,to}));
+if (S==='unbound'){ nodes.find(n=>n.id==='n3').role=null; }
+let dirty = ['dirty','unbound'].includes(S) ? 1 : 0, planRev = 2, selected=null, cand='a';
+const answers = {q1:'a', q2:'b'};
+const ROLES=['产品经理','前端工程师','后端工程师','测试工程师','技术写作','人工'];
+const stageIdx = {questions:1, planning:1, candidates:1, ready:2, dirty:2, unbound:2, unknown:2, conflict:2, confirmed:3}[S] ?? 2;
+
+/* ================= 补充 B-05：澄清与规划面板（520）=================
+   原型状态 pl-*：在审阅计划的画布上打开右侧「澄清与规划」面板。
+   基础澄清问题与候选计划（A 区）只在面板里以摘要出现，原有 questions / candidates 状态不变。 */
+const PL_STATE_IDS = ['pl-config','pl-rounds','pl-stop-unknown','pl-stopping','pl-package','pl-package-noproof','pl-map-ok','pl-map-bad','pl-precheck','pl-apply-confirm','pl-reject-confirm','pl-applied','pl-unavailable','pl-conflict','pl-loading','pl-error','pl-empty'];
+function isPL(){ return S.startsWith('pl-'); }
+function plExec(){ return S==='pl-package' || S==='pl-package-noproof'; }   // 执行开始后再打开面板：工作包才会有证明
+const PL_EXEC = {n1:'done', n2:'run', n3:'run', n4:'idle', n5:'idle'};
+function SI(){ if (!isPL()) return stageIdx; if (plExec()) return 3; return PL.applied ? 2 : 1; }
+
+const PL = {
+  view: ({'pl-package':'pkg','pl-package-noproof':'pkg','pl-map-ok':'cand','pl-map-bad':'cand','pl-precheck':'cand','pl-apply-confirm':'cand','pl-reject-confirm':'cand','pl-conflict':'cand'})[S] || 'main',
+  pkg: S==='pl-package' ? 'wp1' : 'wp2',
+  openRound: ['pl-rounds','pl-stop-unknown','pl-stopping'].includes(S) ? 'r3' : null,
+  cfgEdit: S==='pl-config',
+  applied: S==='pl-applied',
+  conflict: S==='pl-conflict',
+  rejectOpen: ['pl-reject-confirm','pl-conflict'].includes(S),
+  reason: ['pl-reject-confirm','pl-conflict'].includes(S) ? '范围比预期大：这次先不改接口文档，只合并前端的配置入口。' : '',
+  checks: S==='pl-map-ok' || S==='pl-apply-confirm' || S==='pl-reject-confirm' || S==='pl-conflict' ? {m1:'OK', m2:'OK', m3:'OK'}
+        : S==='pl-map-bad' ? {m1:'OK', m2:'INCOMPLETE', m3:'MISMATCH'} : {},
+  cfg: S==='pl-empty' ? null : {tpl:'需求开发标准规划', tplV:7, role:'需求规划师', roleV:4},
+  scroll: ({'pl-config':'config','pl-rounds':'rounds','pl-stop-unknown':'rounds','pl-stopping':'rounds','pl-error':'rounds',
+            'pl-map-ok':'maps','pl-map-bad':'maps','pl-precheck':'apply','pl-apply-confirm':'apply','pl-reject-confirm':'reject','pl-conflict':'top'})[S] || 'top',
+};
+const R3 = {'pl-stop-unknown':'STOP_UNKNOWN','pl-stopping':'STOPPING','pl-map-ok':'STOPPED','pl-map-bad':'STOPPED','pl-apply-confirm':'STOPPED','pl-reject-confirm':'STOPPED','pl-conflict':'STOPPED','pl-applied':'STOPPED','pl-package':'STOPPED','pl-package-noproof':'STOPPED'}[S] || 'CANDIDATE';
+const QA3 = [['“配置”主要指哪些？','Git、GitLab、文档路径、项目公约'],['改动范围？','前端页面 + 接口文档'],['是否需要保留旧入口一段时间？',null]];
+let ROUNDS = S==='pl-empty' ? [] : [
+  {id:'r3', n:3, state:R3, rev:2, at:'今天 14:32', ans:3, tpl:'需求开发标准规划', tplV:7, role:'需求规划师', roleV:4, qa:QA3},
+  {id:'r2', n:2, state:'STOPPED', rev:1, at:'今天 11:05', ans:2, tpl:'需求开发标准规划', tplV:6, role:'需求规划师', roleV:4, qa:[['“配置”主要指哪些？','只包括 Git 账号'],['改动范围？','只调整前端页面']]},
+  {id:'r1', n:1, state:'FAILED', rev:1, at:'今天 10:40', ans:1, tpl:'需求开发标准规划', tplV:6, role:'全栈工程师', roleV:9, qa:[['“配置”主要指哪些？','只包括 Git 账号']], fail:'模型服务超时，本轮没有生成草案。'},
+];
+const RST = {REQUESTED:['已请求规划','st-wait','clock'], ACTIVE:['规划中','st-run','play'], CANDIDATE:['草案待审阅','st-accent','doc'], STOPPING:['停止中','st-idle','spin'],
+  STOP_UNKNOWN:['停止尚未核明','st-unknown','help'], STOPPED:['已停止','st-idle','stop'], CANCELLED:['已取消','st-idle','x'], FAILED:['规划失败','st-fail','alert']};
+const PROOF1 = [{id:'a7c41e2', rev:2, ord:1}];
+let PACKS = S==='pl-empty' ? [] : [
+  {id:'wp1', t:'配置入口梳理', obj:'盘点现有配置入口，标出重复与难找的位置，形成合并方案。', nodes:['n1'], deps:[], acc:['列出全部配置入口及所在页面','每个入口标注保留、合并或移除'], contracts:1, proofs: plExec() ? PROOF1 : []},
+  {id:'wp2', t:'页面结构与接口说明', obj:'按方案合并配置入口，并同步更新配置相关的接口说明。', nodes:['n2','n3'], deps:['wp1'], acc:['项目详情页可以直接看到配置状态清单','配置相关接口说明与页面行为一致'], contracts:2, proofs:[]},
+  {id:'wp3', t:'回归与验收', obj:'覆盖项目列表、详情和配置保存的回归用例，由你验收。', nodes:['n4','n5'], deps:['wp2'], acc:['回归用例全部通过','人工验收结论为通过'], contracts:2, proofs:[]},
+];
+let CANDS = S==='pl-empty' ? [] : [
+  {id:'c3', round:3, rev:2, at:'今天 14:41', state: PL.applied ? 'APPLIED' : 'PENDING'},
+  {id:'c2', round:2, rev:1, at:'今天 11:20', state:'REJECTED', reason:'范围太大，先不改接口。'},
+];
+const CST = {PENDING:['待审阅','st-wait','clock'], APPLIED:['已应用','st-ok','check'], REJECTED:['已退回','st-idle','arrowLeft']};
+const C3_STEPS = ['梳理配置入口','调整页面结构','补充接口说明','回归测试','人工验收'];
+const MAPS = [
+  {k:'m1', node:'调整页面结构', rows:[['入口清单','梳理配置入口 · 入口清单'],['调整方案','梳理配置入口 · 调整方案']]},
+  {k:'m2', node:'补充接口说明', rows:[['','梳理配置入口 · 全部产出']]},
+  {k:'m3', node:'回归测试', rows:[['变更列表','调整页面结构 · 代码变更'],['文档版本','补充接口说明 · 文档修订']]},
+];
+const MAP_MSG = {m3:'“回归测试”的输入合同里没有“文档版本”这一项。可以退回草案并写明原因，下一轮规划会据此调整。'};
+
+const badge = (st, map) => { const x = map[st] || ['状态待核对','st-unknown','help']; return `<span class="badge ${x[1]}">${x[2]==='spin'?'<span class="spin" style="width:10px;height:10px"></span>':I(x[2],'sm')}${x[0]}</span>`; };
+const nodeTitle = id => nodes.find(n=>n.id===id)?.title || '未解析的节点';
+const r3 = () => ROUNDS.find(r=>r.id==='r3');
+let loading = S==='pl-loading', unavailable = S==='pl-unavailable';
+if (PL.applied) planRev = 3;
+function genBlock(){
+  const r = r3();
+  if (unavailable) return '规划服务未接入';
+  if (!PL.cfg) return '先选择规划配置';
+  if (r && r.state==='STOP_UNKNOWN') return '第 3 轮的停止结果尚未核明';
+  if (r && r.state==='STOPPING') return '第 3 轮正在停止，尚不能开始新一轮';
+  if (r && ['ACTIVE','REQUESTED'].includes(r.state)) return '第 3 轮仍在规划';
+  return '';
+}
+function applyChecks(){
+  const r = r3(), c = CANDS.find(x=>x.id==='c3');
+  return [
+    {ok: r && r.state==='STOPPED', t:'来源轮次已停止', d: r && r.state==='STOPPED' ? '第 3 轮已停止，不会再改动这份草案。' : `第 3 轮当前为「${RST[r?.state]?.[0]||'状态待核对'}」。先停止该轮，草案内容才会固定下来。`, fix: r && r.state!=='STOPPED' ? `<button class="btn secondary sm" style="margin-top:8px" onclick="plGoRound()">去停止第 3 轮</button>` : ''},
+    {ok: c && c.rev===planRev, t:`草案基于当前计划修订 ${planRev}`, d: c && c.rev===planRev ? '应用时不会覆盖别人后来做的修改。' : `草案基于修订 ${c?.rev}，当前计划已是修订 ${planRev}。请重新核对当前计划。`},
+  ];
+}
+
+/* ---------- 面板骨架 ---------- */
+function planPanel(el){
+  if (PL.view==='pkg') return pkgView(el);
+  if (PL.view==='cand') return candView(el);
+  const counts = {rounds:ROUNDS.length, packages:PACKS.length, drafts:CANDS.length};
+  const anchors = [['answers','答案'],['config','配置'],['rounds','轮次'],['packages','工作包'],['drafts','草案']];
+  const unk = ROUNDS.some(r=>r.state==='STOP_UNKNOWN');
+  el.innerHTML = `
+    <div class="side-head"><div class="grow"><div class="eyebrow">需求计划 · 修订 ${planRev}</div><div style="font-size:15px;font-weight:500;margin-top:2px">澄清与规划</div></div>
+      <button class="icon-btn" aria-label="重新读取规划资料" ${loading?'disabled':''} onclick="plRefresh(this)">${loading?'<span class="spin"></span>':I('refresh')}</button>
+      <button class="icon-btn" aria-label="关闭澄清与规划" onclick="plClose()">${I('x')}</button></div>
+    <nav class="pl-nav" aria-label="面板分区">${anchors.map(([k,l])=>`<button data-a="${k}" onclick="plJump('${k}')">${l}${counts[k]!==undefined&&!loading&&!unavailable?`<span class="n">${counts[k]}</span>`:''}${k==='rounds'&&unk?'<span class="mk" style="background:var(--unknown)" aria-label="有待核对"></span>':''}</button>`).join('')}</nav>
+    ${(()=>{ const b=topBanners(); return b ? `<div class="pl-strip">${b}</div>` : ''; })()}
+    <div class="side-body" id="plBody">
+      ${secAnswers()}${secConfig()}${secRounds()}${secPackages()}${secDrafts()}
+    </div>
+    <div class="side-foot">${PL.applied
+      ? `<button class="btn primary" style="width:100%" onclick="plClose(true)">关闭并重新确认计划</button>`
+      : `<span class="hint" style="display:flex;gap:8px;align-items:flex-start">${I('info','sm')}<span>保存答案、生成草案、应用草案、确认计划、开始执行是五个独立操作，任何一步都不会自动触发下一步。</span></span>`}</div>`;
+  const body = DS.$('#plBody');
+  body.addEventListener('scroll', plSpy);
+  requestAnimationFrame(()=>{ if (PL.scroll!=='top'){ const t=DS.$('#pl-'+PL.scroll); if(t) body.scrollTop = t.offsetTop - body.offsetTop - 12; } PL.scroll='top'; plSpy(); });
+}
+function plSpy(){
+  const body = DS.$('#plBody'); if (!body) return;
+  let cur = 'answers';
+  DS.$$('.pl-sec[data-sec]', body).forEach(s=>{ if (s.offsetTop - body.offsetTop - body.scrollTop <= 40) cur = s.dataset.sec; });
+  if (body.scrollTop + body.clientHeight >= body.scrollHeight - 4) cur = 'drafts';
+  DS.$$('.pl-nav button').forEach(b=>b.setAttribute('aria-current', b.dataset.a===cur ? 'true' : 'false'));
+}
+function plJump(k){ const body=DS.$('#plBody'), t=DS.$('#pl-'+k); if(body&&t) body.scrollTo({top:t.offsetTop-body.offsetTop-12, behavior:'smooth'}); }
+
+function topBanners(){
+  const r = r3(); let h='';
+  if (PL.applied) h += `<div class="banner ok" >${I('check')}<div><b>第 3 轮草案已应用到计划修订 ${planRev}</b><br>请重新确认计划，再开始执行。应用本身没有执行任何步骤。</div></div>`;
+  if (unavailable) h += `<div class="banner warn">${I('alert')}<div><b>本地服务还没有提供澄清与规划接口</b><br>已有计划和本地输入会保留。接入规划服务后再重新读取。</div><div class="actions"><button class="btn secondary sm" onclick="plRefresh(this)">${I('refresh','sm')}重新读取</button></div></div>`;
+  if (r && r.state==='STOP_UNKNOWN') h += `<div class="banner unknown">${I('help')}<div><b>第 3 轮的停止结果尚未核明</b><br>生成新一轮和应用草案已锁定。核对原轮次后再继续，不会重复发送停止请求。</div><div class="actions"><button class="btn secondary sm" onclick="plVerify(this)">核对原轮次</button></div></div>`;
+  return h;
+}
+function sk(n,h=13){ return Array.from({length:n},(_, i)=>`<div class="pl-row"><div class="col grow" style="gap:6px"><div class="skel" style="height:${h}px;width:${[52,40,46][i%3]}%"></div><div class="skel" style="height:10px;width:${[30,36,24][i%3]}%"></div></div><div class="skel" style="height:20px;width:64px;border-radius:99px"></div></div>`).join(''); }
+const offLine = t => `<div class="pl-card pad pl-off"><span class="hint">${t}</span></div>`;
+
+function secAnswers(){
+  return `<section class="pl-sec" id="pl-answers" data-sec="answers" aria-labelledby="plh-a">
+    <div class="pl-h"><h3 id="plh-a">澄清答案</h3><span class="grow"></span>${loading?'':`<span class="badge st-ok">${I('check','sm')}已保存 · 答案修订 3</span>`}</div>
+    ${loading ? `<div class="pl-card">${sk(1)}</div><p class="hint" role="status" style="margin-top:6px">正在读取最新答案…</p>` : `<div class="pl-card pad">
+      <div class="row" style="gap:12px"><div class="grow"><div style="font-size:13.5px">3 个问题 · 2 个必答已回答</div><div class="hint" style="margin-top:2px">问题来源修订 2 · 基于计划修订 2</div></div>
+      <button class="btn secondary sm" onclick="S='questions';refresh()">查看与修改答案</button></div></div>`}
+  </section>`;
+}
+function secConfig(){
+  const gb = genBlock();
+  let inner;
+  if (loading) inner = `<div class="pl-card">${sk(2)}</div>`;
+  else if (PL.cfgEdit) inner = `<div class="pl-card pad">
+      <div class="field"><label class="label" for="plTpl">任务模板</label><select class="select" id="plTpl"><option>需求开发标准规划 · 发布 7</option><option>缺陷修复快速规划 · 发布 3</option><option>文档编写规划 · 发布 2</option></select>
+        <button class="btn ghost sm" style="align-self:flex-start;margin-left:-8px">加载更多模板</button></div>
+      <div class="field" style="margin-top:8px"><label class="label" for="plRole">职业</label><select class="select" id="plRole"><option>需求规划师 · 发布 4（模板推荐）</option><option>全栈工程师 · 发布 9</option><option>技术方案架构师 · 发布 2</option></select>
+        <span class="hint" style="display:flex;gap:6px;align-items:center;color:var(--ok)">${I('check','sm')}已核对：模板发布 7，推荐职业发布 4</span></div>
+      <p class="hint" style="margin-top:12px">只列出已发布版本。生成时会冻结这两个版本，之后的新发布不影响已生成的轮次。</p>
+      <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn secondary sm" onclick="PL.cfgEdit=false;side()">完成</button></div></div>`;
+  else if (!PL.cfg) inner = `<div class="pl-card pad"><div style="font-size:13.5px">还没有选择规划配置</div><p class="hint" style="margin-top:4px">选择已发布的任务模板和职业，或沿用已有轮次的配置。模板的推荐职业可以作为首次选择。</p>
+      <button class="btn secondary sm" style="margin-top:12px" onclick="PL.cfgEdit=true;PL.cfg={tpl:'需求开发标准规划',tplV:7,role:'需求规划师',roleV:4};side()">选择规划配置</button></div>`;
+  else inner = `<div class="pl-card ${unavailable?'pl-off':''}">
+      <div class="pl-cfg"><span class="tile">${I('template','sm')}</span><div class="grow" style="min-width:0"><div class="hint">任务模板</div><div class="pl-t">${PL.cfg.tpl}</div></div><span class="pl-ver">发布 ${PL.cfg.tplV}</span></div>
+      <div class="pl-cfg"><span class="tile">${I('users','sm')}</span><div class="grow" style="min-width:0"><div class="hint">职业</div><div class="pl-t">${PL.cfg.role}</div></div><span class="pl-ver">发布 ${PL.cfg.roleV}</span></div></div>`;
+  return `<section class="pl-sec" id="pl-config" data-sec="config" aria-labelledby="plh-c">
+    <div class="pl-h"><h3 id="plh-c">规划配置</h3>${PL.cfg&&!PL.cfgEdit&&!loading?`<span class="badge outline">${I('lock','sm')}生成时冻结</span>`:''}<span class="grow"></span>${PL.cfg&&!PL.cfgEdit&&!loading&&!unavailable?`<button class="btn ghost sm" onclick="PL.cfgEdit=true;side()">更换</button>`:''}</div>
+    ${inner}
+    ${loading?'':`<div class="row" style="margin-top:12px;gap:10px"><button class="btn secondary sm" ${gb||PL.cfgEdit?'disabled':''} onclick="plGenerate(this)">${I('sparkle','sm')}生成规划草案</button><span class="hint grow">${gb ? gb : PL.cfgEdit ? '完成配置后再生成' : '用已保存的答案和这份配置开始新一轮'}</span></div>`}
+  </section>`;
+}
+function roundDetail(r){
+  const cancellable = ['REQUESTED','ACTIVE','CANDIDATE'].includes(r.state);
+  return `<div class="pl-open" id="plRound-${r.id}">
+    <div class="row wrap" style="gap:6px;padding-top:10px" aria-label="本轮输入"><span class="chip">答案修订 ${r.ans}</span><span class="chip">${I('template','sm')}${r.tpl} · 发布 ${r.tplV}</span><span class="chip">${I('users','sm')}${r.role} · 发布 ${r.roleV}</span></div>
+    ${r.fail ? `<div class="banner warn" style="margin-top:10px">${I('alert')}<div>${r.fail}</div></div>` : ''}
+    ${r.state==='STOP_UNKNOWN' ? `<div class="banner unknown" style="margin-top:10px">${I('help')}<div><b>停止尚未核明</b><br>处理这一轮之前，不能生成新一轮。</div></div>` : ''}
+    ${r.state==='STOPPING' ? `<div class="banner" style="margin-top:10px"><span class="spin" style="margin-top:3px;color:var(--accent)"></span><div>正在停止这一轮，尚不能开始新一轮。已有问题、答案和草案都会保留。</div></div>` : ''}
+    <dl class="pl-qa" aria-label="本轮问答快照">${r.qa.map(([q,a])=>`<div><dt>${q}</dt><dd class="${a?'':'none'}">${a||'尚未回答'}</dd></div>`).join('')}</dl>
+    <div class="pl-acts">
+      ${r.state==='STOP_UNKNOWN' ? `<button class="btn secondary sm" onclick="plVerify(this)">${I('refresh','sm')}核对原轮次</button>` : ''}
+      <button class="btn secondary sm" ${r.state==='STOP_UNKNOWN'?'disabled':''} onclick="plReuse(${r.n})">${I('copy','sm')}沿用本轮配置</button>
+      ${cancellable ? `<button class="btn ghost sm" style="color:var(--danger)" onclick="DS.openDialog('plStopDlg',this)">${I('stop','sm')}停止本轮规划</button>` : ''}
+    </div></div>`;
+}
+function secRounds(){
+  let inner;
+  if (loading) inner = `<div class="pl-card">${sk(3)}</div><p class="hint" role="status" style="margin-top:6px">正在读取规划轮次…</p>`;
+  else if (unavailable) inner = offLine('规划轮次需要规划服务；接入后重新读取。');
+  else if (S==='pl-error') inner = `<div class="banner danger">${I('alert')}<div><b>规划轮次读取失败</b><br>规划资料暂时不可用。已填写的内容都保留着，可以稍后重试。</div><div class="actions"><button class="btn secondary sm" onclick="plRetry(this)">${I('refresh','sm')}重试</button></div></div>`;
+  else if (!ROUNDS.length) inner = `<div class="pl-card pad" style="text-align:center;padding:22px 16px"><div style="font-size:13.5px">还没有规划轮次</div><p class="hint" style="margin-top:4px">保存答案并选择规划配置后，生成第一轮规划。</p></div>`;
+  else inner = `<div class="pl-card" style="overflow:hidden">${ROUNDS.map(r=>`
+      <button class="pl-row" aria-expanded="${PL.openRound===r.id}" aria-controls="plRound-${r.id}" onclick="PL.openRound=PL.openRound==='${r.id}'?null:'${r.id}';side();plJump('rounds')">
+        <div class="grow" style="min-width:0"><div class="pl-t">第 ${r.n} 轮</div><div class="pl-s">基于计划修订 ${r.rev} · ${r.at}</div></div>
+        ${badge(r.state, RST)}<span class="muted" style="display:flex;transform:rotate(${PL.openRound===r.id?90:0}deg);transition:transform .2s">${I('chevRight','sm')}</span></button>
+      ${PL.openRound===r.id ? roundDetail(r) : ''}`).join('')}
+      <div class="pl-row" style="justify-content:center;padding:6px"><button class="btn ghost sm">加载更早的轮次</button></div></div>`;
+  return `<section class="pl-sec" id="pl-rounds" data-sec="rounds" aria-labelledby="plh-r"><div class="pl-h"><h3 id="plh-r">规划轮次</h3><span class="grow"></span>${S==='pl-error'||loading?'':'<span class="hint">按时间倒序</span>'}</div>${inner}</section>`;
+}
+function secPackages(){
+  let inner;
+  if (loading) inner = `<div class="pl-card">${sk(2)}</div><p class="hint" role="status" style="margin-top:6px">正在读取工作包…</p>`;
+  else if (unavailable) inner = offLine('工作包需要规划服务；接入后重新读取。');
+  else if (!PACKS.length) inner = `<div class="pl-card pad"><span class="hint">当前计划还没有工作包。</span></div>`;
+  else inner = `<div class="pl-card" style="overflow:hidden">${PACKS.map(p=>`<button class="pl-row" onclick="PL.view='pkg';PL.pkg='${p.id}';side()">
+      <div class="grow" style="min-width:0"><div class="pl-t">${p.t}</div><div class="pl-s">${p.nodes.length} 个步骤 · ${p.obj}</div></div>
+      ${p.proofs.length?`<span class="badge st-done">${I('check','sm')}已证明完成</span>`:`<span class="badge outline">${I('minus','sm')}未证明完成</span>`}<span class="muted" style="display:flex">${I('chevRight','sm')}</span></button>`).join('')}</div>`;
+  return `<section class="pl-sec" id="pl-packages" data-sec="packages" aria-labelledby="plh-p"><div class="pl-h"><h3 id="plh-p">工作包</h3><span class="cnt">计划修订 ${planRev}</span><span class="grow"></span>${loading||unavailable?'':'<span class="hint">只读</span>'}</div>${inner}
+    ${!loading&&!unavailable&&PACKS.length?'<p class="hint" style="margin-top:6px">完成以服务端的制品验收与停止证明为准，执行状态本身不算完成。</p>':''}</section>`;
+}
+function secDrafts(){
+  let inner;
+  if (loading) inner = `<div class="pl-card">${sk(1)}</div><p class="hint" role="status" style="margin-top:6px">正在读取规划草案…</p>`;
+  else if (unavailable) inner = offLine('规划草案需要规划服务；接入后重新读取。');
+  else if (!CANDS.length) inner = `<div class="pl-card pad"><span class="hint">还没有规划草案。生成规划后，草案会出现在这里，需要你单独应用。</span></div>`;
+  else inner = `<div class="pl-card" style="overflow:hidden">${CANDS.map(c=>`<button class="pl-row" onclick="${c.id==='c3'?`PL.view='cand';side()`:`DS.toast('第 2 轮草案已退回，只读查看（原型未展开）','info')`}">
+      <div class="grow" style="min-width:0"><div class="pl-t">第 ${c.round} 轮草案</div><div class="pl-s">基于计划修订 ${c.rev} · ${c.at}${c.reason?` · 退回：${c.reason}`:''}</div></div>
+      ${badge(c.state, CST)}<span class="muted" style="display:flex">${I('chevRight','sm')}</span></button>`).join('')}</div>`;
+  return `<section class="pl-sec" id="pl-drafts" data-sec="drafts" aria-labelledby="plh-d"><div class="pl-h"><h3 id="plh-d">规划草案</h3></div>${inner}</section>`;
+}
+
+/* ---------- 工作包详情 ---------- */
+function pkgView(el){
+  const p = PACKS.find(x=>x.id===PL.pkg);
+  el.innerHTML = `
+    <div class="side-head"><button class="icon-btn" aria-label="返回澄清与规划" onclick="PL.view='main';side()">${I('chevLeft')}</button><div class="grow" style="min-width:0"><div class="eyebrow">工作包 · 计划修订 ${planRev}</div><div style="font-size:15px;font-weight:500;margin-top:2px" class="ellipsis">${p.t}</div></div>
+      ${p.proofs.length?`<span class="badge st-done">${I('check','sm')}已证明完成</span>`:`<span class="badge outline">${I('minus','sm')}未证明完成</span>`}</div>
+    <div class="side-body">
+      <div class="goal-box">${p.obj}</div>
+      <div class="pl-sec" style="margin-top:22px"><div class="pl-h"><h3>步骤</h3><span class="cnt">${p.nodes.length}</span></div>
+        <div class="pl-card" style="overflow:hidden">${p.nodes.map(k=>{ const st=PL_EXEC[k]; const b=plExec()&&st?({done:`<span class="badge st-done">${I('check','sm')}已完成</span>`,run:`<span class="badge st-run">${I('play','sm')}执行中</span>`,idle:`<span class="badge st-idle">${I('clock','sm')}待执行</span>`}[st]):''; return `<button class="pl-row" onclick="cv.focusNode('${k}')"><span class="grow pl-t" style="font-weight:400">${nodeTitle(k)}</span>${b}<span class="hint" style="display:flex;gap:4px;align-items:center">${I('target','sm')}定位</span></button>`; }).join('')}</div></div>
+      <div class="pl-sec"><div class="pl-h"><h3>前置工作包</h3></div>${p.deps.length?`<div class="pl-steps">${p.deps.map(d=>`<span class="chip">${I('layers','sm')}${PACKS.find(x=>x.id===d)?.t||'前置工作包名称待读取'}</span>`).join('')}</div>`:'<p class="hint">无前置工作包，可以最先开始。</p>'}</div>
+      <div class="pl-sec"><div class="pl-h"><h3>验收条件</h3></div><ul class="pl-ul">${p.acc.map(a=>`<li>${I('check','sm')}<span>${a}</span></li>`).join('')}</ul></div>
+      <div class="pl-sec"><div class="pl-h"><h3>完成证明</h3><span class="grow"></span><span class="hint">${p.contracts} 份冻结产出合同 · ${p.proofs.length} 份证明</span></div>
+        ${p.proofs.length ? `<div class="pl-card" aria-label="制品验收与停止引用">${p.proofs.map((x,i)=>`<div class="pl-proof"><span class="tile" style="width:28px;height:28px;border-radius:8px;color:var(--done)">${I('file','sm')}</span>
+            <div class="grow" style="min-width:0"><div style="font-size:13.5px">制品 ${i+1} <span class="mono muted">${x.id}</span></div><div class="hint">来源计划修订 ${x.rev} · 第 ${x.ord} 次尝试</div></div>
+            <span class="badge st-done">${I('check','sm')}验收与停止引用齐全</span></div>`).join('')}</div>
+            <p class="hint" style="margin-top:8px">每份制品都有服务端的验收记录和停止引用，因此认定这个工作包已完成。</p>`
+          : `<div class="banner warn">${I('alert')}<div><b>还没有制品验收与停止证明</b><br>不能认定这个工作包已完成${plExec()?'，即使其中的步骤显示“执行中”或“已完成”':''}。证明由服务端在制品通过验收并停止后给出。</div></div>`}
+      </div>
+    </div>
+    <div class="side-foot"><span class="hint" style="display:flex;gap:8px;align-items:center">${I('lock','sm')}只读 · 查看工作包不会执行或修改计划</span></div>`;
+}
+
+/* ---------- 草案详情：映射核对、应用前检查、退回 ---------- */
+function mapResult(m){
+  const r = PL.checks[m.k];
+  if (r==='INCOMPLETE') return `<div class="pl-res" role="alert" style="color:var(--warn)">${I('alert','sm')}<span>冻结的源或目标合同不完整，无法核对这组映射。</span></div>`;
+  if (r==='CHECKING') return `<div class="pl-res" role="status"><span class="spin" style="margin-top:2px"></span><span>正在核对映射定义…</span></div>`;
+  if (r==='OK') return `<div class="pl-res" role="status"><span style="color:var(--ok);display:flex">${I('check','sm')}</span><span>与冻结的源、目标合同一致。</span></div>`;
+  if (r==='MISMATCH') return `<div class="pl-res" role="alert" style="color:var(--danger)">${I('x','sm')}<span>${MAP_MSG[m.k]}</span></div>`;
+  return '';
+}
+function mapBadge(m){
+  const r = PL.checks[m.k];
+  return r==='OK' ? `<span class="badge st-ok">${I('check','sm')}一致</span>` : r==='MISMATCH' ? `<span class="badge st-danger">${I('x','sm')}不一致</span>` : r==='INCOMPLETE' ? `<span class="badge st-fail">${I('alert','sm')}无法核对</span>` : r==='CHECKING' ? `<span class="badge st-idle"><span class="spin" style="width:10px;height:10px"></span>核对中</span>` : `<span class="badge outline">未核对</span>`;
+}
+function candView(el){
+  const c = CANDS.find(x=>x.id==='c3'), r = r3(), pending = c.state==='PENDING' && !PL.applied;
+  const checks = applyChecks(), ready = checks.every(x=>x.ok) && !PL.conflict;
+  const done = Object.values(PL.checks).filter(v=>v==='OK').length;
+  el.innerHTML = `
+    <div class="side-head"><button class="icon-btn" aria-label="返回澄清与规划" onclick="PL.view='main';side()">${I('chevLeft')}</button><div class="grow" style="min-width:0"><div class="eyebrow">规划草案 · 来自第 3 轮</div><div style="font-size:15px;font-weight:500;margin-top:2px">第 3 轮草案</div></div>${badge(c.state, CST)}</div>
+    <div class="side-body" id="plBody">
+      ${PL.conflict ? `<div class="banner danger" style="margin-bottom:18px">${I('alert')}<div><b>需求已在别处更新</b><br>服务端当前是版本 11，这次退回基于版本 10。退回说明已保留，不会自动用新版本重新提交。</div></div>
+        <div class="row" style="margin:-8px 0 18px"><button class="btn secondary sm" onclick="plDiscardConflict(this)">${I('refresh','sm')}放弃本次请求并重新核对</button></div>` : ''}
+      <div class="row wrap" style="gap:8px"><span class="hint">来源轮次</span>${badge(r.state, RST)}<span class="hint">· 基于计划修订 ${c.rev} · ${c.at}</span></div>
+      <section class="pl-sec" style="margin-top:20px"><div class="pl-h"><h3>草案内容</h3><span class="cnt">${C3_STEPS.length} 个步骤 · 3 个工作包</span></div>
+        <div class="pl-steps">${C3_STEPS.map((t,i)=>`<span class="chip"><span class="muted num">${i+1}</span>${t}</span>`).join('')}</div>
+        <details class="adv" style="margin-top:10px"><summary><span class="chev">${I('chevRight','sm')}</span>草案工作包与验收条件</summary><div style="padding:0 0 12px" class="col">${PACKS.map(p=>`<div><div style="font-size:13px;font-weight:500">${p.t}</div><ul class="pl-ul" style="margin-top:4px">${p.acc.map(a=>`<li>${I('check','sm')}<span>${a}</span></li>`).join('')}</ul></div>`).join('')}</div></details>
+      </section>
+      <section class="pl-sec" id="pl-maps"><div class="pl-h"><h3>输入映射核对</h3><span class="grow"></span><span class="hint">${done} / ${MAPS.length} 组一致</span></div>
+        <p class="hint" style="margin:-4px 0 10px">核对每一步的输入从哪一步、哪一项产出来。核对只读取冻结的合同，不会修改草案。</p>
+        <div class="pl-card">${MAPS.map(m=>{ const inc = PL.checks[m.k]==='INCOMPLETE'; return `<div class="pl-map">
+          <div class="row" style="gap:8px"><span class="pl-t grow">${m.node}</span>${mapBadge(m)}<button class="btn ghost sm" ${inc||PL.checks[m.k]==='CHECKING'||PL.conflict?'disabled':''} onclick="plCheck('${m.k}')">${['OK','MISMATCH','FAILED'].includes(PL.checks[m.k])?'重新核对':'核对'}</button></div>
+          <ul>${m.rows.map(([t,s])=>`<li><span class="tg">${t||'整个输入'}</span><span class="ar" aria-label="来自">${I('arrowLeft','sm')}</span><span class="src">${s}</span></li>`).join('')}</ul>${mapResult(m)}</div>`; }).join('')}</div>
+      </section>
+      ${pending ? `<section class="pl-sec" id="pl-apply"><div class="pl-h"><h3>应用前检查</h3></div>
+        <div class="pl-card"><ul class="pl-chk">${checks.concat(Object.values(PL.checks).includes('MISMATCH')?[{adv:true,t:'有 1 组输入映射不一致',d:'建议项：不会阻止应用，但应用后这一步可能拿不到需要的输入。'}]:[]).map(x=>`<li><span class="ic ${x.ok?'ok':'no'}" ${x.adv?'style="background:var(--fill-3);color:var(--sub)"':''}>${I(x.ok?'check':x.adv?'info':'alert')}</span><div class="grow"><div>${x.t}</div><div class="hint">${x.d}</div>${x.fix||''}</div></li>`).join('')}</ul></div>
+        <p class="hint" style="margin-top:6px">来源停止和应用权限还会由服务端再次核验。</p></section>
+      <section class="pl-sec" id="pl-reject"><details class="adv" ${PL.rejectOpen?'open':''} ontoggle="PL.rejectOpen=this.open"><summary><span class="chev">${I('chevRight','sm')}</span>退回这份草案<span class="grow"></span><span class="hint">当前计划保持不变</span></summary>
+        <div style="padding:0 0 14px"><label class="label" for="plReason" style="margin-bottom:8px">退回说明 <span class="req">*</span></label>
+          <textarea class="textarea" id="plReason" style="min-height:80px" placeholder="说明哪里不符合预期，方便下一轮规划" ${PL.conflict?'readonly':''} oninput="PL.reason=this.value;DS.$('#plRejBtn').disabled=!this.value.trim()">${esc(PL.reason)}</textarea>
+          <div class="row" style="margin-top:10px"><span class="hint grow">${PL.conflict?'版本冲突已锁定退回，先重新核对':'原草案和来源记录都会保留'}</span><button class="btn danger sm" id="plRejBtn" ${!PL.reason.trim()||PL.conflict?'disabled':''} onclick="DS.$('#plRejectQuote').textContent=PL.reason;DS.openDialog('plRejectDlg',this)">退回草案</button></div></div></details></section>`
+      : `<div class="banner ok" style="margin-top:22px">${I('check')}<div>这份草案已应用到计划修订 ${planRev}。请重新确认计划，再开始执行。</div></div>`}
+    </div>
+    <div class="side-foot">${pending ? `<div class="col" style="gap:8px;width:100%"><button class="btn primary" style="width:100%" ${ready?'':'disabled'} onclick="DS.openDialog('plApplyDlg',this)">应用规划草案</button><p class="hint" style="text-align:center">${PL.conflict?'版本冲突，先重新核对':ready?'应用后仍需重新确认计划，再开始执行':'应用前检查未全部通过'}</p></div>`
+      : `<button class="btn primary" style="width:100%" onclick="plClose(true)">关闭并重新确认计划</button>`}</div>`;
+  const body = DS.$('#plBody');
+  requestAnimationFrame(()=>{ if (PL.scroll!=='top'){ const t=DS.$('#pl-'+PL.scroll); if(t) body.scrollTop = t.offsetTop - body.offsetTop - 12; } PL.scroll='top'; });
+}
+
+/* ---------- 交互 ---------- */
+function plOpen(){ loading=false; unavailable=false; S='pl-rounds'; PL.view='main'; PL.openRound=null; selected=null; cv.select(null); refresh(); }
+function plClose(reconfirm){ S = 'ready'; if (PL.applied) { planRev = Math.max(planRev, 3); } refresh(); if (reconfirm) DS.toast('请重新确认计划，确认后再开始执行','info'); }
+function plRefresh(b){ b.innerHTML='<span class="spin"></span>'; setTimeout(()=>{ if(loading){loading=false;} side(); DS.toast('规划资料已重新读取','info'); },900); }
+function plRetry(b){ b.innerHTML='<span class="spin"></span>重试中'; setTimeout(()=>{ S='pl-rounds'; PL.openRound=null; side(); },900); }
+function plGoRound(){ PL.view='main'; PL.openRound='r3'; PL.scroll='rounds'; side(); }
+function plReuse(n){ const r=ROUNDS.find(x=>x.n===n); PL.cfg={tpl:r.tpl,tplV:r.tplV,role:r.role,roleV:r.roleV}; PL.cfgEdit=false; side(); DS.toast(`已沿用第 ${n} 轮的模板与职业（冻结的发布版本）`,'info'); }
+function plGenerate(b){ b.innerHTML='<span class="spin"></span>正在请求'; b.disabled=true; setTimeout(()=>{ ROUNDS.unshift({id:'r4',n:4,state:'REQUESTED',rev:planRev,at:'刚刚',ans:3,tpl:PL.cfg.tpl,tplV:PL.cfg.tplV,role:PL.cfg.role,roleV:PL.cfg.roleV,qa:QA3}); PL.openRound='r4'; PL.scroll='rounds'; side(); DS.toast('已请求第 4 轮规划','info'); },900); }
+function plStop(){ const r=r3(); r.state='STOPPING'; PL.openRound='r3'; side(); setTimeout(()=>{ r.state='STOPPED'; side(); DS.toast('第 3 轮已停止，草案已固定','info'); },1600); }
+function plVerify(b){ b.innerHTML='<span class="spin"></span>核对中'; b.disabled=true; setTimeout(()=>{ r3().state='STOPPED'; side(); DS.toast('已核对：第 3 轮已停止'); },1100); }
+function plCheck(k){ PL.checks[k]='CHECKING'; side(); setTimeout(()=>{ PL.checks[k] = S==='pl-map-bad'&&k==='m3' ? 'MISMATCH' : 'OK'; side(); },900); }
+function plApply(){ PL.applied=true; CANDS[0].state='APPLIED'; planRev=3; PL.view='main'; PL.scroll='top'; refresh(); }
+function plReject(){ CANDS[0].state='REJECTED'; CANDS[0].reason=PL.reason.slice(0,18)+(PL.reason.length>18?'…':''); PL.view='main'; PL.scroll='drafts'; side(); DS.toast('已退回草案，当前计划保持不变','info'); }
+function plDiscardConflict(b){ b.innerHTML='<span class="spin"></span>正在重新核对'; setTimeout(()=>{ PL.conflict=false; side(); DS.toast('已读取最新版本，退回说明仍保留，可重新提交','info'); },1000); }
+
+const cv = DSCanvas(DS.$('#cv'), {
+  get nodes(){return S==='questions'||S==='planning' ? [] : nodes}, get edges(){return S==='questions'||S==='planning' ? [] : edges},
+  editable: n => !n.system && ['ready','dirty','unbound'].includes(S),
+  canInsert: () => ['ready','dirty','unbound'].includes(S),
+  statusOf: id => plExec() ? (PL_EXEC[id] || null) : S==='confirmed' && !['start','end'].includes(id) ? 'idle' : null,
+  onSelect: (id,sys) => { if(sys) return; if(isPL()){ return; } selected=id; side(); if(id) cv.reveal(id); },
+  onAddAfter: id => addAfter(id), onInsert: (a,b) => insertBetween(a,b),
+});
+
+function bar(){
+  const st=['需求草稿','澄清与规划','确认计划','开始执行'];
+  DS.$('#bar').innerHTML = `
+    <nav class="crumbs"><a href="tasks.html">任务列表</a><span class="sep">/</span></nav>
+    <span class="task-title" title="${esc(GOAL)}">${esc(GOAL)}</span>
+    <span class="grow"></span>
+    <div class="stages" aria-label="进度">${st.map((s,i)=>`<span class="stage ${i<SI()?'done':i===SI()?'cur':''}" ${i===SI()?'aria-current="step"':''}><i>${i<SI()?I('check','sm'):i+1}</i>${s}</span>`).join('')}</div>
+    <button class="icon-btn" aria-label="更多操作" onclick="DS.menu(this,[{label:'保存为流程…',icon:'flow',run(){DS.toast('已打开“保存为流程”，会复制当前计划为新流程','info')}},{label:'查看澄清问答',icon:'help',run(){S='questions';refresh()}},{label:'澄清与规划…',icon:'layers',run(){plOpen()}},'-',{label:'取消这个需求…',icon:'archive',danger:true,run(){DS.toast('取消需求需要确认（原型未展开）','warn')}}])">${I('more')}</button>`;
+  DS.$('#banner').innerHTML = S==='unknown' ? `<div class="banner unknown" style="margin:12px 20px 0">${I('help')}<div><b>确认计划的请求没有收到回执</b><br>计划已锁定。重试会使用原请求；在确认结果前不会重复提交，也不会开始执行。</div><div class="actions"><button class="btn secondary sm" onclick="resolve(this)">${I('refresh','sm')}用原请求重试</button></div></div>`
+    : S==='conflict' ? `<div class="banner danger" style="margin:12px 20px 0">${I('alert')}<div><b>计划已在别处更新为修订 3</b><br>你的修改基于修订 2，没有保存。查看最新计划后，再决定是否重新修改。</div><div class="actions"><button class="btn secondary sm" onclick="S='ready';planRev=3;dirty=0;refresh()">载入修订 3</button></div></div>` : '';
+}
+
+/* ---------- 右侧：计划面板 / 步骤面板 ---------- */
+function side(){
+  const el = DS.$('#side');
+  el.classList.toggle('narrow', !isPL()); el.classList.toggle('pl-side', isPL()); el.setAttribute('aria-label', isPL() ? '澄清与规划' : '计划');
+  if (isPL()) return planPanel(el);
+  if (selected && nodes.find(n=>n.id===selected)) return stepPanel(el, nodes.find(n=>n.id===selected));
+  const issues = nodes.filter(n=>!n.system&&!n.role);
+  const locked = ['unknown','confirmed'].includes(S);
+  let foot;
+  if (S==='confirmed') foot = `<div class="col" style="gap:8px;width:100%"><button class="btn primary lg" style="width:100%" onclick="DS.openDialog('startDlg',this)">${I('play','sm')}开始执行</button><p class="hint" style="text-align:center">开始后进入执行画布，第一批启动 1 步</p></div>`;
+  else if (S==='questions' || S==='planning') foot = `<p class="hint">回答澄清问题后生成计划</p>`;
+  else if (S==='candidates') foot = `<button class="btn primary lg" style="width:100%" onclick="S='ready';refresh();DS.toast('已采用候选计划 '+cand.toUpperCase())">采用这个计划</button>`;
+  else foot = `<div class="col" style="gap:8px;width:100%"><button class="btn primary lg" style="width:100%" ${issues.length||S==='unknown'?'disabled':''} onclick="confirmPlan(this)">${dirty?'保存并确认计划':'确认计划'}</button><p class="hint" style="text-align:center">${issues.length?`还有 ${issues.length} 个步骤未指定职业`:'确认后不会立即执行，下一步单独开始'}</p></div>`;
+  el.innerHTML = `
+    <div class="side-head"><div class="grow"><div class="eyebrow">计划</div><div style="font-size:15px;font-weight:500;margin-top:2px">${S==='confirmed'?`已确认 · 修订 ${planRev}`:S==='candidates'?'选择一个候选计划':S==='questions'||S==='planning'?'澄清与规划':`修订 ${planRev}${dirty?' · 有未保存修改':''}`}</div></div>${S==='confirmed'?`<span class="badge st-ok">${I('check','sm')}已确认</span>`:''}</div>
+    <div class="side-body">
+      <div class="sec"><div class="sec-t">目标</div><div class="goal-box">${esc(GOAL)}</div></div>
+      <div class="sec"><div class="sec-t">任务设置</div>
+        <div class="set-row"><span class="k">项目</span><span class="grow">OpenCode Loopper</span></div>
+        <div class="set-row"><span class="k">流程</span><span class="grow">需求开发 · r12</span></div>
+        <div class="set-row"><span class="k">模型</span><span class="grow">Claude Sonnet 4.6</span>${locked?'':`<button class="btn ghost sm" onclick="DS.menu(this,[{label:'Claude Sonnet 4.6',run(){}},{label:'DeepSeek-V41-Flash',run(){}}])">修改</button>`}</div>
+        <div class="set-row"><span class="k">预算上限</span><span class="grow">${S==='confirmed'?'5.00 美元':'<span class="muted">未设置</span>'}</span>${locked?'':`<button class="btn ghost sm">设置</button>`}</div>
+        <div class="set-row"><span class="k">资料</span><span class="grow">代码 1 · 文档 3</span>${locked?'':`<button class="btn ghost sm">修改</button>`}</div>
+      </div>
+      ${['questions','planning','candidates'].includes(S)?'':`<div class="sec"><div class="sec-t">检查</div>
+        <div class="chk"><span class="ic" style="color:${issues.length?'var(--warn)':'var(--ok)'}">${I(issues.length?'alert':'check','sm')}</span><span class="grow">${issues.length?`“${esc(issues[0].title)}”未指定职业`:'每一步都已指定职业'}</span>${issues.length?`<button class="btn ghost sm" style="height:24px" onclick="cv.focusNode('${issues[0].id}')">定位</button>`:''}</div>
+        <div class="chk"><span class="ic" style="color:var(--ok)">${I('check','sm')}</span><span>步骤之间的输入与产出已对齐</span></div>
+        <div class="chk"><span class="ic" style="color:var(--muted)">${I('info','sm')}</span><span class="sub">“调整页面结构”会写入项目目录，执行时逐次请求授权</span></div></div>
+        <div class="sec"><div class="sec-t">规划依据</div><button class="list-row" style="padding:10px 12px;border:1px solid var(--line)" onclick="S='questions';refresh()">${I('help','sm')}<span class="grow">2 个澄清问题已回答</span>${I('chevRight','sm')}</button></div>`}
+    </div>
+    <div class="side-foot">${foot}</div>`;
+}
+function stepPanel(el,n){
+  const ro = !['ready','dirty','unbound'].includes(S);
+  el.innerHTML = `
+    <div class="side-head"><button class="icon-btn" aria-label="返回计划" onclick="cv.select(null)">${I('chevLeft')}</button><div class="grow"><div class="eyebrow">步骤</div><div style="font-size:15px;font-weight:500;margin-top:2px">${esc(n.title)}</div></div>${S==='confirmed'?`<span class="badge st-idle">${I('clock','sm')}待执行</span>`:''}</div>
+    <div class="side-body">
+      <div class="sec"><div class="sec-t">谁来做</div>
+        <button class="role-pick ${n.role?'':'unbound'}" ${ro?'disabled':''} onclick="DS.menu(this,ROLES.map(r=>({label:r,run(){upd('${n.id}','role',r)}})))">
+          ${n.role?`<span class="av" style="background:var(--accent-fill);color:var(--accent)">${n.role==='人工'?I('users'):n.role[0]}</span><span class="grow"><div>${n.role}</div><div class="hint">当前形象可变，执行时冻结</div></span>`:`<span class="av" style="border:1px dashed var(--warn-line);color:var(--warn)">?</span><span class="grow"><div style="color:var(--warn)">还没有指定职业</div><div class="hint">指定后才能确认计划</div></span>`}
+          ${ro?'':`<span class="hint">更换${I('chevDown','sm')}</span>`}</button></div>
+      <div class="sec"><label class="sec-t" for="w" style="display:block">这一步做什么</label><textarea class="textarea" id="w" ${ro?'readonly':''} onchange="upd('${n.id}','what',this.value)">${esc(n.what||'')}</textarea></div>
+      <div class="sec"><div class="sec-t">产出</div><input class="input" value="${esc(n.output||'')}" ${ro?'readonly':''} aria-label="产出" onchange="upd('${n.id}','output',this.value)"></div>
+      <details class="adv sec"><summary><span class="chev">${I('chevRight','sm')}</span>高级设置<span class="grow"></span><span class="hint">输入 · 预算 · 权限</span></summary><div class="hint" style="padding:0 0 14px">输入来自上一步产出；单步预算继承任务设置；写入项目目录时逐次授权。</div></details>
+    </div>
+    <div class="side-foot">${ro?'<span class="hint grow">计划已确认，开始执行后可在执行画布修改未开始的步骤</span>':`<button class="btn ghost sm" style="color:var(--danger)" onclick="del('${n.id}')">${I('trash','sm')}移出计划</button><span class="grow"></span><button class="btn primary" onclick="cv.select(null)">完成</button>`}</div>`;
+}
+function upd(id,k,v){ const n=nodes.find(x=>x.id===id); if(n[k]===v) return; n[k]=v; dirty++; if(S==='ready'||S==='unbound') S=nodes.some(x=>!x.system&&!x.role)?'unbound':'dirty'; if(S==='unbound'&&!nodes.some(x=>!x.system&&!x.role)) S='dirty'; refresh(); }
+let seq=30;
+function addAfter(id){ const n={id:'n'+(seq++),title:'新步骤',role:null,output:'',what:''}; const outs=edges.filter(e=>e.from===id); edges=edges.filter(e=>e.from!==id); edges.push({from:id,to:n.id}); outs.forEach(e=>edges.push({from:n.id,to:e.to})); nodes.splice(nodes.length-1,0,n); dirty++; S='unbound'; selected=n.id; refresh(); cv.select(n.id); }
+function insertBetween(a,b){ const n={id:'n'+(seq++),title:'新步骤',role:null,output:'',what:''}; edges=edges.filter(e=>!(e.from===a&&e.to===b)); edges.push({from:a,to:n.id},{from:n.id,to:b}); nodes.splice(nodes.length-1,0,n); dirty++; S='unbound'; refresh(); cv.select(n.id); }
+function del(id){ const ins=edges.filter(e=>e.to===id).map(e=>e.from), outs=edges.filter(e=>e.from===id).map(e=>e.to); edges=edges.filter(e=>e.from!==id&&e.to!==id); ins.forEach(a=>outs.forEach(b=>edges.push({from:a,to:b}))); nodes=nodes.filter(n=>n.id!==id); dirty++; S=nodes.some(x=>!x.system&&!x.role)?'unbound':'dirty'; selected=null; refresh(); DS.toast('已移出计划，保存前可恢复','info'); }
+function confirmPlan(b){ b.innerHTML='<span class="spin"></span>正在确认'; b.disabled=true; setTimeout(()=>{ if(dirty) planRev++; dirty=0; S='confirmed'; refresh(); DS.toast('计划已确认，可以开始执行'); },1000); }
+function resolve(b){ b.innerHTML='<span class="spin"></span>核对中'; setTimeout(()=>{ S='confirmed'; refresh(); },1100); }
+function startRun(){ DS.toast('已开始执行，正在打开执行画布'); setTimeout(()=>SC.href ='task.html?from=requirement',900); }
+
+/* ---------- 画布中央：澄清问题 / 规划中 / 候选计划 ---------- */
+function center(){
+  DS.$$('#cv .cv-overlay').forEach(e=>e.remove());
+  const host = DS.$('#cv');
+  if (S==='questions') host.insertAdjacentHTML('beforeend', `<div class="cv-overlay center-card"><div style="padding:20px 22px 6px"><div class="eyebrow">澄清与规划 · 第 1 轮</div><h2 style="font-size:17px;font-weight:500;margin-top:6px">规划前，先确认两件事</h2><p class="hint" style="margin-top:4px">回答后生成计划。可以随时回来修改答案。</p></div>
+    <div style="padding:10px 22px" class="col">
+      ${[['q1','“配置”主要指哪些？',[['a','Git、GitLab、文档路径、项目公约'],['b','只包括 Git 账号']]],['q2','改动范围？',[['a','只调整前端页面'],['b','前端页面 + 接口文档']]]].map(([q,t,opts])=>`<div class="col" style="gap:8px;margin-bottom:12px"><span style="font-size:13.5px;font-weight:500">${t}</span>${opts.map(([k,l])=>`<button class="qopt" role="radio" aria-checked="${answers[q]===k}" onclick="answers['${q}']='${k}';center()"><span class="r"></span>${l}</button>`).join('')}</div>`).join('')}
+      <textarea class="textarea" style="min-height:64px" placeholder="补充说明（可选）"></textarea>
+    </div>
+    <div class="row" style="padding:12px 22px 20px"><span class="hint grow">已回答 2 / 2</span><button class="btn primary" onclick="S='planning';refresh();setTimeout(()=>{S='candidates';refresh()},1600)">生成计划</button></div></div>`);
+  if (S==='planning') host.insertAdjacentHTML('beforeend', `<div class="cv-overlay center-card"><div style="padding:28px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center"><span class="spin" style="width:22px;height:22px;color:var(--accent)"></span><div style="font-weight:500">正在根据你的回答规划步骤</div><p class="hint">通常需要几十秒。可以离开本页，完成后会出现在任务列表。</p><button class="btn ghost sm">取消本轮规划</button></div></div>`);
+  if (S==='candidates') host.insertAdjacentHTML('beforeend', `<div class="cv-overlay cands" role="radiogroup" aria-label="候选计划">${[['a','候选 A · 前端与文档并行','5 步 · 预计 40 分钟 · 两步并行'],['b','候选 B · 先改页面再补文档','5 步 · 预计 55 分钟 · 依次执行']].map(([k,t,d])=>`<button class="cand" role="radio" aria-pressed="${cand===k}" onclick="setCand('${k}')"><span style="font-weight:500">${t}</span><span class="hint">${d}</span></button>`).join('')}</div>`);
+}
+let hadGraph=false;
+const EA=edges.map(e=>({...e}));
+const EB=[['start','n1'],['n1','n2'],['n2','n3'],['n3','n4'],['n4','n5'],['n5','end']].map(([from,to])=>({from,to}));
+function setCand(k){ cand=k; edges=(k==='a'?EA:EB).map(e=>({...e})); cv.render(); cv.fit(true); center(); }
+function refresh(){ bar(); cv.render(); const g=S!=='questions'&&S!=='planning'; if (g&&!hadGraph) requestAnimationFrame(()=>cv.fit(false)); hadGraph=g; center(); side(); }
+
+DS.mount({ header:'', state:S, states:[
+  {id:'questions',label:'澄清问题'},{id:'planning',label:'规划中'},{id:'candidates',label:'候选计划'},{id:'ready',label:'审阅计划'},{id:'dirty',label:'有未保存修改'},
+  {id:'unbound',label:'有步骤未指定职业'},{id:'unknown',label:'确认结果未明'},{id:'conflict',label:'修订冲突'},{id:'confirmed',label:'已确认 · 待开始'},
+  {id:'pl-config',label:'补充 · 规划配置'},{id:'pl-rounds',label:'补充 · 规划轮次'},{id:'pl-stop-unknown',label:'补充 · 停止未核明'},{id:'pl-stopping',label:'补充 · 轮次停止中'},
+  {id:'pl-package',label:'补充 · 工作包详情'},{id:'pl-package-noproof',label:'补充 · 工作包无证明'},{id:'pl-map-ok',label:'补充 · 映射核对（通过）'},{id:'pl-map-bad',label:'补充 · 映射核对（不一致）'},
+  {id:'pl-precheck',label:'补充 · 应用前检查'},{id:'pl-apply-confirm',label:'补充 · 应用确认'},{id:'pl-reject-confirm',label:'补充 · 退回确认'},{id:'pl-applied',label:'补充 · 已应用'},
+  {id:'pl-unavailable',label:'补充 · 接口未提供'},{id:'pl-conflict',label:'补充 · 版本冲突'},{id:'pl-loading',label:'补充 · 规划读取中'},{id:'pl-error',label:'补充 · 规划读取失败'},{id:'pl-empty',label:'补充 · 尚无规划'}] });
+DS.$('.header').remove();
+refresh();
+if (S==='pl-apply-confirm') DS.openDialog('plApplyDlg');
+if (S==='pl-reject-confirm') { DS.$('#plRejectQuote').textContent = PL.reason; DS.openDialog('plRejectDlg'); }
+</script>
+</body>
+</html>

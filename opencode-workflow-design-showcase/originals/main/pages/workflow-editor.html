@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>流程画布 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.wf-title{font-family:var(--font-display);font-weight:500;font-size:18px;letter-spacing:-.3px;border:1px solid transparent;border-radius:8px;padding:2px 6px;margin-left:-6px;background:transparent;color:var(--ink);outline:none;min-width:80px;max-width:360px}
+.wf-title:hover{border-color:var(--line-2)}.wf-title:focus{border-color:rgba(169,188,255,.5);background:var(--bg-sunken)}
+.save-state{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.tip{left:16px;top:16px;max-width:300px;padding:14px 16px;border-radius:14px;background:var(--float);backdrop-filter:blur(8px);border:1px solid var(--line-2);box-shadow:var(--shadow-pop)}
+.tip li{font-size:12.5px;color:var(--sub);line-height:1.7}
+.tip b{color:var(--ink);font-weight:500}
+.count{right:16px;top:16px;padding:6px 12px;border-radius:var(--r-pill);background:var(--float);border:1px solid var(--line);font-size:12px;color:var(--sub)}
+.issues{right:16px;top:56px;width:320px;border-radius:14px;background:var(--raised);box-shadow:var(--shadow-pop);overflow:hidden}
+.issue{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;box-shadow:inset 0 -1px 0 var(--line);font-size:13px}
+.role-pick{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--fill-1);width:100%;text-align:left;transition:all var(--t-fast)}
+.role-pick:hover{border-color:var(--line-3);background:var(--fill-2)}
+.role-pick.unbound{border-style:dashed;border-color:var(--warn-line)}
+.av{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:600;font-size:14px;flex:none}
+.next-list{display:flex;flex-direction:column;gap:6px}
+.next-list .chip{justify-content:flex-start;height:30px}
+.cat .list-row{border-radius:12px}
+.empty-cta{left:50%;top:calc(50% + 40px);transform:translateX(-50%);text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;padding:28px 32px;border-radius:18px;background:var(--float);border:1px dashed var(--line-3)}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="workflows">
+<main id="page" class="canvas-page" hidden>
+  <div class="canvas-bar" id="bar"></div>
+  <div id="banner"></div>
+  <div class="canvas-body"><div id="cv" class="cv" tabindex="0" aria-label="流程画布"></div><aside class="side hidden" id="side" aria-label="步骤详情"></aside></div>
+</main>
+
+<!-- 步骤目录（左 400） -->
+<aside class="drawer left" id="catalog" role="dialog" aria-labelledby="catT" aria-hidden="true" tabindex="-1">
+  <div class="drawer-head"><div class="grow"><h2 id="catT">添加步骤</h2><p class="hint" style="margin-top:4px" id="catWhere">将添加到所选步骤之后</p></div><button class="icon-btn" aria-label="关闭" onclick="DS.closeDrawer()" data-icon="x"></button></div>
+  <div style="padding:14px 20px 4px"><div class="input-wrap"><span data-icon="search"></span><input class="input ctl" placeholder="搜索步骤模板" aria-label="搜索步骤模板" oninput="DS.$$('#catList .list-row').forEach(r=>r.style.display=r.textContent.includes(this.value)?'':'none')"></div></div>
+  <div class="drawer-body cat" id="catList"></div>
+</aside>
+
+<div class="dialog" id="delDlg" role="alertdialog"><div class="dialog-body"><h2>删除这一步？</h2><p id="delTxt"></p></div><div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>保留</button><button class="btn danger" onclick="doDelete()">删除</button></div></div>
+
+<script src="../assets/shell.js"></script>
+<script src="../assets/canvas.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S0=DS.state||'ready';
+const builtin = S0==='builtin';
+let title = builtin ? '资料研究与整理' : '需求实现与验收';
+let nodes = [
+  {id:'start', title:'开始', system:true},
+  {id:'n1', title:'澄清需求', role:'产品经理', output:'需求说明与验收标准', what:'和需求方确认目标、范围与不做的事，形成可验收的需求说明。', accept:'需求说明覆盖目标、范围、验收标准，待确认项已列出。'},
+  {id:'n2', title:'实现功能', role:'软件工程师', output:'代码变更', what:'按需求说明修改代码，保持现有接口兼容。', accept:'变更可编译，关键路径有说明。'},
+  {id:'n3', title:'编写测试', role:'测试工程师', output:'测试用例与报告', what:'为改动补齐单元测试和接口测试。', accept:'新增用例全部通过，覆盖主要分支。'},
+  {id:'n4', title:'代码评审', role:'架构师', output:'评审意见', what:'检查代码与测试，给出必须修改与建议修改。', accept:'无“必须修改”项遗留。'},
+  {id:'n5', title:'人工验收', role:'人工', output:'验收结论', what:'由你确认交付是否符合需求。', accept:'人工确认通过。'},
+  {id:'end', title:'交付', system:true},
+];
+let edges = [['start','n1'],['n1','n2'],['n1','n3'],['n2','n4'],['n3','n4'],['n4','n5'],['n5','end']].map(([from,to])=>({from,to}));
+if (S0==='empty') { title='未命名流程'; nodes=nodes.filter(n=>n.system); edges=[{from:'start',to:'end'}]; }
+if (S0==='unbound') { nodes.splice(4,0,{id:'n9', title:'性能检查', role:null, output:'性能报告', what:'', accept:''}); edges=edges.filter(e=>!(e.from==='n4')); edges.push({from:'n4',to:'n9'},{from:'n9',to:'n5'}); }
+let history=[], future=[], dirty = ['unbound','dirty','unknown','conflict'].includes(S0) ? 2 : 0, saveState = {unknown:'unknown', conflict:'conflict'}[S0] || (dirty?'dirty':'saved'), version = 4;
+const snapshot=()=>JSON.stringify({nodes,edges,title});
+function commit(){ history.push(lastSnap); future=[]; lastSnap=snapshot(); dirty++; saveState='dirty'; refresh(); }
+let lastSnap = snapshot();
+
+const ROLES = ['产品经理','软件工程师','测试工程师','架构师','技术写作','人工'];
+const TEMPLATES = [
+  ['澄清需求','产品经理','需求说明与验收标准'],['实现功能','软件工程师','代码变更'],['编写测试','测试工程师','测试用例与报告'],
+  ['代码评审','架构师','评审意见'],['整理文档','技术写作','文档与变更说明'],['人工确认','人工','确认结论'],['性能检查',null,'性能报告'],
+];
+
+const cv = DSCanvas(DS.$('#cv'), {
+  get nodes(){return nodes}, get edges(){return edges},
+  editable: n => !builtin && !n.system && saveState!=='unknown',
+  canInsert: () => !builtin && saveState!=='unknown',
+  onSelect: (id, sys) => { if (sys) { DS.toast(id==='start'?'“开始”是系统节点：可以移动，不能删除':'“交付”在所有必需步骤通过后收束','info'); return; } openSide(id); if(id) cv.reveal(id); },
+  onAddAfter: (id, t) => addMenu(id, t),
+  onInsert: (a, b) => insertBetween(a, b),
+});
+
+function bar(){
+  const issues = nodes.filter(n=>!n.system && !n.role).length;
+  DS.$('#bar').innerHTML = `
+    <nav class="crumbs"><a href="workflows.html">流程</a><span class="sep">/</span></nav>
+    <input class="wf-title" id="wfTitle" value="${esc(title)}" aria-label="流程名称" ${builtin?'readonly':''} onchange="title=this.value;commit()">
+    <span class="badge ${builtin?'st-idle':'st-accent'}">${S0==='empty'&&version===4?'新流程 · 尚未保存':(builtin?'程序内置 · 只读':'我的流程')+' · 版本 '+version}</span>
+    <span class="grow"></span>
+    ${builtin ? `<span class="hint">内置流程不能直接修改</span><button class="btn primary" onclick="DS.toast('已复制为“资料研究与整理 副本”，正在打开')">${I('copy','sm')}复制后修改</button>` : `
+    <span class="save-state" aria-live="polite">${{saved:`${I('check','sm')}已保存`, dirty:`<span class="dot" style="color:var(--warn)"></span>${dirty} 处未保存修改`, saving:'<span class="spin"></span>正在保存', unknown:`<span style="color:var(--unknown)">${I('help','sm')}</span>保存结果未明`, conflict:`<span style="color:var(--danger)">${I('alert','sm')}</span>版本已变化`}[saveState]}</span>
+    <button class="icon-btn" aria-label="撤销" title="撤销 ⌘Z" ${history.length&&saveState!=='unknown'?'':'disabled style="opacity:.35"'} onclick="undo()">${I('undo')}</button>
+    <button class="icon-btn" aria-label="重做" title="重做 ⇧⌘Z" ${future.length?'':'disabled style="opacity:.35"'} onclick="redo()">${I('redo')}</button>
+    <button class="btn secondary" onclick="openCatalog()" ${saveState==='unknown'?'disabled':''}>${I('plus','sm')}添加步骤</button>
+    <button class="btn secondary" onclick="check()">${I('check','sm')}检查${issues?` <span class="badge st-fail" style="height:18px">${issues}</span>`:''}</button>
+    <button class="btn primary" onclick="save()" ${dirty&&saveState!=='saving'&&saveState!=='unknown'?'':'disabled'}>保存</button>`}`;
+  const ti=DS.$('#wfTitle'); ti.style.width=Math.min(360,[...title].length*18+24)+'px';
+  DS.$('#banner').innerHTML = saveState==='unknown' ? `<div class="banner unknown" style="margin:12px 20px 0;border-radius:12px">${I('help')}<div><b>保存请求已发出，但没有收到确认</b><br>画布已锁定为只读，草稿保留。重试会使用原请求，不会生成第二个版本。</div><div class="actions"><button class="btn secondary sm" onclick="resolveUnknown(this)">${I('refresh','sm')}用原请求重试</button></div></div>`
+    : saveState==='conflict' ? `<div class="banner danger" style="margin:12px 20px 0;border-radius:12px">${I('alert')}<div><b>流程已被更新为版本 5</b><br>你的 ${dirty} 处修改基于版本 4，没有保存。可以先查看版本 5，再决定是否在新版本上重新修改。</div><div class="actions"><button class="btn secondary sm">查看版本 5</button><button class="btn ghost sm">导出我的修改</button></div></div>`
+    : builtin ? `<div class="banner info" style="margin:12px 20px 0;border-radius:12px">${I('lock')}<div>这是程序内置流程，可以查看每一步；要修改请先复制一份到“我的流程”。</div></div>` : '';
+}
+function overlays(){
+  DS.$$('#cv .cv-overlay').forEach(e=>e.remove());
+  const steps = nodes.filter(n=>!n.system).length;
+  const host = DS.$('#cv');
+  host.insertAdjacentHTML('beforeend', `<div class="cv-overlay count">${steps} 个步骤 · ${edges.length} 条连线</div>`);
+  let seen=false; try{seen=localStorage.getItem('ds.wf.tip')}catch(e){}
+  if (!seen && !builtin && S0!=='empty') host.insertAdjacentHTML('beforeend', `<div class="cv-overlay tip" id="tip"><div class="row between" style="margin-bottom:6px"><b style="font-size:13px">怎么修改流程</b><button class="icon-btn" style="width:24px;height:24px" aria-label="知道了" onclick="try{localStorage.setItem('ds.wf.tip',1)}catch(e){};this.closest('.tip').remove()">${I('x','sm')}</button></div>
+    <ul style="margin:0;padding-left:16px"><li><b>点击步骤</b>：查看并修改它做什么、谁来做</li><li><b>步骤右侧 +</b>：在后面添加一步</li><li><b>连线中间 +</b>：在两步之间插入</li><li><b>拖动空白处</b>平移，<span class="kbd">⌘</span> + 滚轮缩放</li></ul></div>`);
+  if (steps===0) host.insertAdjacentHTML('beforeend', `<div class="cv-overlay empty-cta"><span class="tile" style="width:44px;height:44px">${I('flow','lg')}</span><div style="font-weight:500">从第一步开始</div><p class="hint" style="max-width:260px">流程由一串步骤组成，每一步指定做什么、由哪个职业来做。</p><button class="btn primary" onclick="openCatalog('start')">${I('plus','sm')}添加第一步</button></div>`);
+}
+function refresh(){ bar(); cv.render(); overlays(); if (cv.selected) openSide(cv.selected, true); }
+
+/* ---------- 右侧步骤面板 ---------- */
+function openSide(id, keep){
+  const side = DS.$('#side'); if (!id){ side.classList.add('hidden'); return; }
+  const n = nodes.find(x=>x.id===id); if (!n) { side.classList.add('hidden'); return; }
+  const ro = builtin || saveState==='unknown';
+  const nexts = edges.filter(e=>e.from===id).map(e=>nodes.find(x=>x.id===e.to));
+  side.classList.remove('hidden');
+  side.innerHTML = `
+    <div class="side-head"><div class="grow"><div class="eyebrow">步骤</div><input class="wf-title" style="font-size:17px;margin-top:2px;width:100%" id="nTitle" value="${esc(n.title)}" ${ro?'readonly':''} aria-label="步骤名称" onchange="upd('${id}','title',this.value)"></div>
+      <button class="icon-btn" aria-label="关闭步骤详情" onclick="cv.select(null)">${I('x')}</button></div>
+    <div class="side-body">
+      <div class="sec"><div class="sec-t">谁来做</div>
+        <button class="role-pick ${n.role?'':'unbound'}" ${ro?'disabled':''} onclick="pickRole('${id}',this)">
+          ${n.role?`<span class="av" style="background:var(--accent-fill);color:var(--accent)">${n.role==='人工'?I('users'):n.role[0]}</span><span class="grow"><div style="font-size:14px">${n.role}</div><div class="hint">${n.role==='人工'?'由你确认后继续':'已发布职业 · 当前形象可变'}</div></span>`:`<span class="av" style="border:1px dashed var(--warn-line);color:var(--warn)">?</span><span class="grow"><div style="font-size:14px;color:var(--warn)">还没有指定职业</div><div class="hint">未指定职业的步骤可以先留在草稿里，但不能保存为可执行的流程。</div></span>`}
+          ${ro?'':`<span class="hint">更换${I('chevDown','sm')}</span>`}
+        </button></div>
+      <div class="sec"><label class="sec-t" for="nWhat" style="display:block">这一步做什么</label>
+        <textarea class="textarea" id="nWhat" ${ro?'readonly':''} placeholder="用一两句话说清楚这一步的任务" onchange="upd('${id}','what',this.value)">${esc(n.what||'')}</textarea></div>
+      <div class="sec"><div class="sec-t">产出与验收</div>
+        <div class="grid-2" style="grid-template-columns:1fr;gap:10px">
+          <input class="input" value="${esc(n.output||'')}" ${ro?'readonly':''} aria-label="产出" placeholder="这一步产出什么" onchange="upd('${id}','output',this.value)">
+          <textarea class="textarea" style="min-height:72px" ${ro?'readonly':''} aria-label="验收标准" placeholder="怎样算完成" onchange="upd('${id}','accept',this.value)">${esc(n.accept||'')}</textarea>
+        </div></div>
+      <div class="sec"><div class="sec-t">之后</div>
+        <div class="next-list">${nexts.map(x=>`<span class="chip">${I('arrowRight','sm')}${esc(x.title)}${x.system?'<span class="muted">（系统）</span>':''}</span>`).join('') || '<span class="hint">没有后续步骤</span>'}</div>
+        ${nexts.length>1?`<p class="hint" style="margin-top:8px">${I('split','sm')} 两条普通连线表示<b class="ink">并行</b>，会同时开始。</p>`:''}
+        ${ro?'':`<div class="row wrap" style="margin-top:10px"><button class="btn secondary sm" onclick="addAfter('${id}')">${I('plus','sm')}添加下一步</button><button class="btn ghost sm" onclick="addParallel('${id}')">${I('split','sm')}添加并行步骤</button><button class="btn ghost sm" onclick="connectMenu('${id}',this)">${I('link','sm')}连接到…</button></div>`}
+      </div>
+      <details class="adv sec"><summary><span class="chev">${I('chevRight','sm')}</span>高级设置<span class="grow"></span><span class="hint">输入映射 · 预算 · 外部写入</span></summary>
+        <div class="col" style="gap:14px;padding:4px 0 14px">
+          <div class="field" style="margin:0"><span class="label">输入</span><div class="chip" style="height:auto;padding:8px 10px;flex-wrap:wrap">上一步产出 · 需求说明与验收标准</div></div>
+          <div class="field" style="margin:0"><label class="label" for="bud">单步预算上限 <span class="opt">可选</span></label><input class="input" id="bud" placeholder="例如 2.00 美元" ${ro?'readonly':''}></div>
+          <label class="check"><input type="checkbox" ${ro?'disabled':''}><span><div style="font-size:13.5px">允许写入项目外的目录</div><div class="hint">开启后执行时仍会逐次请求授权。</div></span></label>
+        </div></details>
+    </div>
+    <div class="side-foot">${ro?'<span class="hint grow">只读</span>':`<button class="btn ghost sm" style="color:var(--danger)" onclick="askDelete('${id}')">${I('trash','sm')}删除这一步</button><span class="grow"></span>`}<button class="btn primary" onclick="cv.select(null)">完成</button></div>`;
+  if (!keep && !ro && !n.what) setTimeout(()=>DS.$('#nTitle').select(),50);
+}
+function upd(id,k,v){ const n=nodes.find(x=>x.id===id); if(n[k]===v) return; n[k]=v; commit(); }
+function pickRole(id,t){ DS.menu(t, ROLES.map(r=>({label:r, icon:r==='人工'?'users':'target', run(){ upd(id,'role',r); }}))); }
+
+/* ---------- 增删改连 ---------- */
+let seq=20;
+function newNode(tpl){ const t=tpl||['新步骤',null,'']; return {id:'n'+(seq++), title:t[0], role:t[1], output:t[2], what:'', accept:''}; }
+function addAfter(id,tpl){ const n=newNode(tpl); const outs=edges.filter(e=>e.from===id); edges=edges.filter(e=>e.from!==id); edges.push({from:id,to:n.id}); outs.forEach(e=>edges.push({from:n.id,to:e.to})); if(!outs.length) edges.push({from:n.id,to:'end'}); nodes.splice(nodes.length-1,0,n); commit(); cv.select(n.id); DS.toast('已添加“'+n.title+'”','info'); }
+function addParallel(id){ const n=newNode(); const ins=edges.filter(e=>e.to===id), outs=edges.filter(e=>e.from===id); ins.forEach(e=>edges.push({from:e.from,to:n.id})); outs.forEach(e=>edges.push({from:n.id,to:e.to})); nodes.splice(nodes.length-1,0,n); commit(); cv.select(n.id); }
+function insertBetween(a,b){ const n=newNode(); edges=edges.filter(e=>!(e.from===a&&e.to===b)); edges.push({from:a,to:n.id},{from:n.id,to:b}); nodes.splice(nodes.length-1,0,n); commit(); cv.select(n.id); }
+function addMenu(id,t){ DS.menu(t,[{label:'添加下一步',icon:'plus',run(){addAfter(id)}},{label:'添加并行步骤',icon:'split',run(){addParallel(id)}},{label:'从步骤模板选择…',icon:'layers',run(){openCatalog(id)}}]); }
+function connectMenu(id,t){ const cand=nodes.filter(n=>n.id!==id && n.id!=='start' && !edges.some(e=>e.from===id&&e.to===n.id)); DS.menu(t, cand.map(n=>({label:'连接到 '+n.title, icon:'arrowRight', run(){ edges.push({from:id,to:n.id}); commit(); }}))); }
+let delId=null;
+function askDelete(id){ delId=id; const n=nodes.find(x=>x.id===id); DS.$('#delTxt').innerHTML=`“${esc(n.title)}”的前后步骤会自动连起来。删除只影响这份草稿，保存前都可以撤销。`; DS.openDialog('delDlg'); }
+function doDelete(){ const ins=edges.filter(e=>e.to===delId).map(e=>e.from), outs=edges.filter(e=>e.from===delId).map(e=>e.to); edges=edges.filter(e=>e.from!==delId&&e.to!==delId); ins.forEach(a=>outs.forEach(b=>{ if(!edges.some(e=>e.from===a&&e.to===b)) edges.push({from:a,to:b}); })); nodes=nodes.filter(n=>n.id!==delId); DS.closeDialog(); cv.select(null); commit(); DS.toast('已删除，可撤销','info'); }
+let catAfter=null;
+function openCatalog(after){ catAfter = after || cv.selected || nodes.filter(n=>!n.system).slice(-1)[0]?.id || 'start';
+  const ref=nodes.find(n=>n.id===catAfter); DS.$('#catWhere').textContent='将添加到“'+(ref?ref.title:'开始')+'”之后';
+  DS.$('#catList').innerHTML = TEMPLATES.map((t,i)=>`<button class="list-row" onclick="DS.closeDrawer();addAfter(catAfter,TEMPLATES[${i}])"><span class="tile" style="width:32px;height:32px">${I(t[1]==='人工'?'users':'layers','sm')}</span><span class="grow"><div style="font-size:13.5px">${t[0]}</div><div class="hint">${t[1]||'需指定职业'} · 产出 ${t[2]}</div></span>${I('plus','sm')}</button>`).join('');
+  DS.openDrawer('catalog');
+}
+document.addEventListener('keydown',e=>{ if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'&&!e.target.closest('input,textarea')){ e.preventDefault(); e.shiftKey?redo():undo(); } });
+function undo(){ if(!history.length) return; future.push(snapshot()); restore(history.pop()); dirty=Math.max(0,dirty-1); saveState=dirty?'dirty':'saved'; refresh(); }
+function redo(){ if(!future.length) return; history.push(snapshot()); restore(future.pop()); dirty++; saveState='dirty'; refresh(); }
+function restore(s){ const o=JSON.parse(s); nodes=o.nodes; edges=o.edges; title=o.title; lastSnap=s; }
+
+/* ---------- 检查 / 保存 ---------- */
+function check(){
+  DS.$$('#cv .issues').forEach(e=>e.remove());
+  const bad = nodes.filter(n=>!n.system && !n.role);
+  if (!bad.length) { DS.toast('检查通过：所有步骤都能执行'); return; }
+  DS.$('#cv').insertAdjacentHTML('beforeend', `<div class="cv-overlay issues" role="dialog" aria-label="检查结果"><div class="row" style="padding:12px 14px;box-shadow:inset 0 -1px 0 var(--line)"><span style="color:var(--warn)">${I('alert','sm')}</span><b style="font-weight:500;font-size:13.5px">${bad.length} 个问题需要处理</b><span class="grow"></span><button class="icon-btn" style="width:26px;height:26px" aria-label="关闭" onclick="this.closest('.issues').remove()">${I('x','sm')}</button></div>
+    ${bad.map(n=>`<div class="issue"><span class="badge st-fail" style="height:20px">未指定职业</span><span class="grow">“${esc(n.title)}”还没有指定由谁来做</span><button class="btn ghost sm" onclick="cv.focusNode('${n.id}')">定位</button></div>`).join('')}</div>`);
+}
+function save(){
+  if (nodes.some(n=>!n.system&&!n.role)) { check(); DS.toast('有步骤未指定职业，暂不能保存','warn'); return; }
+  saveState='saving'; bar(); setTimeout(()=>{ version++; dirty=0; history=[]; future=[]; saveState='saved'; refresh(); DS.toast('已保存为版本 '+version); },1000);
+}
+function resolveUnknown(b){ b.innerHTML='<span class="spin"></span>核对中'; setTimeout(()=>{ version=5; dirty=0; saveState='saved'; refresh(); DS.toast('原请求已被接受：版本 5'); },1200); }
+
+DS.mount({ header:'', states:[
+  {id:'ready',label:'我的流程 · 已保存'},{id:'dirty',label:'有未保存修改'},{id:'unbound',label:'有步骤未指定职业'},{id:'empty',label:'新流程 · 空'},
+  {id:'builtin',label:'内置流程 · 只读'},{id:'unknown',label:'保存结果未明'},{id:'conflict',label:'版本冲突'}], state:S0 });
+DS.$('.header').remove();  // 画布页把页头并入画布工具条，给画布更多空间
+refresh();
+if (S0==='unbound') setTimeout(()=>check(),300);
+</script>
+</body>
+</html>

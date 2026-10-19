@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>opencode-workflow deepseek 风设计稿</title>
+<link rel="stylesheet" href="assets/ds.css">
+<link rel="stylesheet" href="assets/skins.css">
+<style>
+body{overflow:auto;background:var(--glow),var(--bg);background-repeat:no-repeat}
+.wrap{max-width:1160px;margin:0 auto;padding:56px 32px 80px}
+.hero h1{font-family:var(--font-display);font-weight:400;font-size:40px;letter-spacing:-1px;line-height:1.15}
+.hero h1 em{font-family:Georgia,serif;font-style:italic;color:var(--accent)}
+.hero p{color:var(--sub);font-size:15px;margin-top:12px;max-width:760px;line-height:1.7}
+.principles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:32px}
+@media (max-width:980px){.principles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.principle{padding:16px}
+.principle b{display:block;font-weight:500;margin-bottom:6px}
+.principle span{font-size:12.5px;color:var(--muted);line-height:1.6}
+.group{margin-top:44px}
+.group h2{font-size:13px;color:var(--muted);font-weight:500;letter-spacing:.4px;margin-bottom:12px}
+.pages{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:980px){.pages{grid-template-columns:1fr}}
+.pg{display:flex;flex-direction:column;gap:12px;padding:18px}
+.pg h3{font-size:16px;font-weight:500}
+.pg .id{font:12px var(--font-mono);color:var(--muted)}
+.ba{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.ba div{font-size:12.5px;line-height:1.65;color:var(--sub)}
+.ba b{display:block;font-size:11.5px;font-weight:500;color:var(--muted);letter-spacing:.3px;margin-bottom:4px}
+.ba ul{margin:0;padding-left:16px}
+.pg.todo{opacity:.55}
+.foot{margin-top:56px;color:var(--muted);font-size:12.5px;line-height:1.7}
+.skins{margin-top:28px;display:flex;gap:20px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:18px 20px}
+.skins .sw5{display:flex;gap:8px;flex-wrap:wrap}
+.skins .sw5 button{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px 0 6px;border-radius:999px;border:1px solid var(--line-2);font-size:12.5px;color:var(--sub)}
+.skins .sw5 button:hover{color:var(--ink);border-color:var(--line-3)}
+.skins .sw5 button[aria-pressed="true"]{color:var(--ink-strong);background:var(--fill-4);border-color:var(--line-3)}
+.skins .sw5 i{display:flex;width:22px;height:22px;border-radius:50%;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(128,128,128,.35)}
+.skins .sw5 i b{flex:1}
+.bgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:980px){.bgrid{grid-template-columns:1fr}}
+.bcard{display:flex;flex-direction:column;gap:8px;padding:16px}
+.bcard .no{font:12px var(--font-mono);color:var(--muted)}
+.bcard h3{font-size:14.5px;font-weight:500;line-height:1.45}
+.bcard p{font-size:12.5px;color:var(--sub);line-height:1.6}
+.bcard code{font:11.5px var(--font-mono);color:var(--muted);margin-top:auto}
+.bnote{font-size:12.5px;color:var(--muted);line-height:1.7;margin:-4px 0 14px;max-width:860px}
+</style>
+<link rel="stylesheet" href="../../showcase/bridge.css">
+<script src="../../showcase/icons.js"></script>
+<script src="../../showcase/navigation.js"></script>
+<script defer src="../../showcase/catalog.js"></script>
+<script defer src="../../showcase/bridge.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <span class="badge outline"><span class="dot" style="color:var(--accent)"></span>新增皮肤 · 新设计基准</span>
+    <h1 style="margin-top:16px">opencode-workflow · <em>deepseek</em> 风设计稿</h1>
+    <p>参照 DeepSeek Harness 的视觉语言，从产品角度逐页重新设计 opencode-workflow。每页都是可点击的原型，底部中间的“原型状态”可以切换加载、失败、结果未明等状态。业务规则（冻结身份、未知结果只读回读、抽屉宽度、草稿与执行分离）保持不变；布局、信息层级与交互按“美观、好用”重做。</p>
+  </section>
+
+  <section class="principles">
+    <div class="card principle"><b>一屏说清下一步</b><span>每页先回答：现在怎样、要我做什么、下一步去哪。主操作只有一个，用主按钮胶囊（deepseek 风为白底黑字）。</span></div>
+    <div class="card principle"><b>少跳转，多就地</b><span>常用选择直接铺在页面上（项目、流程），只有“更多”才进抽屉。</span></div>
+    <div class="card principle"><b>状态不靠颜色</b><span>执行中 / 停滞 / 失败 / 未明 都是“图标 + 文字 + 颜色”；结果未明统一用虚线琥珀色。</span></div>
+    <div class="card principle"><b>原型控件与产品分离</b><span>设计审阅用的状态切换不再混进产品页头，单独浮在底部中间。</span></div>
+  </section>
+
+  <section class="card skins">
+    <div style="min-width:0;max-width:520px"><b style="font-weight:500">四套皮肤</b><p style="font-size:12.5px;color:var(--muted);line-height:1.65;margin-top:4px">结构统一用 deepseek 风，其他三套只换颜色令牌。在这里选的皮肤会带到每个原型页；页内底部的“皮肤”下拉也能随时切换。</p></div>
+    <div class="sw5" id="skinPick"></div>
+    <a class="btn secondary" href="skin-map.html">查看颜色迁移图 →</a>
+  </section>
+
+  <div id="groups"></div>
+  <section class="group" id="bgroup"><h2>补充设计 · 15 项（B 类区域）</h2><p class="bnote">交接包里 React 已实现、原设计稿没有画到的区域。原有页面里的新状态都以“补充 · ”开头追加在原型状态列表末尾，不改变已有状态；逐项说明见 REVIEW.md 第二部分。</p><div class="bgrid" id="bitems"></div></section>
+
+  <p class="foot">设计系统：<a class="mono" href="assets/ds.css" style="color:var(--accent)">assets/ds.css</a> · 外壳与组件：<a class="mono" href="assets/shell.js" style="color:var(--accent)">assets/shell.js</a> · 逐页审查与改造说明：<a class="mono" href="REVIEW.md" style="color:var(--accent)">REVIEW.md</a> · 皮肤令牌：<a class="mono" href="assets/skins.css" style="color:var(--accent)">assets/skins.css</a> · <a href="skin-map.html" style="color:var(--accent)">颜色迁移图</a><br>所有数据均为本地示例，不调用真实 API 或 Provider。</p>
+</div>
+<script>
+const GROUPS = [
+  ['工作区', [
+    {f:'home', t:'主页', id:'HOME', ready:true,
+      before:['首屏只有标语和一张流程图，看不出 opencode-workflow 能做什么','4 个入口卡与演示没有关联，像拼起来的'],
+      after:['定位为纯展示页：标语 + 两个按钮（开始任务 / 查看项目），不放任何可执行的输入','流程演示放进产品窗口，作为首屏主视觉，每个阶段配一句说明','“能力不断拓展”四张能力卡，每张带一个小示意，点进对应页面','底部再给一次“开始任务”入口']},
+    {f:'projects', t:'项目', id:'PROJECTS', ready:true,
+      before:['卡片里大块灰色路径框挤占空间，层级平','工作模式筛选藏在下拉框里','详情页只有字段罗列，看不出哪些配置还缺'],
+      after:['卡片：名称 + 路径一行 + 状态徽标 + 三格事实条；整卡可点','分段筛选显示每类数量；路径不可用卡片直接说明原因与出路','详情改为页签；概览右侧“配置状态”清单一眼看出缺什么','登记改为 480 抽屉，选目录自动填名称；公约生成有步骤条']},
+    {f:'knowledge', t:'知识库', id:'KNOWLEDGE', ready:true,
+      before:['运行中只有一行固定文字，看不出进展','引用是很小的上标，原文抽屉盖住回答','首屏不知道会查哪些资料、能问什么'],
+      after:['研究过程四步逐步展开，完成后自动收起为一行摘要','命中来源卡依次出现，回答流式输出，句子写完才出引用编号','引用原文 520 面板从右侧推入，不遮回答，段落高亮、可前后切换','首屏写明将从哪些资料中查找，并给三个示例问题']},
+    {f:'knowledge-history', t:'知识对话记录', id:'KNOWLEDGE-HISTORY', ready:true,
+      before:['四个下拉框加搜索，筛选区过重','每行只有标题和状态词，看不出回答内容'],
+      after:['搜索 + 项目 + 分段（全部 / 需要回答 / 进行中 / 已完成），时间改为列表分组','每行带回答摘要、模型、引用数；“需要你回答”高亮并直接给“去回答”']},
+    {f:'ppt', t:'PPT 制作', id:'PPT', ready:true,
+      before:['“不关联项目”下拉，不知道选不选有什么区别','三步说明只是一行小字','看不到最近做过的演示'],
+      after:['先选项目再写主题，与开始任务一致','三步做成带示意的卡片','底部“最近的演示”带下一步提示，点击回到工作台']},
+    {f:'ppt-works', t:'PPT 作品', id:'PPT-WORKS', ready:true,
+      before:['缩略图都是同一个占位图案','只显示阶段词，看不出下一步'],
+      after:['网格视图显示真实首页缩略图与页数，可切换列表','卡片带阶段进度条与下一步提示（第 4 页制作中 / 方案待你确认）']},
+    {f:'ppt-studio', t:'PPT 工作台', id:'PPT-STUDIO', ready:true,
+      before:['页头只有四个按钮，看不出处于哪一阶段','讨论需求、确认方案都挤在助手对话里','检查问题在缩略图上看不出来'],
+      after:['页头四步进度：讨论需求 → 设计方案 → 制作检查 → 导出','讨论阶段中间是逐项补全的需求简报；方案阶段是大纲 + 三个视觉方向','有问题的页在缩略图上标出；助手修改以差异卡呈现，可应用或不用','手动编辑时点文字直接改，右侧切到对象属性']},
+  ]],
+  ['规划与执行', [
+    {f:'start', t:'开始任务', id:'START', ready:true,
+      before:['两步向导：只有两个项目也要开抽屉去选','选流程看不到它包含哪些步骤','右侧没有“将要创建什么”的总结'],
+      after:['一页三段，顺序为 项目 → 目标 → 流程；选好项目后目标框才可输入并自动聚焦','常用项目、流程直接铺开成单选卡，更多才进 400 抽屉','流程卡片显示步骤链；选中后核对版本并显示“版本 r12 已核对”','右侧固定总结卡 + “接下来”三步，按钮下方实时说明还差什么']},
+    {f:'workflows', t:'流程目录', id:'WORKFLOW', ready:true,
+      before:['表格只有名称、来源、版本，看不出流程包含哪些步骤','来源筛选是下拉框 + 单独的搜索按钮','详情面板主操作和次要操作并列，分不清该点哪个'],
+      after:['列表行：图标 + 名称 + 一行说明 + 版本与更新时间；内置流程带小标签','分段筛选（全部 / 我的 / 内置）带数量，搜索即时生效','详情显示步骤链（并行步骤并排展示）、使用次数；主操作“用这个流程开始任务”','复制弹窗可改名并说明复制哪个版本；归档说明对已有任务没有影响']},
+    {f:'workflow-editor', t:'流程画布', id:'WORKFLOW-EDITOR', ready:true,
+      before:['先“查看”再点“修改流程”进入编辑模式，非专业用户不知道怎么改','节点小、职业形象占位大，看不清步骤名','添加 / 删除 / 连接藏在节点详情里'],
+      after:['我的流程打开即可编辑，没有模式切换；内置流程只读并提示“复制后修改”','步骤右侧 + 添加下一步，连线中间 + 插入，首次打开有可关闭的操作提示','右侧 480 面板：谁来做 → 做什么 → 产出与验收 → 之后；高级设置默认收起','工具条：未保存修改数、撤销/重做、检查（问题可定位到步骤）、保存']},
+    {f:'requirement', t:'需求画布', id:'REQUIREMENT-CANVAS', ready:true,
+      before:['和流程画布几乎一样，看不出这是“确认计划”的一步','模型、预算、资料这些任务设置找不到','确认计划和开始执行的关系不清楚'],
+      after:['顶部四段进度：需求草稿 → 澄清与规划 → 确认计划 → 开始执行','澄清问题、规划中、候选计划直接在画布中央完成，候选计划可切换预览','右侧计划面板：目标、任务设置、检查结果、规划依据，底部唯一主按钮','确认后按钮变为“开始执行”，二次确认后进入执行画布']},
+    {f:'tasks', t:'任务列表', id:'TASKS', ready:true,
+      before:['五个筛选下拉框占满一行，状态计数是纯文字','点任务先出右侧摘要，再点“打开任务详情”，多一步','看不出哪个任务卡在哪、为什么'],
+      after:['顶部“需要你处理”卡片直接列出停滞 / 失败 / 待确认的任务和原因','分段筛选（全部 / 需要处理 / 进行中 / 已结束）+ 项目下拉 + 分组开关','每行：任务 · 需要处理的原因 · 步骤状态条 · 状态徽标；点击直接进入执行画布','状态未核对的任务用虚线琥珀徽标与虚线步骤段']},
+    {f:'task', t:'任务执行画布（含恢复 / 冻结计划 / 执行会话）', id:'TASK-DETAIL', ready:true,
+      before:['首屏只有图，“现在到哪、要我做什么、下一步”要自己找','节点详情信息多但没有明确主动作','恢复、冻结计划、执行会话分散在别的页面'],
+      after:['画布上方一条“情况条”：现在到哪 / 需要你做什么（带按钮）/ 下一步是什么','右侧面板默认隐藏；点步骤后打开，按状态给唯一主动作（审批、恢复、验收、保存修改）','待执行步骤直接在画布上修改、插入、移出计划；被调度领取时明确拒绝并保留草稿','工具条有“自动节点推进”开关；关闭后出现“推进一步 · 将启动 N 步”','恢复、冻结计划、审计、执行现场都在同一画布的右侧面板里']},
+    {f:'inbox', t:'待处理中心', id:'INBOX', ready:true,
+      before:['回答区的单选、多选、自定义答案样式一样，分不清','看不出事项来自哪个任务、哪一步','权限请求的“一次 / 会话”范围要读说明才懂'],
+      after:['每题标“单选 / 可多选”，推荐项带绿色小标签；底部显示“已回答 1 / 2”','顶部来源条：任务 · 步骤 + “在执行画布中查看”','权限页并排两张范围卡（仅这一次 / 本次会话都允许），主按钮是更安全的“允许这一次”','策略禁止只给“知道了”；提交结果未明时锁定并只允许重新读取']},
+    {f:'insights', t:'质量与用量', id:'INSIGHTS', ready:true,
+      before:['四个筛选下拉 + 搜索框 + “筛选”按钮，占了两行','成本显示 18 位小数','表格只有数字，看不出谁消耗多'],
+      after:['一行工具条：搜索、项目、状态、质量分段、包含已归档','三张汇总卡：已记录用量（另列未知条数）、按币种分列的成本、已加载且有用量的任务','Tokens 列加横向小条，用量对比一眼可见；未知用量用虚线琥珀标签','右侧明细：验收与评审逐项、用量四格、成本，底部“查看任务评审”']},
+    {f:'templates', t:'模板任务', id:'TEMPLATES', ready:true,
+      before:['模板列表靠一个下拉框分类','日期要手动选两次','启动按钮旁边没有“将会做什么”的说明'],
+      after:['左侧模板按“报告 / 代码审查 / 开发”分组，带搜索','右侧表单分段：项目与分支并排、时间范围用快捷分段（最近 7 天 / 本月 / 自定义 / 全部历史）','底部固定说明条：“将在 某项目 · 分支 上运行某模板，范围…” + 启动按钮','启动后回执卡；需要单独开始的模板显示“已创建，等待开始”']},
+    {f:'run', t:'运行内容（文档 / 源码 / 单元测试）', id:'CONTENT-READER', ready:true,
+      before:['页头四个按钮平铺，加一行全是 ID 的说明','统计是一行小字，读不出好坏','待恢复批次只有一个小标签，不知道为什么、怎么恢复'],
+      after:['页头：面包屑 + 状态 + “回到执行画布”，其余操作收进“⋯”；界面不再显示 ID','统计卡用分段条表达：需求满足 / 部分 / 需澄清，文件已覆盖 / 已排除 / 待处理','待恢复批次顶部写明具体原因，“重试这一批”是唯一主按钮','点需求或文件，右侧 520 面板显示冻结原文或代码并高亮依据']},
+  ]],
+  ['系统', [
+    {f:'runtime', t:'运行环境', id:'RUNTIME', ready:true,
+      before:['连接是否正常只是一个小标签','“操作核对”是单独页签，不知道什么时候该看','重启按钮在页头，看不出会中断正在运行的任务'],
+      after:['状态主卡：大图标 + 版本 + 状态徽标，右侧是当前唯一可做的操作','服务 / 进程归属 / 内部 MCP 三张事实卡，缺失值显示“未知”','“最近一次操作”替代操作核对页签；重启确认写明后果','外部进程、启动失败、结果未明等情况各有提示条']},
+    {f:'tools', t:'工具与 Skill', id:'TOOLS', ready:true,
+      before:['配置范围和搜索在页面中间，和内容关系不清','项目的继承 / 启用 / 停用看不出实际生效值','停用来源看不出会影响多少工具'],
+      after:['配置范围移到页头下拉，切换后整页跟随','全局用开关；项目用“继承 / 启用 / 停用”三段控件，下方写明实际生效值','停用来源的确认框列出全部受影响工具','Skill 只读阅读器，标明“阅读不会执行 Skill”']},
+    {f:'databases', t:'数据库', id:'DATABASES', ready:true,
+      before:['卡片上几行字含义不明，看不出授权了哪些项目','三个表单控件 + 搜索按钮','列表上看不出哪个连接有问题'],
+      after:['卡片：引擎标识 + 名称 + 主机 → 可读范围 → 授权项目（未授权琥珀提示）→ 最近检查结果','状态分段筛选即时生效','600 抽屉打开即可编辑；检查结果拆成已连接 / 会话只读 / 只读已强制三格']},
+    {f:'roles', t:'角色管理', id:'ROLES', ready:true,
+      before:['大量复选框和原始字符串，非专业用户读不懂','看不出能力范围、资源权限、实际权限的关系','发布前不知道改了什么'],
+      after:['页签：职责与指令 / 能力范围 / 资源权限 / 形象；能力用分组胶囊开关','资源权限顶部写明“职业上限 ∩ 项目 ∩ 运行环境 ∩ 冻结范围 = 实际可用”','命令参数逐个显示、逐个编辑，空参数明确标出','发布前检查列出检查结果和与上一修订的差异']},
+    {f:'settings', t:'设置', id:'SETTINGS', ready:true,
+      before:['用一长串字段名说明哪些立即生效','保存按钮在页头，看不出有几处没保存','皮肤切换占用每个页面的页头'],
+      after:['每个字段旁标“立即生效 / 重启后生效”，修改过的字段琥珀描边','有修改时出现底部保存条：“2 处未保存 · 1 处需重启”','新增“外观”分区，五套皮肤缩略图在这里切换','Git 账号独立卡片、独立保存；分区导航显示未保存圆点']},
+  ]],
+];
+const ul = a => '<ul>' + a.map(x => `<li>${x}</li>`).join('') + '</ul>';
+document.getElementById('groups').innerHTML = GROUPS.map(([g, ps]) => `<section class="group"><h2>${g}</h2><div class="pages">${ps.map(p => p.ready ? `
+  <a class="card hoverable pg" href="pages/${p.f}.html">
+    <div class="row"><h3 class="grow">${p.t}</h3><span class="badge st-ok">已改造</span></div>
+    <div class="ba"><div><b>原设计的问题</b>${ul(p.before)}</div><div><b>改成了</b>${ul(p.after)}</div></div>
+    <span class="hint">打开原型 →</span>
+  </a>` : `<div class="card pg todo"><div class="row"><h3 class="grow">${p.t}</h3><span class="badge outline">排队中</span></div></div>`).join('')}</div></section>`).join('');
+
+const SKINS=[['deepseek','deepseek 风',['#0a0a0a','#4d6bfe','#f5f6f7']],['warm','claude 风',['#f8f7f3','#89583f','#302d28']],['spdb','SPDB',['#ffffff','#004790','#001e8c']],['github-white','GitHub 白',['#ffffff','#0969da','#1f883d']]];
+let skin='deepseek';try{skin=new URLSearchParams(location.search).get('skin')||localStorage.getItem('looper.proto.skin')||'deepseek'}catch(e){}
+if(!SKINS.some(s=>s[0]===skin))skin='deepseek';
+function pickSkin(k){skin=k;document.documentElement.dataset.skin=k;try{localStorage.setItem('looper.proto.skin',k)}catch(e){}
+  document.getElementById('skinPick').innerHTML=SKINS.map(([id,n,c])=>`<button type="button" aria-pressed="${id===skin}" onclick="pickSkin('${id}')"><i>${c.map(x=>`<b style="background:${x}"></b>`).join('')}</i>${n}</button>`).join('');}
+pickSkin(skin);
+const BITEMS=[["01", "独立恢复工作台", "recovery.html?state=default", "失败上下文 + 三种恢复方式大卡片 + 派生草稿记录；只创建草稿，执行另行开始"], ["02", "职业已发布版本核对", "roles.html?state=pub-view", "职责与指令里「草稿 | 已发布版本」切换，已发布修订以只读回执呈现"], ["03", "职业已发布权限预估", "roles.html?state=perm-pv-result", "资源权限页签内：选职责位置 → 读取预估，有效工具上限与限制、诊断"], ["04", "历史角色配置工作台", "roles-legacy.html?state=overview", "旧角色配置包：目录 + 四页签详情、版本比较、导入四步核对后发布"], ["05", "需求高级澄清与规划扩展", "requirement.html?state=pl-rounds", "澄清与规划面板：规划配置、轮次（含停止未核明）、工作包证明、映射核对、应用 / 退回"], ["06", "历史模板与自动化档案", "templates.html?state=arc-overview", "模板页只读抽屉：五页签归档、冻结版本、旧规则检测、运行详情与核实关联任务"], ["07", "快照评审的运行专用区域", "task.html?state=snap-full", "快照评审任务：执行进度、审查范围与版本、功能批次、阶段报告（已分析 / 未完成 / 排除）"], ["08", "知识研究员检查面板", "knowledge.html?state=rs-full", "点研究员头像打开：角色证据三项核对、已发送问题、工具记录、引用与来源"], ["09", "PPT 七模块制作方案", "ppt-studio.html?state=pl-brief", "作品菜单 → 制作方案：七模块表单、方向冻结、自动保存与版本冲突"], ["10", "模型服务 · 连接方式（含自动检测）", "settings.html?state=conn-auto", "模型服务：托管 / 自动检测 / 连接现有服务三选一卡片，重启后生效"], ["11", "服务设置 · 设计监控间隔", "settings.html?state=monitor", "服务设置 → 高级：设计监控间隔（毫秒，250–10000）与超出范围校验"], ["12", "执行限制 · 会话异常阈值与细分超时", "settings.html?state=limits-off", "执行限制分组：会话异常阈值、验证超时，开启业务超时后显示三项分钟字段"], ["13", "数据库 · 五种扩展类型的编辑呈现", "databases.html?state=og-new", "600 抽屉：openGauss / GaussDB / GoldenDB / 达梦 / DB2 类型与只读强制三态"], ["14", "Skill 带行号原文", "tools.html?state=skill-raw", "Skill 详情：阅读视图 | 原文（带行号），行号不随复制带出"], ["15", "现有需求目录与详情入口", "requirements.html?state=list", "需求目录：项目筛选、状态列表、详情抽屉「打开画布」、加载更多"]];
+document.getElementById('bitems').innerHTML=BITEMS.map(([n,t,href,d])=>`<a class="card hoverable bcard" href="pages/${href}"><span class="no">B-${n}</span><h3>${t}</h3><p>${d}</p><code>${href.split('?')[0]}</code></a>`).join('');
+
+</script>
+</body>
+</html>

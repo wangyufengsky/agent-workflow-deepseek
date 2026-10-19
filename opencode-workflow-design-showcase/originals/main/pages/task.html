@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>任务执行画布 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.task-title{font-family:var(--font-display);font-weight:500;font-size:17px;letter-spacing:-.2px;max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.auto{display:flex;align-items:center;gap:10px;height:36px;padding:0 6px 0 12px;border-radius:var(--r-pill);border:1px solid var(--line-2);font-size:13px;color:var(--ink-2)}
+.situ{display:flex;align-items:center;gap:12px;margin:12px 20px 0;padding:12px 14px;border-radius:14px;background:var(--fill-2);border:1px solid var(--line);font-size:13.5px;flex-wrap:wrap}
+.situ .where{display:flex;align-items:center;gap:10px;color:var(--ink-2)}
+.situ .sep{width:1px;height:18px;background:var(--line-2)}
+.situ.need{background:var(--stall-fill);border-color:var(--stall-line)}
+.situ.fail{background:var(--warn-fill);border-color:var(--warn-line)}
+.situ.wait{background:var(--wait-fill);border-color:var(--wait-line)}
+.situ.ok{background:var(--ok-fill);border-color:var(--ok-line)}
+.situ.unk{background:var(--unknown-fill);border:1px dashed var(--unknown-line)}
+.legend{right:16px;top:16px;display:flex;gap:10px;padding:6px 12px;border-radius:var(--r-pill);background:var(--float);border:1px solid var(--line);font-size:11.5px;color:var(--sub)}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.meter{height:6px;border-radius:3px;background:var(--fill-4);overflow:hidden}
+.meter>i{display:block;height:100%;border-radius:3px;background:var(--run)}
+.stat{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border-radius:12px;overflow:hidden;margin-top:10px}
+.stat>div{background:var(--panel);padding:10px 12px}
+.stat .k{font-size:11.5px;color:var(--muted)}.stat .v{font-size:16px;font-weight:500;margin-top:2px}
+.log{font:12.5px/1.7 var(--font-mono);display:flex;flex-direction:column;gap:10px}
+.log .m{display:flex;gap:8px}
+.log .who{color:var(--muted);flex:none;width:44px}
+.log .tool{color:var(--accent)}
+.log .res{color:var(--sub);padding-left:52px;margin-top:-6px}
+.reason{padding:12px 14px;border-radius:12px;font-size:13.5px;line-height:1.65}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;border:1px solid var(--line-2);text-align:left;width:100%}
+.opt[aria-checked="true"]{border-color:var(--accent-line);background:var(--accent-fill)}
+.opt .r{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-3);flex:none;margin-top:2px}
+.opt[aria-checked="true"] .r{border:5px solid var(--accent)}
+.lockline{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:10px;background:var(--fill-2);font-size:12.5px;color:var(--sub)}
+.att{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);font-size:13px}
+/* 补充 · 快照代码评审（sn-） */
+.sn-met{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border-radius:12px;overflow:hidden}
+.sn-met.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.sn-met>div{background:var(--panel);padding:12px 12px 10px;min-width:0}
+.sn-met .v{font-family:var(--font-display);font-weight:500;font-size:22px;line-height:1.15;letter-spacing:-.3px}
+.sn-met .k{font-size:11.5px;color:var(--muted);margin-top:4px}
+.sn-ph{display:grid;grid-template-columns:104px minmax(0,1fr) 56px;gap:10px;align-items:center;font-size:13px;color:var(--ink-2)}
+.sn-ph+.sn-ph{margin-top:10px}
+.sn-ph .c{text-align:right;color:var(--sub);font-size:12.5px}
+.sn-note{display:flex;gap:8px;align-items:flex-start;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--fill-2);font-size:12.5px;color:var(--sub);line-height:1.6}
+.sn-note b{color:var(--ink);font-weight:500}
+.sn-box{border:1px solid var(--line);border-radius:12px;padding:14px}
+.sn-box .hd{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sn-facts{display:flex;gap:18px;margin-top:12px;font-size:12.5px;color:var(--muted)}
+.sn-facts b{display:block;font:500 15px var(--font-display);color:var(--ink);margin-top:2px}
+.sn-sha{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:var(--muted)}
+.sn-sha code{font:500 12.5px var(--font-mono);color:var(--ink-2);padding:2px 8px;border-radius:6px;background:var(--fill-3)}
+.sn-sha .icon-btn{width:26px;height:26px}
+.sn-full{margin-top:8px;font-size:12px}
+.sn-full summary{cursor:pointer;color:var(--sub);list-style:none;display:inline-flex;align-items:center;gap:4px}
+.sn-full summary::-webkit-details-marker{display:none}
+.sn-full[open] .chev{transform:rotate(90deg)}
+.sn-full dl{display:grid;grid-template-columns:36px minmax(0,1fr);gap:6px 8px;margin:8px 0 0}
+.sn-full dt{color:var(--muted)}.sn-full dd{margin:0;font-family:var(--font-mono);color:var(--ink-2);overflow-wrap:anywhere}
+.sn-tog{display:flex;align-items:center;gap:10px;width:100%;height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--line);font-size:13.5px;text-align:left}
+.sn-tog:hover{background:var(--fill-2)}
+.sn-tog[aria-expanded="true"]{border-radius:12px 12px 0 0;background:var(--fill-2)}
+.sn-tog .chev{transition:transform .2s;color:var(--sub)}
+.sn-tog[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.sn-bl{border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;padding:4px 14px 10px}
+.sn-b{padding:10px 0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+.sn-b+.sn-b{box-shadow:inset 0 1px 0 var(--line)}
+.sn-b .t{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sn-b .p{font-size:12px;color:var(--muted)}
+.sn-b .err{grid-column:1/-1;font-size:12.5px;color:var(--warn);display:flex;gap:6px;align-items:flex-start;line-height:1.55}
+.sn-b .err svg{margin-top:2px}
+.sn-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;gap:2px;margin-top:4px}
+.sn-bar i{display:block;height:100%}
+.sn-lg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.sn-lg div{font-size:12px;color:var(--muted)}
+.sn-lg b{display:block;font:500 18px var(--font-display);color:var(--ink);margin-top:2px}
+.sn-lg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:0}
+.sn-doc{margin-top:14px;padding:14px 16px;border-radius:12px;background:var(--bg-sunken);border:1px solid var(--line);font-size:13px;line-height:1.75;color:var(--ink-2)}
+.sn-doc h4{font-size:14px;font-weight:500;color:var(--ink);margin:14px 0 4px}
+.sn-doc h4:first-child{margin-top:0}
+.sn-doc ul{margin:4px 0 0;padding-left:18px}
+.sn-doc code{font:12px var(--font-mono);color:var(--sub)}
+.sn-sev{display:inline-block;font-size:11px;padding:0 6px;border-radius:5px;margin-right:6px;background:var(--warn-fill);color:var(--warn)}
+.sn-sev.hi{background:var(--danger-fill);color:var(--danger)}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="tasks">
+<main id="page" class="canvas-page" hidden>
+  <div class="canvas-bar" id="bar"></div>
+  <div id="situ"></div>
+  <div class="canvas-body" style="margin-top:12px"><div id="cv" class="cv" tabindex="0" aria-label="执行画布"></div><aside class="side hidden" id="side"></aside></div>
+</main>
+<div class="dialog" id="delDlg" role="alertdialog"><div class="dialog-body"><h2>把这一步移出计划？</h2><p>“回归测试”还没开始，移出后不会执行，也不计入完成条件；记录会保留在审计里。其他步骤继续执行。</p></div><div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>保留</button><button class="btn danger" onclick="DS.closeDialog();DS.toast('已移出计划，进度按新的计划计算','info')">移出计划</button></div></div>
+
+<script src="../assets/shell.js"></script>
+<script src="../assets/canvas.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc;
+let S = DS.state || 'running';
+const SNAP = S.startsWith('snap-');
+const TITLE= SNAP ? '订单服务 · 10 月代码评审' : '让项目配置更容易找到，减少切换页面的次数。';
+let auto = S!=='auto-off';
+const nodes = SNAP ? [
+  {id:'start', title:'开始', system:true},
+  {id:'s1', title:'固定源码快照', role:'构建工程师', output:'基线与目标版本', what:'按选定范围固定源码版本；执行中不跟随仓库变化。'},
+  {id:'s2', title:'制定审查计划', role:'架构师', output:'审查计划 · 修订 3', what:'按功能拆分审查批次，形成可修订的审查计划。'},
+  {id:'s3', title:'功能批次分析', role:'代码审查员', output:'批次分析结论', what:'逐批分析代码，记录候选问题与定位证据。'},
+  {id:'s4', title:'候选问题复核', role:'独立复核员', output:'复核结论', what:'对发现候选问题的批次独立复核，过滤误报。'},
+  {id:'s5', title:'汇总报告', role:'技术写作', output:'评审报告', what:'汇总已验证结论，生成报告并校验完整性。'},
+  {id:'end', title:'交付', system:true},
+] : [
+  {id:'start', title:'开始', system:true},
+  {id:'n1', title:'梳理配置入口', role:'产品经理', output:'入口清单与调整方案', what:'盘点现有配置入口，标出重复与难找的位置，提出合并方案。'},
+  {id:'n2', title:'调整页面结构', role:'前端工程师', output:'代码变更', what:'按方案合并配置入口，项目详情加入配置状态清单。'},
+  {id:'n3', title:'补充接口说明', role:'技术写作', output:'接口文档更新', what:'更新配置相关接口与页面说明。'},
+  {id:'n4', title:'回归测试', role:'测试工程师', output:'测试报告', what:'覆盖项目列表、详情、配置保存的回归用例。'},
+  {id:'n5', title:'人工验收', role:'人工', output:'验收结论', what:'由你确认改动是否达到目标。'},
+  {id:'end', title:'交付', system:true},
+];
+const edges = (SNAP ? [['start','s1'],['s1','s2'],['s2','s3'],['s3','s4'],['s4','s5'],['s5','end']] : [['start','n1'],['n1','n2'],['n1','n3'],['n2','n4'],['n3','n4'],['n4','n5'],['n5','end']]).map(([from,to])=>({from,to}));
+const MAP = {
+  running:  {n1:'done', n2:'run', n3:'run', n4:'ready', n5:'ready'},
+  template: {n1:'done', n2:'run', n3:'run', n4:'idle', n5:'idle'},
+  'auto-off':{n1:'done', n2:'ready', n3:'ready', n4:'ready', n5:'ready'},
+  stalled:  {n1:'done', n2:'stall', n3:'done', n4:'ready', n5:'ready'},
+  waiting:  {n1:'done', n2:'run', n3:'wait', n4:'ready', n5:'ready'},
+  failed:   {n1:'done', n2:'done', n3:'done', n4:'fail', n5:'ready'},
+  review:   {n1:'done', n2:'done', n3:'done', n4:'done', n5:'review'},
+  completed:{n1:'done', n2:'done', n3:'done', n4:'done', n5:'done'},
+  'claim-race':{n1:'done', n2:'done', n3:'done', n4:'claimed', n5:'ready'},
+  unknown:  {n1:'done', n2:'unknown', n3:'run', n4:'ready', n5:'ready'},
+  recovering:{n1:'done', n2:'done', n3:'done', n4:'fail', n5:'ready'},
+};
+const SNAP_MAP = {'snap-cancelled':{s1:'done', s2:'done'}, 'snap-batches-empty':{s1:'done', s2:'run', s3:'idle', s4:'idle', s5:'idle'}};
+const status = () => SNAP ? (SNAP_MAP[S] || {s1:'done', s2:'done', s3:'run', s4:'run', s5:'idle'}) : (MAP[S] || MAP.running);
+const isTemplate = S==='template' || SNAP;
+
+const cv = DSCanvas(DS.$('#cv'), {
+  nodes, edges,
+  statusOf: id => status()[id],
+  editable: n => !isTemplate && status()[n.id]==='ready',
+  canInsert: (a,b) => !isTemplate && ['ready'].includes(status()[b.id]),
+  onSelect: (id, sys) => { if (sys) return; openNode(id); if(id) cv.reveal(id); },
+  onAddAfter: id => DS.toast('已在“'+nodes.find(n=>n.id===id).title+'”后添加待执行步骤（原型示意）','info'),
+  onInsert: () => DS.toast('已插入待执行步骤（原型示意）','info'),
+});
+
+function bar(){
+  const st = SNAP ? (S==='snap-cancelled'?['已取消','st-idle','stop']:['执行中','st-run','play']) : {running:['执行中','st-run','play'],template:['执行中','st-run','play'],'auto-off':['等待推进','st-wait','pause'],stalled:['有步骤停滞','st-stall','alert'],waiting:['等待你处理','st-wait','help'],failed:['有步骤失败','st-fail','x'],review:['待人工验收','st-wait','eye'],completed:['已完成','st-done','check'],'claim-race':['执行中','st-run','play'],unknown:['状态待核对','st-unknown','help'],recovering:['恢复中','st-wait','refresh']}[S];
+  const batch = S==='auto-off';
+  DS.$('#bar').innerHTML = `
+    <nav class="crumbs"><a href="tasks.html">任务列表</a><span class="sep">/</span></nav>
+    <span class="task-title" title="${esc(TITLE)}">${esc(TITLE)}</span>
+    <span class="badge ${st[1]}">${I(st[2],'sm')}${st[0]}</span>
+    ${isTemplate?`<span class="badge outline">${SNAP?'模板 · 快照代码评审':'模板任务 · 固定流程'}</span>`:''}
+    <span class="grow"></span>
+    ${SNAP?`<div class="seg" role="group" aria-label="运行面板"><button aria-pressed="${snapOpen&&snapTab==='progress'}" onclick="openSnap('progress')">${I('chart','sm')}执行进度</button><button aria-pressed="${snapOpen&&snapTab==='reports'}" onclick="openSnap('reports')">${I('doc','sm')}模板报告</button></div>`:''}
+    ${S==='template'?`<a class="btn ghost sm" href="run.html?state=source">${I('file','sm')}阅读运行内容</a>`:''}
+    ${S==='completed'||SNAP?'':`<label class="auto" title="开启时，步骤验收通过后自动开始满足条件的下一批步骤">自动节点推进<button class="switch" role="switch" aria-checked="${auto}" aria-label="自动节点推进" onclick="toggleAuto()"></button></label>
+    ${!auto?`<button class="btn ${batch?'primary':'secondary'}" ${batch?'':'disabled'} onclick="advance(this)" title="${batch?'放行此刻满足条件的全部后继步骤':'没有可以推进的步骤：正在等待执行中或待验收的步骤'}">${I('play','sm')}推进一步${batch?' · 将启动 2 步':''}</button>`:''}`}
+    <button class="icon-btn" aria-label="更多" onclick="DS.menu(this,[${['failed','recovering','snap-cancelled'].includes(S)?`{label:'任务恢复…',icon:'refresh',run(){SC.href ='recovery.html'}},`:''}{label:'冻结计划',icon:'layers',run(){openPlan()}},{label:'审计记录',icon:'clock',run(){openAudit()}},'-',{label:'暂停任务…',icon:'pause',run(){DS.toast('暂停会让执行中的步骤停在安全点（原型未展开）','info')}},{label:'停止任务…',icon:'stop',danger:true,run(){DS.toast('停止需要二次确认（原型未展开）','warn')}}])">${I('more')}</button>`;
+}
+function situ(){
+  const s = SNAP ? snapSitu() : {
+    running: ['', `<span class="where">${I('play','sm')}进行到第 2 段：<b>调整页面结构</b>、<b>补充接口说明</b> 并行执行中</span><span class="sep"></span><span class="sub">没有需要你处理的事</span><span class="grow"></span><span class="hint">下一步：两步都验收通过后自动开始“回归测试”</span>`],
+    template: ['', `<span class="where">${I('play','sm')}模板运行：2 步并行执行中</span><span class="sep"></span><span class="sub">模板任务使用固定流程，步骤结构不能修改</span>`],
+    'auto-off': ['wait', `<span class="where">${I('pause','sm')}“梳理配置入口”已验收通过，自动推进已关闭</span><span class="grow"></span><span class="sub">点“推进一步”同时开始 2 个并行步骤</span>`],
+    stalled: ['need', `<span class="where" style="color:var(--stall)">${I('alert','sm')}<b>调整页面结构</b> 已停滞 18 分钟</span><span class="sep"></span><span class="sub">最后一条记录：等待依赖安装完成（npm install）</span><span class="grow"></span><button class="btn secondary sm" onclick="cv.focusNode('n2')">查看并处理</button>`],
+    waiting: ['wait', `<span class="where" style="color:var(--wait)">${I('help','sm')}<b>补充接口说明</b> 请求写入 docs/api-reference.md</span><span class="grow"></span><span class="sub">其他步骤继续执行</span><button class="btn primary sm" onclick="cv.focusNode('n3')">审批</button>`],
+    failed: ['fail', `<span class="where" style="color:var(--warn)">${I('x','sm')}<b>回归测试</b> 失败：3 个用例断言不通过</span><span class="sep"></span><span class="sub">已用尝试 3 / 3</span><span class="grow"></span><button class="btn primary sm" onclick="cv.focusNode('n4')">查看原因并恢复</button>`],
+    review: ['wait', `<span class="where" style="color:var(--wait)">${I('eye','sm')}所有自动步骤已通过，等待你<b>人工验收</b></span><span class="grow"></span><button class="btn primary sm" onclick="cv.focusNode('n5')">去验收</button>`],
+    completed: ['ok', `<span class="where" style="color:var(--ok)">${I('check','sm')}任务已完成 · 5 步全部验收通过</span><span class="sep"></span><span class="sub">用时 1 小时 12 分 · 花费 3.40 美元</span><span class="grow"></span><a class="btn secondary sm" href="#" onclick="event.preventDefault();openNode('n5')">查看交付</a>`],
+    'claim-race': ['', `<span class="where">${I('play','sm')}“回归测试”刚被调度领取，即将开始</span><span class="grow"></span><span class="hint">你对它的修改没有应用，草稿保留在步骤面板中</span>`],
+    unknown: ['unk', `<span class="where" style="color:var(--unknown)">${I('help','sm')}“调整页面结构”状态未核对</span><span class="sep"></span><span class="sub">最近一次读取失败，画布保留上次进度；21 秒后自动重新读取</span><span class="grow"></span><button class="btn secondary sm" onclick="DS.toast('正在重新读取…','info')">${I('refresh','sm')}立即重新读取</button>`],
+    recovering: ['fail', `<span class="where" style="color:var(--warn)">${I('refresh','sm')}正在为“回归测试”准备恢复</span><span class="grow"></span><span class="sub">原任务与失败记录保持不变</span>`],
+  }[S];
+  DS.$('#situ').innerHTML = `<div class="situ ${s[0]}" role="status">${s[1]}</div>`;
+  DS.$$('#cv .cv-overlay').forEach(e=>e.remove());
+  DS.$('#cv').insertAdjacentHTML('beforeend', `<div class="cv-overlay legend" aria-hidden="true"><span style="color:var(--run)">${I('play','sm')}执行中</span><span style="color:var(--stall)">${I('alert','sm')}停滞</span><span style="color:var(--warn)">${I('x','sm')}失败</span><span style="color:var(--done)">${I('check','sm')}完成</span><span>${I('edit','sm')}可修改</span></div>`);
+}
+
+/* ---------- 步骤面板 ---------- */
+let tab='overview';
+function openNode(id, t){
+  if(id && /^n[1-5]$/.test(id) && ['session','attempts'].includes(t)){SC.openExecutionNode(id,t,{title:nodes.find(x=>x.id===id)?.title,taskTitle:TITLE});return;}
+  if (!id){ DS.$('#side').classList.add('hidden'); return; }
+  if (t) tab=t; const n=nodes.find(x=>x.id===id), s=status()[id], SS=DSCanvas.STATUS[s];
+  if (S==='recovering' && id==='n4') return openRecovery();
+  const tabs=[['overview','概览'],['session','执行现场'],['attempts','尝试与产出']];
+  const showTabs = !['ready','claimed','idle'].includes(s);
+  if (!showTabs) tab='overview';
+  DS.$('#side').classList.remove('hidden');
+  DS.$('#side').innerHTML = `
+    <div class="side-head"><div class="grow"><div class="eyebrow">步骤 ${nodes.indexOf(n)} · ${n.role}</div><div style="font-size:16px;font-weight:500;margin-top:3px">${esc(n.title)}</div><span class="badge ${SS[1]}" style="margin-top:8px">${I(SS[2],'sm')}${SS[0]}</span></div>
+      <button class="icon-btn" aria-label="关闭步骤详情，回到全图" onclick="cv.select(null)">${I('x')}</button></div>
+    ${showTabs?`<div class="tabs" role="tablist" style="padding:0 12px">${tabs.map(([k,l])=>`<button class="tab" role="tab" aria-selected="${tab===k}" onclick="openNode('${id}','${k}')">${l}</button>`).join('')}</div>`:''}
+    <div class="side-body">${ {overview:overview, session:session, attempts:attempts}[tab](n,s) }</div>
+    ${footer(n,s)}`;
+}
+function overview(n,s){
+  const prog = ['run','stall','wait','fail','review','done','unknown'].includes(s);
+  const pct = {run:50, stall:40, wait:60, fail:100, review:100, done:100}[s];
+  let top='';
+  if (s==='stall') top=`<div class="reason" style="background:var(--stall-fill);color:var(--ink-2)"><b style="color:var(--stall)">为什么停滞</b><br>执行器报告 18 分钟内没有新的输出。最后一条记录：<span class="mono">npm install</span> 仍在下载依赖。<br><span class="hint">停滞由执行服务判定，不是界面计时。</span></div>`;
+  if (s==='wait') top=`<div class="reason" style="background:var(--wait-fill)"><b style="color:var(--wait)">需要你审批</b><br>写入 <span class="mono">docs/api-reference.md</span>（项目目录内）。<div class="row wrap" style="margin-top:10px;gap:6px"><button class="btn primary sm" onclick="DS.toast('已允许本次写入，步骤继续执行')">允许本次</button><button class="btn secondary sm" onclick="DS.toast('本任务内同类写入将自动允许')">本任务内都允许</button><button class="btn ghost sm" style="color:var(--danger)" onclick="DS.toast('已拒绝，步骤将说明无法完成的部分','warn')">拒绝</button></div></div>`;
+  if (s==='fail') top=`<div class="reason" style="background:var(--warn-fill)"><b style="color:var(--warn)">失败原因</b><br>回归测试中 3 个用例断言不通过：<ul style="margin:6px 0 0;padding-left:18px;color:var(--ink-2)"><li>项目详情 › 配置状态清单 › GitLab 未绑定时显示“可选”</li><li>项目列表 › 路径不可用 › 禁用开始任务</li><li>配置保存 › 留空密钥不清除已保存值</li></ul><div class="hint" style="margin-top:6px">尝试 3 / 3 已用完，不会自动重试。</div></div>`;
+  if (s==='review') top=`<div class="reason" style="background:var(--wait-fill)"><b style="color:var(--wait)">请确认交付是否达到目标</b><br>目标：${esc(TITLE)}<div class="row wrap" style="margin-top:10px;gap:6px"><a class="btn secondary sm" href="#">${I('file','sm')}变更摘要</a><a class="btn secondary sm" href="#">${I('doc','sm')}测试报告</a></div></div>`;
+  if (s==='unknown') top=`<div class="reason" style="background:var(--unknown-fill);border:1px dashed var(--unknown-line)"><b style="color:var(--unknown)">状态未核对</b><br>无法确认这一步是否仍在执行。画布显示的是上次读到的进度，核对前不能修改或恢复它。</div>`;
+  if (s==='claimed' || S==='claim-race') top=`<div class="lockline">${I('lock','sm')}<span><b class="ink">已被调度领取，当前不可修改。</b>你刚才的修改提交时它已被领取，修改没有应用；草稿保留在下方，可以等它执行完后再决定。<br><button class="btn ghost sm" style="margin:6px 0 0 -10px" onclick="DS.toast('已读取最新状态：即将开始','info')">${I('refresh','sm')}查看最新状态</button></span></div>`;
+  const editable = s==='ready' && !isTemplate;
+  return `${top?`<div class="sec">${top}</div>`:''}
+    ${prog?`<div class="sec"><div class="sec-t">这一步的进度</div><div class="row"><div class="meter grow"><i style="width:${pct}%;background:var(--${s==='fail'?'warn':s==='stall'?'stall':s==='done'?'done':'run'})"></i></div><span class="num" style="font-size:13px">${pct}%</span></div>
+      <div class="stat"><div><div class="k">已执行</div><div class="v num">${s==='run'?4:s==='stall'?3:8}</div></div><div><div class="k">已知总量</div><div class="v num">8</div></div><div><div class="k">验收通过</div><div class="v num">${s==='done'||s==='review'?8:s==='fail'?5:2}</div></div></div>
+      <p class="hint" style="margin-top:8px">“已执行”与“验收通过”分开统计；总量会随执行变化。</p></div>`:''}
+    ${editable?`<div class="sec"><div class="lockline">${I('edit','sm')}<span><b class="ink">待执行，可直接修改。</b>改动只影响这一步，其他步骤继续执行。</span></div></div>`:''}
+    <div class="sec"><div class="sec-t">这一步做什么</div>${editable||s==='claimed'?`<textarea class="textarea" ${s==='claimed'?'readonly':''}>${esc(n.what)}${s==='claimed'?'（补充：覆盖空状态）':''}</textarea>`:`<p style="font-size:13.5px;line-height:1.7;color:var(--ink-2)">${esc(n.what)}</p>`}</div>
+    <div class="sec"><div class="sec-t">谁来做</div><div class="att"><span class="cv-av" style="width:28px;height:28px;background:var(--accent-fill);color:var(--accent)">${n.role==='人工'?I('users','sm'):n.role[0]}</span><span class="grow">${n.role}<div class="hint">${['ready','idle','claimed'].includes(s)?'当前职业，开始时冻结':'执行时冻结的职业 · 形象记录缺失时显示占位'}</div></span>${editable?'<button class="btn ghost sm">更换</button>':''}</div></div>
+    <div class="sec"><div class="sec-t">产出</div><div class="att">${I('file','sm')}<span class="grow">${esc(n.output)}</span>${s==='done'||s==='review'?'<a class="btn ghost sm" href="#">打开</a>':'<span class="hint">尚未产出</span>'}</div></div>
+    ${editable?`<details class="adv sec"><summary><span class="chev">${I('chevRight','sm')}</span>高级设置</summary><div class="hint" style="padding:0 0 14px">输入映射、单步预算、写入权限</div></details>`:''}`;
+}
+function session(n,s){
+  return `<div class="row" style="margin-bottom:12px"><span class="badge ${s==='run'?'st-run':'st-idle'}">${s==='run'?'<span class="dot pulse"></span>实时':'已结束'}</span><span class="hint">尝试 ${s==='fail'?'3':'1'} · 开始于 10:42</span></div>
+    <div class="log">
+      <div class="m"><span class="who">10:42</span><span>读取方案：入口清单与调整方案.md</span></div>
+      <div class="m"><span class="who">10:43</span><span><span class="tool">read</span> frontend/src/pages/projects/Detail.tsx</span></div><div class="res">→ 312 行</div>
+      <div class="m"><span class="who">10:45</span><span><span class="tool">edit</span> Detail.tsx · 新增配置状态清单</span></div><div class="res">→ +86 −12</div>
+      ${s==='stall'?`<div class="m"><span class="who">10:49</span><span><span class="tool">bash</span> npm install</span></div><div class="res" style="color:var(--stall)">→ 无新输出（18 分钟）</div>`:''}
+      ${s==='fail'?`<div class="m"><span class="who">11:20</span><span><span class="tool">bash</span> npm run test</span></div><div class="res" style="color:var(--warn)">→ 3 failed, 41 passed</div>`:''}
+      ${s==='run'?`<div class="m"><span class="who">10:51</span><span><span class="tool">bash</span> npm run lint</span></div><div class="res"><span class="spin" style="display:inline-block;vertical-align:-2px"></span> 运行中…</div>`:''}
+    </div>
+    <p class="hint" style="margin-top:14px">只显示工具调用摘要；完整参数与输出在“尝试与产出”。连接中断时会按记录补读，不会显示成已完成。</p>`;
+}
+function attempts(n,s){
+  const list = s==='fail' ? [['尝试 3','失败 · 3 个用例未通过','st-fail'],['尝试 2','失败 · 5 个用例未通过','st-fail'],['尝试 1','失败 · 构建错误','st-fail']] : s==='done'||s==='review' ? [['尝试 1','通过 · 双评审一致','st-done']] : [['尝试 1','进行中','st-run']];
+  return `<div class="col" style="gap:8px">${list.map(a=>`<div class="att"><span class="grow"><div>${a[0]}</div><div class="hint">${a[1]}</div></span><span class="badge ${a[2]}">${a[2]==='st-run'?'进行中':a[2]==='st-done'?'通过':'失败'}</span><button class="btn ghost sm">查看</button></div>`).join('')}</div>
+    ${s==='done'||s==='review'?`<div class="sec" style="margin-top:20px"><div class="sec-t">评审</div><div class="att">${I('check','sm')}<span class="grow">评审 A：通过<div class="hint">评审 B：通过 · 结论一致，无需人工认定</div></span></div></div>`:''}`;
+}
+function footer(n,s){
+  const f = {
+    ready: isTemplate?`<span class="hint grow">模板任务不能修改步骤</span>`:`<button class="btn ghost sm" style="color:var(--danger)" onclick="DS.openDialog('delDlg')">${I('trash','sm')}移出计划</button><span class="grow"></span><button class="btn primary" onclick="DS.toast('修改已应用到计划，其他步骤继续执行');cv.select(null)">保存修改</button>`,
+    claimed: `<span class="hint grow">已被领取，修改未应用</span><button class="btn secondary" onclick="cv.select(null)">回到全图</button>`,
+    run: `<span class="grow"></span><button class="btn primary" onclick="openNode('${n.id}','session')">${I('terminal','sm')}查看执行现场</button>`,
+    stall: `<button class="btn ghost sm" onclick="openNode('${n.id}','session')">执行现场</button><span class="grow"></span><button class="btn primary" onclick="DS.toast('已请求执行器从安全点重试','info')">${I('refresh','sm')}重新开始这一步</button>`,
+    wait: `<span class="hint grow">审批后这一步继续执行</span>`,
+    fail: `<button class="btn ghost sm" onclick="openNode('${n.id}','attempts')">查看 3 次尝试</button><span class="grow"></span><button class="btn primary" onclick="S='recovering';refresh();openRecovery()">${I('refresh','sm')}恢复这一步</button>`,
+    review: `<button class="btn ghost sm" style="color:var(--danger)" onclick="DS.toast('已退回，请写明原因（原型未展开）','warn')">退回修改</button><span class="grow"></span><button class="btn primary" onclick="S='completed';refresh();cv.select(null);DS.toast('已验收，任务完成')">${I('check','sm')}验收通过</button>`,
+    done: `<span class="grow"></span><button class="btn secondary" onclick="openNode('${n.id}','attempts')">查看产出</button>`,
+    unknown: `<span class="hint grow">核对完成前不能操作</span>`,
+    idle: `<span class="hint grow">等待前面的步骤完成</span>`,
+  }[s] || '';
+  return `<div class="side-foot">${f}</div>`;
+}
+/* ---------- 恢复 ---------- */
+let rmode='retry', rphase='choose';
+function openRecovery(){
+  DS.$('#side').classList.remove('hidden'); cv.reveal('n4');
+  const modes=[['retry','原样重试这一步','用相同的输入和职业再执行一次。适合偶发错误。'],['edit','修改后重试','先调整这一步的说明或输入，再执行。适合方向不对。'],['from','从上一步重新执行','连同“调整页面结构”“补充接口说明”一起重做。适合上游产出有问题。']];
+  DS.$('#side').innerHTML = `
+    <div class="side-head"><button class="icon-btn" aria-label="返回步骤" onclick="S='failed';refresh();openNode('n4')">${I('chevLeft')}</button><div class="grow"><div class="eyebrow">恢复 · 回归测试</div><div style="font-size:16px;font-weight:500;margin-top:3px">${rphase==='ready'?'恢复已准备好':'选择恢复方式'}</div></div></div>
+    <div class="side-body">
+      <div class="lockline" style="margin-bottom:16px">${I('lock','sm')}<span>原任务、失败记录和已完成的步骤保持不变。恢复会生成一个关联的恢复任务，准备好后再单独开始。</span></div>
+      ${rphase==='choose'?`<div class="col" style="gap:8px" role="radiogroup">${modes.map(([k,t,d])=>`<button class="opt" role="radio" aria-checked="${rmode===k}" onclick="rmode='${k}';openRecovery()"><span class="r"></span><span><div style="font-size:14px;font-weight:500">${t}</div><div class="hint">${d}</div></span></button>`).join('')}</div>
+        <div class="sec" style="margin-top:18px"><div class="sec-t">将重新执行</div><div class="row wrap" style="gap:6px">${(rmode==='from'?['调整页面结构','补充接口说明','回归测试']:['回归测试']).map(x=>`<span class="chip">${x}</span>`).join('')}<span class="chip" style="opacity:.6">人工验收（之后）</span></div></div>
+        ${rmode==='edit'?`<div class="sec"><div class="sec-t">修改这一步</div><textarea class="textarea">覆盖项目列表、详情、配置保存的回归用例。GitLab 未绑定时应显示“可选”。</textarea></div>`:''}`
+      : rphase==='creating' ? `<div class="row"><span class="spin"></span>正在创建恢复任务…</div>`
+      : `<div class="banner ok">${I('check')}<div><b>恢复任务已创建</b><br>方式：${modes.find(m=>m[0]===rmode)[1]}。开始后会回到这张画布继续。</div></div>`}
+    </div>
+    <div class="side-foot">${rphase==='choose'?`<button class="btn ghost" onclick="S='failed';refresh();openNode('n4')">取消</button><span class="grow"></span><button class="btn primary" onclick="rphase='creating';openRecovery();setTimeout(()=>{rphase='ready';openRecovery()},1000)">准备恢复</button>`
+      : rphase==='ready'?`<span class="grow"></span><button class="btn primary" onclick="DS.toast('恢复已开始');S='running';rphase='choose';refresh();cv.select(null)">${I('play','sm')}开始恢复</button>`:''}</div>`;
+}
+/* ---------- 补充 · 快照代码评审：执行进度 / 阶段报告 ---------- */
+let snapOpen=false, snapTab=['snap-report','snap-report-loading','snap-report-read','snap-report-error','snap-cancelled'].includes(S)?'reports':'progress';
+let snapBatches=['snap-batches','snap-batches-loading','snap-batches-empty','snap-batches-error'].includes(S);
+let snapPartial={'snap-report-read':'read','snap-cancelled':'read','snap-report-loading':'loading','snap-report-error':'error'}[S]||'none';
+const SNAPD = (()=>{
+  const full={mode:'日期增量审查', light:false, rev:3, sup:2, base:'b71e04c9d2a35f8e1c6047ab93de25f1c08a7e64', target:'9f3c2a7e5b1d4c08a6f2e91b7d3c5a40e8b6f1d2', phase:'功能批次分析', met:[14,3,1,12], rows:[['功能批次分析',11,20],['补充批次',1,2],['候选问题复核',2,null]], count:24, dir:'reports/snapshot-review/order-service-2026-10'};
+  if (S==='snap-light') return {...full, mode:'全面审查', light:true, base:'', target:'4e8d1b0c7a93f25e6d01b8c4a7f3e92d5c06b1a8', met:[9,2,0,5], rows:[['功能批次分析',9,14],['候选问题复核',0,null]], count:14};
+  if (S==='snap-batches-empty') return {...full, rev:1, sup:0, phase:'制定审查计划', met:[0,0,0,null], rows:[['功能批次分析',0,null]], count:0};
+  if (S==='snap-cancelled') return {...full, phase:'已取消', met:[14,0,1,12]};
+  return full;
+})();
+const SNAP_BATCHES = [
+  ['订单创建与库存预占','功能分析','done'],['支付回调与幂等','功能分析','run'],
+  ['退款流程','功能分析','fail','分析输出缺少问题定位（文件与行号），校验未通过。'],
+  ['优惠券叠加规则','候选问题复核','run'],['订单导出（补充）','补充分析','idle'],['用户地址簿','功能分析','done'],
+];
+const BST = {done:['已验证','st-done','check'], run:['执行中','st-run','play'], fail:['需处理','st-fail','alert'], idle:['待执行','st-idle','clock']};
+function snapSitu(){
+  if (S==='snap-cancelled') return ['', `<span class="where">${I('stop','sm')}任务已取消 · 已验证的 14 个审查批次保留</span><span class="sep"></span><span class="sub">阶段报告仍可读取，读取不会重新开始执行</span><span class="grow"></span><button class="btn secondary sm" onclick="openSnap('reports')">${I('doc','sm')}阅读阶段报告</button>`];
+  if (S==='snap-batches-empty') return ['', `<span class="where">${I('play','sm')}<span>快照代码评审：正在<b>制定审查计划</b></span></span><span class="sep"></span><span class="sub">计划确认后按功能拆分审查批次</span>`];
+  const d=SNAPD;
+  return ['', `<span class="where">${I('play','sm')}<span>快照代码评审：<b>功能批次分析</b>${d.light?'':'、<b>候选问题复核</b>'} 进行中</span></span><span class="sep"></span><span class="sub">已验证 ${d.met[0]} 个审查批次${d.met[2]?` · <span style="color:var(--warn)">${d.met[2]} 个需处理</span>`:''}</span><span class="grow"></span><span class="hint">进度不等于完成：报告生成并校验后任务才完成</span>`];
+}
+function shaRow(label, sha){ return `<span>${label}</span><code title="${sha}">${sha.slice(0,7)}</code><button class="icon-btn" aria-label="复制${label}版本号" onclick="DS.toast('已复制${label}版本号','info')">${I('copy','sm')}</button>`; }
+function snapProgress(){
+  const d=SNAPD, m=d.met, c3=m[3]==null;
+  const cells=[[m[0],'已验证审查批次'],[m[1],'执行中'],[m[2],'需处理',m[2]?'var(--warn)':''],...(c3?[]:[[m[3],'剩余批次']])];
+  let batches='';
+  if (snapBatches){
+    let inner;
+    if (S==='snap-batches-loading') inner=[0,1,2].map(()=>`<div class="sn-b"><div><div class="skel" style="height:13px;width:62%"></div><div class="skel" style="height:11px;width:36%;margin-top:7px"></div></div><div class="skel" style="height:20px;width:56px;border-radius:999px"></div></div>`).join('');
+    else if (S==='snap-batches-error') inner=`<div class="banner danger" role="alert" style="margin:10px 0 4px">${I('alert')}<div><b>功能批次读取失败</b><br>没有拿到批次列表，上方进度数字不受影响。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('snap-batches')">${I('refresh','sm')}重试</button></div></div>`;
+    else if (!d.count) inner=`<div class="hint" style="padding:14px 0 6px">尚未创建功能批次。审查计划确认后，会按功能拆分批次并显示在这里。</div>`;
+    else inner=SNAP_BATCHES.map(([t,p,st,err])=>{const B=BST[st];return `<div class="sn-b"><div style="min-width:0"><div class="t">${t}</div><div class="p">${p}</div></div><span class="badge ${B[1]}">${I(B[2],'sm')}${B[0]}</span>${err?`<div class="err">${I('alert','sm')}<span>${err}</span></div>`:''}</div>`}).join('')
+      + `<div class="row" style="padding-top:8px;box-shadow:inset 0 1px 0 var(--line)"><span class="hint grow">已显示 6 / ${d.count}</span><button class="btn ghost sm" onclick="DS.toast('已加载下一页批次（原型示意）','info')">加载更多</button></div>`;
+    batches=`<div class="sn-bl">${inner}</div>`;
+  }
+  return `<div class="sec"><div class="sn-met ${c3?'c3':''}">${cells.map(([v,k,col])=>`<div><div class="v num" ${col?`style="color:${col}"`:''}>${v}</div><div class="k">${k}</div></div>`).join('')}</div>
+      ${c3?'<p class="hint" style="margin-top:8px">批次总数在审查计划确认后确定。</p>':''}</div>
+    <div class="sec"><div class="sec-t">阶段</div>${d.rows.map(([l,done,tot])=>`<div class="sn-ph"><span class="ellipsis">${l}</span><div class="meter">${tot?`<i style="width:${Math.round(done/tot*100)}%;background:var(--done)"></i>`:''}</div><span class="c num">${done} / ${tot??'待定'}</span></div>`).join('')}
+      <div class="sn-note">${I('info','sm')}<span><b>进度不等于完成。</b>批次全部验证后，还要汇总报告并通过校验，任务才算完成；最终状态以执行服务为准。</span></div></div>
+    <div class="sec"><div class="sec-t">审查范围</div><div class="sn-box">
+      <div class="hd"><span class="badge st-accent">${I(d.base?'calendar':'layers','sm')}${d.mode}</span><span class="badge ${d.light?'st-idle':'outline'}">${d.light?'轻量审查':'全量审查'}</span></div>
+      ${d.light?`<p class="hint" style="margin-top:10px">分析批次固定；只有发现候选问题的批次会增加独立复核，没有问题的结论不另行复核。</p>`
+        :`<div class="sn-facts"><span>审查计划<b class="num">修订 ${d.rev}</b></span><span>补充批次<b class="num">${d.sup} 个</b></span></div>`}
+      <div class="sn-sha">${d.base?`${shaRow('基线',d.base)}<span style="color:var(--faint)">${I('arrowRight','sm')}</span>`:''}${shaRow('目标',d.target)}</div>
+      ${d.base?'':'<p class="hint" style="margin-top:4px">全面审查不设基线，审查目标版本的全部源码。</p>'}
+      <details class="sn-full"><summary><span class="chev" style="display:inline-flex">${I('chevRight','sm')}</span>完整版本号</summary><dl>${d.base?`<dt>基线</dt><dd>${d.base}</dd>`:''}<dt>目标</dt><dd>${d.target}</dd></dl></details>
+      <p class="hint" style="margin-top:10px">${I('lock','sm')} 源码版本在开始时固定，执行中不随仓库变化。</p>
+    </div></div>
+    <div class="sec"><button class="sn-tog" aria-expanded="${snapBatches}" onclick="snapBatches=!snapBatches;openSnap('progress')"><span class="chev">${I('chevRight','sm')}</span><span class="grow">功能批次</span>${d.count?`<span class="hint num">${d.count} 个</span>`:''}${S==='snap-batches-loading'&&snapBatches?'<span class="spin"></span>':''}</button>${batches}</div>
+    <div class="sec"><div class="sec-t">输出目录</div><div class="att">${I('folder','sm')}<span class="grow mono ellipsis" title="${d.dir}">${d.dir}</span><button class="btn ghost sm" onclick="DS.toast('已复制输出目录','info')">${I('copy','sm')}复制</button></div></div>`;
+}
+function snapReports(){
+  const P=snapPartial, a=132, p=41, x=9, tot=a+p+x;
+  let body;
+  if (P==='none') body=`<div class="empty" style="padding:24px 12px;gap:8px"><span class="tile">${I('doc','lg')}</span><h3>还没有读取阶段报告</h3><p>读取后显示已分析、未完成和排除的范围，以及截至目前的结论。</p></div>`;
+  else if (P==='loading') body=`<div class="row" style="padding:6px 0 10px"><span class="spin"></span><span class="sub">正在读取阶段报告…</span></div><div class="skel" style="height:10px"></div><div class="skel" style="height:120px;margin-top:14px;border-radius:12px"></div>`;
+  else if (P==='error') body=`<div class="banner danger" role="alert">${I('alert')}<div><b>阶段报告读取失败</b><br>没有拿到报告内容，不会显示旧内容代替。重新读取不会启动执行。</div></div>`;
+  else body=`<div class="sn-bar" role="img" aria-label="已分析 ${a}，未完成 ${p}，排除 ${x}"><i style="flex:${a};background:var(--done)"></i><i style="flex:${p};background:var(--fill-5)"></i><i style="flex:${x};background:transparent;box-shadow:inset 0 0 0 1px var(--line-3)"></i></div>
+    <div class="sn-lg"><div><i style="background:var(--done)"></i>已分析<b class="num">${a}</b></div><div><i style="background:var(--fill-5)"></i>未完成<b class="num">${p}</b></div><div><i style="box-shadow:inset 0 0 0 1px var(--line-3)"></i>排除<b class="num">${x}</b></div></div>
+    <p class="hint" style="margin-top:6px">按分析单元计，共 ${tot} 个 · 读取于 14:32</p>
+    <div class="sn-doc">
+      <h4>已分析范围</h4><p>11 个功能批次已验证：订单创建与库存预占、用户地址簿、发票开具等。</p>
+      <h4>已确认问题</h4><ul><li><span class="sn-sev hi">高</span>支付回调缺少幂等校验，重复回调会二次扣减库存 <code>payment/callback.ts:88</code></li><li><span class="sn-sev">中</span>退款金额用浮点数计算，存在分位误差 <code>refund/amount.ts:41</code></li></ul>
+      <h4>未完成范围</h4><p>41 个单元尚未分析：退款流程、订单导出、优惠券叠加规则。</p>
+      <h4>排除</h4><p>9 个单元按审查计划排除：生成代码与第三方依赖目录。</p>
+    </div>`;
+  const canDl = P==='read';
+  return `${S==='snap-cancelled'?`<div class="banner info" style="margin-bottom:16px">${I('info')}<div><b>任务已取消</b><br>已分析的部分保留，阶段报告仍可读取和下载；读取不会重新开始执行。</div></div>`:''}
+    <div class="sec"><div class="sec-t">评审报告</div><div class="att">${I('file','sm')}<span class="grow">最终报告<div class="hint">${S==='snap-cancelled'?'任务已取消，不会生成最终报告':'全部分析与复核完成后生成'}</div></span><span class="badge st-idle">${S==='snap-cancelled'?'未生成':'待生成'}</span></div></div>
+    <div class="sec"><div class="row" style="margin-bottom:8px"><span class="sec-t grow" style="margin:0">阶段报告</span><span class="badge outline">${I('eye','sm')}只读</span></div>
+      <p class="hint" style="margin-bottom:12px">已完成分析与未完成范围分别标注；任务取消后仍可读取。读取和下载都不会启动执行。</p>
+      <div class="row wrap" style="margin-bottom:14px;gap:8px">
+        <button class="btn ${canDl?'ghost':'primary'} sm" ${P==='loading'?'disabled':''} onclick="snapPartial='loading';openSnap('reports');setTimeout(()=>{snapPartial='read';openSnap('reports')},800)">${P==='loading'?'<span class="spin"></span>读取中':`${I(canDl||P==='error'?'refresh':'eye','sm')}${canDl||P==='error'?'重新读取':'读取阶段报告'}`}</button>
+        <button class="btn ${canDl?'primary':'secondary'} sm" ${canDl?'':'disabled'} title="${canDl?'下载 Markdown':'请先读取阶段报告'}" onclick="DS.toast('已下载 阶段报告.md')">${I('download','sm')}下载 Markdown</button>
+        ${canDl?'':'<span class="hint">读取后才能下载</span>'}
+      </div>
+      ${body}</div>`;
+}
+function openSnap(t){
+  if (t) snapTab=t; snapOpen=true; bar();
+  DS.$('#side').classList.remove('hidden');
+  DS.$('#side').innerHTML = `
+    <div class="side-head"><div class="grow"><div class="eyebrow">快照代码评审 · 只读视图</div><div style="font-size:16px;font-weight:500;margin-top:3px">${snapTab==='progress'?'执行进度':'模板报告'}</div>${snapTab==='progress'?`<div class="hint" style="margin-top:4px">当前阶段：${SNAPD.phase}</div>`:''}</div>
+      <button class="icon-btn" aria-label="关闭运行面板" onclick="snapOpen=false;DS.$('#side').classList.add('hidden');bar()">${I('x')}</button></div>
+    <div class="tabs" role="tablist" style="padding:0 12px">${[['progress','执行进度'],['reports','模板报告']].map(([k,l])=>`<button class="tab" role="tab" aria-selected="${snapTab===k}" onclick="openSnap('${k}')">${l}</button>`).join('')}</div>
+    <div class="side-body">${snapTab==='progress'?snapProgress():snapReports()}</div>
+    <div class="side-foot"><span class="hint grow">${I('lock','sm')} 查看进度和报告不会启动、暂停或改变执行</span></div>`;
+}
+
+/* ---------- 冻结计划 / 审计 ---------- */
+function openPlan(){ cv.select(null); DS.$('#side').classList.remove('hidden'); DS.$('#side').innerHTML = `
+  <div class="side-head"><div class="grow"><div class="eyebrow">只读</div><div style="font-size:16px;font-weight:500;margin-top:3px">冻结计划 · 修订 2</div><div class="hint" style="margin-top:4px">开始执行时冻结；运行中的修改形成新的有效计划，原记录保留。</div></div><button class="icon-btn" aria-label="关闭" onclick="DS.$('#side').classList.add('hidden')">${I('x')}</button></div>
+  <div class="side-body"><div class="sec"><div class="sec-t">目标</div><p style="font-size:13.5px;color:var(--ink-2)">${esc(TITLE)}</p></div>
+  <div class="sec"><div class="sec-t">范围</div><p style="font-size:13.5px;color:var(--ink-2);line-height:1.7">项目列表、项目详情、配置保存；接口文档同步更新。不改动后端接口。</p></div>
+  <div class="sec"><div class="sec-t">验收</div><ul style="margin:0;padding-left:18px;font-size:13.5px;color:var(--ink-2);line-height:1.8"><li>项目详情可一眼看到 4 项配置的状态</li><li>回归用例全部通过</li><li>人工验收通过</li></ul></div>
+  <div class="sec"><div class="sec-t">绑定</div><dl class="kv"><dt>流程</dt><dd>需求开发 · r12</dd><dt>模型</dt><dd>Claude Sonnet 4.6</dd><dt>预算上限</dt><dd>5.00 美元</dd></dl></div></div>`; }
+function openAudit(){ cv.select(null); DS.$('#side').classList.remove('hidden'); DS.$('#side').innerHTML = `
+  <div class="side-head"><div class="grow"><div class="eyebrow">只读</div><div style="font-size:16px;font-weight:500;margin-top:3px">审计记录</div></div><button class="icon-btn" aria-label="关闭" onclick="DS.$('#side').classList.add('hidden')">${I('x')}</button></div>
+  <div class="side-body"><div class="log" style="font-family:var(--font)">${[['10:30','你确认了计划（修订 2）'],['10:31','开始执行；自动节点推进：开启'],['10:38','“梳理配置入口”验收通过'],['10:38','自动放行 2 步：调整页面结构、补充接口说明'],['10:47','“补充接口说明”请求写入 docs/api-reference.md'],['10:48','你允许了本次写入']].map(([t,x])=>`<div class="m"><span class="who mono">${t}</span><span style="font-size:13px">${x}</span></div>`).join('')}</div></div>`; }
+
+function toggleAuto(){ auto=!auto; DS.toast(auto?'已开启自动节点推进':'已关闭自动节点推进：执行中的步骤会继续跑完，之后等你点“推进一步”','info'); bar(); }
+function advance(b){ b.innerHTML='<span class="spin"></span>放行中'; b.disabled=true; setTimeout(()=>{ S='running'; refresh(); DS.toast('已放行 2 步：调整页面结构、补充接口说明'); },800); }
+function refresh(){ bar(); situ(); cv.render(); }
+
+DS.mount({ header:'', state:S, states:[
+  {id:'running',label:'执行中（两步并行）'},{id:'auto-off',label:'自动推进关闭 · 可推进'},{id:'waiting',label:'等待审批'},{id:'stalled',label:'步骤停滞'},
+  {id:'failed',label:'步骤失败'},{id:'recovering',label:'恢复'},{id:'review',label:'待人工验收'},{id:'completed',label:'已完成'},
+  {id:'claim-race',label:'修改时被领取'},{id:'unknown',label:'状态待核对'},{id:'template',label:'模板任务（固定流程）'},
+  {id:'snap-full',label:'补充 · 快照评审 · 执行进度（全量审查）'},{id:'snap-light',label:'补充 · 快照评审 · 执行进度（轻量审查）'},
+  {id:'snap-batches',label:'补充 · 快照评审 · 功能批次展开'},{id:'snap-batches-loading',label:'补充 · 快照评审 · 功能批次读取中'},
+  {id:'snap-batches-empty',label:'补充 · 快照评审 · 功能批次为空'},{id:'snap-batches-error',label:'补充 · 快照评审 · 功能批次读取失败'},
+  {id:'snap-report',label:'补充 · 快照评审 · 阶段报告未读取'},{id:'snap-report-loading',label:'补充 · 快照评审 · 阶段报告读取中'},
+  {id:'snap-report-read',label:'补充 · 快照评审 · 阶段报告已读取'},{id:'snap-report-error',label:'补充 · 快照评审 · 阶段报告读取失败'},
+  {id:'snap-cancelled',label:'补充 · 快照评审 · 已取消仍可读阶段报告'}] });
+DS.$('.header').remove();
+refresh();
+window.__scMainTask={view:()=>cv.view()};const scQ=new URLSearchParams(location.search);if(/^n[1-5]$/.test(scQ.get('selectedNode')||''))requestAnimationFrame(()=>{cv.select(scQ.get('selectedNode'));try{const v=JSON.parse(scQ.get('canvasView'));if(v)cv.restore(v);}catch(e){}});
+if (S==='claim-race') setTimeout(()=>cv.select('n4'),300);
+if (S==='recovering') setTimeout(()=>openRecovery(),300);
+if (SNAP) openSnap();
+</script>
+</body>
+</html>

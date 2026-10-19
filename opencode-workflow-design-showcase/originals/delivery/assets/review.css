@@ -1,0 +1,54 @@
+/* 任务隔离与交付 · 评审辅助页（index.html / flows.html）共用样式
+   只用 ds.css / skins.css 令牌；不属于产品界面。 */
+html,body{height:auto}
+body{overflow:auto;background:var(--glow),var(--bg);background-repeat:no-repeat}
+.rv{max-width:1240px;margin:0 auto;padding:28px 32px 96px}
+@media (max-width:720px){.rv{padding:20px 16px 72px}}
+.rv-top{display:flex;justify-content:space-between;align-items:center;gap:12px 20px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.rv-top .l{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12.5px;min-width:0}
+.rv-top .l b{color:var(--ink-2);font-weight:500}
+.rv-top .r{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap}
+.rv-top label{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.rv-top .select.ctl{width:142px;height:32px;font-size:13px}
+.rv-top a.go{color:var(--accent);font-size:13px;font-weight:500;white-space:nowrap}
+.rv-top a.go:hover{color:var(--accent-ink)}
+.rv h1{font-family:var(--font-display);font-weight:400;font-size:34px;letter-spacing:-.8px;line-height:1.2;margin-top:26px}
+.rv h1 em{font-style:normal;color:var(--accent)}
+.lede2{color:var(--sub);font-size:14.5px;line-height:1.75;margin-top:10px;max-width:920px}
+.lede2 b{color:var(--ink);font-weight:500}
+.toc{display:flex;gap:6px;flex-wrap:wrap;margin-top:20px}
+.toc a{height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--line-2);display:inline-flex;align-items:center;font-size:12.5px;color:var(--sub)}
+.toc a:hover{color:var(--ink);border-color:var(--line-3)}
+section.blk{margin-top:48px;scroll-margin-top:20px}
+.blk>h2{font-size:20px;font-weight:500;letter-spacing:-.2px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.blk>h2 .no{font:500 13px var(--font-mono);color:var(--muted)}
+.blk>h2 .cnt{font-size:12.5px;color:var(--muted);font-weight:400}
+.blk>p.d{color:var(--sub);font-size:13.5px;line-height:1.7;margin-top:6px;max-width:920px}
+.blk>p.d b{color:var(--ink);font-weight:500}
+.foot{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px;line-height:1.75}
+.foot a{color:var(--accent)}
+/* 页面徽标：用角色色区分页面，不承担状态语义 */
+.pgb{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;border:1px solid var(--line-2);font:500 11.5px var(--font-mono);color:var(--ink-2);white-space:nowrap;background:var(--panel)}
+.pgb::before{content:"";width:7px;height:7px;border-radius:2px;background:var(--pg,var(--muted));flex:none}
+.pgb[data-pg="start.html"]{--pg:var(--role-1)}
+.pgb[data-pg="task.html"]{--pg:var(--role-2)}
+.pgb[data-pg="git.html"]{--pg:var(--role-3)}
+.pgb[data-pg="apply.html"]{--pg:var(--role-4)}
+.req{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:6px;border:1px solid var(--line-2);font:500 11px var(--font-mono);color:var(--sub);background:var(--fill-2);white-space:nowrap}
+a.req:hover{color:var(--ink);border-color:var(--line-3)}
+.sid{font:500 12.5px var(--font-mono);color:var(--ink);white-space:nowrap}
+a.sid{color:var(--accent)}
+a.sid:hover{color:var(--accent-ink);text-decoration:underline;text-underline-offset:3px}
+.tblwrap{margin-top:14px;border:1px solid var(--line);border-radius:16px;overflow:auto;background:var(--panel)}
+table.rt{width:100%;border-collapse:collapse;font-size:13px}
+table.rt th,table.rt td{padding:10px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);line-height:1.6}
+table.rt tbody tr:last-child>*{border-bottom:0}
+table.rt thead th{background:var(--surface);font-weight:500;font-size:12.5px;color:var(--sub);border-bottom:1px solid var(--line-2);white-space:nowrap}
+table.rt td{color:var(--ink-2)}
+table.rt td b{font-weight:500;color:var(--ink)}
+.kind{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;font-size:12px;white-space:nowrap;border:1px solid}
+.kind::before{content:"";width:8px;height:8px;border-radius:3px;background:currentColor}
+.kind.reuse{color:var(--done);background:var(--done-fill);border-color:var(--done-line)}
+.kind.mod{color:var(--accent);background:var(--accent-fill);border-color:var(--accent-line)}
+.kind.new{color:var(--wait);background:var(--wait-fill);border-color:var(--wait-line)}
+.kind.aux{color:var(--idle);background:var(--idle-fill);border-color:var(--idle-line);border-style:dashed}

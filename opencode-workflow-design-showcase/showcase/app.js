@@ -1,0 +1,2 @@
+/* File-safe entry: render full documents directly, preserving native browser history. */
+(()=>{let path='main/pages/home.html';try{const hash=decodeURIComponent(location.hash.slice(1));if(/^(main|node|git|delivery|planning)\/[a-zA-Z0-9_\-/]+\.html(?:\?[^#]*)?$/.test(hash)&&!hash.includes('..'))path=hash}catch{}const u=new URL('originals/'+path,location.href);const q=new URLSearchParams(location.search);for(const k of ['theme','skin','showcase'])if(q.has(k))u.searchParams.set(k,q.get(k));location.replace(u.href)})();

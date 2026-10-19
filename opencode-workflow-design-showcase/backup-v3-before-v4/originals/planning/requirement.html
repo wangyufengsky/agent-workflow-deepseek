@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>需求画布 · 规划 · opencode-workflow 设计样例</title>
+<!-- 合集整合版：外壳与菜单由 showcase/ 提供；合成数据，不连接任务 / 模型 / 目录。来源：workflow-planning-expansion-claude-design-pending/claude-output/prototype -->
+<link rel="stylesheet" href="assets/ds.css">
+<link rel="stylesheet" href="assets/skins.css">
+<link rel="stylesheet" href="../../showcase/bridge.css">
+<link rel="stylesheet" href="assets/pe.css">
+<script src="../../showcase/icons.js"></script>
+<script src="../../showcase/navigation.js"></script>
+<script src="assets/pe-nav.js"></script>
+<script defer src="../../showcase/catalog.js"></script>
+<script defer src="../../showcase/bridge.js"></script>
+</head>
+<body data-page="requirements">
+<main id="page" class="canvas-page" hidden>
+  <div class="canvas-bar pe-bar" id="bar"></div>
+  <div id="strip"></div>
+  <div class="pe-banners" id="banners" aria-live="polite"></div>
+  <div class="canvas-body pe-body"><div id="cv" class="cv" tabindex="0" aria-label="计划画布（方向键不移动节点；Tab 进入节点，Enter 查看详情）"></div><aside class="side pe-side" id="side" aria-label="规划面板"></aside></div>
+</main>
+<div class="dialog wide" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgT" tabindex="-1"></div>
+
+<script src="assets/shell.js"></script>
+<script src="assets/pe-states.js"></script>
+<script src="assets/pe-proto.js"></script>
+<script src="assets/pe-canvas.js"></script>
+<script src="assets/pe-fixtures.js"></script>
+<script src="assets/requirement.js"></script>
+</body>
+</html>

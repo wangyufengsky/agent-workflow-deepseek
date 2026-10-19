@@ -1,0 +1,23 @@
+/* 任务隔离与交付 · 原型控制条（不属于产品界面）—— 只用 ds.css / skins.css 令牌 */
+.app{height:calc(100vh - 52px)!important}
+.proto-dock{position:fixed;left:0;right:0;bottom:0;height:52px;z-index:69;background:var(--bg-sunken);box-shadow:inset 0 1px 0 var(--line)}
+.proto{bottom:7px;gap:6px;padding:5px 6px;max-width:calc(100vw - 16px);overflow-x:auto}
+.proto label{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.proto select{max-width:300px}
+.proto .switch{width:30px;height:18px}
+.proto .switch::after{width:13px;height:13px;top:2.5px;left:2.5px}
+.proto .switch[aria-checked="true"]::after{transform:translateX(12px)}
+.proto-tag{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border-radius:var(--r-pill);border:1px dashed var(--unknown-line);color:var(--unknown);background:var(--unknown-fill);white-space:nowrap}
+.proto-btn{height:28px;padding:0 11px;border-radius:var(--r-pill);background:var(--fill-3);border:1px solid var(--line-2);color:var(--ink);font-size:12px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.proto-btn:hover{background:var(--fill-4)}
+.proto-sep{width:1px;height:18px;background:var(--line-2)}
+.td-mock{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:var(--r-pill);border:1px dashed var(--unknown-line);color:var(--unknown);background:var(--unknown-fill);font-size:12px;white-space:nowrap}
+.td-explain .sec-t{margin-top:16px}
+.td-explain .req{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.td-explain p{font-size:13.5px;line-height:1.75;color:var(--ink-2)}
+.brand-name{font-size:13px;letter-spacing:-.35px}
+html.reduced *,html.reduced *::before,html.reduced *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+/* 抽屉、遮罩与右侧面板不压在原型控制条下 */
+.drawer{bottom:52px!important}
+.scrim{bottom:52px!important}
+.toast-host{bottom:64px!important}

@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="zh-CN" data-skin="deepseek">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>任务隔离与交付 · 状态总览</title>
+<script>
+/* 主题与减弱动态：只读 URL，只保存在内存，不写本机存储 */
+(function () {
+  var P = new URLSearchParams(location.search);
+  var OK = ['deepseek', 'warm', 'spdb', 'github-white'];
+  var t = P.get('theme');
+  document.documentElement.dataset.skin = OK.indexOf(t) >= 0 ? t : 'deepseek';
+  if (P.get('motion') === 'reduce') document.documentElement.classList.add('reduced');
+})();
+</script>
+<link rel="stylesheet" href="assets/ds.css">
+<link rel="stylesheet" href="assets/skins.css">
+<link rel="stylesheet" href="assets/td-proto.css">
+<link rel="stylesheet" href="assets/review.css">
+<style>
+/* 主线 */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:6px 4px;margin-top:18px}
+.chain span{display:inline-flex;align-items:center;height:28px;padding:0 11px;border-radius:999px;font-size:12.5px;color:var(--ink-2);background:var(--fill-2);border:1px solid var(--line)}
+.chain span.u{color:var(--accent);background:var(--accent-fill);border-color:var(--accent-line)}
+.chain span.ok{color:var(--ok);background:var(--ok-fill);border-color:var(--ok-line)}
+.chain i{font-style:normal;color:var(--faint);font-size:12px;padding:0 1px}
+.chain-note{font-size:12px;color:var(--muted);margin-top:8px}
+.chain-note b{color:var(--accent);font-weight:500}
+/* 设计完成 / 业务未实现 */
+.scope{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:22px}
+@media (max-width:900px){.scope{grid-template-columns:1fr}}
+.scope .card{padding:16px 18px}
+.scope h3{font-size:14px;font-weight:500;display:flex;align-items:center;gap:8px}
+.scope ul{margin:10px 0 0;padding-left:18px;font-size:13px;line-height:1.7;color:var(--ink-2)}
+.scope li+li{margin-top:3px}
+.scope li b{font-weight:500;color:var(--ink)}
+.scope .card.todo{border-style:dashed;border-color:var(--unknown-line);background:color-mix(in srgb,var(--unknown) 4%,transparent)}
+.stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.stats .badge{height:24px}
+/* 从哪里开始看 */
+.starts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px;align-items:start}
+@media (max-width:1100px){.starts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.starts{grid-template-columns:1fr}}
+.sc{display:flex;flex-direction:column;padding:16px 16px 12px;border-radius:16px;border:1px solid var(--line);background:var(--panel);min-width:0}
+.sc .k{font-size:11.5px;color:var(--muted);letter-spacing:.3px}
+.sc h3{font-size:15px;font-weight:500;margin-top:4px}
+.sc p{font-size:12.5px;color:var(--sub);line-height:1.6;margin-top:4px}
+.sc ol{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:2px;counter-reset:s}
+.sc li a{display:grid;grid-template-columns:20px minmax(0,1fr);gap:2px 8px;padding:7px 8px;border-radius:10px;align-items:start}
+.sc li a:hover{background:var(--fill-3)}
+.sc li a::before{counter-increment:s;content:counter(s);grid-row:span 2;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:500 11px var(--font-mono);color:var(--sub);background:var(--fill-3);margin-top:1px}
+.sc li .sid{color:var(--accent);font-size:12px;overflow-wrap:anywhere;white-space:normal}
+.sc li .lb{font-size:12px;color:var(--ink-2);line-height:1.45}
+.sc.c-main{box-shadow:inset 0 2px 0 var(--accent-line)}
+.sc.c-ng{box-shadow:inset 0 2px 0 var(--role-4)}
+.sc.c-unk{border-style:dashed;border-color:var(--unknown-line);box-shadow:inset 0 2px 0 var(--unknown)}
+.sc.c-ret{box-shadow:inset 0 2px 0 var(--role-2)}
+/* 状态清单 */
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
+.filters .input{height:34px;width:280px;max-width:100%;font-size:13px}
+.grp{margin-top:18px;border:1px solid var(--line);border-radius:16px;background:var(--panel);overflow:hidden}
+.grp-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+.grp-h h3{font-size:14.5px;font-weight:500}
+.grp-h .n{font-size:12px;color:var(--muted)}
+.grp-h .sp{flex:1}
+.st{display:grid;grid-template-columns:220px minmax(0,1fr) 190px 76px;gap:6px 16px;padding:12px 16px;border-bottom:1px solid var(--line);align-items:start}
+.st:last-child{border-bottom:0}
+.st:hover{background:var(--fill-1)}
+.st .lab{font-size:13.5px;color:var(--ink);line-height:1.5}
+.st .desc{font-size:12.5px;color:var(--sub);line-height:1.65;margin-top:3px}
+.st .desc.none{color:var(--faint);font-style:normal}
+.st .rq{display:flex;flex-wrap:wrap;gap:4px;align-content:flex-start}
+.st .op{justify-self:end}
+.st .op a{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 11px;border-radius:999px;border:1px solid var(--line-2);font-size:12.5px;color:var(--ink);white-space:nowrap;background:var(--fill-2)}
+.st .op a:hover{background:var(--fill-4);border-color:var(--line-3)}
+.st .idc{display:flex;flex-direction:column;gap:6px;align-items:flex-start;min-width:0}
+.st .idc .sid{overflow-wrap:anywhere;white-space:normal}
+@media (max-width:980px){.st{grid-template-columns:minmax(0,1fr) auto}.st .rq{grid-column:1/-1}.st .op{grid-row:1;grid-column:2}.st .stm{grid-column:1/-1}}
+.empty-f{padding:24px;text-align:center;color:var(--muted);font-size:13px}
+/* 覆盖矩阵 */
+table.cov td.ids{display:flex;flex-wrap:wrap;gap:4px 10px}
+table.cov td.ids a{font:500 12px var(--font-mono);color:var(--accent)}
+table.cov td.ids a:hover{text-decoration:underline;text-underline-offset:3px}
+table.cov th.a{font:500 12.5px var(--font-mono);color:var(--ink);white-space:nowrap;width:86px}
+table.cov td.t{width:190px;color:var(--ink)}
+table.cov td.n{width:56px;color:var(--muted);font-variant-numeric:tabular-nums}
+table.cov tr:target>*{background:var(--accent-fill)}
+.xnote{font-size:12px;color:var(--muted)}
+/* 页面与容器 */
+table.ctr td{font-size:12.5px}
+table.ctr td.pg{white-space:normal}
+table.ctr td.pg .pgb{margin-bottom:6px}
+table.ctr td.pg div{font-size:12px;color:var(--muted)}
+table.ctr{table-layout:fixed;min-width:980px}
+table.ctr td.pg .pgb{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+table.ctr td.host b{display:block}
+table.ctr td.host span{color:var(--muted);font-size:12px}
+table.ctr td.cl{white-space:nowrap}
+table.ctr ul{margin:0;padding-left:16px}
+table.ctr li+li{margin-top:2px}
+table.ctr tr.hl>*{background:color-mix(in srgb,var(--wait) 6%,transparent)}
+table.ctr td.none{color:var(--faint)}
+</style>
+<link rel="stylesheet" href="../../showcase/bridge.css">
+<script src="../../showcase/icons.js"></script>
+<script src="../../showcase/navigation.js"></script>
+<script defer src="../../showcase/catalog.js"></script>
+<script defer src="../../showcase/bridge.js"></script>
+</head>
+<body>
+<div class="rv">
+  <div class="rv-top">
+    <div class="l">
+      <span class="td-mock">设计样例 · 合成数据，不连接任务 / Git / 目录</span>
+      <span>opencode-workflow · <b>新任务隔离执行与用户选择交付</b></span>
+    </div>
+    <div class="r">
+      <label>主题
+        <select class="select ctl" id="skinSel" aria-label="切换主题">
+          <option value="deepseek">deepseek 风</option>
+          <option value="warm">claude 风</option>
+          <option value="spdb">SPDB</option>
+          <option value="github-white">GitHub 白</option>
+        </select></label>
+      <label>减弱动态 <button class="switch" role="switch" id="motionSw" aria-checked="false" aria-label="减弱动态"></button></label>
+      <a class="go" id="toFlows" href="flows.html">状态图与组件复用图 →</a>
+    </div>
+  </div>
+
+  <h1>任务隔离与交付 · <em>设计原型</em></h1>
+  <p class="lede2">每个新任务先在<b>独立工作区</b>里执行（Git：独立任务分支 + worktree；非 Git：基线快照 + 独立副本），节点验收后进入<b>待交付</b>；用户查看本任务变更，选择交付目标，每个有副作用的步骤<b>分别确认</b>，所选动作全部可信成功后任务才算完成。本页列出原型的全部状态，点任一状态直接打开对应画面。</p>
+
+  <div class="chain" aria-label="已确认流程">
+    <span>需求</span><i>→</i><span class="u">计划确认</span><i>→</i><span>隔离执行</span><i>→</i><span>原节点验收</span><i>→</i><span>查看任务变更</span><i>→</i><span class="u">选择交付</span><i>→</i><span class="u">逐步确认</span><i>→</i><span>所选动作全部成功</span><i>→</i><span class="ok">任务完成</span>
+  </div>
+  <p class="chain-note"><b>蓝色</b>是用户明确操作；执行结束、模型回复、进程退出或「已提交请求」都不等于交付完成。</p>
+
+  <div class="scope">
+    <div class="card solid">
+      <h3><span class="badge st-ok">设计完成</span>本原型可评审的部分</h3>
+      <ul>
+        <li><b>TD01–TD07 全部状态</b>可点击：确认、提交 / 推送 / MR、检查、应用、清理都用定时器切换模拟状态。</li>
+        <li>沿用原稿容器：开始任务、任务大画布与右侧面板、Git 工作台外壳；<b>唯一新增交互视图是 TD05</b> 非 Git 三方冲突应用。</li>
+        <li>四主题（deepseek / claude / SPDB / GitHub 白）同一状态集；1440×900 主展示，另查 1280×800、1024×768。</li>
+        <li>失败与未知分开：UNKNOWN 只给「核对原操作」，读失败可「重新读取」，不出现重发副作用的按钮。</li>
+      </ul>
+    </div>
+    <div class="card todo">
+      <h3><span class="badge st-unknown">业务未实现</span>需要后续同版 API 与代码</h3>
+      <ul>
+        <li>普通新任务统一隔离、同任务并行写子隔离与汇合：<b>未实现</b>，现有只有 AI 修复专属 worktree。</li>
+        <li>任务完成门槛：<span class="mono">deriveExecutionStatus</span> 现在节点全成功即 succeeded，<b>不等所选交付</b>；需执行 / 状态 owner 改。</li>
+        <li>非 Git 三方检查与逐项应用后端是<b>新需求</b>；推送 / MR 依赖 PR16 候选，生产安装与真实 GitLab 未验收。</li>
+        <li>待冻结：两步「准备 → 开始」或「准备并开始」、无变更结算、未完成时改变目标、子集交付对必需产物的影响。所有接口名均为候选。</li>
+      </ul>
+    </div>
+  </div>
+  <div class="stats" id="stats"></div>
+
+  <div class="toc">
+    <a href="#start">1 · 从哪里开始看</a>
+    <a href="#states">2 · 全部状态</a>
+    <a href="#coverage">3 · 验收条件覆盖</a>
+    <a href="#containers">4 · 页面与容器</a>
+    <a href="flows.html" id="tocFlows">状态图与组件复用图 →</a>
+  </div>
+
+  <section class="blk" id="start">
+    <h2><span class="no">01</span>从哪里开始看</h2>
+    <p class="d">四条典型路径，按顺序点开即可走完一段流程。每个画面底部有原型控制条：可切状态、换主题、看「说明」。</p>
+    <div class="starts" id="starts"></div>
+  </section>
+
+  <section class="blk" id="states">
+    <h2><span class="no">02</span>全部状态 <span class="cnt" id="stCount"></span></h2>
+    <p class="d">按 TD 视图分组。状态 ID 是设计样例编号，<b>不是产品路由或 API</b>。说明文字来自各页的设计说明；暂缺时显示「说明待补」。</p>
+    <div class="filters">
+      <input class="input" id="q" type="search" placeholder="按状态 ID、标签或 TD-A 编号筛选" aria-label="筛选状态">
+      <div class="seg" role="group" aria-label="按页面筛选" id="pgSeg"></div>
+    </div>
+    <div id="groups"></div>
+  </section>
+
+  <section class="blk" id="coverage">
+    <h2><span class="no">03</span>验收条件覆盖 · TD-A01–TD-A23</h2>
+    <p class="d">由每个状态的验收条目（<span class="mono">req</span>）反查得出。这里只说明<b>设计覆盖</b>，不是业务验收通过记录。</p>
+    <div class="tblwrap"><table class="rt cov"><thead><tr><th>条目</th><th>条件</th><th>状态数</th><th>覆盖的状态（点开即进入画面）</th></tr></thead><tbody id="covBody"></tbody></table></div>
+  </section>
+
+  <section class="blk" id="containers">
+    <h2><span class="no">04</span>页面与容器</h2>
+    <p class="d">原型分成 4 个产品画面页和 2 个评审辅助页。每个产品画面都挂在原有容器上；状态样例很多，但<b>不新增一级页面</b>。真正新增的交互只有 TD05。</p>
+    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><span class="kind reuse">复用</span><span class="xnote">原组件原样使用</span><span class="kind mod" style="margin-left:10px">修改</span><span class="xnote">在原容器上加模式、字段或状态</span><span class="kind new" style="margin-left:10px">新增</span><span class="xnote">原稿没有的交互</span></div>
+    <div class="tblwrap"><table class="rt ctr">
+      <colgroup><col style="width:16%"><col style="width:18%"><col style="width:19%"><col style="width:20%"><col style="width:16%"><col style="width:11%"></colgroup>
+      <thead><tr><th>原型页</th><th>原宿主容器</th><th>复用</th><th>修改</th><th>新增</th><th>结论</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="pg"><span class="pgb" data-pg="start.html">start.html</span><div>TD01 开始任务与隔离准备</div></td>
+          <td class="host"><b>deepseek 原稿 pages/start.html</b><span>开始任务：项目 → 目标 → 流程 → 计划确认</span></td>
+          <td><ul><li>外壳侧栏 / 页头</li><li>项目卡、目标输入、流程选择</li><li>计划确认区布局</li></ul></td>
+          <td><ul><li>项目卡加「隔离方式」行与原路径</li><li>计划确认区加「工作区」卡、诊断详情折叠</li><li>按钮两步：准备独立工作区 → 开始执行</li><li>准备阶段名与异常横幅</li></ul></td>
+          <td class="none">—</td>
+          <td class="cl"><span class="kind mod">修改</span></td>
+        </tr>
+        <tr>
+          <td class="pg"><span class="pgb" data-pg="task.html">task.html</span><div>TD02 任务画布与待交付</div></td>
+          <td class="host"><b>deepseek 原稿 pages/task.html</b><span>任务大画布 + 右侧 480 面板 + 情况条</span></td>
+          <td><ul><li>画布、节点卡、连线</li><li>右侧面板外框</li></ul></td>
+          <td><ul><li>情况条拆两段：执行与验收｜交付</li><li>系统「交付」端点可点击，5 种状态</li><li>右侧面板「交付」内容</li><li>后台任务待交付提示</li></ul></td>
+          <td class="none">—</td>
+          <td class="cl"><span class="kind mod">修改</span></td>
+        </tr>
+        <tr>
+          <td class="pg"><span class="pgb" data-pg="task.html">task.html</span><div>TD06 工作区保全与清理</div></td>
+          <td class="host"><b>ds.css 抽屉 520 / 对话框</b><span>+ Git 原稿 g58 放弃确认语义</span></td>
+          <td><ul><li>抽屉、对话框、焦点限定</li><li>g58 删除对象 / 保留对象结构</li></ul></td>
+          <td><ul><li>工作区详情字段</li><li>清理预览：删除 / 保留 / 未交付数量</li><li>未交付额外知情确认、阻塞原因链接</li></ul></td>
+          <td class="none">—</td>
+          <td class="cl"><span class="kind mod">修改</span></td>
+        </tr>
+        <tr>
+          <td class="pg"><span class="pgb" data-pg="git.html">git.html</span><div>TD03 任务变更 · TD04 交付动作</div></td>
+          <td class="host"><b>Git 工作台原稿 prototype/index.html</b><span>页头、左栏、文件树 + diff、右侧步骤栏（g42）</span></td>
+          <td><ul><li>工作台外壳、文件树、diff（统一 / 并排 / 空白 / 分段 / 全宽）</li><li>g50 / g51 / g53 / g55 / g57 / g59 确认与回执结构</li></ul></td>
+          <td><ul><li>「任务变更」上下文：面包屑、上下文条、返回任务</li><li>页签「任务变更 / 验证与成果」，不显示 AI findings</li><li>步骤栏顶部「完成目标」三选一 + 依赖步骤卡 + 交付状态</li><li>退出任务上下文确认条</li></ul></td>
+          <td class="none">—</td>
+          <td class="cl"><span class="kind mod">修改</span></td>
+        </tr>
+        <tr>
+          <td class="pg"><span class="pgb" data-pg="git.html">git.html</span><div>TD07 MR 任务来源</div></td>
+          <td class="host"><b>Git 工作台 MR 列表 / 详情</b><span>只读浏览，不执行合并</span></td>
+          <td><ul><li>MR 列表 / 详情只读结构</li></ul></td>
+          <td><ul><li>「来源任务」chip / 列</li><li>两条独立事实：任务已交付｜MR 未合并 / 已关闭</li><li>只给「在 GitLab 打开」，不画产品内合并（g54 / g56 不复用）</li></ul></td>
+          <td class="none">—</td>
+          <td class="cl"><span class="kind mod">修改</span></td>
+        </tr>
+        <tr class="hl">
+          <td class="pg"><span class="pgb" data-pg="apply.html">apply.html</span><div>TD05 非 Git 应用与三方冲突</div></td>
+          <td class="host"><b>挂在任务交付面板</b><span>task.html 页头 + 情况条，主体可全宽</span></td>
+          <td><ul><li>页头、情况条、面包屑</li><li>文件树 / diff 样式、确认对话框</li></ul></td>
+          <td class="none">—</td>
+          <td><ul><li>固定三方标签：基线｜任务副本｜当前原目录</li><li>六步步骤条、冲突类型与四种处理</li><li>冻结预览、应用确认、逐项结果表</li></ul></td>
+          <td class="cl"><span class="kind new">新增交互视图</span></td>
+        </tr>
+        <tr>
+          <td class="pg"><span class="pgb">index.html · flows.html</span><div>评审辅助</div></td>
+          <td class="host"><b>不属于产品界面</b><span>状态总览、状态图与组件复用图</span></td>
+          <td class="none">—</td><td class="none">—</td><td class="none">—</td>
+          <td class="cl"><span class="kind aux">仅评审</span></td>
+        </tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <p class="foot">共用文件：<span class="mono">assets/td-states.js</span>（状态注册表）· <span class="mono">assets/td-proto.js</span>（跳转、返回上下文、原型控制条）· <span class="mono">assets/ds.css</span> / <span class="mono">skins.css</span>（原稿四主题令牌）。<br>全部为合成数据：不发网络请求，不读写本机存储，不执行 Git、GitLab 或目录操作。样例故事：订单服务「退款单分页查询与导出」T-2041（Git）；运营报表脚本「月报改为按自然月汇总」T-2043（非 Git）。</p>
+</div>
+
+<script src="assets/td-states.js"></script>
+<script>window.TD_DESC = window.TD_DESC || {};</script>
+<script src="assets/td-desc-start.js" onerror="void 0"></script>
+<script src="assets/td-desc-task.js" onerror="void 0"></script>
+<script src="assets/td-desc-git.js" onerror="void 0"></script>
+<script src="assets/td-desc-apply.js" onerror="void 0"></script>
+<script src="assets/td-proto.js"></script>
+<script>
+(function () {
+  var S = window.TD_STATES || [];
+  var byId = {}; S.forEach(function (s) { byId[s.id] = s; });
+  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var root = document.documentElement;
+  var PAGES = ['start.html', 'task.html', 'git.html', 'apply.html'];
+
+  function keep(extra) {
+    var q = new URLSearchParams();
+    q.set('theme', root.dataset.skin);
+    if (root.classList.contains('reduced')) q.set('motion', 'reduce');
+    Object.keys(extra || {}).forEach(function (k) { q.set(k, extra[k]); });
+    return q.toString();
+  }
+  function href(id) {
+    if (window.TD && TD.href) return TD.href(id);
+    var s = byId[id]; return s ? s.page + '?' + keep({ state: id }) : '#';
+  }
+  function desc(s) { return (window.TD_DESC && window.TD_DESC[s.id]) || s.desc || ''; }
+
+  var TDA = {
+    'TD-A01': '每个 Git 新任务独立', 'TD-A02': '基线与目录冲突', 'TD-A03': '创建未知 / 部分创建', 'TD-A04': '写节点隔离',
+    'TD-A05': '画布待交付', 'TD-A06': '导航和草稿', 'TD-A07': '无变更 / 未选择', 'TD-A08': '失败和验收',
+    'TD-A09': '变更浏览', 'TD-A10': '选择提交', 'TD-A11': '仅提交目标', 'TD-A12': '推送目标', 'TD-A13': 'MR 目标',
+    'TD-A14': 'UNKNOWN / 明确失败', 'TD-A15': 'MR 后续独立', 'TD-A16': '非 Git 隔离与三方', 'TD-A17': '非 Git 冲突',
+    'TD-A18': '应用当前性', 'TD-A19': '部分应用 / 重启', 'TD-A20': '工作区保全', 'TD-A21': '定向清理', 'TD-A22': '重启与历史',
+    'TD-A23': '四主题与桌面'
+  };
+
+  var STARTS = [
+    { c: 'c-main', k: '路径一', t: 'Git 主线', p: '计划确认 → 待交付 → 任务变更 → 所选目标全部成功。', ids: ['td01-git-plan', 'td02-awaiting', 'td03-changes', 'td04-delivered'] },
+    { c: 'c-ng', k: '路径二', t: '非 Git', p: '独立副本 → 三方冲突 → 部分应用 → 全部应用成功。', ids: ['td01-nongit-plan', 'td05-conflicts', 'td05-partial', 'td05-applied'] },
+    { c: 'c-unk', k: '路径三', t: '未知与失败', p: '回执未知只核对原操作，不重发；部分效果逐项列出。', ids: ['td01-prepare-unknown', 'td04-push-unknown', 'td05-unknown', 'td06-cleanup-partial'] },
+    { c: 'c-ret', k: '路径四', t: '保全与清理', p: '默认保留；清理先预览，受阻或有未交付内容时另行确认。', ids: S.filter(function (s) { return s.id.indexOf('td06-') === 0; }).map(function (s) { return s.id; }) }
+  ];
+
+  var pageFilter = '', query = '';
+
+  function renderStats() {
+    var groups = {}; S.forEach(function (s) { groups[s.group] = 1; });
+    var withDesc = S.filter(function (s) { return desc(s); }).length;
+    document.getElementById('stats').innerHTML =
+      '<span class="badge outline">' + S.length + ' 个状态</span>' +
+      '<span class="badge outline">' + Object.keys(groups).length + ' 个 TD 视图</span>' +
+      '<span class="badge outline">4 个产品画面页</span>' +
+      '<span class="badge st-wait">1 个新增交互视图（TD05）</span>' +
+      '<span class="badge outline">设计说明 ' + withDesc + ' / ' + S.length + '</span>';
+    document.getElementById('stCount').textContent = '· ' + S.length + ' 个';
+  }
+
+  function renderStarts() {
+    document.getElementById('starts').innerHTML = STARTS.map(function (c) {
+      return '<div class="sc ' + c.c + '"><span class="k">' + c.k + '</span><h3>' + esc(c.t) + '</h3><p>' + esc(c.p) + '</p><ol>' +
+        c.ids.filter(function (id) { return byId[id]; }).map(function (id) {
+          var s = byId[id];
+          return '<li><a href="' + esc(href(id)) + '"><span class="sid">' + id + '</span><span class="lb">' + esc(s.label) + '</span></a></li>';
+        }).join('') + '</ol></div>';
+    }).join('');
+  }
+
+  function renderSeg() {
+    var opts = [['', '全部']].concat(PAGES.map(function (p) { return [p, p]; }));
+    var seg = document.getElementById('pgSeg');
+    seg.innerHTML = opts.map(function (o) { return '<button type="button" data-p="' + o[0] + '" aria-pressed="' + (o[0] === pageFilter) + '">' + o[1] + '</button>'; }).join('');
+  }
+
+  function match(s) {
+    if (pageFilter && s.page !== pageFilter) return false;
+    if (!query) return true;
+    var hay = (s.id + ' ' + s.label + ' ' + (s.req || []).join(' ') + ' ' + s.group).toLowerCase();
+    return hay.indexOf(query) >= 0;
+  }
+
+  function renderGroups() {
+    var order = [], g = {};
+    S.forEach(function (s) { if (!g[s.group]) { g[s.group] = []; order.push(s.group); } g[s.group].push(s); });
+    var html = order.map(function (name) {
+      var list = g[name].filter(match);
+      if (!list.length) return '';
+      var pages = [];
+      g[name].forEach(function (s) { if (pages.indexOf(s.page) < 0) pages.push(s.page); });
+      return '<div class="grp"><div class="grp-h"><h3>' + esc(name) + '</h3><span class="n">' + list.length + (list.length !== g[name].length ? ' / ' + g[name].length : '') + ' 个状态</span><span class="sp"></span>' +
+        pages.map(function (p) { return '<span class="pgb" data-pg="' + p + '">' + p + '</span>'; }).join('') + '</div>' +
+        list.map(function (s) {
+          var d = desc(s);
+          return '<div class="st" id="st-' + s.id + '">' +
+            '<div class="idc"><a class="sid" href="' + esc(href(s.id)) + '">' + s.id + '</a><span class="pgb" data-pg="' + s.page + '">' + s.page + '</span></div>' +
+            '<div class="stm"><div class="lab">' + esc(s.label) + '</div>' + (d ? '<div class="desc">' + esc(d) + '</div>' : '<div class="desc none">说明待补（见该页「说明」抽屉）</div>') + '</div>' +
+            '<div class="rq">' + (s.req || []).map(function (r) { return '<a class="req" href="#' + r + '" title="' + esc(TDA[r] || '') + '">' + r + '</a>'; }).join('') + '</div>' +
+            '<div class="op"><a href="' + esc(href(s.id)) + '" aria-label="打开 ' + s.id + '">打开 →</a></div>' +
+            '</div>';
+        }).join('') + '</div>';
+    }).join('');
+    document.getElementById('groups').innerHTML = html || '<div class="grp"><div class="empty-f">没有匹配的状态。换个关键词，或点「全部」。</div></div>';
+  }
+
+  function renderCoverage() {
+    var rows = Object.keys(TDA).map(function (a) {
+      var ids = S.filter(function (s) { return (s.req || []).indexOf(a) >= 0; });
+      var cell;
+      if (ids.length) cell = ids.map(function (s) { return '<a href="' + esc(href(s.id)) + '" title="' + esc(s.label) + '">' + s.id + '</a>'; }).join('');
+      else if (a === 'TD-A23') cell = '<span class="xnote">横向要求，不挂单个状态：每个画面的原型控制条可切四主题与减弱动态；各页按 1440×900、1280×800、1024×768 自检。</span>';
+      else cell = '<span class="badge st-unknown">暂无状态覆盖</span>';
+      return '<tr id="' + a + '"><th class="a" scope="row">' + a + '</th><td class="t">' + esc(TDA[a]) + '</td><td class="n">' + (ids.length || '—') + '</td><td class="ids">' + cell + '</td></tr>';
+    });
+    document.getElementById('covBody').innerHTML = rows.join('');
+  }
+
+  function renderLinks() {
+    var f = 'flows.html?' + keep();
+    document.getElementById('toFlows').href = f;
+    document.getElementById('tocFlows').href = f;
+  }
+
+  function renderAll() { renderStats(); renderStarts(); renderSeg(); renderGroups(); renderCoverage(); renderLinks(); }
+
+  var sel = document.getElementById('skinSel');
+  sel.value = root.dataset.skin;
+  sel.addEventListener('change', function () { root.dataset.skin = sel.value; renderAll(); });
+  var sw = document.getElementById('motionSw');
+  sw.setAttribute('aria-checked', root.classList.contains('reduced'));
+  sw.addEventListener('click', function () {
+    var on = !root.classList.contains('reduced');
+    root.classList.toggle('reduced', on); sw.setAttribute('aria-checked', on); renderAll();
+  });
+  document.getElementById('q').addEventListener('input', function (e) { query = e.target.value.trim().toLowerCase(); renderGroups(); });
+  document.getElementById('pgSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    pageFilter = b.dataset.p; renderSeg(); renderGroups();
+  });
+  renderAll();
+})();
+</script>
+</body>
+</html>

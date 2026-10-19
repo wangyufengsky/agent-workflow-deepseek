@@ -1,0 +1,638 @@
+[
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/index.html",
+  "copy": "originals/main/index.html",
+  "source_sha256": "b7ab64a71618ee1bbba6e48dedd36a54e036dfc88ccd6fe4b571d7d5c7bdeac3"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/skin-map.html",
+  "copy": "originals/main/skin-map.html",
+  "source_sha256": "1e3bae82749927fafb84610036e0371a9be2b3d2d7485b8031b30a715949589a"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/probe.json",
+  "copy": "originals/main/probe.json",
+  "source_sha256": "962b3104cb03898ee2627e43e5130826a40c93548ba81ae421e2d537ea67c77d"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/REVIEW.md",
+  "copy": "originals/main/REVIEW.md",
+  "source_sha256": "ed7e491f4c82f3031304779b98bf3b5726ff868c6fffcddb659e1290673e6108"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/assets/shell.js",
+  "copy": "originals/main/assets/shell.js",
+  "source_sha256": "2371ea19319991b4f32a15943a72d0984058fb61a3396c1e32c9d5d7aa6d8b91"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/assets/skins.css",
+  "copy": "originals/main/assets/skins.css",
+  "source_sha256": "6db6336773789613047a409fead8fdf90264b4510ad3e86e2b06bba4f64b7ab2"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/assets/canvas.js",
+  "copy": "originals/main/assets/canvas.js",
+  "source_sha256": "6070720e3f545e0c3ba2f467a5c881842c415807e3792eac6aef09dddf70310c"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/assets/ds.css",
+  "copy": "originals/main/assets/ds.css",
+  "source_sha256": "c9cad6aa7af6506c51bb8e90789fc847c3d5c4150c97f6e25a1149c15b21c6f7"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/run.html",
+  "copy": "originals/main/pages/run.html",
+  "source_sha256": "dca001da3c7e8f3b1258854ec363d6489b50ea881205307e9e89f33a30ac5675"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/recovery.html",
+  "copy": "originals/main/pages/recovery.html",
+  "source_sha256": "ff7484dd3fad9d22c3e70d5f82e19ac5f6053b3d967b91cf4b81745f88ad3e96"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/home.html",
+  "copy": "originals/main/pages/home.html",
+  "source_sha256": "23cc65b845427806bab57667cd5407ef1b58c98b4df7e61b20ec9c26725d72bd"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/knowledge.html",
+  "copy": "originals/main/pages/knowledge.html",
+  "source_sha256": "99baf726adaa06a4f12f15e5dcc464d24a2ada680c5c537f2aca1514f6e9d9f3"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/tasks.html",
+  "copy": "originals/main/pages/tasks.html",
+  "source_sha256": "442bbfd97671e7af9f37e9ab551fadea74dd0c87349331870e3ac2bdad25e4f2"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/roles-legacy.html",
+  "copy": "originals/main/pages/roles-legacy.html",
+  "source_sha256": "859d56c0e875f9bdfe423ed194b4f5c61e6fcd4d252ca9ea9724d63eb6e0d380"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/ppt-studio.html",
+  "copy": "originals/main/pages/ppt-studio.html",
+  "source_sha256": "2645511d0e24483a7e9eb28f3947e72da587783c4ff8c117ef448c760f768643"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/databases.html",
+  "copy": "originals/main/pages/databases.html",
+  "source_sha256": "b7727d5e2f13c308bd7cbf6a34eec24535d7453dba5b03f5667b3c0cb53e93af"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/start.html",
+  "copy": "originals/main/pages/start.html",
+  "source_sha256": "3beb0b96f97964ec923fcb5f971a7381778ff21b174f51b6f7684b273c637950"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/projects.html",
+  "copy": "originals/main/pages/projects.html",
+  "source_sha256": "828390c9af0de3703c6dd4d2a358d90209d92fdeb18c89cdba92ff0166c52335"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/templates.html",
+  "copy": "originals/main/pages/templates.html",
+  "source_sha256": "2398ea85a3fd572a511bb79fae763c6b9826d3acea5a599bc7e2c9b68605cb74"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/workflow-editor.html",
+  "copy": "originals/main/pages/workflow-editor.html",
+  "source_sha256": "28d73aa129bd58dcceaea5460f5d166952b3e1256036688de6373da5f0efe7b4"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/requirement.html",
+  "copy": "originals/main/pages/requirement.html",
+  "source_sha256": "c08294c664ffc0bde8e5a54ee0cdcc7e1e7d65e728170470faf4292c93f1205a"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/workflows.html",
+  "copy": "originals/main/pages/workflows.html",
+  "source_sha256": "20904d7654e8e5fc95285bcefed3fac690bcdb78ba9fb4fcd581139508dc59aa"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/inbox.html",
+  "copy": "originals/main/pages/inbox.html",
+  "source_sha256": "777cc20a844e199e505cffa0be7d53e2ccf96e2d73c20af9b995c420d7336485"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/ppt.html",
+  "copy": "originals/main/pages/ppt.html",
+  "source_sha256": "acd5fc3d5848de456ae846b94a133def9b862177b5f7e487953c6efabc6a731f"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/task.html",
+  "copy": "originals/main/pages/task.html",
+  "source_sha256": "de88b0382dc9a7bf329a8fd6013b3eafc0f6be43d0f2103a5f8a30372d01661f"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/tools.html",
+  "copy": "originals/main/pages/tools.html",
+  "source_sha256": "bb8a9ecbd6662586893b5bf041716976fa064f70ca8da7030dcc2353c31e0e4d"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/ppt-works.html",
+  "copy": "originals/main/pages/ppt-works.html",
+  "source_sha256": "80d29f45226022eff1e87d0e26b61f68244007db6d6e9e97f559cfba779d957d"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/insights.html",
+  "copy": "originals/main/pages/insights.html",
+  "source_sha256": "cf4eea62d309307815eae4acad4accecd29865b5fdff3fe5ad44c5b05f7ed5ba"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/settings.html",
+  "copy": "originals/main/pages/settings.html",
+  "source_sha256": "65f2470d32698af9c6ff4a54c333883bfccca11d100a7368df324c780e4f0280"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/knowledge-history.html",
+  "copy": "originals/main/pages/knowledge-history.html",
+  "source_sha256": "0cd473daa957c67ada80d053221d1902eaa9b6d74da0bf5466e67499bb955c1c"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/runtime.html",
+  "copy": "originals/main/pages/runtime.html",
+  "source_sha256": "f09e9b7ebbf11dac63f422c2958ef5dfa917fc3eec73632ff7a5362ffe6b8c2a"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/roles.html",
+  "copy": "originals/main/pages/roles.html",
+  "source_sha256": "3252929dab48c709c5d9dfbca2f64dc6a29ec125ba6704693327a0f2f5e5948c"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/r05-site-design/deepseek/pages/requirements.html",
+  "copy": "originals/main/pages/requirements.html",
+  "source_sha256": "82c4eb57e7800c387446b09d5c8187ed77a05e371aafb938e58fa29c82bc2611"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/index.html",
+  "copy": "originals/node/index.html",
+  "source_sha256": "586bcddcc1ab31b56434d6aec58355ee22b4da9d452ce7c495fa6639dce10e20"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/assets/shell.js",
+  "copy": "originals/node/assets/shell.js",
+  "source_sha256": "ab418884604c32f955ae2ffb0d24601e3c1dfafe6cf8e1e332c0d676c16efcd1"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/assets/skins.css",
+  "copy": "originals/node/assets/skins.css",
+  "source_sha256": "6db6336773789613047a409fead8fdf90264b4510ad3e86e2b06bba4f64b7ab2"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/assets/states.js",
+  "copy": "originals/node/assets/states.js",
+  "source_sha256": "3f769c417f72207b1edb23fb2e37659c3c1366972ea3ec6ec4e56d7e4b0faab8"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/assets/canvas.js",
+  "copy": "originals/node/assets/canvas.js",
+  "source_sha256": "6070720e3f545e0c3ba2f467a5c881842c415807e3792eac6aef09dddf70310c"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/assets/fixtures.js",
+  "copy": "originals/node/assets/fixtures.js",
+  "source_sha256": "0d613d0adfe8e4098f878421e2c8454a1a3d28234531a3d59363c244c7c5f196"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/assets/node-detail.css",
+  "copy": "originals/node/assets/node-detail.css",
+  "source_sha256": "143c6db45b3d6d31eb90e840194170c4aefa95c18002d9c82831034bc9677482"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/assets/node-detail.js",
+  "copy": "originals/node/assets/node-detail.js",
+  "source_sha256": "37c711a9380a64e058971add4ee858931753d840ff957dc3a22017b3935ea0b9"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/prototype/assets/ds.css",
+  "copy": "originals/node/assets/ds.css",
+  "source_sha256": "c9cad6aa7af6506c51bb8e90789fc847c3d5c4150c97f6e25a1149c15b21c6f7"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/index.html",
+  "copy": "originals/git/index.html",
+  "source_sha256": "9567f075248063afe1c045bfb6e278e764fc7839dc14cfdd787e2622123dd954"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/flows.html",
+  "copy": "originals/git/flows.html",
+  "source_sha256": "270ffaddb7d7b27a132997d2b80642b660026713026a486c523594027cc2c2da"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/assets/shell.js",
+  "copy": "originals/git/assets/shell.js",
+  "source_sha256": "15d78305fbaf94010a865b49ea971c33d7df6151b240c9bd4bb16b00c3a51a02"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/assets/skins.css",
+  "copy": "originals/git/assets/skins.css",
+  "source_sha256": "6db6336773789613047a409fead8fdf90264b4510ad3e86e2b06bba4f64b7ab2"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/assets/git.js",
+  "copy": "originals/git/assets/git.js",
+  "source_sha256": "83100de739dc1656a96b0ee11d228d61e06cd1f6dea11ce3c25657d62cc3232b"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/assets/git.css",
+  "copy": "originals/git/assets/git.css",
+  "source_sha256": "7a70c33f27d548a1e4fb3572bb95579aadaad1607893319cd0c4e76515cea9c3"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/assets/states.js",
+  "copy": "originals/git/assets/states.js",
+  "source_sha256": "9bf5aaffda43d8cf4cda3610c2c5306f57c3b2a06c2bff958ba4fc9fe52e3620"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/assets/canvas.js",
+  "copy": "originals/git/assets/canvas.js",
+  "source_sha256": "6070720e3f545e0c3ba2f467a5c881842c415807e3792eac6aef09dddf70310c"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/assets/fixtures.js",
+  "copy": "originals/git/assets/fixtures.js",
+  "source_sha256": "a29202e99045a3255d9eee2ec338a5e29644eec0fdd962dad7d75e26eb32ac68"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/prototype/assets/ds.css",
+  "copy": "originals/git/assets/ds.css",
+  "source_sha256": "c9cad6aa7af6506c51bb8e90789fc847c3d5c4150c97f6e25a1149c15b21c6f7"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/git.html",
+  "copy": "originals/delivery/git.html",
+  "source_sha256": "40d0486053adcd3016ec1a0af34a7788885a02ba6234419a86182d8b730dfdec"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/index.html",
+  "copy": "originals/delivery/index.html",
+  "source_sha256": "c31b7bc0faf94894c55119541090c8dd41062c82df805eed4f03f40e6c1ab9d3"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/apply.html",
+  "copy": "originals/delivery/apply.html",
+  "source_sha256": "87a85d1dd019d8c83cf568f171680220830117854a0e8ffb709aba3f64bcf0c9"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/start.html",
+  "copy": "originals/delivery/start.html",
+  "source_sha256": "10b0c76210e555a87b648b49b79b327fe656eb1c5acad6d2672353ab1bde927e"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/flows.html",
+  "copy": "originals/delivery/flows.html",
+  "source_sha256": "658b77f8d165f76c343e70590107bc51cd14df618866b1b050f53e6e9c78f8ad"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/task.html",
+  "copy": "originals/delivery/task.html",
+  "source_sha256": "c0cdd6b275ebbfc746af589ff8473fcb23b68a5b73c2181be95e4082a530aadf"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/shell.js",
+  "copy": "originals/delivery/assets/shell.js",
+  "source_sha256": "0d5b1daa5db0c8c1a6711e4a43770b8fef4de620e1b04931a79c530ce610c38f"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/review.css",
+  "copy": "originals/delivery/assets/review.css",
+  "source_sha256": "c51132333e2b68cb1a18de386b4f7e8359f8d3d44e504a0027e177c6ea628fc6"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/task-fixtures.js",
+  "copy": "originals/delivery/assets/task-fixtures.js",
+  "source_sha256": "da3689c596fe91744cee31e80197f3d763a849b5138a982520d02de1813c95ac"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/td-desc-apply.js",
+  "copy": "originals/delivery/assets/td-desc-apply.js",
+  "source_sha256": "61dfac5f6e426bd70434ba96734fe21832175d57749cb710f349ab1af2f82934"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/apply.css",
+  "copy": "originals/delivery/assets/apply.css",
+  "source_sha256": "b09e2b247081c81ca6ad247b17f566d92f8fcb933e68f5136d4d78e12da0988e"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/start-fixtures.js",
+  "copy": "originals/delivery/assets/start-fixtures.js",
+  "source_sha256": "11a6c49d71396aaafd9a6dbbea4c45b749cc831bc7c2f4281cd4d403736ab6e4"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/start.js",
+  "copy": "originals/delivery/assets/start.js",
+  "source_sha256": "f12d4d64c41c54e5af24d5f1cc9008a55a65c81be02e71424469a13e5e6e85f1"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/git-td.js",
+  "copy": "originals/delivery/assets/git-td.js",
+  "source_sha256": "e3a14d4d0e7981d25a13a9702e96932d373880a2963f39a81e42f10996937673"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/skins.css",
+  "copy": "originals/delivery/assets/skins.css",
+  "source_sha256": "6db6336773789613047a409fead8fdf90264b4510ad3e86e2b06bba4f64b7ab2"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/task.css",
+  "copy": "originals/delivery/assets/task.css",
+  "source_sha256": "006155cc6cd0b3bbc57099fab162f584d59cb20c46b8ddb59e26cbc91c87cc37"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/task.js",
+  "copy": "originals/delivery/assets/task.js",
+  "source_sha256": "83dd357e33b732b3708d1743d9ece32bdaea115855061919ef765400bf62f749"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/git-td.css",
+  "copy": "originals/delivery/assets/git-td.css",
+  "source_sha256": "5c63e8aa58954d69ac19ff4cfd3822a19e512bac9e6070f9183bd68baa84239a"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/td-desc-task.js",
+  "copy": "originals/delivery/assets/td-desc-task.js",
+  "source_sha256": "9c09148cc4de67ffdae41dc95cb01e538f9d419be7a5742cc7400993d7fb8ae9"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/td-desc-start.js",
+  "copy": "originals/delivery/assets/td-desc-start.js",
+  "source_sha256": "ce7b25ccf025c860d4efb50cf09326e18545467d303b508e99670de7fc9b64fd"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/td-proto.css",
+  "copy": "originals/delivery/assets/td-proto.css",
+  "source_sha256": "ea311e9476df97935f23fca68e3c510e0e86569ca4008075e1db7241d523c449"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/git-td-fixtures.js",
+  "copy": "originals/delivery/assets/git-td-fixtures.js",
+  "source_sha256": "842dc851a04add8bfa13e99337c8f6da86bac7ed2a581279007cc1fa59e27ff9"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/canvas.js",
+  "copy": "originals/delivery/assets/canvas.js",
+  "source_sha256": "6070720e3f545e0c3ba2f467a5c881842c415807e3792eac6aef09dddf70310c"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/apply.js",
+  "copy": "originals/delivery/assets/apply.js",
+  "source_sha256": "fe9966acd498b2ce8ab48785c79082e0eb77cee85640b5f9d0200dbaa18ed015"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/start.css",
+  "copy": "originals/delivery/assets/start.css",
+  "source_sha256": "f40b79b09a1b5c3b64c934465d2b988b75ea1c3756c80f3a59ae8a85ebc5a1ec"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/apply-fixtures.js",
+  "copy": "originals/delivery/assets/apply-fixtures.js",
+  "source_sha256": "dace2b809d713cad2b2e86d3471265c1c60fbbcc013bf89c1d2bb1ae99e9ed32"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/td-desc-git.js",
+  "copy": "originals/delivery/assets/td-desc-git.js",
+  "source_sha256": "900bdd55db9eed71dfba273742ae9677540a4c70ec369cce48234e0a4539a3c0"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/td-states.js",
+  "copy": "originals/delivery/assets/td-states.js",
+  "source_sha256": "d48072518d13fed500fde4d8bfa6a7e8fcd6f122f3e0f34c0ada9de3da28fe8a"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/td-proto.js",
+  "copy": "originals/delivery/assets/td-proto.js",
+  "source_sha256": "27053789862a44989653b9f96d9ba746a60acaec090b1c5624b642f163302973"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/prototype/assets/ds.css",
+  "copy": "originals/delivery/assets/ds.css",
+  "source_sha256": "c9cad6aa7af6506c51bb8e90789fc847c3d5c4150c97f6e25a1149c15b21c6f7"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/API-REQUIREMENTS.md",
+  "copy": "sources/node/API-REQUIREMENTS.md",
+  "source_sha256": "f538e10f77b602bb219cd38aa9a932612ff2d7ff2c8f7950450bee4e36ff9171"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/README.md",
+  "copy": "sources/node/README.md",
+  "source_sha256": "66a65b90536395a21fd3a677336ef36ac541dda09cb8ed9b7f972243d6ad23f4"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/node-execution-detail-claude-design-20261012/COVERAGE.md",
+  "copy": "sources/node/COVERAGE.md",
+  "source_sha256": "b4e43b0b8a4a8728113adeabe45ff56e46a4120ff696f1d074f77e2f22844b4f"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/API-DESIGN.md",
+  "copy": "sources/git/API-DESIGN.md",
+  "source_sha256": "2a5318eaac5c57ec9db274e678e521ca5f757c55e9dcba2f4547d26c112f77f7"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/STATES.md",
+  "copy": "sources/git/STATES.md",
+  "source_sha256": "723f4dcab12ad80026d9aa8818b86a64032b64eff2f248170c90110fbfd4578b"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/git-workbench-claude-design-20261013/README.md",
+  "copy": "sources/git/README.md",
+  "source_sha256": "1b4b5ba4fceb99ec31735096fa96660cc4c698a3d2525f020a3e334318820610"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/DESIGN-DELTA.md",
+  "copy": "sources/delivery/DESIGN-DELTA.md",
+  "source_sha256": "b65cc16f01c42172937895e726a4f7291378e584819eb0e744442ae206ac7d79"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/STATES.md",
+  "copy": "sources/delivery/STATES.md",
+  "source_sha256": "15fadb313a912644cbf9d2dbb316fbad14b42f6cab19706d611ca195bca3410b"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/README.md",
+  "copy": "sources/delivery/README.md",
+  "source_sha256": "66dc43bba325bd98940d8ee13ed380f0f3cd6f0fcd0ceaf3ea000fc2a5d00944"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-task-delivery-claude-design-pending/claude-output/API-DESIGN-CANDIDATE.md",
+  "copy": "sources/delivery/API-DESIGN-CANDIDATE.md",
+  "source_sha256": "828b4c1bb35babd113a7019910200ee13440159764f4f10b95c0e11336112e99"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/looper-claude-redesign-pending/CLAUDE-设计结果.md",
+  "copy": "sources/CLAUDE-设计结果.md",
+  "source_sha256": "16a253bbbcdd230a91b518d5b1a66d54a5f3d3e3ef34bf40ffe9774f7c2a26b2"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/requirement.html",
+  "copy": "originals/planning/requirement.html",
+  "source_sha256": "f5ef8879199da71c452022bb06d6fdab0c8ba18f8a368c49c36c32afb004c530",
+  "note": "v3 规划整合；HTML 头部改为合集共享外壳（showcase/*）"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/task.html",
+  "copy": "originals/planning/task.html",
+  "source_sha256": "c7b455a9e1fa8a2f0cebd88c581fa3dc214b458777458c220312430fd96a1d9c",
+  "note": "v3 规划整合；HTML 头部改为合集共享外壳（showcase/*）"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/start.html",
+  "copy": "originals/planning/start.html",
+  "source_sha256": "359f59212119b1d8a98a39fc0fe44c830b4bfd89eca82ec1d615c34d93ae7d80",
+  "note": "v3 规划整合；HTML 头部改为合集共享外壳（showcase/*）"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/index.html",
+  "copy": "originals/planning/index.html",
+  "source_sha256": "0704c72a360f8c497794ae4b126d65aec7e68615d6061427f0739a3cb5fa8821",
+  "note": "v3 规划整合；HTML 头部改为合集共享外壳（showcase/*）"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/ds.css",
+  "copy": "originals/planning/assets/ds.css",
+  "source_sha256": "c9cad6aa7af6506c51bb8e90789fc847c3d5c4150c97f6e25a1149c15b21c6f7",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/skins.css",
+  "copy": "originals/planning/assets/skins.css",
+  "source_sha256": "6db6336773789613047a409fead8fdf90264b4510ad3e86e2b06bba4f64b7ab2",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/shell.js",
+  "copy": "originals/planning/assets/shell.js",
+  "source_sha256": "0cabcb31f91e1b157272194e3a6e5967c10d52be877d39b08462f20f4b4f8048",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/pe.css",
+  "copy": "originals/planning/assets/pe.css",
+  "source_sha256": "ab278d66227bf569f26cf5a3960e12814edc4d741fa7cf2ed1b5e0ef25f48302",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/pe-canvas.js",
+  "copy": "originals/planning/assets/pe-canvas.js",
+  "source_sha256": "7db7832d3ecd45950fd60b0b56135b1db6735c4426375b10a44d46753bb632c4",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/pe-fixtures.js",
+  "copy": "originals/planning/assets/pe-fixtures.js",
+  "source_sha256": "627c4bfe2fa872d21008da1e7e2d538bc70c67b09a819a165f4adbbe7df53409",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/pe-states.js",
+  "copy": "originals/planning/assets/pe-states.js",
+  "source_sha256": "76ac1ea138091075977eba5d03b8658c6d066bf69b123a9dc0c9e69fe2dacc58",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/pe-proto.js",
+  "copy": "originals/planning/assets/pe-proto.js",
+  "source_sha256": "20538266229a42fef4df6235979959a14841d28f8981f1c4b6ecba40a8973db0",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/requirement.js",
+  "copy": "originals/planning/assets/requirement.js",
+  "source_sha256": "377c4166f4f9c3bceac4cee865cff93241bb72fa4417e6514c87a5e41613dfcd",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/task.js",
+  "copy": "originals/planning/assets/task.js",
+  "source_sha256": "b979e473bf8265fcc60ceb8cd12b72b59becf56acde4c235b69e493d174dce7b",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/prototype/assets/start.js",
+  "copy": "originals/planning/assets/start.js",
+  "source_sha256": "f22f21ff7fff9c42e15c01bfacff6d15762c067f362a4420a9919247a07d2e68",
+  "note": "v3 规划整合"
+ },
+ {
+  "source": "（合集整合版新写）",
+  "copy": "originals/planning/assets/pe-nav.js",
+  "source_sha256": null,
+  "note": "补充稿 PEN 接口转接到 SC：菜单、主题与路由由 showcase/ 提供"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/README.md",
+  "copy": "sources/planning/README.md",
+  "source_sha256": "505f28be5d2b1a42868e2bb7bdd9e589c6986b5cb6d5e99fa82c9d53113efbc2"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/DESIGN-DELTA.md",
+  "copy": "sources/planning/DESIGN-DELTA.md",
+  "source_sha256": "700bcaa220f8e1e27777b1fcc697ca77869195f4a9464b57b05c5f6bcf9c5ccb"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/STATES.md",
+  "copy": "sources/planning/STATES.md",
+  "source_sha256": "d498abed623aad653358f42063ed7859c8aba2a587362200185bb967de18a89d"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/COVERAGE.md",
+  "copy": "sources/planning/COVERAGE.md",
+  "source_sha256": "192aa9cc3640019ff18d4c9d3d9d63551c4b17b0491566baa2bce7c286f426ff"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/API-NEEDS-DELTA.md",
+  "copy": "sources/planning/API-NEEDS-DELTA.md",
+  "source_sha256": "6a373ceb56426807d8b466703cc4a7922f6f1691f8e2aa492a6d959fe820c708"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/README-v4.md",
+  "copy": "sources/supplement-v4/README-v4.md",
+  "source_sha256": "9ebda8a5c0a37fc26eb2069bf85028da00471b30622a2d515f28e598d096e0ae"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/DESIGN-DELTA-v4.md",
+  "copy": "sources/supplement-v4/DESIGN-DELTA-v4.md",
+  "source_sha256": "84844b966bd12ced95dfa7a9e5726679bee2973d03dfe9654577006cfa618fd4"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/STATES-v4.md",
+  "copy": "sources/supplement-v4/STATES-v4.md",
+  "source_sha256": "d936df7679acdf1b10d339d22c27ab5bd5c20262178fd7f31726df2f16c6b0c6"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/STATE-MAP.md",
+  "copy": "sources/supplement-v4/STATE-MAP.md",
+  "source_sha256": "f3d258c15659214a705646f0c85fff722c889594c1bb0aba58fac4889b263513"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/API-NEEDS-DELTA-v4.md",
+  "copy": "sources/supplement-v4/API-NEEDS-DELTA-v4.md",
+  "source_sha256": "a0970f732ca99920d1a64bbce5cf9329698b4d4e41f90cc99f4d2ab002f3f199"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/COVERAGE-v4.md",
+  "copy": "sources/supplement-v4/COVERAGE-v4.md",
+  "source_sha256": "e833e0d2a04c3b4a89cbc6a63fe32ea148bc470cf0316471ac71f53e77bedf1d"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/CHANGELOG-v4.md",
+  "copy": "sources/supplement-v4/CHANGELOG-v4.md",
+  "source_sha256": "e8cfe592754e4c27b33ec05d066bbb199a7d4264c26dc46f2c4fe7ab186ae04b"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/TEST-REPORT-v4.md",
+  "copy": "sources/supplement-v4/TEST-REPORT-v4.md",
+  "source_sha256": "d4b0ba67fc27bc6e5ddab8af0bffbf88b8ae262f26cb46b11fd2e73eec67d2f8"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/test-results-v4.json",
+  "copy": "sources/supplement-v4/test-results-v4.json",
+  "source_sha256": "13f9fb3c86279bbab1d8f39649f20936b0cb0a4d9f06d17a0b39b181a3ef09e7"
+ },
+ {
+  "source": "/Users/wangyufeng/Documents/workflow-planning-expansion-claude-design-pending/claude-output/supplement-v4-20261016/integration-map-v4.json",
+  "copy": "sources/supplement-v4/integration-map-v4.json",
+  "source_sha256": "09d522c39f4d9fe86c53eadd4c1ccaff7051c6d4a898d59d4896b56c278b4841"
+ }
+]

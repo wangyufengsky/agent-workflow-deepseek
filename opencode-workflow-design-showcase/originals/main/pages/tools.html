@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>工具与 Skill · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.split{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start;margin-top:16px}
+.srcs{padding:8px;position:sticky;top:0}
+.src{display:flex;gap:12px;align-items:flex-start;padding:11px 12px;border-radius:12px;width:100%;text-align:left;transition:background var(--t-fast)}
+.src:hover{background:var(--fill-3)}
+.src[aria-current="true"]{background:var(--fill-4);box-shadow:inset 0 0 0 1px var(--line-2)}
+.src .t{font-size:13.5px;line-height:1.4}
+.src .s{font-size:12px;color:var(--muted);margin-top:2px;display:flex;gap:6px;align-items:center}
+.tool{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;padding:14px 18px}
+.tool+.tool{box-shadow:inset 0 1px 0 var(--line)}
+.tool .n{font:500 13px var(--font-mono);color:var(--ink)}
+.tool .d{font-size:13px;color:var(--sub);margin-top:3px}
+.tool .src-line{grid-column:1/-1;font-size:12px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.tri{display:inline-flex;padding:3px;gap:2px;border-radius:var(--r-pill);background:var(--fill-2);border:1px solid var(--line)}
+.tri button{height:26px;padding:0 11px;border-radius:var(--r-pill);font-size:12px;color:var(--sub)}
+.tri button[aria-pressed="true"]{background:var(--fill-5);color:var(--ink-strong)}
+.tri button[aria-pressed="true"].off{background:var(--danger-fill);color:var(--danger)}
+.tri button[aria-pressed="true"].on{background:var(--ok-fill);color:var(--ok)}
+.md{font-size:14.5px;line-height:1.85;color:var(--ink-2)}
+.md h1{font-family:var(--font-display);font-weight:500;font-size:22px;letter-spacing:-.3px;color:var(--ink)}
+.md h2{font-size:16px;font-weight:500;color:var(--ink);margin:24px 0 8px}
+.md p{margin:10px 0}.md ul{margin:8px 0;padding-left:20px}
+.md code{font-family:var(--font-mono);font-size:12.5px;padding:1px 6px;border-radius:5px;background:var(--fill-3)}
+.md pre{background:var(--bg-sunken);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font:12.5px/1.7 var(--font-mono);overflow:auto;white-space:pre}
+.locked{opacity:.6;pointer-events:none}
+/* 补充：Skill 原文视图（前缀 bx-） */
+.bx-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.bx-src{border:1px solid var(--line);border-radius:12px;background:var(--bg-sunken);overflow:hidden}
+.bx-src-h{display:flex;align-items:center;gap:8px;padding:8px 10px 8px 14px;box-shadow:inset 0 -1px 0 var(--line);font-size:12px;color:var(--muted)}
+.bx-src-b{max-height:560px;overflow:auto;padding:10px 0;font:12.5px/1.75 var(--font-mono);color:var(--ink-2);counter-reset:none}
+.bx-ln{display:grid;grid-template-columns:52px minmax(0,1fr)}
+.bx-ln::before{content:attr(data-n);padding-right:14px;text-align:right;color:var(--faint);user-select:none;-webkit-user-select:none;box-shadow:inset -1px 0 0 var(--line);font-variant-numeric:tabular-nums}
+.bx-ln code{font:inherit;padding:0 16px 0 14px;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+.bx-ln:hover{background:var(--fill-2)}
+.bx-ln:hover::before{color:var(--muted)}
+.bx-ln .k{color:var(--accent)}.bx-ln .m{color:var(--muted)}
+.bx-bar .seg button:disabled{opacity:.5;cursor:not-allowed}
+.bx-empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:44px 20px;border:1px dashed var(--line-2);border-radius:12px;color:var(--sub)}
+.bx-empty h3{font-size:14.5px;font-weight:500;color:var(--ink)}
+.bx-empty p{font-size:13px;max-width:420px;line-height:1.6}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="tools">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+
+<div class="dialog" id="disDlg" role="alertdialog" aria-labelledby="dT">
+  <div class="dialog-body"><h2 id="dT">停用“协作事项查询”的全部工具？</h2><p>这个来源的 3 个工具都会在<b class="ink">新建会话</b>中停用，已经在运行的会话不受影响。之后可以逐个重新启用。</p>
+  <div class="card" style="margin-top:12px;padding:10px 14px;font:12.5px/1.9 var(--font-mono);color:var(--ink-2)">query_issues<br>read_issue<br>list_assignees</div></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>保留</button><button class="btn danger" onclick="DS.closeDialog();DS.toast('已停用，正在重新读取工具清单','info')">停用 3 个工具</button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S=DS.state||'tools';
+const project = S==='project' || S==='write-unknown';
+const tab = S.startsWith('skill') ? 'skill' : 'tools';
+const SOURCES = [
+  {id:'s1', n:'项目资料检索', k:'本地', st:['已连接','var(--ok)'], tools:[
+    {n:'search_project_docs', d:'检索项目文档与证据。', g:1, p:-1},
+    {n:'read_project_reference', d:'读取项目引用资料。', g:1, p:0},
+    {n:'summarize_example_source', d:'整理来源说明；能否调用还取决于角色授权。', g:0, p:-1}]},
+  {id:'s2', n:'协作事项查询', k:'远程', st:['等待授权','var(--warn)'], tools:[{n:'query_issues',d:'按条件查询事项。',g:1,p:-1},{n:'read_issue',d:'读取单个事项。',g:1,p:-1},{n:'list_assignees',d:'列出处理人。',g:0,p:-1}]},
+  {id:'s3', n:'Loopper 内网辅助工具', k:'远程', st:['状态未知','var(--unknown)'], tools:[]},
+  {id:'s4', n:'Loopper 内部候选提交', k:'内置', st:['已连接','var(--ok)'], builtin:true, tools:[{n:'submit_candidate',d:'提交规划候选，由 opencode-workflow 内部使用。',g:1,p:-1,fixed:true}]},
+];
+let cur = 's1';
+const SKILLS = [
+  {n:'code-review', d:'按项目约定审阅代码改动', loc:'.opencode/skills/code-review/SKILL.md'},
+  {n:'api-doc-writer', d:'根据接口实现生成文档', loc:'.opencode/skills/api-doc-writer/SKILL.md'},
+  {n:'test-planner', d:'为改动规划单元测试用例', loc:'~/.config/opencode/skills/test-planner/SKILL.md'},
+];
+let curSkill = 0;
+
+function header(){
+  return `<h1>${I('tool')}工具与 Skill</h1>
+    <select class="select ctl" style="width:auto;margin-left:10px" aria-label="配置范围" onchange="DS.setState(this.value==='g'?'tools':'project')"><option value="g" ${project?'':'selected'}>全局默认</option><option value="p" ${project?'selected':''}>项目：OpenCode Loopper</option></select>
+    <span class="spacer"></span><button class="icon-btn" aria-label="刷新目录" title="刷新目录" onclick="DS.toast('已重新读取','info')">${I('refresh')}</button>`;
+}
+function toolsView(){
+  const s = SOURCES.find(x=>x.id===cur);
+  const partial = S==='partial';
+  return `
+  <div class="split">
+    <aside class="card srcs" aria-label="工具来源">
+      <div class="row between" style="padding:6px 10px 8px"><span class="eyebrow">工具来源</span><span class="hint num">${SOURCES.length}</span></div>
+      ${SOURCES.map(x=>`<button class="src" aria-current="${cur===x.id}" onclick="cur='${x.id}';render()"><span class="tile" style="width:32px;height:32px">${I(x.builtin?'sparkle':'tool','sm')}</span><span class="grow"><div class="t">${x.n}</div><div class="s"><span class="dot" style="color:${x.st[1]}"></span>${x.st[0]} · ${x.k}${x.tools.length?` · ${x.tools.length} 个工具`:''}</div></span></button>`).join('')}
+    </aside>
+    <section class="col" style="gap:12px">
+      <div class="card" style="padding:18px 20px">
+        <div class="row wrap"><div class="grow"><div class="row"><h2 style="font-size:18px;font-weight:500">${s.n}</h2><span class="badge outline"><span class="dot" style="color:${s.st[1]}"></span>${s.st[0]}</span>${s.builtin?'<span class="badge st-accent">内置</span>':''}</div>
+          <div class="hint" style="margin-top:4px">${s.k}来源 · <span class="mono">${s.id==='s1'?'example-docs':s.id==='s2'?'collab-issues':s.id==='s3'?'intranet-assist':'@loopper-assist'}</span></div></div>
+          ${!s.builtin && s.tools.length ? `<button class="btn ghost sm" style="color:var(--danger)" ${partial?'disabled title="工具清单不完整时不能整体停用"':''} onclick="DS.openDialog('disDlg',this)">${I('stop','sm')}停用这个来源…</button>`:''}</div>
+        <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap"><span class="chip">${I('info','sm')}只影响新建会话，运行中的会话保持原权限</span>${project?'<span class="chip">项目设置优先于全局默认</span>':''}</div>
+      </div>
+      ${partial?`<div class="banner warn">${I('alert')}<div><b>工具清单不完整</b><br>OpenCode 只返回了部分工具（读取 /mcp 超时）。为避免误改，这个来源的开关暂时不能修改。</div><div class="actions"><button class="btn secondary sm">${I('refresh','sm')}重新读取</button></div></div>`:''}
+      ${S==='write-unknown'?`<div class="banner unknown">${I('help')}<div><b>“read_project_reference”的修改结果未明</b><br>请求已发出但没有收到确认。正在按原范围重新读取清单，确认前不能修改其他工具或切换范围。</div><div class="actions"><span class="spin" style="color:var(--unknown)"></span></div></div>`:''}
+      ${s.tools.length ? `<div class="card ${partial||S==='write-unknown'?'locked':''}">
+        <div class="row" style="padding:12px 18px;box-shadow:inset 0 -1px 0 var(--line)"><span class="grow hint">${project?'项目：OpenCode Loopper':'全局默认'} · ${s.tools.length} 个工具</span><span class="hint">${project?'继承 / 启用 / 停用':'启用'}</span></div>
+        ${s.tools.map((t,i)=>toolRow(t,i)).join('')}
+      </div>` : `<div class="card"><div class="empty" style="padding:40px 20px"><span class="tile" style="color:var(--unknown)">${I('help','lg')}</span><h3>暂时读不到这个来源的工具</h3><p>来源状态未知，可能需要授权或网络不可达。工具清单读取成功后才能设置。</p><button class="btn secondary sm">${I('refresh','sm')}重新读取</button></div></div>`}
+    </section>
+  </div>`;
+}
+function toolRow(t,i){
+  const unk = S==='write-unknown' && t.n==='read_project_reference';
+  let ctl;
+  if (t.fixed) ctl = `<span class="badge st-accent">${I('lock','sm')}内置，始终启用</span>`;
+  else if (project) {
+    const eff = t.p===-1 ? t.g : t.p;
+    ctl = `<div class="tri" role="group" aria-label="${t.n} 的项目设置">${[[-1,'继承'],[1,'启用','on'],[0,'停用','off']].map(([v,l,c])=>`<button aria-pressed="${t.p===v}" class="${c||''}" onclick="DS.toast('${l}：${t.n}','info')">${l}</button>`).join('')}</div>`;
+    t._eff = eff;
+  } else ctl = `<button class="switch" role="switch" aria-checked="${!!t.g}" aria-label="${t.n}" onclick="this.setAttribute('aria-checked',this.getAttribute('aria-checked')!=='true');DS.toast('已保存，正在重新读取','info')"></button>`;
+  const line = t.fixed ? 'opencode-workflow 内部使用，不可停用'
+    : project ? (t.p===-1 ? `继承全局：${t.g?'启用':'停用'}` : `项目明确${t.p?'启用':'停用'} · 全局为${t.g?'启用':'停用'}`)
+    : `全局${t.g?'启用':'停用'}${t.n==='read_project_reference'?' · 项目 OpenCode Loopper 明确停用，不受这里影响':''}`;
+  return `<div class="tool"><div><div class="n">${t.n}</div><div class="d">${t.d}</div></div>${unk?`<span class="badge st-unknown">${I('help','sm')}结果未明</span>`:ctl}<div class="src-line">${line}</div></div>`;
+}
+function skillView(){
+  const k = SKILLS[curSkill];
+  const err = S==='skill-error';
+  return `<div class="split">
+    <aside class="card srcs" aria-label="Skill">
+      <div style="padding:4px 4px 8px"><div class="input-wrap"><span data-icon="search"></span><input class="input ctl" placeholder="搜索 Skill" aria-label="搜索 Skill"></div></div>
+      ${SKILLS.map((x,i)=>`<button class="src" aria-current="${curSkill===i}" onclick="curSkill=${i};render()"><span class="tile" style="width:32px;height:32px">${I('wand','sm')}</span><span class="grow"><div class="t mono" style="font-size:13px">${x.n}</div><div class="s">${x.d}</div></span></button>`).join('')}
+      <p class="hint" style="padding:10px 12px 4px;line-height:1.6">Skill 由 OpenCode 从项目和本机目录发现。这里只读，安装或修改请在对应目录中进行。</p>
+    </aside>
+    <section class="card" style="padding:22px 26px">
+      <div class="row wrap" style="margin-bottom:14px"><span class="badge outline">${I('eye','sm')}只读 · 阅读不会执行 Skill</span><span class="hint mono grow" style="text-align:right">${esc(k.loc)}</span></div>
+      ${err?`<div class="banner danger">${I('alert')}<div><b>Skill 正文读取失败</b><br>OpenCode 的 Skill 服务暂时不可用（OPENCODE_SKILLS_UNAVAILABLE）。目录仍可浏览。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('skills')">${I('refresh','sm')}重试</button></div></div>`
+      :`<div class="md"><h1>${k.n}</h1><p>${k.d}。在执行步骤需要审阅代码时由智能体按需加载。</p>
+        <h2>何时使用</h2><ul><li>步骤的产出包含代码改动</li><li>项目存在 <code>AGENTS.md</code> 中的代码约定</li></ul>
+        <h2>步骤</h2><p>先读取改动范围，再对照约定逐条检查：</p>
+        <pre>1. git diff --stat 确认范围
+2. 对照 AGENTS.md 的命名与目录约定
+3. 输出问题清单（文件 · 行号 · 建议）</pre>
+        <h2>输出</h2><p>一份 Markdown 清单，按严重程度排序。</p></div>`}
+    </section></div>`;
+}
+/* ---------- 补充：Skill 原文（带行号）/ 正文为空 / 文档读取失败（仅 BX 状态使用） ---------- */
+const BX = ['skill-raw','skill-empty','skill-read-fail'].includes(S);
+const BX_MD = `---
+name: code-review
+description: 按项目约定审阅代码改动
+---
+
+# code-review
+
+按项目约定审阅代码改动。在执行步骤需要审阅代码时，由智能体按需加载；阅读本文件不会执行任何命令。
+
+## 何时使用
+
+- 步骤的产出包含代码改动
+- 项目存在 \`AGENTS.md\` 中的代码约定
+
+## 步骤
+
+先读取改动范围，再对照约定逐条检查：
+
+\`\`\`bash
+git diff --stat origin/main...HEAD
+\`\`\`
+
+1. 确认改动范围，跳过自动生成的文件（\`*.lock\`、\`dist/\`、\`__snapshots__/\`）。
+2. 对照 AGENTS.md 的命名与目录约定，逐个文件检查新增的公开接口、配置项和数据库迁移脚本是否同时更新了说明文档与示例。
+3. 输出问题清单（文件 · 行号 · 建议）。
+
+## 输出
+
+一份 Markdown 清单，按严重程度排序：
+
+| 级别 | 含义 |
+| --- | --- |
+| 必须修改 | 会导致错误或违反约定 |
+| 建议 | 可读性与一致性 |`;
+function bxLine(t){
+  const e = esc(t);
+  if (/^(---|```)/.test(t)) return `<span class="m">${e}</span>`;
+  if (/^#{1,6} /.test(t)) return `<span class="k">${e}</span>`;
+  return e;
+}
+function bxRaw(){
+  const lines = BX_MD.split('\n');
+  return `<div class="bx-src">
+    <div class="bx-src-h"><span class="grow">Markdown 原文 · ${lines.length} 行 · 自动换行</span><span>行号不随复制带出</span></div>
+    <div class="bx-src-b" tabindex="0" role="region" aria-label="Markdown 原文，共 ${lines.length} 行">${lines.map((l,i)=>`<div class="bx-ln" data-n="${i+1}"><code>${bxLine(l)||' '}</code></div>`).join('')}</div>
+  </div>`;
+}
+function bxCopy(b){
+  try { navigator.clipboard && navigator.clipboard.writeText(BX_MD); } catch(e) {}
+  DS.toast('已复制原文（不含行号）');
+}
+function bxSkillView(){
+  const k = SKILLS[curSkill];
+  const fail = S==='skill-read-fail', empty = S==='skill-empty';
+  const seg = `<div class="seg" role="group" aria-label="Skill 文档视图"><button aria-pressed="${empty}" ${empty?'disabled title="正文为空，没有可显示的内容"':''} onclick="DS.setState('skills')">${I('eye','sm')}阅读视图</button><button aria-pressed="${!empty}" ${empty?'disabled title="正文为空，没有可显示的内容"':''}>${I('file','sm')}原文（带行号）</button></div>`;
+  return `<div class="split">
+    <aside class="card srcs" aria-label="Skill">
+      <div style="padding:4px 4px 8px"><div class="input-wrap"><span data-icon="search"></span><input class="input ctl" placeholder="搜索 Skill" aria-label="搜索 Skill"></div></div>
+      ${SKILLS.map((x,i)=>`<button class="src" aria-current="${curSkill===i}" onclick="DS.setState('${i===0?'skill-raw':i===1?'skill-empty':'skill-read-fail'}')"><span class="tile" style="width:32px;height:32px">${I('wand','sm')}</span><span class="grow"><div class="t mono" style="font-size:13px">${x.n}</div><div class="s">${x.d}</div></span></button>`).join('')}
+      <p class="hint" style="padding:10px 12px 4px;line-height:1.6">Skill 由 OpenCode 从项目和本机目录发现。这里只读，安装或修改请在对应目录中进行。</p>
+    </aside>
+    <section class="card" style="padding:22px 26px" aria-label="Skill 文档">
+      <div class="row wrap" style="margin-bottom:14px"><span class="badge outline">${I('eye','sm')}只读 · 阅读不会执行 Skill</span><span class="hint mono grow ellipsis" style="text-align:right" title="${esc(k.loc)}">${esc(k.loc)}</span></div>
+      ${fail ? `<div class="banner danger" role="alert">${I('alert')}<div><b>文档读取失败，请重试</b><br>左侧目录仍可使用，可以先阅读其他 Skill。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('skill-raw')">${I('refresh','sm')}重试</button></div></div>`
+      : `<div class="bx-bar">${seg}<span class="grow"></span>${empty?'':`<button class="btn ghost sm" onclick="bxCopy(this)">${I('copy','sm')}复制原文</button>`}</div>
+        ${empty ? `<div class="bx-empty"><span class="tile">${I('doc','lg')}</span><h3>此 Skill 的 Markdown 正文为空。</h3><p>文件已读取成功，但没有正文内容。需要补充时，请在 <span class="mono">${esc(k.loc)}</span> 中编辑。</p></div>` : bxRaw()}`}
+    </section></div>`;
+}
+if (BX) curSkill = {'skill-raw':0,'skill-empty':1,'skill-read-fail':2}[S];
+function render(){
+  DS.$('.header').innerHTML = header();
+  DS.$('#view').innerHTML = `
+    <div class="page-head" style="margin-bottom:0"><div class="grow"><h2 class="title">工具与 Skill</h2><p class="lede">决定新建会话里智能体能用哪些工具，并查看可用的 Skill。</p></div></div>
+    <div class="tabs" role="tablist" style="margin-top:16px"><button class="tab" role="tab" aria-selected="${tab==='tools'}" onclick="DS.setState('tools')">工具 <span class="hint num">7</span></button><button class="tab" role="tab" aria-selected="${tab==='skill'}" onclick="DS.setState('skills')">Skill <span class="hint num">3</span></button></div>
+    ${tab==='tools'?toolsView():BX?bxSkillView():skillView()}`;
+  DS.icons(DS.$('#view'));
+}
+DS.mount({ header:'', state:S, states:[{id:'tools',label:'工具 · 全局默认'},{id:'project',label:'工具 · 项目设置'},{id:'partial',label:'工具清单不完整'},{id:'write-unknown',label:'修改结果未明'},{id:'skills',label:'Skill 阅读'},{id:'skill-error',label:'Skill 读取失败'},
+  {id:'skill-raw',label:'补充 · Skill 原文'},{id:'skill-empty',label:'补充 · Skill 正文为空'},{id:'skill-read-fail',label:'补充 · Skill 文档读取失败'}] });
+render();
+</script>
+</body>
+</html>

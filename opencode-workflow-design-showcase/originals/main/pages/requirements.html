@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>需求 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.rq-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.rq-combo{position:relative;width:300px}
+.rq-trig{width:100%;display:flex;align-items:center;gap:8px;height:var(--ctl-h);padding:0 12px;border-radius:var(--r-pill);background:var(--raised);border:1px solid var(--line-2);font-size:13.5px;color:var(--ink);text-align:left;transition:border-color var(--t-fast)}
+.rq-trig:hover{border-color:var(--line-3)}
+.rq-trig[aria-expanded="true"]{border-color:var(--focus-line);box-shadow:var(--ring)}
+.rq-combo .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rq-combo .lbl.ph{color:var(--sub)}
+.rq-pop{position:absolute;z-index:20;left:0;top:calc(100% + 6px);width:340px;padding:6px;border-radius:var(--r-md);background:var(--raised);box-shadow:var(--shadow-pop)}
+.rq-pop .input-wrap{margin:2px 2px 6px}
+.rq-opt{display:flex;align-items:center;gap:10px;width:100%;min-height:36px;padding:6px 10px;border-radius:8px;font-size:13.5px;color:var(--ink-2);text-align:left}
+.rq-opt:hover,.rq-opt[aria-selected="true"]{background:var(--fill-3);color:var(--ink)}
+.rq-opt .ck{margin-left:auto;color:var(--accent);display:flex}
+.rq-opt .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rq-pop hr{border:0;height:1px;background:var(--line);margin:5px 4px}
+.rq-clear{position:absolute;right:6px;top:50%;margin-top:-13px;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--muted)}
+.rq-clear:hover{background:var(--fill-3);color:var(--ink)}
+.rq-head,.rq-row{display:grid;grid-template-columns:minmax(0,1fr) 150px 96px 120px 20px;gap:16px;align-items:center}
+.rq-head{padding:10px 16px;font-size:12px;color:var(--muted);box-shadow:inset 0 -1px 0 var(--line)}
+.rq-row{width:100%;padding:13px 16px;border-radius:12px;text-align:left;transition:background var(--t-fast)}
+.rq-row:hover{background:var(--fill-2)}
+.rq-row[aria-selected="true"]{background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--line-2)}
+.rq-list>.rq-row+.rq-row{box-shadow:inset 0 1px 0 var(--line)}
+.rq-list>.rq-row[aria-selected="true"]+.rq-row,.rq-list>.rq-row:hover+.rq-row{box-shadow:none}
+.rq-t{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rq-sub{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;gap:6px;align-items:center;min-width:0}
+.rq-sub span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rq-rev,.rq-time{font-size:12.5px;color:var(--sub)}
+.rq-time{text-align:right}
+.rq-foot{display:flex;align-items:center;gap:8px;padding:10px 16px 14px;box-shadow:inset 0 1px 0 var(--line)}
+.rq-status{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:var(--r-md);background:var(--fill-2);border:1px solid var(--line)}
+@media (max-width:1100px){.rq-head,.rq-row{grid-template-columns:minmax(0,1fr) 140px 96px 20px}.rq-head>.c-time,.rq-row>.rq-time{display:none}}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="tasks">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+
+<aside class="drawer" id="detail" role="dialog" aria-modal="true" aria-labelledby="dTitle" aria-hidden="true"></aside>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S0=DS.state||'list';
+const PROJECTS=[
+  {id:'p1', name:'OpenCode Loopper'},
+  {id:'p2', name:'客户服务平台 · 应用与接口整合'},
+  {id:'p3', name:'支付网关'},
+  {id:'p4', name:'用于核对长名称完整展示的企业级项目 · 跨团队协同与服务治理工作台'},
+  {id:'p5', name:'订单服务'},
+  {id:'p6', name:'仓储服务'},
+  {id:'p7', name:'售后服务'},
+  {id:'p8', name:'会员服务'},
+  {id:'p9', name:'客服服务'},
+  {id:'p10', name:'财务服务'},
+  {id:'p11', name:'运营报表脚本'},
+  {id:'p12', name:'通知中心'},
+];
+const ST={
+  PLANNING:['规划中','st-wait','edit','计划还没确认。打开画布继续澄清、规划，然后确认计划。'],
+  PENDING_START:['已确认 · 待开始','st-accent','check','计划已确认，还没有开始执行。打开画布后由你明确开始。'],
+  RUNNING:['执行中','st-run','play','正在按计划执行。打开画布查看每一步的进度。'],
+  PAUSED:['已暂停','st-idle','pause','执行已暂停，未开始的步骤不会自动推进。'],
+  STALLED:['停滞','st-stall','alert','有步骤卡住了，需要你处理后才能继续。'],
+  COMPLETED:['已完成','st-done','check','全部步骤已完成。可以在画布查看交付物。'],
+  FAILED:['失败','st-fail','x','执行失败，可在画布查看原因并决定是否恢复。'],
+  CANCELLED:['已取消','st-idle','stop','需求已取消，历史记录保留，只读。'],
+  PL_RUN:['规划中','st-accent','sparkle','AI 正在规划：阶段与记录在需求画布查看；离开不会停止规划。'],
+  PL_NEED:['需要处理','st-wait','help','规划停在问题上：在需求画布答复后预览新一轮。'],
+  PL_REVIEW:['等待审阅','st-wait','eye','候选已就绪：在需求画布对照审阅，应用到草稿后再确认计划。'],
+  PL_STOP:['正在停止','st-idle','stop','已请求停止本轮规划，正在等待原进程停稳与结账。'],
+  PL_UNK:['待核对','st-unknown','help','停止或派发结果不明：只核对原请求，不重新生成。'],
+  PL_OVERVIEW:['规划总览','st-unknown','layers','覆盖全需求的总览：还有分组未细化，选择范围继续规划。'],
+};
+const ALL=[
+  {id:'rq-2051', t:'退款单按状态与日期筛选并导出', p:'p5', st:'PL_RUN', rev:1, at:'今天 14:08', iso:'2026-10-16T14:08', route:'../../planning/requirement.html?state=pe15&task=T-2051&from=requirements&returnTo=requirements.html&sel=s3&tab=records'},
+  {id:'rq-2055', t:'退货单按状态与日期筛选并导出', p:'p6', st:'PL_NEED', rev:1, at:'今天 14:09', iso:'2026-10-16T14:09', route:'../../planning/requirement.html?state=pe11&task=T-2055&round=1&from=requirements&returnTo=requirements.html'},
+  {id:'rq-2054', t:'售后单按状态与日期筛选并导出', p:'p7', st:'PL_REVIEW', rev:2, at:'今天 14:00', iso:'2026-10-16T14:00', route:'../../planning/requirement.html?state=pe25&task=T-2054&from=requirements&returnTo=requirements.html'},
+  {id:'rq-2056', t:'换货单按状态与日期筛选并导出', p:'p5', st:'PL_STOP', rev:1, at:'今天 14:08', iso:'2026-10-16T14:08', route:'../../planning/requirement.html?state=pe19&task=T-2056&from=requirements&returnTo=requirements.html'},
+  {id:'rq-2057', t:'补发单按状态与日期筛选并导出', p:'p6', st:'PL_UNK', rev:1, at:'今天 13:52', iso:'2026-10-16T13:52', route:'../../planning/requirement.html?state=pe21&task=T-2057&from=requirements&returnTo=requirements.html'},
+  {id:'rq-2060', t:'会员积分体系重构', p:'p8', st:'PL_OVERVIEW', rev:1, at:'今天 13:10', iso:'2026-10-16T13:10', route:'../../planning/requirement.html?state=pe37&from=requirements&returnTo=requirements.html'},
+  {id:'rq-2062', t:'工单按状态与日期筛选并导出', p:'p9', st:'PENDING_START', rev:3, at:'今天 14:21', iso:'2026-10-16T14:21', route:'../../planning/requirement.html?state=pe32&task=T-2062&from=requirements&returnTo=requirements.html&tab=ws'},
+  {id:'rq-2063', t:'发票按状态与日期筛选并导出', p:'p10', st:'PENDING_START', rev:3, at:'今天 14:18', iso:'2026-10-16T14:18', route:'../../planning/requirement.html?state=pe32&task=T-2063&from=requirements&returnTo=requirements.html&tab=ws'},
+  {id:'rq-2064', t:'对账单按状态与日期筛选并导出', p:'p11', st:'PENDING_START', rev:3, at:'今天 14:16', iso:'2026-10-16T14:16', route:'../../planning/requirement.html?state=pe32&task=T-2064&from=requirements&returnTo=requirements.html&tab=ws'},
+  {id:'rq-2065', t:'积分单按状态与日期筛选并导出', p:'p8', st:'PENDING_START', rev:3, at:'今天 14:14', iso:'2026-10-16T14:14', route:'../../planning/requirement.html?state=pe32&task=T-2065&from=requirements&returnTo=requirements.html&tab=ws'},
+  {id:'rq-2066', t:'支付单按状态与日期筛选并导出', p:'p3', st:'PENDING_START', rev:3, at:'今天 14:12', iso:'2026-10-16T14:12', route:'../../planning/requirement.html?state=pe32&task=T-2066&from=requirements&returnTo=requirements.html&tab=ws'},
+  {id:'rq-2067', t:'通知单按状态与日期筛选并导出', p:'p12', st:'PENDING_START', rev:3, at:'今天 14:10', iso:'2026-10-16T14:10', route:'../../planning/requirement.html?state=pe32&task=T-2067&from=requirements&returnTo=requirements.html&tab=ws'},
+  {id:'rq-2050', t:'赔付单按状态与日期筛选并导出', p:'p5', st:'RUNNING', rev:3, at:'今天 14:30', iso:'2026-10-16T14:30', route:'../../delivery/task.html?state=ut-running-mid&task=T-2050&returnTo=main/pages/requirements.html'},
+  {id:'rq-2041', t:'项目配置入口整合', p:'p1', st:'PLANNING', rev:2, at:'今天 14:41', iso:'2026-10-10T14:41', route:'../../planning/requirement.html?state=pe31&task=T-2046&from=requirements&returnTo=requirements.html'},
+  {id:'rq-2038', t:'登录页偶发 500 错误修复', p:'p1', st:'STALLED', rev:4, at:'今天 14:12', iso:'2026-10-10T14:12', route:'../../delivery/task.html?state=ut-stalled&task=T-2038&returnTo=main/pages/requirements.html'},
+  {id:'rq-2035', t:'任务执行结果的状态反馈', p:'p1', st:'RUNNING', rev:3, at:'今天 13:58', iso:'2026-10-10T13:58', route:'../../delivery/task.html?state=ut-auto-off&task=T-2035&returnTo=main/pages/requirements.html'},
+  {id:'rq-2030', t:'订单服务单元测试补齐', p:'p2', st:'PAUSED', rev:2, at:'今天 11:20', iso:'2026-10-10T11:20', route:'../../delivery/task.html?state=ut-paused&task=T-2030&returnTo=main/pages/requirements.html'},
+  {id:'rq-2027', t:'接口文档整理与变更说明', p:'p1', st:'PENDING_START', rev:1, at:'今天 10:05', iso:'2026-10-10T10:05', route:'../../planning/requirement.html?state=pe32&task=T-2027&from=requirements&returnTo=requirements.html&tab=ws'},
+  {id:'rq-2019', t:'任务筛选条件的地址同步', p:'p1', st:'COMPLETED', rev:5, at:'昨天 18:30', iso:'2026-10-09T18:30', route:'../../delivery/task.html?state=ut-legacy-done&task=T-2019&returnTo=main/pages/requirements.html'},
+  {id:'rq-2011', t:'旧版报表接口迁移', p:'p1', st:'CANCELLED', rev:2, at:'10月8日 16:02', iso:'2026-10-08T16:02', route:'../../delivery/task.html?state=ut-legacy-stopped&task=T-2011&returnTo=main/pages/requirements.html'},
+  {id:'rq-2004', t:'退款对账脚本重写，兼容新旧两套结算口径并补齐异常单据的人工复核流程', p:'p2', st:'FAILED', rev:3, at:'10月7日 09:47', iso:'2026-10-07T09:47', route:'../../delivery/task.html?state=ut-failed&task=T-2004&returnTo=main/pages/requirements.html'},
+];
+const MORE=[
+  {id:'rq-1996', t:'客服工单导出改为异步', p:'p2', st:'COMPLETED', rev:2, at:'10月5日 15:31', iso:'2026-10-05T15:31', route:'../../delivery/task.html?state=ut-legacy-done&task=T-1996&returnTo=main/pages/requirements.html'},
+  {id:'rq-1990', t:'项目公约文档补充', p:'p1', st:'COMPLETED', rev:1, at:'10月3日 10:12', iso:'2026-10-03T10:12', route:'../../delivery/task.html?state=ut-legacy-done&task=T-1990&returnTo=main/pages/requirements.html'},
+];
+const st={
+  project: PROJECTS.some(p=>p.id===DS.params.get('projectId')) ? DS.params.get('projectId') : ['filtered','project-empty'].includes(S0) ? (S0==='project-empty'?'p3':'p1') : null,
+  selected: S0==='selected' ? 'rq-2041' : null,
+  comboOpen:false, q:'',
+  more: S0==='more' ? 'loading' : 'idle',
+};
+const projName = id => PROJECTS.find(p=>p.id===id)?.name || '';
+function rows(){
+  if (['empty','loading','error'].includes(S0)) return [];
+  let r = ALL.concat(st.more==='done'?MORE:[]);
+  if (st.project) r = r.filter(x=>x.p===st.project);
+  return r;
+}
+function badge(code){ const s=ST[code]||['状态待核对','st-unknown','help']; return `<span class="badge ${s[1]}">${I(s[2],'sm')}${s[0]}</span>`; }
+function newHref(){ return 'start.html' + (st.project ? '?project='+encodeURIComponent(projName(st.project)) : ''); }
+function canvasHref(r){ if (r.route) return r.route; /* v4：没有身份的行不再进入旧画布 */ return '../../planning/start.html?state=pe01'; }
+
+function combo(){
+  const cur = st.project ? projName(st.project) : '';
+  const list = PROJECTS.filter(p=>!st.q || p.name.toLowerCase().includes(st.q.toLowerCase()));
+  const projErr = S0==='project-error';
+  return `<div class="rq-combo">
+    <button type="button" class="rq-trig" ${cur?'style="padding-right:38px"':''} aria-haspopup="listbox" aria-expanded="${st.comboOpen}" aria-label="按项目筛选，当前：${cur?esc(cur):'全部项目'}" onclick="st.comboOpen=!st.comboOpen;render();if(st.comboOpen)setTimeout(()=>DS.$('#rqQ')?.focus(),0)">
+      ${I(projErr?'alert':'folder','sm')}<span class="lbl ${cur?'':'ph'}">${cur?esc(cur):'全部项目'}</span>${cur?'':I('chevDown','sm')}</button>
+    ${cur?`<button class="rq-clear" aria-label="清除项目筛选，查看全部项目" onclick="setProject(null)">${I('x','sm')}</button>`:''}
+    ${st.comboOpen?`<div class="rq-pop" role="listbox" aria-label="工作项目">
+      <div class="input-wrap">${I('search')}<input id="rqQ" class="input ctl" placeholder="搜索项目" value="${esc(st.q)}" oninput="st.q=this.value;render();const e=DS.$('#rqQ');e.focus();e.setSelectionRange(e.value.length,e.value.length)" aria-label="搜索项目"></div>
+      ${projErr?`<div class="banner danger" style="margin:4px 2px">${I('alert')}<div>项目列表读取失败</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('list')">重试</button></div></div>`:`
+      <button class="rq-opt" role="option" aria-selected="${!st.project}" onclick="setProject(null)">${I('layers','sm')}<span class="nm">全部项目</span>${!st.project?`<span class="ck">${I('check','sm')}</span>`:''}</button><hr>
+      ${list.map(p=>`<button class="rq-opt" role="option" aria-selected="${st.project===p.id}" onclick="setProject('${p.id}')" title="${esc(p.name)}">${I('folder','sm')}<span class="nm">${esc(p.name)}</span>${st.project===p.id?`<span class="ck">${I('check','sm')}</span>`:''}</button>`).join('') || '<p class="hint" style="padding:8px 10px">没有匹配的项目</p>'}
+      <button class="btn ghost sm" style="width:100%;margin-top:4px" onclick="DS.toast('已加载更多项目','info')">加载更多项目</button>`}
+    </div>`:''}
+  </div>`;
+}
+function setProject(id){
+  st.project=id; st.comboOpen=false; st.q=''; st.selected=null; st.more='idle';
+  const u=new URL(location.href); if(id) u.searchParams.set('projectId',id); else u.searchParams.delete('projectId'); history.replaceState(null,'',u);
+  render();
+}
+function rowHTML(r){
+  return `<button class="rq-row" role="option" aria-selected="${st.selected===r.id}" onclick="pick('${r.id}',this)">
+    <div style="min-width:0"><div class="rq-t" title="${esc(r.t)}">${esc(r.t)}</div>${st.project?'':`<div class="rq-sub">${I('folder','sm')}<span>${esc(projName(r.p))}</span></div>`}</div>
+    <div>${badge(r.st)}</div>
+    <div class="rq-rev num">修订 ${r.rev}</div>
+    <time class="rq-time" datetime="${r.iso}">${r.at}</time>
+    <span class="muted" style="display:flex">${I('chevRight','sm')}</span></button>`;
+}
+function body(){
+  const R=rows();
+  if (S0==='loading') return `<p class="sr" role="status">正在读取需求…</p>${[0,1,2,3,4].map(i=>`<div class="rq-row" style="cursor:default"><div class="col" style="gap:7px"><div class="skel" style="height:13px;width:${[52,40,60,36,48][i]}%"></div><div class="skel" style="height:10px;width:24%"></div></div><div class="skel" style="height:20px;width:76px;border-radius:99px"></div><div class="skel" style="height:11px;width:44px"></div><div class="skel" style="height:11px;width:70px;justify-self:end"></div><span></span></div>`).join('')}`;
+  if (S0==='error') return `<div style="padding:12px"><div class="banner danger">${I('alert')}<div><b>需求读取失败</b><br>本地服务没有响应。项目筛选已保留，重试不会改变任何需求。</div><div class="actions"><button class="btn secondary sm" onclick="retry(this)">${I('refresh','sm')}重试</button></div></div></div>`;
+  if (!R.length && st.project) return `<div class="empty"><span class="tile">${I('folder','lg')}</span><h3>这个项目还没有需求</h3><p>为「${esc(projName(st.project))}」写下第一个目标，选择流程后会得到一份需求草稿。</p><div class="row" style="margin-top:6px"><a class="btn primary" href="${newHref()}">${I('plus','sm')}新建需求</a><button class="btn ghost" onclick="setProject(null)">查看全部项目</button></div></div>`;
+  if (!R.length) return `<div class="empty"><span class="tile">${I('target','lg')}</span><h3>从一个需求开始</h3><p>写下目标、选择流程，在画布上安排本次工作。确认计划之前不会执行任何步骤。</p><a class="btn primary" href="${newHref()}" style="margin-top:6px">${I('plus','sm')}新建需求</a></div>`;
+  return `<div class="rq-list" role="listbox" aria-label="需求">${R.map(rowHTML).join('')}
+    ${st.more==='loading'?[0,1].map(()=>`<div class="rq-row" style="cursor:default"><div class="col" style="gap:7px"><div class="skel" style="height:13px;width:42%"></div><div class="skel" style="height:10px;width:22%"></div></div><div class="skel" style="height:20px;width:70px;border-radius:99px"></div><div class="skel" style="height:11px;width:44px"></div><div class="skel" style="height:11px;width:70px;justify-self:end"></div><span></span></div>`).join(''):''}</div>`;
+}
+function foot(){
+  const R=rows(); if (!R.length) return '';
+  const hasMore = st.more!=='done';
+  return `<div class="rq-foot"><span class="hint grow">已显示 ${R.length} 个 · 最近更新在前</span>
+    ${hasMore?`<button class="btn ghost sm" ${st.more==='loading'?'disabled':''} onclick="loadMore()">${st.more==='loading'?'<span class="spin"></span>正在加载…':'加载更多'}</button>`:'<span class="hint">已全部显示</span>'}</div>`;
+}
+function render(){
+  DS.$('#view').innerHTML = `
+  <div class="page-head"><div class="grow"><h2 class="title">需求</h2><p class="lede">每个需求对应一张计划画布：在这里找到它，打开画布继续规划、确认或查看执行。</p></div>
+    <a class="btn primary" href="${newHref()}">${I('plus','sm')}新建需求</a></div>
+  <div class="rq-bar">${combo()}
+    <button class="btn secondary" onclick="retry(this)" ${S0==='loading'?'disabled':''}>${S0==='loading'?'<span class="spin"></span>正在读取':I('refresh','sm')+'刷新'}</button>
+    <span class="grow"></span>${st.project?`<span class="hint">${I('filter','sm').replace('<svg','<svg style="vertical-align:-2px;margin-right:4px"')}已按项目筛选，链接可直接分享</span>`:''}</div>
+  ${S0==='project-error'?`<div class="banner warn" style="margin-bottom:14px">${I('alert')}<div><b>项目列表读取失败</b><br>暂时不能按项目筛选，下面仍显示全部需求。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('list')">${I('refresh','sm')}重试</button></div></div>`:''}
+  <section class="card" aria-busy="${S0==='loading'}">
+    ${['empty'].includes(S0)||(!rows().length&&!['loading','error'].includes(S0))?'':`<div class="rq-head"><span>需求</span><span>状态</span><span>计划修订</span><span class="c-time" style="text-align:right">更新时间</span><span></span></div>`}
+    <div style="padding:4px 6px 6px">${body()}</div>${foot()}
+  </section>`;
+}
+function detail(){
+  const r = ALL.concat(MORE).find(x=>x.id===st.selected); if(!r) return;
+  const s = ST[r.st];
+  DS.$('#detail').innerHTML = `
+    <div class="drawer-head"><div class="grow" style="min-width:0"><div class="eyebrow">需求</div><h2 id="dTitle" style="margin-top:2px;overflow-wrap:anywhere">${esc(r.t)}</h2></div><button class="icon-btn" aria-label="关闭需求详情" onclick="closeDetail()">${I('x')}</button></div>
+    <div class="drawer-body">
+      <div class="rq-status">${badge(r.st)}<p class="sub" style="font-size:13px;line-height:1.6">${s[3]}</p></div>
+      <dl class="kv" style="margin:20px 0 0;grid-template-columns:88px minmax(0,1fr)">
+        <dt>计划修订</dt><dd class="num">修订 ${r.rev}</dd>
+        <dt>更新时间</dt><dd><time datetime="${r.iso}">${r.at}</time></dd>
+      </dl>
+      <div class="banner info" style="margin-top:22px">${I('info')}<div>选中只是查看。确认计划、开始执行都在画布里单独操作，这里不会改变需求。</div></div>
+    </div>
+    <div class="drawer-foot" style="flex-direction:column;align-items:stretch;gap:8px"><a class="btn primary" href="${canvasHref(r)}">打开画布${I('arrowRight','sm')}</a><p class="hint" style="text-align:center">${['PLANNING','PENDING_START'].includes(r.st)?'在需求画布继续规划与确认':'在执行画布查看进度与交付物'}</p></div>`;
+}
+let trigger=null;
+function pick(id,btn){ if(st.selected===id){ closeDetail(); return; } st.selected=id; trigger=btn; render(); detail(); DS.openDrawer('detail', DS.$(`.rq-row[aria-selected="true"]`)); }
+function closeDetail(){ DS.closeDrawer('detail'); st.selected=null; render(); }
+function retry(b){ b.innerHTML='<span class="spin"></span>正在读取'; b.disabled=true; setTimeout(()=>DS.setState(st.project?'filtered':'list'),800); }
+function loadMore(){ st.more='loading'; render(); setTimeout(()=>{ st.more='done'; render(); DS.toast('已加载 2 个更早的需求','info'); },1000); }
+document.addEventListener('click',e=>{ if(st.comboOpen && !e.target.closest('.rq-combo')){ st.comboOpen=false; render(); } });
+// 关闭抽屉（Esc / 点遮罩）后同步列表选中态
+new MutationObserver(()=>{ if(st.selected && !DS.$('#detail').classList.contains('open')){ st.selected=null; render(); } }).observe(DS.$('#detail'),{attributes:true,attributeFilter:['class']});
+
+DS.mount({ header:`<nav class="crumbs"><a href="tasks.html">任务列表</a><span class="sep">/</span><span class="cur">需求</span></nav><span class="spacer"></span><a class="btn ghost sm" href="workflows.html">${I('flow','sm')}流程目录</a>`, state:S0, states:[
+  {id:'list',label:'列表'},{id:'selected',label:'已选择需求'},{id:'filtered',label:'按项目筛选'},{id:'project-empty',label:'项目无需求'},{id:'empty',label:'全部为空'},
+  {id:'loading',label:'读取中'},{id:'error',label:'读取失败'},{id:'project-error',label:'项目列表读取失败'},{id:'more',label:'加载更多'}] });
+render();
+if (st.selected){ detail(); DS.openDrawer('detail'); }
+</script>
+</body>
+</html>

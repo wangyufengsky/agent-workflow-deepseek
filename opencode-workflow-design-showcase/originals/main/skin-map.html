@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>皮肤颜色迁移图</title>
+<link rel="stylesheet" href="assets/ds.css">
+<link rel="stylesheet" href="assets/skins.css">
+<style>
+body{overflow:auto;background:var(--bg)}
+.wrap{max-width:1440px;margin:0 auto;padding:48px 32px 96px}
+@media (max-width:720px){.wrap{padding:28px 16px 72px}}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.top a{color:var(--sub);font-size:13px}
+.top a:hover{color:var(--ink)}
+h1{font-family:var(--font-display);font-weight:400;font-size:36px;letter-spacing:-.8px;line-height:1.2;margin-top:20px}
+h1 em{font-family:Georgia,serif;font-style:italic;color:var(--accent)}
+.lede2{color:var(--sub);font-size:14.5px;line-height:1.75;margin-top:10px;max-width:860px}
+.toc{display:flex;gap:6px;flex-wrap:wrap;margin-top:22px}
+.toc a{height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--line-2);display:inline-flex;align-items:center;font-size:12.5px;color:var(--sub)}
+.toc a:hover{color:var(--ink);border-color:var(--line-3)}
+section.blk{margin-top:56px;scroll-margin-top:24px}
+.blk>h2{font-size:20px;font-weight:500;letter-spacing:-.2px}
+.blk>p.d{color:var(--sub);font-size:13.5px;line-height:1.7;margin-top:6px;max-width:860px}
+.scroller{overflow-x:auto;margin-top:18px;padding-bottom:6px}
+/* 预览列 */
+.cols{display:grid;grid-template-columns:repeat(4,minmax(256px,1fr));gap:12px;min-width:1080px}
+.pv{border-radius:16px;border:1px solid var(--line-2);overflow:hidden;display:flex;flex-direction:column}
+.pv-h{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
+.pv-h b{font-weight:500;font-size:14px}
+.pv-h span{font:11.5px var(--font-mono);color:var(--muted)}
+.pv-b{display:flex;flex-direction:column;gap:14px;padding:14px}
+.pv-cap{font-size:11px;color:var(--muted);letter-spacing:.3px;margin-bottom:6px}
+.mini-nav{background:var(--sidebar);border:1px solid var(--line);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:2px}
+.mini-nav .nav-item{height:30px;font-size:13px}
+.pv .badges{display:flex;flex-wrap:wrap;gap:6px}
+.pv .cv-node{position:relative;left:auto;top:auto;width:auto;cursor:default}
+.pv .cv-node .cv-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.pv .cv-node .t{font-size:13px;font-weight:500;color:var(--ink)}
+.pv .cv-node .m{font-size:11.5px;color:var(--muted)}
+.pv .roles{display:flex;gap:6px}
+.pv .roles i{width:22px;height:22px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font:normal 500 11px var(--font-sans);background:color-mix(in srgb,currentColor 16%,transparent)}
+.pv .edge{height:2px;border-radius:2px;background:var(--edge)}
+.pv .edge.done{background:var(--edge-done)}
+.pv .float{background:var(--float);border:1px solid var(--line-2);border-radius:999px;box-shadow:var(--shadow-pop);height:36px;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12px;color:var(--sub);backdrop-filter:blur(10px)}
+.pv .input.focus{border-color:var(--accent);box-shadow:var(--ring)}
+.pv .bubble{align-self:flex-end;background:var(--bubble);border-radius:14px;padding:8px 12px;font-size:12.5px;color:var(--ink);max-width:88%}
+/* 表格 */
+table.map{width:100%;min-width:1080px;border-collapse:separate;border-spacing:0;font-size:12.5px}
+table.map th,table.map td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+table.map thead th{position:sticky;top:0;background:var(--bg);color:var(--muted);font-weight:500;font-size:12px;z-index:1;border-bottom:1px solid var(--line-2)}
+table.map tr.grp td{padding:18px 10px 8px;color:var(--ink);font-weight:500;font-size:13px;border-bottom:1px solid var(--line-2)}
+table.map tr.grp td span{color:var(--muted);font-weight:400;font-size:12px;margin-left:8px}
+table.map td.tok{font:12px var(--font-mono);color:var(--ink-2);white-space:nowrap}
+table.map td.use{color:var(--muted);font-size:12px;min-width:150px}
+.sw{display:flex;align-items:center;gap:8px;min-width:0}
+.chip-c{width:22px;height:22px;border-radius:7px;flex:none;position:relative;overflow:hidden;box-shadow:inset 0 0 0 1px var(--hairline);
+  background-image:linear-gradient(45deg,#c9c9c9 25%,transparent 25%),linear-gradient(-45deg,#c9c9c9 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#c9c9c9 75%),linear-gradient(-45deg,transparent 75%,#c9c9c9 75%);
+  background-size:8px 8px;background-position:0 0,0 4px,4px -4px,-4px 0;background-color:#f4f4f4}
+.chip-c>i{position:absolute;inset:0}
+.chip-c::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(128,128,128,.35)}
+.chip-c.on-bg{background:none}
+.sw code{font:10.5px var(--font-mono);color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.same{color:var(--muted);font-size:11px}
+.arrow{color:var(--faint);margin:0 6px}
+.chg{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:0 6px;height:18px;border-radius:999px;background:var(--fill-3);color:var(--sub);margin-left:6px;white-space:nowrap}
+.chg.k{background:var(--ok-fill);color:var(--ok)}
+.chg.n{background:var(--accent-fill);color:var(--accent)}
+.chg.x{background:var(--warn-fill);color:var(--warn)}
+/* 对比度 */
+.cr{display:inline-flex;align-items:center;gap:6px;font:12px var(--font-mono)}
+.cr i{width:8px;height:8px;border-radius:50%}
+.cr.pass i{background:var(--ok)} .cr.lo i{background:var(--warn)}
+.cr.lo{color:var(--warn)}
+/* 说明卡 */
+.notes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}
+@media (max-width:980px){.notes{grid-template-columns:1fr}}
+.note{border:1px solid var(--line-2);border-radius:16px;padding:18px 20px;background:var(--panel)}
+.note h3{font-size:15px;font-weight:500;display:flex;align-items:center;gap:10px}
+.note .strip{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:12px 0 14px}
+.note .strip i{flex:1}
+.note ul{margin:0;padding-left:18px;color:var(--ink-2);font-size:13px;line-height:1.75}
+.note ul b{font-weight:500;color:var(--ink)}
+.note code,.steps code{font:12px var(--font-mono);color:var(--accent-ink);background:var(--accent-fill);padding:1px 5px;border-radius:5px}
+.steps{margin-top:18px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:980px){.steps{grid-template-columns:1fr}}
+.step{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:var(--surface)}
+.step .n{font:500 12px var(--font-mono);color:var(--accent)}
+.step b{display:block;font-weight:500;margin:6px 0;font-size:14px}
+.step p{font-size:12.5px;color:var(--sub);line-height:1.7}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+</style>
+<link rel="stylesheet" href="../../showcase/bridge.css">
+<script src="../../showcase/icons.js"></script>
+<script src="../../showcase/navigation.js"></script>
+<script defer src="../../showcase/catalog.js"></script>
+<script defer src="../../showcase/bridge.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a href="index.html">← 返回设计稿目录</a>
+    <label class="row" style="gap:8px;font-size:12.5px;color:var(--muted)">本页外观
+      <select class="select ctl" id="pageSkin" style="width:150px"></select></label>
+  </div>
+  <h1>四套皮肤 · <em>颜色迁移图</em></h1>
+  <p class="lede2">deepseek 风是新的结构基准：组件、间距、圆角、交互全部来自 <code style="font:13px var(--font-mono)">ds.css</code>。其他三套皮肤只替换颜色与效果令牌（<code style="font:13px var(--font-mono)">skins.css</code>），不再各自维护一份页面样式。这张图说明每个令牌在四套皮肤里的取值、旧变量该换成哪个新令牌，以及每套皮肤迁移时改了什么、为什么改。<br><span style="color:var(--muted)">当前有效皮肤为 deepseek 风 / claude 风 / SPDB / GitHub 白四套。科技蓝已退役，选过科技蓝的用户回落到 deepseek 风。</span></p>
+  <div class="toc">
+    <a href="#preview">1 · 同一组件 × 四套皮肤</a>
+    <a href="#tokens">2 · 令牌对照表</a>
+    <a href="#legacy">3 · 旧变量 → 新令牌</a>
+    <a href="#contrast">4 · 对比度校验</a>
+    <a href="#notes">5 · 各皮肤迁移说明</a>
+    <a href="#howto">6 · 开发接入步骤</a>
+  </div>
+
+  <section class="blk" id="preview">
+    <h2>同一组件，四套皮肤</h2>
+    <p class="d">下面每一列都是真实组件，只在容器上换了 <code style="font:12px var(--font-mono)">data-skin</code>。用来快速确认：层级关系、选中态、状态色、结果未明的虚线样式在四套皮肤里含义一致。</p>
+    <div class="scroller"><div class="cols" id="cols"></div></div>
+  </section>
+
+  <section class="blk" id="tokens">
+    <h2>令牌对照表</h2>
+    <p class="d">按用途分组。半透明令牌铺在该皮肤自己的页面底色上显示。页面代码只引用令牌名，不写颜色值。</p>
+    <div class="scroller"><table class="map" id="tokTable"></table></div>
+  </section>
+
+  <section class="blk" id="legacy">
+    <h2>旧变量 → 新令牌</h2>
+    <p class="d">原有皮肤用的是两套变量名（页面层 <code style="font:12px var(--font-mono)">--canvas / --paper …</code> 与基础层 <code style="font:12px var(--font-mono)">--color-bg-canvas …</code>）。迁移时按这张表做全局替换，左边是旧值，右边是新值。</p>
+    <div class="legend">
+      <span><span class="chg k">沿用</span>色值不变，只改名</span>
+      <span><span class="chg n">调整</span>色值有改动，原因见第 5 节</span>
+      <span><span class="chg">按新值</span>旧变量存在但各皮肤取值不统一，直接用新值</span>
+      <span><span class="chg x">新增</span>旧皮肤里没有对应变量</span>
+    </div>
+    <div class="scroller"><table class="map" id="legTable"></table></div>
+  </section>
+
+  <section class="blk" id="contrast">
+    <h2>对比度校验</h2>
+    <p class="d">文字要求 ≥ 4.5:1；状态文字在自己的浅色填充上也要 ≥ 4.5:1（徽标就是这样画的）。<b style="font-weight:500;color:var(--ink)">品牌色只用于开关、勾选框等非文字图形，按 3:1 要求</b>；如果之后要做“品牌色底 + 白字”的按钮，deepseek 风需要另配更深的按钮色。</p>
+    <div class="scroller"><table class="map" id="crTable"></table></div>
+  </section>
+
+  <section class="blk" id="notes">
+    <h2>各皮肤迁移说明</h2>
+    <p class="d">只列与旧皮肤不同的地方。没提到的令牌都是按原色沿用。</p>
+    <div class="notes" id="notesBox"></div>
+  </section>
+
+  <section class="blk" id="howto">
+    <h2>开发接入步骤</h2>
+    <div class="steps">
+      <div class="step"><span class="n">01</span><b>先接结构，再接皮肤</b><p>页面全部按 deepseek 风设计稿实现，只引用 <code>ds.css</code> 里的令牌。<code>skins.css</code> 放在 <code>ds.css</code> 之后加载，<code>&lt;html data-skin="…"&gt;</code> 决定当前皮肤，不设时就是 deepseek 风。</p></div>
+      <div class="step"><span class="n">02</span><b>旧变量一次换完</b><p>按第 3 节表格全局替换旧变量名。替换完搜索 <code>#</code>、<code>rgb(</code>、<code>rgba(</code>，页面和组件里不应再有写死的颜色（PPT 幻灯片内容本身除外）。</p></div>
+      <div class="step"><span class="n">03</span><b>用组件级令牌代替“白色/黑色”</b><p>主按钮文字用 <code>--primary-ink</code>，选中项文字用 <code>--ink-strong</code>，浮层底用 <code>--float</code>，遮罩用 <code>--scrim</code>，画布节点底用 <code>--node-bg</code>，连线用 <code>--edge</code>。这样浅色皮肤不会出现白底白字。</p></div>
+      <div class="step"><span class="n">04</span><b>角色色走 --role-1…6</b><p>画布与列表里的角色头像按顺序取 <code>--role-n</code>，每套皮肤已配好与底色对比足够的六色。</p></div>
+      <div class="step"><span class="n">05</span><b>状态色含义不变</b><p>执行中=run、停滞=stall、失败=warn、完成=done、待确认=wait、未开始=idle、结果未明=unknown（虚线描边）。四套皮肤只换色值，不换含义，也不换图标。</p></div>
+      <div class="step"><span class="n">06</span><b>验收</b><p>每个页面在四套皮肤下各截一张图，对照本页第 1 节检查：选中态可辨、徽标可读、浮层不透底、没有残留深色块。设计稿右下角“皮肤”下拉可以直接切换预览。</p></div>
+    </div>
+  </section>
+</div>
+<script>
+const DATA = {"order": ["deepseek", "warm", "spdb", "github-white"], "skins": {"deepseek": {"bg": "#0a0a0a", "bg-sunken": "#070707", "surface": "#111214", "panel": "#151517", "raised": "#1c1c1f", "overlay": "#232327", "sidebar": "#121316", "fill-1": "rgba(255,255,255,.02)", "fill-2": "rgba(255,255,255,.04)", "fill-3": "rgba(255,255,255,.06)", "fill-4": "rgba(255,255,255,.09)", "fill-5": "rgba(255,255,255,.13)", "line": "rgba(255,255,255,.07)", "line-2": "rgba(255,255,255,.12)", "line-3": "rgba(255,255,255,.2)", "ink": "#f5f6f7", "ink-2": "#d9dce1", "sub": "#a1a6ae", "muted": "#80858e", "faint": "#5d6168", "accent": "#a9bcff", "accent-ink": "#c9d5ff", "accent-fill": "rgba(169,188,255,.12)", "accent-line": "rgba(169,188,255,.38)", "brand": "#4d6bfe", "brand-hover": "#6a84ff", "brand-fill": "rgba(77,107,254,.16)", "primary-bg": "#ffffff", "primary-ink": "#0a0a0a", "primary-hover": "#e5e7eb", "ok": "#73c799", "ok-fill": "rgba(115,199,153,.12)", "ok-line": "rgba(115,199,153,.38)", "run": "#73c799", "run-fill": "rgba(115,199,153,.12)", "run-line": "rgba(115,199,153,.5)", "stall": "#ff919b", "stall-fill": "rgba(255,145,155,.12)", "stall-line": "rgba(255,145,155,.5)", "danger": "#ff8d96", "danger-fill": "rgba(255,141,150,.1)", "danger-line": "rgba(255,141,150,.38)", "warn": "#f2c46d", "warn-fill": "rgba(242,196,109,.1)", "warn-line": "rgba(242,196,109,.36)", "done": "#79cbcd", "done-fill": "rgba(121,203,205,.1)", "done-line": "rgba(121,203,205,.32)", "wait": "#c9b5ef", "wait-fill": "rgba(201,181,239,.1)", "wait-line": "rgba(201,181,239,.32)", "idle": "#a3a8b0", "idle-fill": "rgba(255,255,255,.05)", "idle-line": "rgba(255,255,255,.14)", "unknown": "#d9b26a", "unknown-fill": "rgba(217,178,106,.08)", "unknown-line": "rgba(217,178,106,.45)", "ink-strong": "#ffffff", "on-brand": "#ffffff", "on-accent": "#0a0a0a", "node-bg": "#1b1c1f", "bubble": "#232326", "float": "rgba(28,28,31,.92)", "scrim": "rgba(0,0,0,.55)", "shade": "rgba(0,0,0,.45)", "shade-2": "rgba(0,0,0,.35)", "hairline": "rgba(255,255,255,.12)", "edge": "rgba(255,255,255,.18)", "edge-done": "rgba(255,255,255,.5)", "run-glow": "rgba(115,199,153,.1)", "stall-glow": "rgba(255,145,155,.1)", "scrollbar": "rgba(255,255,255,.14)", "selection": "rgba(77,107,254,.4)", "focus-line": "rgba(169,188,255,.55)", "label": "deepseek 风", "scheme": "dark", "roles": ["#a9bcff", "#c9b5ef", "#79cbcd", "#f2c46d", "#73c799", "#ff919b"], "fx": {"shadow-pop": "0 18px 50px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06)", "shadow-lift": "0 30px 80px rgba(0,0,0,.5)", "ring": "0 0 0 3px rgba(77,107,254,.28)", "glass": "linear-gradient(180deg,rgba(122,155,240,.07),rgba(122,155,240,0) 35%,rgba(143,137,184,0) 68%,rgba(143,137,184,.06))", "glow": "radial-gradient(ellipse 62% 420px at 50% -170px,rgba(77,107,254,.18),rgba(77,107,254,0) 70%)", "dots": "radial-gradient(rgba(255,255,255,.07) 1px,transparent 1.2px)"}}, "warm": {"bg": "#f8f7f3", "bg-sunken": "#f1efe9", "surface": "#f3f1eb", "panel": "#fffefa", "raised": "#fffefa", "overlay": "#ffffff", "sidebar": "#eeede8", "fill-1": "rgba(48,45,40,0.025)", "fill-2": "rgba(48,45,40,0.045)", "fill-3": "rgba(48,45,40,0.065)", "fill-4": "rgba(48,45,40,0.09)", "fill-5": "rgba(48,45,40,0.13)", "line": "#e5e1d9", "line-2": "#dcd7ce", "line-3": "#c8c0b2", "ink": "#2b2925", "ink-2": "#3a3731", "sub": "#655f55", "muted": "#6f685d", "faint": "#a39b8e", "accent": "#89583f", "accent-ink": "#6b432f", "accent-fill": "rgba(137,88,63,0.1)", "accent-line": "rgba(137,88,63,0.36)", "brand": "#89583f", "brand-hover": "#74482f", "brand-fill": "rgba(137,88,63,0.12)", "primary-bg": "#302d28", "primary-ink": "#ffffff", "primary-hover": "#1d1b18", "ok": "#36623b", "ok-fill": "rgba(54,98,59,0.1)", "ok-line": "rgba(54,98,59,0.38)", "run": "#246b49", "run-fill": "rgba(36,107,73,0.1)", "run-line": "rgba(36,107,73,0.38)", "stall": "#a02c3e", "stall-fill": "rgba(160,44,62,0.1)", "stall-line": "rgba(160,44,62,0.38)", "danger": "#a04c40", "danger-fill": "rgba(160,76,64,0.1)", "danger-line": "rgba(160,76,64,0.38)", "warn": "#8f4b13", "warn-fill": "rgba(143,75,19,0.1)", "warn-line": "rgba(143,75,19,0.38)", "done": "#1b626c", "done-fill": "rgba(27,98,108,0.1)", "done-line": "rgba(27,98,108,0.38)", "wait": "#6c568e", "wait-fill": "rgba(108,86,142,0.1)", "wait-line": "rgba(108,86,142,0.38)", "idle": "#5f625f", "idle-fill": "rgba(95,98,95,0.1)", "idle-line": "rgba(95,98,95,0.38)", "unknown": "#7f5b12", "unknown-fill": "rgba(127,91,18,0.1)", "unknown-line": "rgba(127,91,18,0.38)", "ink-strong": "#2b2925", "on-brand": "#ffffff", "on-accent": "#ffffff", "node-bg": "#fffefa", "bubble": "#eeece6", "float": "rgba(255,254,250,0.94)", "scrim": "rgba(43,41,37,0.28)", "shade": "rgba(48,45,40,0.12)", "shade-2": "rgba(48,45,40,0.08)", "hairline": "rgba(48,45,40,0.1)", "edge": "rgba(48,45,40,0.24)", "edge-done": "rgba(48,45,40,0.55)", "run-glow": "rgba(36,107,73,0.1)", "stall-glow": "rgba(160,44,62,0.1)", "scrollbar": "rgba(48,45,40,0.22)", "selection": "rgba(137,88,63,0.2)", "focus-line": "rgba(137,88,63,0.6)", "label": "claude 风", "scheme": "light", "roles": ["#89583f", "#6c568e", "#1b626c", "#8f4b13", "#246b49", "#a02c3e"], "fx": {"shadow-pop": "0 16px 40px rgba(48,45,40,0.14),0 0 0 1px rgba(48,45,40,0.08)", "shadow-lift": "0 18px 48px rgba(48,45,40,0.1),0 1px 2px rgba(48,45,40,0.06)", "ring": "0 0 0 3px rgba(137,88,63,0.2)", "glass": "linear-gradient(180deg,rgba(255,255,255,.4),rgba(255,255,255,0) 40%)", "glow": "radial-gradient(ellipse 62% 380px at 50% -170px,rgba(137,88,63,0.07),rgba(137,88,63,0) 70%)", "dots": "radial-gradient(rgba(48,45,40,0.11) 1px,transparent 1.2px)"}}, "spdb": {"bg": "#ffffff", "bg-sunken": "#f6f8fc", "surface": "#f3f6fc", "panel": "#ffffff", "raised": "#ffffff", "overlay": "#ffffff", "sidebar": "#f3f6fc", "fill-1": "rgba(28,39,69,0.025)", "fill-2": "rgba(28,39,69,0.045)", "fill-3": "rgba(28,39,69,0.065)", "fill-4": "rgba(28,39,69,0.09)", "fill-5": "rgba(28,39,69,0.13)", "line": "#e2e7f0", "line-2": "#cbd4e6", "line-3": "#aebad2", "ink": "#1c2745", "ink-2": "#2b3858", "sub": "#4e5d78", "muted": "#5b6983", "faint": "#9aa5b8", "accent": "#004790", "accent-ink": "#00356b", "accent-fill": "rgba(0,71,144,0.1)", "accent-line": "rgba(0,71,144,0.36)", "brand": "#004790", "brand-hover": "#00387a", "brand-fill": "rgba(0,71,144,0.12)", "primary-bg": "#001e8c", "primary-ink": "#ffffff", "primary-hover": "#00166a", "ok": "#176344", "ok-fill": "rgba(23,99,68,0.1)", "ok-line": "rgba(23,99,68,0.38)", "run": "#176344", "run-fill": "rgba(23,99,68,0.1)", "run-line": "rgba(23,99,68,0.38)", "stall": "#a02c3e", "stall-fill": "rgba(160,44,62,0.1)", "stall-line": "rgba(160,44,62,0.38)", "danger": "#b42332", "danger-fill": "rgba(180,35,50,0.1)", "danger-line": "rgba(180,35,50,0.38)", "warn": "#8f4b13", "warn-fill": "rgba(143,75,19,0.1)", "warn-line": "rgba(143,75,19,0.38)", "done": "#1b626c", "done-fill": "rgba(27,98,108,0.1)", "done-line": "rgba(27,98,108,0.38)", "wait": "#6c568e", "wait-fill": "rgba(108,86,142,0.1)", "wait-line": "rgba(108,86,142,0.38)", "idle": "#55627a", "idle-fill": "rgba(85,98,122,0.1)", "idle-line": "rgba(85,98,122,0.38)", "unknown": "#7a5a10", "unknown-fill": "rgba(122,90,16,0.1)", "unknown-line": "rgba(122,90,16,0.38)", "ink-strong": "#1c2745", "on-brand": "#ffffff", "on-accent": "#ffffff", "node-bg": "#ffffff", "bubble": "#eef2fa", "float": "rgba(255,255,255,0.94)", "scrim": "rgba(28,39,69,0.28)", "shade": "rgba(28,39,69,0.12)", "shade-2": "rgba(28,39,69,0.08)", "hairline": "rgba(28,39,69,0.1)", "edge": "rgba(28,39,69,0.24)", "edge-done": "rgba(28,39,69,0.55)", "run-glow": "rgba(23,99,68,0.1)", "stall-glow": "rgba(160,44,62,0.1)", "scrollbar": "rgba(28,39,69,0.22)", "selection": "rgba(0,71,144,0.2)", "focus-line": "rgba(0,71,144,0.6)", "label": "SPDB", "scheme": "light", "roles": ["#004790", "#6c568e", "#1b626c", "#8f4b13", "#176344", "#a02c3e"], "fx": {"shadow-pop": "0 16px 40px rgba(28,39,69,0.14),0 0 0 1px rgba(28,39,69,0.08)", "shadow-lift": "0 18px 48px rgba(28,39,69,0.1),0 1px 2px rgba(28,39,69,0.06)", "ring": "0 0 0 3px rgba(0,71,144,0.2)", "glass": "linear-gradient(180deg,rgba(255,255,255,.4),rgba(255,255,255,0) 40%)", "glow": "radial-gradient(ellipse 62% 380px at 50% -170px,rgba(0,71,144,0.07),rgba(0,71,144,0) 70%)", "dots": "radial-gradient(rgba(28,39,69,0.11) 1px,transparent 1.2px)"}}, "github-white": {"bg": "#ffffff", "bg-sunken": "#f6f8fa", "surface": "#f6f8fa", "panel": "#ffffff", "raised": "#ffffff", "overlay": "#ffffff", "sidebar": "#f6f8fa", "fill-1": "rgba(31,35,40,0.025)", "fill-2": "rgba(31,35,40,0.045)", "fill-3": "rgba(31,35,40,0.065)", "fill-4": "rgba(31,35,40,0.09)", "fill-5": "rgba(31,35,40,0.13)", "line": "#e6eaef", "line-2": "#d1d9e0", "line-3": "#b7c0ca", "ink": "#1f2328", "ink-2": "#31363c", "sub": "#59636e", "muted": "#636c76", "faint": "#9ea7b1", "accent": "#0969da", "accent-ink": "#0550ae", "accent-fill": "rgba(9,105,218,0.1)", "accent-line": "rgba(9,105,218,0.36)", "brand": "#0969da", "brand-hover": "#0860ca", "brand-fill": "rgba(9,105,218,0.12)", "primary-bg": "#1f883d", "primary-ink": "#ffffff", "primary-hover": "#1a7f37", "ok": "#17743a", "ok-fill": "rgba(23,116,58,0.1)", "ok-line": "rgba(23,116,58,0.38)", "run": "#17743a", "run-fill": "rgba(23,116,58,0.1)", "run-line": "rgba(23,116,58,0.38)", "stall": "#cf222e", "stall-fill": "rgba(207,34,46,0.1)", "stall-line": "rgba(207,34,46,0.38)", "danger": "#cf222e", "danger-fill": "rgba(207,34,46,0.1)", "danger-line": "rgba(207,34,46,0.38)", "warn": "#875e00", "warn-fill": "rgba(135,94,0,0.1)", "warn-line": "rgba(135,94,0,0.38)", "done": "#17707a", "done-fill": "rgba(23,112,122,0.1)", "done-line": "rgba(23,112,122,0.38)", "wait": "#7a46d6", "wait-fill": "rgba(122,70,214,0.1)", "wait-line": "rgba(122,70,214,0.38)", "idle": "#59636e", "idle-fill": "rgba(89,99,110,0.1)", "idle-line": "rgba(89,99,110,0.38)", "unknown": "#7d4e00", "unknown-fill": "rgba(125,78,0,0.1)", "unknown-line": "rgba(125,78,0,0.38)", "ink-strong": "#1f2328", "on-brand": "#ffffff", "on-accent": "#ffffff", "node-bg": "#ffffff", "bubble": "#f1f3f5", "float": "rgba(255,255,255,0.94)", "scrim": "rgba(31,35,40,0.28)", "shade": "rgba(31,35,40,0.12)", "shade-2": "rgba(31,35,40,0.08)", "hairline": "rgba(31,35,40,0.1)", "edge": "rgba(31,35,40,0.24)", "edge-done": "rgba(31,35,40,0.55)", "run-glow": "rgba(23,116,58,0.1)", "stall-glow": "rgba(207,34,46,0.1)", "scrollbar": "rgba(31,35,40,0.22)", "selection": "rgba(9,105,218,0.2)", "focus-line": "rgba(9,105,218,0.6)", "label": "GitHub 白", "scheme": "light", "roles": ["#0969da", "#7a46d6", "#17707a", "#875e00", "#17743a", "#cf222e"], "fx": {"shadow-pop": "0 16px 40px rgba(31,35,40,0.14),0 0 0 1px rgba(31,35,40,0.08)", "shadow-lift": "0 18px 48px rgba(31,35,40,0.1),0 1px 2px rgba(31,35,40,0.06)", "ring": "0 0 0 3px rgba(9,105,218,0.2)", "glass": "linear-gradient(180deg,rgba(255,255,255,.4),rgba(255,255,255,0) 40%)", "glow": "radial-gradient(ellipse 62% 380px at 50% -170px,rgba(9,105,218,0.07),rgba(9,105,218,0) 70%)", "dots": "radial-gradient(rgba(31,35,40,0.11) 1px,transparent 1.2px)"}}}, "contrast": {"deepseek": {"ink@bg": 18.3, "ink-2@panel": 13.26, "sub@bg": 8.09, "sub@panel": 7.45, "muted@bg": 5.34, "muted@panel": 4.92, "muted@raised": 4.58, "accent@bg": 10.68, "accent@panel": 9.83, "primary-ink@primary-bg": 19.8, "on-brand@brand": 4.33, "ok@panel": 9.0, "run@panel": 9.0, "stall@panel": 8.49, "danger@panel": 8.25, "warn@panel": 11.2, "done@panel": 9.76, "wait@panel": 9.85, "idle@panel": 7.63, "unknown@panel": 9.14, "ok@ok-fill": 7.28, "run@run-fill": 7.28, "stall@stall-fill": 6.92, "danger@danger-fill": 7.04, "warn@warn-fill": 9.2, "done@done-fill": 8.14, "wait@wait-fill": 8.17, "idle@idle-fill": 6.72, "unknown@unknown-fill": 7.94}, "warm": {"ink@bg": 13.54, "ink-2@panel": 11.75, "sub@bg": 5.9, "sub@panel": 6.27, "muted@bg": 5.14, "muted@panel": 5.46, "muted@raised": 5.46, "accent@bg": 5.55, "accent@panel": 5.89, "primary-ink@primary-bg": 13.71, "on-brand@brand": 5.95, "ok@panel": 7.01, "run@panel": 6.36, "stall@panel": 7.12, "danger@panel": 5.78, "warn@panel": 6.54, "done@panel": 6.91, "wait@panel": 6.19, "idle@panel": 6.12, "unknown@panel": 6.11, "ok@ok-fill": 6.04, "run@run-fill": 5.49, "stall@stall-fill": 6.06, "danger@danger-fill": 5.02, "warn@warn-fill": 5.64, "done@done-fill": 5.94, "wait@wait-fill": 5.38, "idle@idle-fill": 5.32, "unknown@unknown-fill": 5.32}, "spdb": {"ink@bg": 14.73, "ink-2@panel": 11.61, "sub@bg": 6.64, "sub@panel": 6.64, "muted@bg": 5.54, "muted@panel": 5.54, "muted@raised": 5.54, "accent@bg": 9.11, "accent@panel": 9.11, "primary-ink@primary-bg": 13.42, "on-brand@brand": 9.11, "ok@panel": 7.23, "run@panel": 7.23, "stall@panel": 7.18, "danger@panel": 6.51, "warn@panel": 6.6, "done@panel": 6.98, "wait@panel": 6.25, "idle@panel": 6.15, "unknown@panel": 6.37, "ok@ok-fill": 6.19, "run@run-fill": 6.19, "stall@stall-fill": 6.12, "danger@danger-fill": 5.53, "warn@warn-fill": 5.69, "done@done-fill": 5.99, "wait@wait-fill": 5.43, "idle@idle-fill": 5.35, "unknown@unknown-fill": 5.51}, "github-white": {"ink@bg": 15.8, "ink-2@panel": 12.18, "sub@bg": 6.11, "sub@panel": 6.11, "muted@bg": 5.33, "muted@panel": 5.33, "muted@raised": 5.33, "accent@bg": 5.19, "accent@panel": 5.19, "primary-ink@primary-bg": 4.52, "on-brand@brand": 5.19, "ok@panel": 5.84, "run@panel": 5.84, "stall@panel": 5.36, "danger@panel": 5.36, "warn@panel": 5.78, "done@panel": 5.78, "wait@panel": 5.71, "idle@panel": 6.11, "unknown@panel": 7.09, "ok@ok-fill": 5.07, "run@run-fill": 5.07, "stall@stall-fill": 4.57, "danger@danger-fill": 4.57, "warn@warn-fill": 5.04, "done@done-fill": 5.03, "wait@wait-fill": 4.94, "idle@idle-fill": 5.31, "unknown@unknown-fill": 6.09}}};
+const LEGACY = [["canvas", "color-bg-canvas", "bg", ["#f8f7f3", "#ffffff", "#070b14", "#ffffff"]], ["surface", null, "surface", ["#f3f1eb", "#f3f6fc", "#0d1424", "#f6f8fa"]], ["paper", "color-bg-surface", "panel", ["#fffefa", "#ffffff", "#121c30", "#ffffff"]], [null, "color-bg-elevated", "raised", null], ["sidebar", null, "sidebar", ["#eeede8", "#f3f6fc", "#0d1424", "#f6f8fa"]], ["hover", null, "fill-3", ["#e7e4dc", "#e9eef9", "#16233a", "#eff2f5"]], ["selected", null, "fill-4", ["#eee0d6", "#e9eef9", "#16233a", "#eff2f5"]], ["line", "color-border-muted", "line", ["#e5e1d9", "#e2e7f0", "#1a2942", "#e6eaef"]], ["border", "color-border-default", "line-2", ["#dcd7ce", "#cbd4e6", "#21304b", "#d1d9e0"]], ["ink", "color-text-primary", "ink", ["#2b2925", "#1c2745", "#e6edf8", "#1f2328"]], ["secondary", "color-text-secondary", "sub", ["#655f55", "#4e5d78", "#9aa8bd", "#59636e"]], [null, "color-text-muted", "muted", null], ["link", "color-link", "accent", ["#89583f", "#004790", "#7dd3fc", "#0969da"]], [null, "color-action-primary", "brand", null], ["primary", "skin-primary-bg", "primary-bg", ["#302d28", "#001e8c", "#3b82f6", "#1f883d"]], [null, "skin-primary-ink", "primary-ink", null], ["danger", "color-task-danger", "danger", ["#a04c40", "#b42332", "#ef4444", "#cf222e"]], ["success", "color-success", "ok", null], ["node-running", null, "run", null], ["node-stalled", null, "stall", null], ["node-failed", "color-session-warning", "warn", null], ["node-completed", null, "done", null], ["node-waiting", "color-accent-ai", "wait", null], ["node-neutral", null, "idle", null], [null, null, "unknown", null]];
+const NOTES = [["warm", ["<b>底、侧栏、卡片、正文、链接、主按钮全部沿用原色</b>：页面底 #f8f7f3、卡片 #fffefa、链接 #89583f、主按钮 #302d28 白字。", "<b>悬停 / 选中改为墨色透明叠层</b>：原 <code>--hover</code> #e7e4dc、<code>--selected</code> #eee0d6 是实色，叠在侧栏和卡片上深浅不一；改为 <code>--fill-3</code> / <code>--fill-4</code>（墨色 6.5% / 9%），在任何层上都一致。原选中的暖粉底去掉，选中靠 <code>--ink-strong</code> 文字 + 叠层表达，与 deepseek 风同一逻辑。", "<b>说明文字补齐三级</b>：原来只有 secondary 一级；新增 <code>--muted</code> #6f685d 与 <code>--faint</code> #a39b8e（只用于占位符），辅助信息不再靠透明度。", "<b>状态色整体压深</b>：执行中 #246b49、停滞 #a02c3e、失败 #8f4b13、完成 #1b626c、待确认 #6c568e、结果未明 #7f5b12，在各自浅填充上最低 5.0:1。", "<b>效果收敛</b>：页面顶部光晕降到 7% 的暖棕，投影改为墨色柔和投影，画布网点用墨色，不出现深色皮肤的发光。"]], ["spdb", ["<b>白底、#f3f6fc 侧栏与次级面、#004790 链接、#001e8c 主按钮、#b42332 危险全部沿用</b>。", "<b>悬停与选中拆成两级</b>：原 <code>--hover</code> 和 <code>--selected</code> 同为 #e9eef9，悬停和选中分不出来；改为墨蓝透明叠层 <code>--fill-3</code> / <code>--fill-4</code>。", "<b>新增 <code>--bg-sunken</code> #f6f8fc</b>：代码块、画布外围用凹陷底，原来直接用白底，画布和页面混在一起。", "<b>补齐状态色</b>（原皮肤只有成功与危险）：执行中与成功共用 #176344，停滞 #a02c3e、失败 #8f4b13、完成 #1b626c、待确认 #6c568e、未开始 #55627a。", "<b>品牌色 = 链接色 #004790</b>，只用于开关、勾选，保持浦发蓝识别；角色色以浦发蓝开头。"]], ["github-white", ["<b>几乎全部沿用 GitHub 原色</b>：白底、#f6f8fa 侧栏、#0969da 链接、#1f883d 绿色主按钮、#cf222e 危险。", "<b>悬停 / 选中</b>：原来同为 #eff2f5，改为两级透明叠层 <code>--fill-3</code> / <code>--fill-4</code>。", "<b>状态色压深</b>：按原状态色画的浅底徽标只有 4.3–4.4:1，改为成功 / 执行中 #17743a、失败 #875e00、完成 #17707a、待确认 #7a46d6，徽标全部 ≥ 4.5:1。", "<b>主按钮白字 4.52:1，刚好达标</b>：之后不要再把绿色主按钮调亮。", "<b>停滞与危险共用 #cf222e</b>：靠图标（三角 / 叉）和文字区分，与 GitHub 自身的用法一致。"]]];
+const GROUPS = [
+  ['底与层级','页面底、侧栏、卡片、弹层',['bg','bg-sunken','surface','panel','raised','overlay','sidebar']],
+  ['叠层','悬停、选中、输入框底等，叠加在任意层上',['fill-1','fill-2','fill-3','fill-4','fill-5']],
+  ['线','分割线、边框、强调边',['line','line-2','line-3']],
+  ['文字','正文到占位符，由强到弱',['ink-strong','ink','ink-2','sub','muted','faint']],
+  ['强调与品牌','链接、焦点、开关',['accent','accent-ink','accent-fill','accent-line','brand','brand-hover','brand-fill','on-brand','on-accent']],
+  ['主按钮','页面里最重要的一个动作',['primary-bg','primary-ink','primary-hover']],
+  ['状态','每个状态 = 文字色 / 填充 / 描边',['ok','run','stall','danger','warn','done','wait','idle','unknown']],
+  ['组件级','替代页面里写死的白色、黑色',['node-bg','bubble','float','scrim','shade','shade-2','hairline','edge','edge-done','run-glow','stall-glow','scrollbar','selection','focus-line']],
+];
+const USE = {bg:'页面底','bg-sunken':'凹陷区（代码块、画布外）',surface:'次级面（页头条、表头）',panel:'卡片',raised:'抬升卡片 / 菜单',overlay:'弹窗',sidebar:'侧栏',
+'fill-1':'最弱底纹','fill-2':'输入框、分段控件底','fill-3':'悬停','fill-4':'选中','fill-5':'按下 / 分段选中',line:'弱分割线','line-2':'默认边框','line-3':'悬停边框',
+'ink-strong':'选中项文字、标签下划线',ink:'正文','ink-2':'次正文',sub:'说明文字',muted:'辅助信息',faint:'占位符（非正文）',accent:'链接、焦点边','accent-ink':'强调文字','accent-fill':'强调底','accent-line':'强调描边',
+brand:'开关、勾选','brand-hover':'品牌悬停','brand-fill':'品牌浅底','on-brand':'品牌底上的文字','on-accent':'强调底上的文字','primary-bg':'主按钮底','primary-ink':'主按钮文字','primary-hover':'主按钮悬停',
+ok:'成功 / 已连接',run:'执行中',stall:'停滞',danger:'危险操作',warn:'失败（可恢复）',done:'已完成',wait:'待确认',idle:'未开始',unknown:'结果未明',
+'node-bg':'画布节点底',bubble:'对话气泡',float:'悬浮工具条',scrim:'抽屉遮罩',shade:'深投影',['shade-2']:'浅投影',hairline:'细描边',edge:'画布连线','edge-done':'已走过的连线','run-glow':'执行中节点光晕','stall-glow':'停滞节点光晕',scrollbar:'滚动条',selection:'文字选区','focus-line':'焦点描边'};
+const ORDER = DATA.order, SK = DATA.skins;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const isOpaque = (v) => /^#/.test(v);
+function chip(v, sk){ // 半透明值铺在该皮肤底色上
+  const base = isOpaque(v) ? '' : `background:${SK[sk].bg}`;
+  return `<span class="chip-c${isOpaque(v)?'':' on-bg'}" style="${base}"><i style="background:${esc(v)}"></i></span>`;
+}
+function sw(v, sk){ return `<span class="sw">${chip(v, sk)}<code title="${esc(v)}">${esc(v)}</code></span>`; }
+
+/* 1 预览列 */
+const ICON = {
+  run:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4l12 8-12 8z"/></svg>',
+  stall:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17v.5"/></svg>',
+  fail:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  done:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5 9-10"/></svg>',
+  wait:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  unk:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 015 0c0 2-2.5 2-2.5 4M12 17v.5"/></svg>',
+  home:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 11l8-7 8 7v9H4z"/></svg>',
+  list:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+  inbox:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 2h6l1-2h5"/></svg>',
+  warn:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17v.5"/></svg>',
+};
+document.getElementById('cols').innerHTML = ORDER.map((k) => `
+<div class="pv" data-skin="${k}">
+  <div class="pv-h"><b>${esc(SK[k].label)}</b><span>data-skin="${k}"</span></div>
+  <div class="pv-b">
+    <div><div class="pv-cap">侧栏 · 默认 / 悬停 / 当前</div>
+      <div class="mini-nav">
+        <a class="nav-item">${ICON.home}主页</a>
+        <a class="nav-item" style="background:var(--fill-3);color:var(--ink)">${ICON.list}任务列表</a>
+        <a class="nav-item" aria-current="page">${ICON.inbox}待处理中心<span class="count">2</span></a>
+      </div></div>
+    <div><div class="pv-cap">按钮 · 主 / 次 / 危险</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary sm">开始任务</button><button class="btn secondary sm">查看项目</button><button class="btn danger sm">停止</button></div></div>
+    <div><div class="pv-cap">分段控件 · 开关</div>
+      <div class="row" style="gap:10px"><div class="seg"><button aria-pressed="true">全部</button><button>进行中</button></div>
+      <button class="switch" role="switch" aria-checked="true" aria-label="示例开关"></button></div></div>
+    <div><div class="pv-cap">状态徽标</div>
+      <div class="badges">
+        <span class="badge st-run">${ICON.run}执行中</span><span class="badge st-stall">${ICON.stall}停滞</span>
+        <span class="badge st-fail">${ICON.fail}失败</span><span class="badge st-done">${ICON.done}完成</span>
+        <span class="badge st-wait">${ICON.wait}待确认</span><span class="badge st-idle">未开始</span>
+        <span class="badge st-unknown">${ICON.unk}结果未明</span>
+      </div></div>
+    <div><div class="pv-cap">画布节点 · 执行中 / 已完成</div>
+      <div class="col" style="gap:10px">
+        <div class="cv-node s-run"><div class="cv-top"><span class="t">调整页面结构</span><span class="badge st-run" style="height:20px;font-size:11px">${ICON.run}执行中</span></div>
+          <div class="roles"><i style="color:var(--role-1)">前</i><i style="color:var(--role-2)">技</i><i style="color:var(--role-3)">测</i><i style="color:var(--role-4)">产</i><i style="color:var(--role-5)">运</i><i style="color:var(--role-6)">审</i></div></div>
+        <div class="row" style="gap:6px"><span class="edge done" style="flex:1"></span><span class="edge" style="flex:1"></span></div>
+      </div></div>
+    <div><div class="pv-cap">输入框 · 聚焦</div><input class="input focus" value="让项目配置更容易找到" aria-label="示例输入"></div>
+    <div class="banner warn"><span class="i" style="color:var(--warn)">${ICON.warn}</span><span>“编写测试”失败：3 个用例未通过，可恢复。</span></div>
+    <div class="bubble">这个项目如何处理错误恢复？</div>
+    <div class="float"><span>原型状态</span><span style="color:var(--ink)">执行中</span><span style="margin-left:auto">目录</span></div>
+  </div>
+</div>`).join('');
+
+/* 2 令牌表 */
+const head = `<thead><tr><th>令牌</th><th>用途</th>${ORDER.map((k)=>`<th>${esc(SK[k].label)}</th>`).join('')}</tr></thead>`;
+let rows = '';
+for (const [g, d, toks] of GROUPS) {
+  rows += `<tr class="grp"><td colspan="${ORDER.length+2}">${g}<span>${d}</span></td></tr>`;
+  for (const t of toks) {
+    const variants = g === '状态' ? [t, t+'-fill', t+'-line'] : [t];
+    for (const v of variants) {
+      rows += `<tr><td class="tok">--${v}</td><td class="use">${v===t?(USE[t]||''):(v.endsWith('fill')?'浅填充':'描边')}</td>${ORDER.map((k)=>`<td>${sw(SK[k][v], k)}</td>`).join('')}</tr>`;
+    }
+  }
+}
+rows += `<tr class="grp"><td colspan="${ORDER.length+2}">角色色<span>--role-1 … --role-6，画布与列表的角色头像按顺序取用</span></td></tr>`;
+rows += `<tr><td class="tok">--role-1…6</td><td class="use">角色头像</td>${ORDER.map((k)=>`<td><span class="sw">${SK[k].roles.map((c)=>`<span class="chip-c" style="width:16px;height:16px;border-radius:5px"><i style="background:${c}"></i></span>`).join('')}</span></td>`).join('')}</tr>`;
+rows += `<tr class="grp"><td colspan="${ORDER.length+2}">效果<span>投影、焦点环、玻璃与光晕</span></td></tr>`;
+for (const fx of ['shadow-pop','shadow-lift','ring','glow']) {
+  rows += `<tr><td class="tok">--${fx}</td><td class="use">${{'shadow-pop':'菜单 / 弹层投影','shadow-lift':'抽屉投影',ring:'焦点环',glow:'页面顶部光晕'}[fx]}</td>${ORDER.map((k)=>`<td><code style="font:10.5px var(--font-mono);color:var(--sub);display:block;max-width:220px;white-space:normal;word-break:break-all">${esc(SK[k].fx[fx]||'—')}</code></td>`).join('')}</tr>`;
+}
+document.getElementById('tokTable').innerHTML = head + '<tbody>' + rows + '</tbody>';
+
+/* 3 旧变量 */
+const OLD_SK = ['warm','spdb','github-white'];
+let lr = `<thead><tr><th>旧变量（页面层 / 基础层）</th><th>新令牌</th>${OLD_SK.map((k)=>`<th>${esc(SK[k].label)} · 旧 → 新</th>`).join('')}</tr></thead><tbody>`;
+for (const [a, b, n, olds] of LEGACY) {
+  lr += `<tr><td class="tok">${a?'--'+a:''}${a&&b?'<br>':''}${b?`<span style="color:var(--muted)">--${b}</span>`:''}${!a&&!b?'<span style="color:var(--muted)">（无）</span>':''}</td><td class="tok" style="color:var(--accent)">--${n}</td>`;
+  OLD_SK.forEach((k, i) => {
+    const o = olds ? olds[[0,1,3][i]] : null, nv = SK[k][n];
+    let tag;
+    if (!o && !a && !b) tag = '<span class="chg x">新增</span>';
+    else if (!o) tag = '<span class="chg">按新值</span>';
+    else if (o.toLowerCase() === String(nv).toLowerCase()) tag = '<span class="chg k">沿用</span>';
+    else tag = '<span class="chg n">调整</span>';
+    lr += `<td><span class="sw">${o?chip(o,k)+'<span class="arrow">→</span>':''}${chip(nv,k)}<code>${esc(nv)}</code>${tag}</span></td>`;
+  });
+  lr += '</tr>';
+}
+document.getElementById('legTable').innerHTML = lr + '</tbody>';
+
+/* 4 对比度 */
+const CRL = {'ink@bg':'正文 / 页面底','ink-2@panel':'次正文 / 卡片','sub@bg':'说明 / 页面底','sub@panel':'说明 / 卡片','muted@bg':'辅助 / 页面底','muted@panel':'辅助 / 卡片','muted@raised':'辅助 / 菜单','accent@bg':'链接 / 页面底','accent@panel':'链接 / 卡片','primary-ink@primary-bg':'主按钮文字','on-brand@brand':'品牌色（非文字，≥3:1）'};
+const ckeys = Object.keys(DATA.contrast[ORDER[0]]);
+let cr = `<thead><tr><th>组合</th>${ORDER.map((k)=>`<th>${esc(SK[k].label)}</th>`).join('')}</tr></thead><tbody>`;
+for (const c of ckeys) {
+  const [fg, bg] = c.split('@');
+  const label = CRL[c] || (bg.endsWith('-fill') ? `${USE[fg]}徽标（文字 / 填充）` : `${USE[fg]}文字 / 卡片`);
+  const need = c === 'on-brand@brand' ? 3 : 4.5;
+  cr += `<tr><td><span style="color:var(--ink-2)">${label}</span> <code style="font:11px var(--font-mono);color:var(--muted);margin-left:6px">${c}</code></td>${ORDER.map((k)=>{const v=DATA.contrast[k][c];return `<td><span class="cr ${v>=need?'pass':'lo'}"><i></i>${v.toFixed(2)}</span></td>`}).join('')}</tr>`;
+}
+document.getElementById('crTable').innerHTML = cr + '</tbody>';
+
+/* 5 说明 */
+document.getElementById('notesBox').innerHTML = NOTES.map(([k, items]) => {
+  const s = SK[k];
+  const strip = ['bg','sidebar','panel','line-2','ink','sub','accent','primary-bg','run','stall','warn','done','wait','unknown'].map((t)=>`<i style="background:${s[t]}" title="--${t}"></i>`).join('');
+  return `<div class="note"><h3>${esc(s.label)}<span class="badge outline" style="font:11px var(--font-mono)">data-skin="${k}"</span><span class="badge">${s.scheme==='dark'?'深色':'浅色'}</span></h3><div class="strip">${strip}</div><ul>${items.map((x)=>`<li>${x}</li>`).join('')}</ul></div>`;
+}).join('');
+
+/* 本页外观 */
+const sel = document.getElementById('pageSkin');
+sel.innerHTML = ORDER.map((k)=>`<option value="${k}">${esc(SK[k].label)}</option>`).join('');
+let cur = 'deepseek'; try { cur = new URLSearchParams(location.search).get('skin') || localStorage.getItem('looper.proto.skin') || 'deepseek'; } catch (e) {}
+if (!SK[cur]) cur = 'deepseek';
+document.documentElement.dataset.skin = cur; sel.value = cur;
+sel.onchange = () => { document.documentElement.dataset.skin = sel.value; try { localStorage.setItem('looper.proto.skin', sel.value); } catch (e) {} };
+</script>
+</body>
+</html>

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>流程 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.wrapx{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:20px;align-items:start}
+.wrapx.nodetail{grid-template-columns:minmax(0,1fr)}
+@media (max-width:1180px){.wrapx{grid-template-columns:minmax(0,1fr)}}
+.wf-row{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px 16px;border-radius:14px;text-align:left;width:100%;transition:background var(--t-fast)}
+.wf-row:hover{background:var(--fill-2)}
+.wf-row[aria-selected="true"]{background:var(--fill-3);box-shadow:inset 0 0 0 1px var(--line-2)}
+.wf-name{font-size:14.5px;font-weight:500}
+.wf-desc{font-size:13px;color:var(--sub);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wf-meta{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);white-space:nowrap}
+.detail{position:sticky;top:24px}
+.steps{display:flex;flex-direction:column;gap:0;margin-top:4px}
+.stp{display:flex;gap:12px}
+.stp .rail{width:22px;display:flex;flex-direction:column;align-items:center}
+.stp .rail i{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:600;background:var(--fill-4);color:var(--ink-2)}
+.stp .rail b{flex:1;width:1px;background:var(--line-2);margin:4px 0}
+.stp .tx{padding-bottom:14px;min-width:0}
+.stp .tx .t{font-size:13.5px}
+.stp .tx .r{font-size:12px;color:var(--muted)}
+.par{display:flex;gap:8px;flex-wrap:wrap}
+.par>span{flex:1;min-width:120px;padding:6px 10px;border-radius:9px;background:var(--fill-2);border:1px solid var(--line)}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="workflows">
+<main id="page" hidden><div class="page wide" id="view"></div></main>
+
+<div class="dialog" id="copyDlg" role="dialog" aria-labelledby="cpT">
+  <div class="dialog-body"><h2 id="cpT">复制流程</h2><p style="margin-bottom:14px">副本保存在“我的流程”，可以自由修改，不影响原流程。</p>
+    <div class="field"><label class="label" for="cpName">副本名称</label><input class="input" id="cpName" maxlength="120" oninput="DS.$('#cpErr').hidden=!!this.value.trim();DS.$('#cpOk').disabled=!this.value.trim()"><span class="error-text" id="cpErr" hidden><span data-icon="alert" data-icon-size="sm"></span>请填写名称</span><span class="hint" id="cpVer"></span></div></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()">取消</button><button class="btn primary" id="cpOk" onclick="doCopy(this)">复制</button></div>
+</div>
+<div class="dialog" id="arcDlg" role="alertdialog" aria-labelledby="arT">
+  <div class="dialog-body"><h2 id="arT">归档这个流程？</h2><p id="arTxt"></p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>保留</button><button class="btn danger" onclick="doArchive(this)">归档</button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I=DS.icon, esc=DS.esc, S0=DS.state||'ready';
+let FLOWS = [
+  {id:'w1', t:'需求实现与验收', d:'从澄清需求到实现、测试和人工验收，交付可检查的代码与说明。', mine:true, v:4, at:'今天 16:24', used:18,
+    steps:[['澄清需求','产品经理'],[['实现功能','软件工程师'],['编写测试','测试工程师']],['代码评审','架构师'],['人工验收','人工']]},
+  {id:'w2', t:'资料研究与整理', d:'先收集资料，再核对来源，形成结构清楚的研究结论。', mine:false, v:3, at:'今天 15:24', used:9,
+    steps:[['收集资料','研究员'],['核对来源','研究员'],['撰写结论','技术写作']]},
+  {id:'w3', t:'代码检查与修复', d:'检查已有改动；有问题时进入修复分支，通过后保存成果。', mine:true, v:2, at:'今天 14:24', used:6,
+    steps:[['检查改动','架构师'],['修复问题','软件工程师'],['复查','架构师']]},
+  {id:'w4', t:'人工检查', d:'把需要人工判断的步骤单独保留，完成后继续后续工作。', mine:false, v:1, at:'今天 13:24', used:4, steps:[['人工确认','人工']]},
+  {id:'w5', t:'接口设计与验证', d:'先核对接口合同，再准备实现和验证证据。', mine:true, v:5, at:'昨天 16:24', used:3, steps:[['核对合同','架构师'],['实现接口','后端工程师'],['接口测试','测试工程师']]},
+  {id:'w6', t:'报告撰写与审阅', d:'整理输入、撰写报告、交叉核对和最终审阅。', mine:true, v:2, at:'昨天 15:24', used:2, steps:[['整理输入','研究员'],['撰写报告','技术写作'],['交叉核对','研究员'],['最终审阅','人工']]},
+  {id:'w7', t:'文档整理', d:'把零散资料整理成可追溯的文档，保留检查步骤。', mine:false, v:1, at:'昨天 14:24', used:7, steps:[['整理资料','技术写作'],['检查','人工']]},
+  {id:'w8', t:'发布前核对', d:'在交付前检查产物、版本和必要确认。', mine:true, v:3, at:'昨天 13:24', used:1, steps:[['核对产物','测试工程师'],['发布确认','人工']]},
+];
+let src='all', q='', sel = S0==='ready'||S0==='detail-builtin'||S0==='copy'||S0==='archive'||S0==='op-unknown' ? (S0==='detail-builtin'?'w2':'w1') : null;
+if (S0==='detail-loading') sel='w1';
+
+function stepsHTML(f){
+  if (S0==='detail-loading') return `<div class="col" style="gap:10px">${[70,55,62].map(w=>`<div class="row"><div class="skel" style="width:22px;height:22px;border-radius:7px"></div><div class="skel" style="height:12px;width:${w}%"></div></div>`).join('')}</div>`;
+  return `<div class="steps">${f.steps.map((s,i)=>{ const par=Array.isArray(s[0]); return `<div class="stp"><div class="rail"><i>${i+1}</i>${i<f.steps.length-1?'<b></b>':''}</div><div class="tx grow">${par?`<div class="hint" style="margin-bottom:6px">${I('split','sm')} 并行</div><div class="par">${s.map(p=>`<span><div class="t">${p[0]}</div><div class="r">${p[1]}</div></span>`).join('')}</div>`:`<div class="t">${s[0]}</div><div class="r">${s[1]}</div>`}</div></div>`; }).join('')}</div>`;
+}
+function detail(){
+  const f=FLOWS.find(x=>x.id===sel); if(!f) return '';
+  return `<aside class="card solid detail fade" aria-label="流程详情">
+    <div class="row" style="padding:18px 16px 0 20px;align-items:flex-start"><div class="grow"><div class="row wrap" style="gap:6px"><span class="badge ${f.mine?'st-accent':'st-idle'}">${f.mine?'我的流程':'程序内置'}</span><span class="badge outline num">版本 ${f.v}</span></div>
+      <h2 style="font-size:18px;font-weight:500;margin-top:10px">${esc(f.t)}</h2><p class="sub" style="font-size:13.5px;line-height:1.65;margin-top:6px">${esc(f.d)}</p></div>
+      <button class="icon-btn" aria-label="关闭详情" onclick="select(null)">${I('x')}</button></div>
+    <div style="padding:18px 20px 4px"><div class="eyebrow" style="margin-bottom:10px">步骤</div>${stepsHTML(f)}</div>
+    <div class="row hint" style="padding:0 20px 14px;gap:14px"><span>${I('clock','sm')} 更新于 ${f.at}</span><span>已用于 ${f.used} 个任务</span></div>
+    <div style="padding:14px 20px 18px;box-shadow:inset 0 1px 0 var(--line);display:flex;flex-direction:column;gap:8px">
+      <a class="btn primary" href="start.html?flow=${encodeURIComponent(f.t)}">${I('play','sm')}用这个流程开始任务</a>
+      <div class="row"><a class="btn secondary grow" href="workflow-editor.html${f.mine?'':'?state=builtin'}">${I(f.mine?'edit':'eye','sm')}${f.mine?'编辑流程':'查看步骤'}</a>
+        <button class="btn secondary" onclick="askCopy('${f.id}',this)">${I('copy','sm')}复制</button>
+        ${f.mine?`<button class="icon-btn" aria-label="更多" onclick="DS.menu(this,[{label:'归档…',icon:'archive',danger:true,run(){askArchive('${f.id}',this)}}])">${I('more')}</button>`:''}</div>
+      ${f.mine?'':'<p class="hint">内置流程只读，复制后可修改。</p>'}
+    </div></aside>`;
+}
+function list(){
+  const rows=FLOWS.filter(f=>(src==='all'||(src==='mine')===f.mine)&&(!q||(f.t+f.d).includes(q)));
+  const cnt=k=>FLOWS.filter(f=>k==='all'||(k==='mine')===f.mine).length;
+  let body;
+  if (S0==='loading') body = `<div class="col" style="gap:6px;padding:8px">${[0,1,2,3,4].map(()=>`<div class="row" style="padding:12px"><div class="skel" style="width:36px;height:36px;border-radius:10px"></div><div class="col grow"><div class="skel" style="height:13px;width:40%"></div><div class="skel" style="height:11px;width:70%"></div></div></div>`).join('')}</div>`;
+  else if (S0==='error') body = `<div style="padding:16px"><div class="banner danger">${I('alert')}<div><b>流程目录读取失败</b><br>本地服务没有响应。搜索词已保留。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('ready')">${I('refresh','sm')}重试</button></div></div></div>`;
+  else if (!rows.length) body = `<div class="empty"><span class="tile">${I('search','lg')}</span><h3>没有匹配的流程</h3><p>换个关键词，或在“全部”里查找。</p></div>`;
+  else body = `<div class="list" role="listbox" aria-label="流程" style="padding:6px">${rows.map(f=>`<button class="wf-row" role="option" aria-selected="${sel===f.id}" onclick="select('${f.id}')">
+      <span class="tile">${I('flow')}</span>
+      <span style="min-width:0"><div class="row" style="gap:8px"><span class="wf-name">${esc(f.t)}</span>${f.mine?'':'<span class="badge st-idle" style="height:20px">内置</span>'}</div><div class="wf-desc">${esc(f.d)}</div></span>
+      <span class="wf-meta"><span class="num">版本 ${f.v}</span><span>${f.at}</span>${I('chevRight','sm')}</span></button>`).join('')}
+      <div class="row" style="padding:10px 12px 6px"><span class="hint grow">已加载 ${rows.length} 个 · 按更新时间排列</span><button class="btn ghost sm" ${S0==='more-error'?'':''} onclick="DS.toast('${S0==='more-error'?'加载更多失败，已有结果保留':'已加载全部流程'}','${S0==='more-error'?'danger':'info'}')">加载更多</button></div></div>`;
+  return `
+  <div class="page-head"><div class="grow"><h2 class="title">流程</h2><p class="lede">把常用的做事步骤沉淀成流程，开始任务时直接套用。</p></div></div>
+  ${S0==='op-unknown'?`<div class="banner unknown" style="margin-bottom:16px">${I('help')}<div><b>“需求实现与验收 副本”是否已创建，暂时无法确认</b><br>复制请求没有收到回执。重试会使用原请求，不会多复制一份。</div><div class="actions"><button class="btn secondary sm" onclick="this.innerHTML='<span class=spin></span>核对中';setTimeout(()=>{DS.setState('ready')},1000)">${I('refresh','sm')}用原请求重试</button></div></div>`:''}
+  <div class="row wrap" style="gap:10px;margin-bottom:14px">
+    <div class="input-wrap" style="width:300px">${I('search')}<input class="input ctl" placeholder="搜索名称或说明" value="${esc(q)}" oninput="q=this.value.trim();render(true)" aria-label="搜索流程"></div>
+    <div class="seg" role="group" aria-label="来源">${[['all','全部'],['mine','我的流程'],['builtin','程序内置']].map(([k,l])=>`<button aria-pressed="${src===k}" onclick="src='${k}';render()">${l}<span class="num muted">${cnt(k)}</span></button>`).join('')}</div>
+  </div>
+  <div class="wrapx ${sel?'':'nodetail'}"><section class="card">${body}</section>${detail()}</div>`;
+}
+function select(id){ sel=id; render(); }
+function render(keep){ const p=keep&&document.activeElement.selectionStart; DS.$('#view').innerHTML=list(); if(keep){const el=DS.$('input[aria-label="搜索流程"]'); el.focus(); el.setSelectionRange(p,p);} }
+let cpId=null, arId=null;
+function askCopy(id,t){ cpId=id; const f=FLOWS.find(x=>x.id===id); DS.$('#cpName').value=f.t+' 副本'; DS.$('#cpVer').textContent='将复制版本 '+f.v+' 的步骤定义。'; DS.$('#cpOk').disabled=false; DS.openDialog('copyDlg',t); }
+function doCopy(b){ b.innerHTML='<span class="spin"></span>复制中'; setTimeout(()=>{ const f=FLOWS.find(x=>x.id===cpId); FLOWS.unshift({...f,id:'w'+Date.now(),t:DS.$('#cpName').value.trim(),mine:true,v:1,at:'刚刚',used:0}); b.textContent='复制'; DS.closeDialog(); sel=FLOWS[0].id; render(); DS.toast('已复制到“我的流程”'); },800); }
+function askArchive(id,t){ arId=id; const f=FLOWS.find(x=>x.id===id); DS.$('#arTxt').innerHTML=`归档后“${esc(f.t)}”不再出现在目录和开始任务里。<br>已经用它创建的 ${f.used} 个任务不受影响，历史记录保留。`; DS.openDialog('arcDlg',t); }
+function doArchive(b){ b.innerHTML='<span class="spin"></span>归档中'; setTimeout(()=>{ FLOWS=FLOWS.filter(f=>f.id!==arId); b.textContent='归档'; DS.closeDialog(); sel=null; render(); DS.toast('已归档，可在“设置”中查看归档的流程','info'); },800); }
+
+DS.mount({ header:`<h1>${I('flow')}流程</h1><span class="spacer"></span><a class="btn primary sm" href="workflow-editor.html?state=empty">${I('plus','sm')}新建流程</a>`, state:S0, states:[
+  {id:'ready',label:'目录 + 详情'},{id:'list',label:'目录（未选中）'},{id:'detail-builtin',label:'内置流程详情'},{id:'detail-loading',label:'详情读取中'},
+  {id:'loading',label:'目录加载中'},{id:'error',label:'目录读取失败'},{id:'more-error',label:'加载更多失败'},{id:'copy',label:'复制对话框'},{id:'archive',label:'归档确认'},{id:'op-unknown',label:'复制结果未明'}] });
+render();
+if (S0==='copy') setTimeout(()=>askCopy('w1'),200);
+if (S0==='archive') setTimeout(()=>askArchive('w1'),200);
+</script>
+</body>
+</html>

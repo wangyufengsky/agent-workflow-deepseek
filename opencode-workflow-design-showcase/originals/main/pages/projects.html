@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>项目 · opencode-workflow deepseek 风</title>
+<link rel="stylesheet" href="../assets/ds.css">
+<link rel="stylesheet" href="../assets/skins.css">
+<style>
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.toolbar .input-wrap{width:280px}
+.pgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media (max-width:1100px){.pgrid{grid-template-columns:1fr}}
+.pcard{display:flex;flex-direction:column;cursor:pointer;position:relative}
+.pcard:focus-visible{outline-offset:3px;border-radius:var(--r-lg)}
+.pcard-top{display:flex;gap:14px;padding:18px 18px 0}
+.pname{font-size:15.5px;font-weight:500;line-height:1.4;overflow-wrap:anywhere}
+.ppath{display:flex;align-items:center;gap:6px;margin-top:4px;font-family:var(--font-mono);font-size:12px;color:var(--muted);min-width:0}
+.ppath span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pdesc{padding:12px 18px 0;color:var(--sub);font-size:13.5px;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pfacts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:16px 18px 0;border-radius:12px;overflow:hidden;background:var(--line)}
+.pfacts>div{background:var(--panel);padding:10px 12px;min-width:0}
+.pfacts .k{font-size:11.5px;color:var(--muted)}
+.pfacts .v{font-size:13px;color:var(--ink-2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pfoot{display:flex;align-items:center;gap:8px;padding:14px 14px 14px 18px;margin-top:auto}
+.pcard.unavail .tile{color:var(--warn)}
+.detail-head{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.detail-head .tile{width:52px;height:52px;border-radius:14px}
+.cfg-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;width:100%;text-align:left;transition:background var(--t-fast)}
+.cfg-item:hover{background:var(--fill-2)}
+.radio-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.rcard{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:12px;border:1px solid var(--line-2);background:var(--fill-1);text-align:left;transition:all var(--t-fast)}
+.rcard:hover{border-color:var(--line-3)}
+.rcard[aria-checked="true"]{border-color:var(--accent-line);background:var(--accent-fill)}
+.rcard .r{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-3);flex:none;margin-top:2px;display:grid;place-items:center}
+.rcard[aria-checked="true"] .r{border-color:var(--accent)}
+.rcard[aria-checked="true"] .r::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.code{background:var(--bg-sunken);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font:12.5px/1.75 var(--font-mono);color:var(--ink-2);white-space:pre-wrap;max-height:300px;overflow:auto}
+.code .add{color:var(--ok)}.code .c{color:var(--muted)}
+.src-row{display:grid;grid-template-columns:130px minmax(0,1fr) 32px;gap:8px;align-items:center}
+.timeline{display:flex;flex-direction:column;gap:0}
+.tl{display:flex;gap:12px}
+.tl .rail{width:16px;display:flex;flex-direction:column;align-items:center}
+.tl .rail i{width:9px;height:9px;border-radius:50%;margin-top:6px;background:var(--fill-5)}
+.tl .rail i.on{background:var(--run);box-shadow:0 0 0 4px var(--run-fill)}
+.tl .rail i.ok{background:var(--done)}
+.tl .rail b{flex:1;width:1px;background:var(--line-2);margin:4px 0}
+</style>
+<link rel="stylesheet" href="../../../showcase/bridge.css">
+<script src="../../../showcase/icons.js"></script>
+<script src="../../../showcase/navigation.js"></script>
+<script defer src="../../../showcase/catalog.js"></script>
+<script defer src="../../../showcase/bridge.js"></script>
+</head>
+<body data-page="projects">
+<main id="page" hidden><div class="page" id="view"></div></main>
+
+<!-- 登记项目抽屉 480 -->
+<aside class="drawer md" id="reg" aria-hidden="true" aria-labelledby="regT" role="dialog" tabindex="-1">
+  <div class="drawer-head"><div class="grow"><h2 id="regT">登记项目</h2><p class="hint" style="margin-top:4px">把本机已有的项目目录接入 opencode-workflow。登记不会移动或修改任何文件。</p></div><button class="icon-btn" aria-label="关闭" onclick="tryCloseReg()" data-icon="x"></button></div>
+  <div class="drawer-body">
+    <div class="field">
+      <label class="label" for="rDir">项目目录 <span class="req">*</span></label>
+      <div class="row"><input class="input mono grow" id="rDir" placeholder="/Users/you/workspace/my-project" oninput="regInput()"><button class="btn secondary" type="button" onclick="pickDir()" data-icon="folder">选择</button></div>
+      <span class="hint">填写本机绝对路径。</span>
+    </div>
+    <div class="field">
+      <label class="label" for="rName">项目名称 <span class="req">*</span></label>
+      <input class="input" id="rName" placeholder="选择目录后自动填入，可修改" oninput="regInput(true)">
+    </div>
+    <details class="field" style="margin-top:20px">
+      <summary class="label" style="cursor:pointer;list-style:none" data-icon="chevRight" data-icon-size="sm">更多（可选）</summary>
+      <div class="field" style="margin-top:12px"><label class="label" for="rDocs">文档目录 <span class="opt">可选</span></label><input class="input mono" id="rDocs" placeholder="docs" oninput="regInput()"><span class="hint">相对项目目录或绝对路径，留空则不生成项目文档。</span></div>
+      <div class="field"><label class="label" for="rDesc">说明 <span class="opt">可选</span></label><textarea class="textarea" id="rDesc" style="min-height:80px" oninput="regInput()"></textarea></div>
+    </details>
+  </div>
+  <div class="drawer-foot"><span class="hint grow" id="regWhy">请先填写项目目录。</span><button class="btn ghost" onclick="tryCloseReg()">取消</button><button class="btn primary" id="regBtn" disabled onclick="doRegister()">登记项目</button></div>
+</aside>
+
+<div class="dialog" id="leaveDlg" role="alertdialog" aria-labelledby="leaveT">
+  <div class="dialog-body"><h2 id="leaveT">放弃未登记的内容？</h2><p>你填写的目录和名称还没有登记，关闭后不会保留。</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>继续填写</button><button class="btn danger" onclick="DS.closeDialog();clearReg();DS.closeDrawer('reg')">放弃</button></div>
+</div>
+<div class="dialog" id="unmanage" role="alertdialog" aria-labelledby="umT">
+  <div class="dialog-body"><h2 id="umT">取消管理这个项目？</h2>
+    <p>opencode-workflow 将不再显示 <b class="ink" id="umName"></b>，已有任务记录保留。<br>项目目录 <span class="mono" id="umPath"></span> 中的文件<b class="ink">不会</b>被删除或修改。</p></div>
+  <div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>保留</button><button class="btn danger" onclick="doUnmanage()">取消管理</button></div>
+</div>
+
+<script src="../assets/shell.js"></script>
+<script>
+const I = DS.icon, esc = DS.esc;
+let S = DS.state || 'list';
+const PROJECTS = [
+  {id:'p1', name:'OpenCode Loopper', path:'/workspace/opencode-loopper', mode:'git', branch:'main', stack:'Java · Spring Boot · React', tasks:12, running:1, desc:'把需求、规划和执行连接起来的本地工作台。', docs:'docs', git:'inherit', gitlab:false, convention:'applied'},
+  {id:'p2', name:'客户服务平台 · 应用与接口整合', path:'/workspace/customer-service-platform', mode:'direct', branch:null, stack:'TypeScript · Vue', tasks:6, running:0, desc:'客户资料、工单与服务流程的统一入口。', docs:null, git:'custom', gitlab:true, convention:'none'},
+  {id:'p3', name:'用于核对长名称完整展示的企业级项目 · 跨团队协同与服务治理工作台', path:'/workspace/platform-services/enterprise-service-governance-console', mode:'unavailable', branch:null, stack:'Go · gRPC', tasks:3, running:0, desc:'服务目录、依赖关系与变更审批的治理控制台。', docs:'docs/handbook', git:'inherit', gitlab:false, convention:'none'},
+];
+const MODE = {git:['Git 分支模式','st-accent','git'], direct:['直接执行目录','st-idle','folder'], unavailable:['路径不可用','st-fail','alert']};
+let filter = 'all', q = '';
+
+function header(){
+  const inDetail = S.startsWith('detail') || S.startsWith('conv');
+  return inDetail
+    ? `<nav class="crumbs" aria-label="位置"><a href="projects.html">项目</a><span class="sep">/</span><span class="cur">OpenCode Loopper</span></nav><span class="spacer"></span>`
+    : `<h1>${I('folder')}项目</h1><span class="spacer"></span><button class="btn primary sm" onclick="openReg(this)">${I('plus','sm')}登记项目</button>`;
+}
+
+/* ---------------- 列表 ---------------- */
+function listView(){
+  const rows = PROJECTS.filter(p => (filter==='all'||p.mode===filter) && (!q || (p.name+p.path).toLowerCase().includes(q.toLowerCase())));
+  const cnt = m => PROJECTS.filter(p=>m==='all'||p.mode===m).length;
+  let body;
+  if (S==='list-loading') body = `<div class="pgrid">${[0,1,2,3].map(()=>`<div class="card" style="padding:18px;height:240px"><div class="row"><div class="skel" style="width:36px;height:36px;border-radius:10px"></div><div class="col grow"><div class="skel" style="height:14px;width:55%"></div><div class="skel" style="height:11px;width:70%"></div></div></div><div class="skel" style="height:12px;margin-top:22px"></div><div class="skel" style="height:56px;margin-top:16px;border-radius:12px"></div></div>`).join('')}</div>`;
+  else if (S==='list-error') body = `<div class="banner danger">${I('alert')}<div><b>项目列表读取失败</b><br>本地服务没有返回项目摘要。已登记的项目没有受影响。</div><div class="actions"><button class="btn secondary sm" onclick="DS.setState('list')">${I('refresh','sm')}重试</button></div></div>`;
+  else if (S==='list-empty') body = `<div class="card"><div class="empty"><span class="tile">${I('folder','lg')}</span><h3>还没有登记项目</h3><p>登记一个本机项目目录后，就可以围绕它开始任务、配置 Git 与项目公约。</p><button class="btn primary" style="margin-top:8px" onclick="openReg(this)">${I('plus','sm')}登记第一个项目</button></div></div>`;
+  else if (!rows.length) body = `<div class="card"><div class="empty"><span class="tile">${I('search','lg')}</span><h3>没有匹配的项目</h3><p>换个关键词，或清除筛选条件。</p><button class="btn secondary sm" onclick="q='';filter='all';render()">清除筛选</button></div></div>`;
+  else body = `<div class="pgrid">${rows.map((p,i)=>card(p,i)).join('')}</div>`;
+  return `
+  <div class="page-head"><div class="grow"><h2 class="title">项目</h2><p class="lede">项目是任务、流程和配置的归属。选一个项目开始工作，或进入查看它的配置。</p></div></div>
+  ${S==='reg-unknown'?`<div class="banner unknown" style="margin-bottom:16px">${I('help')}<div><b>“支付网关”的登记结果未明</b><br>请求已发出但没有收到确认。正在用原目录与登记前的项目清单核对，核对前不会重复登记。</div><div class="actions"><span class="spin" style="color:var(--unknown)"></span></div></div>`:''}
+  ${!['list-loading','list-error','list-empty'].includes(S)?`
+  <div class="toolbar">
+    <div class="input-wrap">${I('search')}<input class="input ctl" placeholder="搜索名称或路径" value="${esc(q)}" oninput="q=this.value;render(true)" aria-label="搜索项目"></div>
+    <div class="seg" role="group" aria-label="工作模式">${[['all','全部'],['git','Git 分支'],['direct','直接目录'],['unavailable','不可用']].map(([k,l])=>`<button aria-pressed="${filter===k}" onclick="filter='${k}';render()">${l}<span class="num muted">${cnt(k)}</span></button>`).join('')}</div>
+    <span class="grow"></span>
+    <button class="icon-btn" aria-label="刷新项目列表" title="刷新" onclick="DS.toast('已刷新项目摘要','info')">${I('refresh')}</button>
+  </div>`:''}
+  ${body}`;
+}
+function card(p,i){
+  const m = MODE[p.mode];
+  const un = p.mode==='unavailable';
+  return `<article class="card hoverable pcard in ${un?'unavail':''}" style="animation-delay:${i*50}ms" tabindex="0" onclick="openDetail(event)" onkeydown="if(event.key==='Enter')openDetail(event)" aria-label="${esc(p.name)}">
+    <div class="pcard-top">
+      <span class="tile lg">${I(un?'alert':'folder')}</span>
+      <div class="grow">
+        <div class="pname">${esc(p.name)}</div>
+        <div class="ppath" title="${esc(p.path)}">${I('pin','sm')}<span>${esc(p.path)}</span></div>
+      </div>
+      <button class="icon-btn" aria-label="更多操作：${esc(p.name)}" onclick="event.stopPropagation();moreMenu(this,'${p.id}')">${I('more')}</button>
+    </div>
+    <div class="row" style="padding:12px 18px 0;gap:6px"><span class="badge ${m[1]}">${I(m[2],'sm')}${m[0]}</span>${p.running?`<span class="badge st-run"><span class="dot pulse"></span>${p.running} 个运行中</span>`:''}</div>
+    <p class="pdesc">${esc(p.desc)}</p>
+    <div class="pfacts">
+      <div><div class="k">当前分支</div><div class="v ${p.branch?'mono':''}">${p.branch||(un?'—':'直接执行目录')}</div></div>
+      <div><div class="k">技术栈</div><div class="v" title="${esc(p.stack)}">${esc(p.stack)}</div></div>
+      <div><div class="k">任务</div><div class="v num">${p.tasks} 个</div></div>
+    </div>
+    ${un?`<div class="hint" style="padding:12px 18px 0;color:var(--warn)">目录在本机找不到。可以查看已有任务；如果项目已搬家，请取消管理后按新路径重新登记。</div>`:''}
+    <div class="pfoot">
+      <button class="btn secondary sm" ${un?'disabled':''} onclick="event.stopPropagation();SC.href ='start.html?project='+encodeURIComponent('${esc(p.name)}')">${I('plus','sm')}开始任务</button>
+      <button class="btn ghost sm" ${un?'disabled':''} onclick="event.stopPropagation();SC.href ='templates.html?project=${p.id}'">${I('template','sm')}模板任务</button>
+      <span class="grow"></span>
+      <span class="hint">查看配置 ${I('chevRight','sm')}</span>
+    </div>
+  </article>`;
+}
+function moreMenu(t,id){ const p=PROJECTS.find(x=>x.id===id); DS.menu(t,[
+  {label:'查看配置', icon:'settings', run(){openDetail()}},
+  {label:'复制项目目录', icon:'copy', run(){DS.toast('已复制目录路径','info')}},
+  '-', {label:'取消管理…', icon:'archive', danger:true, run(){askUnmanage(p,t)}} ]); }
+function openDetail(){ S='detail'; history.replaceState(null,'','?state=detail'); render(); }
+
+/* ---------------- 详情 ---------------- */
+const TABS = [['detail','概览'],['detail-git','Git 与 GitLab'],['detail-docs','文档路径'],['detail-conv','项目公约']];
+function tabOf(){ if (S.startsWith('detail-git')||S==='detail-gitlab') return 'detail-git'; if (S.startsWith('conv')||S==='detail-conv') return 'detail-conv'; return TABS.find(t=>t[0]===S)?S:'detail'; }
+function detailView(){
+  const p = PROJECTS[0]; const tab = tabOf();
+  return `
+  <div class="detail-head">
+    <span class="tile">${I('folder','lg')}</span>
+    <div class="grow" style="display:flex;flex-direction:column;gap:6px">
+      <div class="row wrap"><h2 class="title" style="font-size:24px">${esc(p.name)}</h2><span class="badge st-accent">${I('git','sm')}Git 分支模式</span></div>
+      <div class="row" style="gap:6px;color:var(--muted)"><span class="mono" style="font-size:12.5px">${p.path}</span><button class="icon-btn" style="width:26px;height:26px" aria-label="复制目录" onclick="DS.toast('已复制目录路径','info')">${I('copy','sm')}</button></div>
+    </div>
+    <div class="row">
+      <a class="btn primary" href="start.html?project=${encodeURIComponent(p.name)}">${I('plus','sm')}开始任务</a>
+      <a class="btn secondary" data-sc-project-git href="${SC.url('git/index.html?state=g10-commits')}">${I('git','sm')}查看 Git</a><a class="btn secondary" href="templates.html?project=${p.id}">${I('template','sm')}模板任务</a>
+      <button class="icon-btn" aria-label="更多" onclick="DS.menu(this,[{label:'取消管理…',icon:'archive',danger:true,run(){askUnmanage(PROJECTS[0],this)}}])">${I('more')}</button>
+    </div>
+  </div>
+  <div class="tabs" role="tablist" style="margin-top:24px">${TABS.map(([k,l])=>`<button class="tab" role="tab" aria-selected="${tab===k}" onclick="go('${k}')">${l}${k==='detail-conv'?'<span class="dot" style="color:var(--warn);margin-left:6px;display:inline-block" title="未生成"></span>':''}</button>`).join('')}</div>
+  <div style="margin-top:20px" class="fade">${ {detail:overview, 'detail-git':gitTab, 'detail-docs':docsTab, 'detail-conv':convTab}[tab]() }</div>`;
+}
+function go(k){ S=k; history.replaceState(null,'','?state='+k); render(); }
+function overview(){
+  const p=PROJECTS[0];
+  return `<div style="display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px">
+    <div class="col" style="gap:16px">
+      <section class="card pad"><div class="section-title" style="margin-bottom:14px">项目信息</div>
+        <dl class="kv" style="margin:0"><dt>说明</dt><dd>${p.desc}</dd><dt>当前分支</dt><dd class="mono">main</dd><dt>技术栈</dt><dd>${p.stack}</dd><dt>文档目录</dt><dd class="mono">${p.path}/docs</dd></dl></section>
+      <section class="card"><div class="row" style="padding:16px 18px 6px"><span class="section-title">最近任务</span><span class="grow"></span><a class="btn ghost sm" href="tasks.html?project=p1">全部 ${p.tasks} 个${I('chevRight','sm')}</a></div>
+        <div class="list" style="padding:0 6px 8px">
+          ${[['登录页偶发 500 错误修复','st-stall','停滞','实施修复'],['接口文档整理与变更说明','st-wait','待确认计划','需求草稿'],['项目配置入口重排','st-done','已完成','验收通过']].map(t=>`<a class="list-row" href="task.html"><span class="grow ellipsis">${t[0]}</span><span class="hint">${t[3]}</span><span class="badge ${t[1]}">${t[2]}</span></a>`).join('')}
+        </div></section>
+    </div>
+    <section class="card" style="align-self:start"><div style="padding:16px 18px 8px"><div class="section-title">配置状态</div><div class="hint" style="margin-top:2px">执行任务前，确认这些设置符合预期。</div></div>
+      <div class="list" style="padding:0 6px 8px">
+        ${[['git','Git 账号','继承全局账号','st-ok','已配置','detail-git'],['link','GitLab 与证据','未绑定仓库','st-idle','可选','detail-gitlab'],['file','文档路径','docs','st-ok','已设置','detail-docs'],['doc','项目公约','尚未生成 AGENTS.md','st-fail','建议生成','detail-conv']].map(c=>`<button class="cfg-item" onclick="go('${c[5]}')"><span class="tile" style="width:32px;height:32px">${I(c[0],'sm')}</span><span class="grow"><div style="font-size:13.5px">${c[1]}</div><div class="hint">${c[2]}</div></span><span class="badge ${c[3]}">${c[4]}</span></button>`).join('')}
+      </div></section>
+  </div>`;
+}
+let gitSrc = 'inherit', auth = 'token', glTab = 'git';
+function gitTab(){
+  if (S==='detail-gitlab') glTab='gitlab'; if (S==='detail-git-custom') gitSrc='custom';
+  const seg = `<div class="seg" role="tablist" aria-label="Git 与 GitLab">${[['git','Git 账号'],['gitlab','GitLab 与证据']].map(([k,l])=>`<button role="tab" aria-selected="${glTab===k}" onclick="glTab='${k}';render()">${l}</button>`).join('')}</div>`;
+  if (glTab==='gitlab') return `${seg}
+    <section class="card pad" style="margin-top:16px;max-width:760px">
+      <div class="field"><label class="label" for="glRepo">GitLab 项目</label><div class="input-wrap">${I('search')}<input class="input" id="glRepo" placeholder="搜索 GitLab 项目路径，例如 platform/opencode-loopper"></div><span class="hint">绑定后，任务的分支、合并请求与流水线证据会关联到这个仓库。</span></div>
+      <div class="field"><div class="row between"><span class="label">执行证据来源</span><span class="counter">2 / 16</span></div>
+        <div class="col" style="gap:8px">
+          <div class="src-row"><select class="select" aria-label="证据类型 1"><option>JUnit 报告</option><option>日志目录</option></select><input class="input mono" value="build/test-results/**/*.xml" aria-label="匹配规则 1"><button class="icon-btn" aria-label="移除来源 1">${I('trash','sm')}</button></div>
+          <div class="src-row"><select class="select" aria-label="证据类型 2"><option>日志目录</option><option>JUnit 报告</option></select><input class="input mono" value="/var/log/opencode-loopper" aria-label="外部日志目录 2"><button class="icon-btn" aria-label="移除来源 2">${I('trash','sm')}</button></div>
+          <button class="btn ghost sm" style="align-self:flex-start">${I('plus','sm')}添加来源</button>
+        </div>
+        <span class="hint">切换证据类型会清空该行的目录；JUnit 报告只在项目内匹配，不读取外部目录。</span></div>
+      <div class="divider"></div>
+      <div class="row"><button class="btn secondary" disabled title="保存绑定后才能检查">${I('check','sm')}检查绑定</button><span class="hint grow">保存后可检查仓库与证据来源是否可读。</span><button class="btn primary">保存</button></div>
+    </section>`;
+  return `${seg}
+    <section class="card pad" style="margin-top:16px;max-width:760px">
+      <div class="field"><span class="label">账号来源</span>
+        <div class="radio-cards" role="radiogroup">
+          <button class="rcard" role="radio" aria-checked="${gitSrc==='inherit'}" onclick="gitSrc='inherit';render()"><span class="r"></span><span><div style="font-weight:500">继承全局账号</div><div class="hint">使用设置中的 Git 账号 <span class="badge st-ok" style="height:18px">已配置</span></div></span></button>
+          <button class="rcard" role="radio" aria-checked="${gitSrc==='custom'}" onclick="gitSrc='custom';render()"><span class="r"></span><span><div style="font-weight:500">此项目单独配置</div><div class="hint">只对这个项目生效</div></span></button>
+        </div></div>
+      ${gitSrc==='custom'?`<div class="fade">
+        <div class="field"><span class="label">认证方式</span><div class="seg">${[['token','访问令牌'],['password','用户名与密码']].map(([k,l])=>`<button aria-pressed="${auth===k}" onclick="auth='${k}';render()">${l}</button>`).join('')}</div></div>
+        <div class="grid-2" style="margin-top:20px"><div class="field" style="margin:0"><label class="label" for="gu">用户名</label><input class="input" id="gu" value="liming"></div>
+        <div class="field" style="margin:0"><label class="label" for="gs">${auth==='token'?'访问令牌':'密码'}</label><input class="input" id="gs" type="password" placeholder="已保存 · 留空则不修改"><span class="hint">保存后不会再显示。</span></div></div>
+      </div>`:''}
+      <div class="field"><label class="label" for="gr">验证用仓库地址 <span class="opt">可选</span></label><input class="input mono" id="gr" value="https://git.example.test/platform/opencode-loopper.git"></div>
+      <div class="divider"></div>
+      <div class="row"><button class="btn secondary" onclick="testConn(this)">${I('link','sm')}验证连接</button><span class="hint grow" id="connRes">验证不会保存设置。</span><button class="btn primary" onclick="DS.toast('Git 账号设置已保存')">保存</button></div>
+    </section>`;
+}
+function testConn(b){ b.innerHTML='<span class="spin"></span>验证中'; b.disabled=true; setTimeout(()=>{ b.innerHTML=I('link','sm')+'验证连接'; b.disabled=false; DS.$('#connRes').innerHTML=`<span style="color:var(--ok)">${I('check','sm')} 连接成功 · 可读取 main 分支</span>`; },1100); }
+function docsTab(){
+  return `<section class="card pad" style="max-width:760px">
+    <div class="field"><label class="label" for="dp">文档目录</label><input class="input mono" id="dp" value="docs" oninput="DS.$('#dpPrev').textContent=this.value? (this.value.startsWith('/')?this.value:'/workspace/opencode-loopper/'+this.value):'不生成项目文档'">
+    <span class="hint">任务产出的设计文档、变更说明会写到这里。相对路径基于项目目录；留空表示不生成。</span></div>
+    <div class="banner" style="margin-top:16px">${I('file')}<div>实际位置 <span class="mono ink" id="dpPrev">/workspace/opencode-loopper/docs</span></div></div>
+    <div class="divider"></div><div class="row"><span class="grow"></span><button class="btn ghost">放弃修改</button><button class="btn primary" onclick="DS.toast('文档路径已保存')">保存</button></div></section>`;
+}
+function convTab(){
+  const cs = S==='conv-running'?'running':S==='conv-ready'?'ready':S==='conv-unknown'?'unknown':'none';
+  const steps = `<div class="timeline" style="margin-top:4px">${[['生成草稿','根据项目结构与约定生成 AGENTS.md 草稿', cs==='running'?'on':(cs==='ready'?'ok':'')],['审阅差异','对比当前公约，确认要写入的内容', cs==='ready'?'on':''],['写入项目','确认后才写入项目目录','']].map((s,i,a)=>`<div class="tl"><div class="rail"><i class="${s[2]}"></i>${i<a.length-1?'<b></b>':''}</div><div style="padding-bottom:14px"><div style="font-size:13.5px;font-weight:500">${s[0]}</div><div class="hint">${s[1]}</div></div></div>`).join('')}</div>`;
+  let main;
+  if (cs==='none') main = `<div class="empty" style="padding:36px 20px"><span class="tile">${I('doc','lg')}</span><h3>还没有项目公约</h3><p>AGENTS.md 告诉执行中的智能体这个项目的约定：目录结构、命名、测试方式。生成后先审阅，确认才写入。</p><button class="btn primary" style="margin-top:6px" onclick="go('conv-running')">${I('sparkle','sm')}生成公约草稿</button></div>`;
+  else if (cs==='running') main = `<div style="padding:20px"><div class="row"><span class="spin" style="color:var(--run)"></span><span style="font-weight:500">正在生成草稿</span><span class="hint">已运行 1 分 12 秒 · 完成后可审阅</span><span class="grow"></span><button class="btn secondary sm" onclick="DS.openDialog('stopDlg',this)">${I('stop','sm')}停止</button></div>
+      <div class="code" style="margin-top:16px"><span class="c"># 正在读取：</span>
+<span class="c">  pom.xml · frontend/package.json · docs/architecture.md</span>
+<span class="c">  已识别 Java 21 / Spring Boot 3 / React 18 …</span></div><p class="hint" style="margin-top:10px">生成期间不能离开本页；需要离开请先停止。</p></div>`;
+  else if (cs==='unknown') main = `<div style="padding:20px"><div class="banner unknown">${I('help')}<div><b>无法确认生成是否仍在进行</b><br>最近一次读取状态失败。草稿身份保留，正在按原记录重新读取，不会重新生成。</div><div class="actions"><button class="btn secondary sm">${I('refresh','sm')}重新读取</button></div></div></div>`;
+  else main = `<div style="padding:20px"><div class="row"><span class="badge st-ok">${I('check','sm')}草稿已就绪</span><span class="hint">与当前公约相比 +18 行</span><span class="grow"></span><button class="btn ghost sm">放弃草稿</button><button class="btn primary sm" onclick="DS.toast('AGENTS.md 已写入项目目录');go('detail-conv')">确认写入</button></div>
+      <div class="code" style="margin-top:16px"><span class="c"># AGENTS.md · OpenCode Loopper</span>
+<span class="add">+ ## 目录结构</span>
+<span class="add">+ - 后端：src/main/java，按领域分包（task / workflow / knowledge）</span>
+<span class="add">+ - 前端：frontend/src，页面位于 pages/，共享组件位于 foundation/</span>
+<span class="add">+ ## 测试</span>
+<span class="add">+ - 后端：./mvnw test；前端：npm run test</span>
+<span class="add">+ - 修改接口时同步更新 docs/api-reference.md</span></div></div>`;
+  return `<div style="display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px">
+    <section class="card">${main}</section>
+    <aside class="card pad" style="align-self:start"><div class="eyebrow" style="margin-bottom:12px">生成步骤</div>${steps}</aside></div>
+    <div class="dialog" id="stopDlg" role="alertdialog"><div class="dialog-body"><h2>停止生成？</h2><p>停止后这份草稿不会写入项目。停止需要一点时间，完成前页面仍保持锁定。</p></div><div class="dialog-foot"><button class="btn ghost" onclick="DS.closeDialog()" autofocus>继续生成</button><button class="btn danger" onclick="DS.closeDialog();go('detail-conv')">停止</button></div></div>`;
+}
+
+/* ---------------- 登记 / 取消管理 ---------------- */
+let regDirty = false;
+function openReg(t){ DS.openDrawer('reg', t); }
+function pickDir(){ DS.$('#rDir').value='/Users/liming/workspace/payment-gateway'; regInput(); }
+function regInput(nameTouched){
+  const dir = DS.$('#rDir').value.trim(), name = DS.$('#rName');
+  if (!nameTouched && dir && (!name.dataset.touched)) name.value = dir.split('/').filter(Boolean).pop() || '';
+  if (nameTouched) name.dataset.touched = 1;
+  regDirty = !!(dir || name.value || DS.$('#rDocs').value || DS.$('#rDesc').value);
+  const abs = dir.startsWith('/');
+  const why = !dir ? '请先填写项目目录。' : !abs ? '项目目录需要是绝对路径。' : !name.value.trim() ? '请填写项目名称。' : '';
+  DS.$('#rDir').classList.toggle('invalid', !!dir && !abs);
+  DS.$('#regWhy').textContent = why || '登记后可以立即开始任务。';
+  DS.$('#regBtn').disabled = !!why;
+}
+function tryCloseReg(){ if (regDirty) DS.openDialog('leaveDlg'); else DS.closeDrawer('reg'); }
+function clearReg(){ ['rDir','rName','rDocs','rDesc'].forEach(id=>{DS.$('#'+id).value=''}); delete DS.$('#rName').dataset.touched; regDirty=false; regInput(); }
+function doRegister(){ const b=DS.$('#regBtn'); b.innerHTML='<span class="spin"></span>登记中'; b.disabled=true;
+  setTimeout(()=>{ PROJECTS.unshift({id:'p9',name:DS.$('#rName').value,path:DS.$('#rDir').value,mode:'git',branch:'main',stack:'待识别',tasks:0,running:0,desc:DS.$('#rDesc').value||'新登记的项目。',convention:'none'}); b.textContent='登记项目'; clearReg(); DS.closeDrawer('reg'); render(); DS.toast('已登记项目，可以开始任务了'); },900); }
+let umTarget=null;
+function askUnmanage(p,t){ umTarget=p; DS.$('#umName').textContent=p.name; DS.$('#umPath').textContent=p.path; DS.openDialog('unmanage',t); }
+function doUnmanage(){ const i=PROJECTS.indexOf(umTarget); if(i>-1) PROJECTS.splice(i,1); DS.closeDialog(); S='list'; history.replaceState(null,'','?state=list'); render(); DS.toast('已取消管理，项目文件未改动','info'); }
+
+/* ---------------- 渲染 ---------------- */
+function render(keepFocus){
+  const focus = keepFocus && document.activeElement; const pos = focus && focus.selectionStart;
+  const inDetail = S.startsWith('detail') || S.startsWith('conv');
+  DS.$('.header').innerHTML = header();
+  DS.$('#view').innerHTML = inDetail ? detailView() : listView();
+  if (keepFocus) { const el = DS.$('#view input[aria-label="搜索项目"]'); if (el){ el.focus(); el.setSelectionRange(pos,pos);} }
+}
+DS.mount({ header:'', states:[
+  {id:'list',label:'列表'},{id:'list-loading',label:'列表 · 加载中'},{id:'list-error',label:'列表 · 读取失败'},{id:'list-empty',label:'列表 · 无项目'},
+  {id:'register',label:'登记项目（抽屉）'},{id:'reg-unknown',label:'登记结果未明'},{id:'unmanage',label:'取消管理确认'},
+  {id:'detail',label:'详情 · 概览'},{id:'detail-git',label:'详情 · Git 账号'},{id:'detail-git-custom',label:'详情 · Git 单独配置'},{id:'detail-gitlab',label:'详情 · GitLab 与证据'},
+  {id:'detail-docs',label:'详情 · 文档路径'},{id:'detail-conv',label:'公约 · 未生成'},{id:'conv-running',label:'公约 · 生成中'},{id:'conv-ready',label:'公约 · 草稿就绪'},{id:'conv-unknown',label:'公约 · 状态未明'}], state:S });
+render();
+if (S==='register') setTimeout(()=>openReg(),200);
+if (S==='unmanage') setTimeout(()=>askUnmanage(PROJECTS[0]),200);
+</script>
+</body>
+</html>

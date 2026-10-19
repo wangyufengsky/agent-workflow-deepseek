@@ -1,0 +1,826 @@
+<!doctype html>
+<html lang="zh-CN" data-skin="deepseek">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>任务交付状态图</title>
+<script>
+/* 主题与减弱动态：只读 URL，只保存在内存，不写本机存储 */
+(function () {
+  var P = new URLSearchParams(location.search);
+  var OK = ['deepseek', 'warm', 'spdb', 'github-white'];
+  var t = P.get('theme');
+  document.documentElement.dataset.skin = OK.indexOf(t) >= 0 ? t : 'deepseek';
+  var rm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (P.get('motion') === 'reduce' || rm) document.documentElement.classList.add('reduced');
+})();
+</script>
+<link rel="stylesheet" href="assets/ds.css">
+<link rel="stylesheet" href="assets/skins.css">
+<link rel="stylesheet" href="assets/td-proto.css">
+<link rel="stylesheet" href="assets/review.css">
+<style>
+/* ---------- 图框 ---------- */
+.fig{margin-top:14px;border:1px solid var(--line);border-radius:16px;background-color:var(--surface);background-image:var(--dots);background-size:22px 22px;padding:20px;overflow-x:auto}
+.fig svg.dg{display:block;width:100%;min-width:980px;height:auto}
+.fig+.tblwrap{margin-top:12px}
+/* ---------- 图例（HTML） ---------- */
+.lgd{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:12px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:12px;color:var(--sub);align-items:center}
+.lgd .cap{color:var(--muted);font-size:11.5px;letter-spacing:.3px;margin-right:2px}
+.lgd .li{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.sw{display:inline-block;width:26px;height:16px;border-radius:5px;border:1.2px solid var(--line-3);background:var(--panel);flex:none}
+.sw.user{background:color-mix(in srgb,var(--accent) 16%,var(--panel));border-color:var(--accent-line)}
+.sw.svc{background:var(--panel);border-color:var(--line-3)}
+.sw.inner{background:var(--fill-2);border-color:var(--line-2)}
+.sw.ok{background:color-mix(in srgb,var(--ok) 11%,var(--panel));border-color:var(--ok-line)}
+.sw.warn{background:color-mix(in srgb,var(--warn) 11%,var(--panel));border-color:var(--warn-line)}
+.sw.stall{background:color-mix(in srgb,var(--stall) 10%,var(--panel));border-color:var(--stall-line)}
+.sw.unk{background:color-mix(in srgb,var(--unknown) 9%,var(--panel));border-color:var(--unknown-line);border-style:dashed}
+.sw.idle{background:var(--panel);border-color:var(--idle-line);border-style:dashed}
+.sw.proj{background:color-mix(in srgb,var(--wait) 16%,var(--panel));border-color:var(--wait-line)}
+.sw.note{background:transparent;border-color:var(--line-3);border-style:dashed}
+.sw.pg{background:var(--panel);border-color:var(--line-2);border-radius:7px}
+.sw.dec{width:18px;height:18px;transform:rotate(45deg) scale(.78);border-radius:2px}
+.sw.rg{background:color-mix(in srgb,var(--warn) 4%,transparent);border-color:var(--warn-line);border-style:dashed}
+.sw.td5{background:color-mix(in srgb,var(--wait) 8%,transparent);border-color:var(--wait-line);border-style:dashed}
+.ln-sw{display:inline-block;width:28px;height:0;border-top:2px solid var(--muted);flex:none;position:relative}
+.ln-sw::after{content:"";position:absolute;right:-1px;top:-5px;border:4px solid transparent;border-left:6px solid currentColor}
+.ln-sw.acc{border-color:var(--accent);color:var(--accent)}
+.ln-sw.def{border-color:var(--muted);color:var(--muted)}
+.ln-sw.ok{border-color:var(--ok);color:var(--ok)}
+.ln-sw.warn{border-color:var(--warn);color:var(--warn)}
+.ln-sw.stall{border-color:var(--stall);color:var(--stall)}
+.ln-sw.unk{border-top-style:dashed;border-color:var(--unknown);color:var(--unknown)}
+.ln-sw.dash{border-top-style:dashed}
+.ln-sw.acc::after,.ln-sw.def::after,.ln-sw.ok::after,.ln-sw.warn::after,.ln-sw.stall::after,.ln-sw.unk::after{border-top-color:transparent;border-bottom-color:transparent;border-right-color:transparent}
+.nb-sw{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1.2px solid var(--accent-line);background:var(--panel);color:var(--accent);font:600 10.5px var(--font-mono)}
+.cc-sw{display:inline-flex;align-items:center;height:18px;padding:0 9px;border-radius:999px;font-size:11px;border:1px solid}
+.cc-sw.reuse{color:var(--done);background:var(--done-fill);border-color:var(--done-line)}
+.cc-sw.mod{color:var(--accent);background:var(--accent-fill);border-color:var(--accent-line)}
+.cc-sw.new{color:var(--wait);background:var(--wait-fill);border-color:var(--wait-line)}
+/* ---------- SVG 令牌 ---------- */
+svg.dg text{font-family:var(--font);fill:var(--ink)}
+svg.dg .t{font-size:13.5px;font-weight:500}
+svg.dg .h{font-size:12.5px;font-weight:500;fill:var(--ink)}
+svg.dg .s{font-size:12px;fill:var(--sub)}
+svg.dg .m{font-family:var(--font-mono);font-size:11px;fill:var(--muted)}
+svg.dg .pt{font-size:14.5px;font-weight:500}
+svg.dg .ch{font-size:11.5px;fill:var(--muted);letter-spacing:.2px}
+svg.dg .l{font-size:11.5px;fill:var(--sub);paint-order:stroke;stroke:var(--surface);stroke-width:5px;stroke-linejoin:round}
+svg.dg .lh{font-size:13px;font-weight:500;fill:var(--ink)}
+svg.dg .ln{font-size:12px;font-weight:400;fill:var(--muted)}
+.lane-bg{fill:var(--fill-1);stroke:var(--line)}
+.lane-bg.l2{fill:color-mix(in srgb,var(--wait) 3%,transparent);stroke:color-mix(in srgb,var(--wait) 22%,transparent)}
+.nd>rect,.nd>polygon{stroke-width:1.2}
+.k-svc>rect{fill:var(--panel);stroke:var(--line-3)}
+.k-page>rect{fill:var(--panel);stroke:var(--line-2)}
+.k-inner>rect{fill:var(--fill-2);stroke:var(--line-2)}
+.k-note>rect{fill:var(--panel);stroke:var(--line-3);stroke-dasharray:4 4}
+.k-cand>rect{fill:color-mix(in srgb,var(--unknown) 5%,var(--panel));stroke:var(--unknown-line);stroke-dasharray:4 4}
+.k-user>rect{fill:color-mix(in srgb,var(--accent) 16%,var(--panel));stroke:var(--accent-line)}
+.k-proj>rect{fill:color-mix(in srgb,var(--wait) 16%,var(--panel));stroke:var(--wait-line);stroke-width:1.6}
+.k-ok>rect{fill:color-mix(in srgb,var(--ok) 11%,var(--panel));stroke:var(--ok-line)}
+.k-warn>rect{fill:color-mix(in srgb,var(--warn) 11%,var(--panel));stroke:var(--warn-line)}
+.k-stall>rect{fill:color-mix(in srgb,var(--stall) 10%,var(--panel));stroke:var(--stall-line)}
+.k-unk>rect{fill:color-mix(in srgb,var(--unknown) 9%,var(--panel));stroke:var(--unknown-line);stroke-dasharray:5 4;stroke-width:1.4}
+.k-idle>rect{fill:var(--panel);stroke:var(--idle-line);stroke-dasharray:3 3}
+.k-dec>polygon{fill:var(--panel);stroke:var(--line-3)}
+svg.dg .k-ok .t{fill:var(--ok)}
+svg.dg .k-warn .t{fill:var(--warn)}
+svg.dg .k-stall .t{fill:var(--stall)}
+svg.dg .k-unk .t{fill:var(--unknown)}
+svg.dg .k-proj .t{fill:var(--wait)}
+svg.dg .k-idle .t{fill:var(--idle)}
+svg.dg .k-ok .s,svg.dg .k-warn .s,svg.dg .k-stall .s,svg.dg .k-unk .s,svg.dg .k-user .s,svg.dg .k-proj .s{fill:var(--ink-2)}
+/* 节点上的标签 */
+.tg rect{stroke-width:1}
+.tg-acc rect{fill:color-mix(in srgb,var(--accent) 20%,var(--panel));stroke:var(--accent-line)}
+.tg-wait rect{fill:color-mix(in srgb,var(--wait) 22%,var(--panel));stroke:var(--wait-line)}
+.tg-ok rect{fill:color-mix(in srgb,var(--ok) 18%,var(--panel));stroke:var(--ok-line)}
+.tg-unk rect{fill:color-mix(in srgb,var(--unknown) 16%,var(--panel));stroke:var(--unknown-line)}
+.tg-svc rect{fill:var(--raised);stroke:var(--line-3)}
+svg.dg .tg text{font-size:10.5px;font-weight:500}
+svg.dg .tg-acc text{fill:var(--accent)}
+svg.dg .tg-wait text{fill:var(--wait)}
+svg.dg .tg-ok text{fill:var(--ok)}
+svg.dg .tg-unk text{fill:var(--unknown)}
+svg.dg .tg-svc text{fill:var(--sub)}
+/* 区域 */
+.rg rect{fill:none;stroke-width:1.3;stroke-dasharray:7 5}
+.rg-warn rect{stroke:var(--warn-line);fill:color-mix(in srgb,var(--warn) 4%,transparent)}
+svg.dg .rl{font-size:12px;font-weight:500;paint-order:stroke;stroke:var(--surface);stroke-width:6px;stroke-linejoin:round}
+svg.dg .rg-warn .rl{fill:var(--warn)}
+.pn{fill:var(--panel);stroke:var(--line-2);stroke-width:1}
+.pn.bad{fill:color-mix(in srgb,var(--stall) 4%,var(--panel));stroke:var(--stall-line);stroke-dasharray:5 4}
+/* 连线 */
+.e{fill:none;stroke-width:1.5}
+.e-def{stroke:var(--muted)}.mk-def{fill:var(--muted)}
+.e-acc{stroke:var(--accent)}.mk-acc{fill:var(--accent)}
+.e-wait{stroke:var(--wait)}.mk-wait{fill:var(--wait)}
+.e-ok{stroke:var(--ok)}.mk-ok{fill:var(--ok)}
+.e-warn{stroke:var(--warn)}.mk-warn{fill:var(--warn)}
+.e-stall{stroke:var(--stall)}.mk-stall{fill:var(--stall)}
+.e-unk{stroke:var(--unknown);stroke-dasharray:5 4}.mk-unk{fill:var(--unknown)}
+.e.dash{stroke-dasharray:4 4}
+.e-unk.flow{animation:td-flow 1.4s linear infinite}
+@keyframes td-flow{to{stroke-dashoffset:-18}}
+html.reduced .e-unk.flow{animation:none}
+@media (prefers-reduced-motion:reduce){.e-unk.flow{animation:none}}
+/* 编号徽标 */
+.nb circle{fill:var(--panel);stroke:var(--accent-line);stroke-width:1.2}
+svg.dg .nb text{font:600 10.5px var(--font-mono);fill:var(--accent)}
+/* 复用矩阵 */
+.mx-row{fill:none;stroke:var(--line);stroke-width:1}
+.mx-grp{fill:var(--fill-2)}
+svg.dg .mx-gt{font-size:12.5px;font-weight:500;fill:var(--ink-2)}
+.mx-col{fill:none;stroke:var(--line);stroke-width:1;stroke-dasharray:2 4}
+.mx-td5{fill:color-mix(in srgb,var(--wait) 7%,transparent);stroke:var(--wait-line);stroke-width:1.3;stroke-dasharray:6 4}
+.mx-hd>rect{fill:var(--panel);stroke:var(--line-2)}
+.mx-hd.new>rect{fill:color-mix(in srgb,var(--wait) 18%,var(--panel));stroke:var(--wait);stroke-width:1.6}
+svg.dg .mx-hd .id{font:600 11.5px var(--font-mono);fill:var(--ink)}
+svg.dg .mx-hd.new .id{fill:var(--wait)}
+svg.dg .mx-hd .nm{font-size:11.5px;fill:var(--sub)}
+.cc rect{stroke-width:1}
+.cc-reuse rect{fill:var(--done-fill);stroke:var(--done-line)}
+.cc-mod rect{fill:var(--accent-fill);stroke:var(--accent-line)}
+.cc-new rect{fill:var(--wait-fill);stroke:var(--wait)}
+svg.dg .cc text{font-size:11px;font-weight:500}
+svg.dg .cc-reuse text{fill:var(--done)}
+svg.dg .cc-mod text{fill:var(--accent)}
+svg.dg .cc-new text{fill:var(--wait)}
+/* 不复用清单 */
+.noreuse{margin-top:14px;border:1px dashed var(--stall-line);border-radius:14px;background:color-mix(in srgb,var(--stall) 3%,var(--panel));padding:14px 16px}
+.noreuse h3{font-size:13.5px;font-weight:500;color:var(--stall);display:flex;align-items:center;gap:8px}
+.noreuse ul{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 18px}
+@media (max-width:900px){.noreuse ul{grid-template-columns:1fr}}
+.noreuse li{font-size:12.5px;line-height:1.6;color:var(--ink-2);padding-left:14px;position:relative}
+.noreuse li::before{content:"";position:absolute;left:0;top:8px;width:7px;height:2px;background:var(--stall)}
+.noreuse li b{font-weight:500;color:var(--ink)}
+.noreuse li span{color:var(--sub)}
+/* 导航表 */
+table.navt td.no{width:44px;text-align:center}
+table.navt td.no .nb-sw{width:22px;height:22px;font-size:11.5px}
+table.navt td code,table.navt td .mono{font-size:11.5px;color:var(--ink-2);overflow-wrap:anywhere}
+table.navt td{font-size:12.5px}
+table.navt th{white-space:nowrap}
+.gap{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:10px 14px;border:1px dashed var(--unknown-line);border-radius:12px;background:var(--unknown-fill);font-size:12.5px;line-height:1.65;color:var(--ink-2)}
+.gap b{color:var(--unknown);font-weight:500;white-space:nowrap}
+.rv-top a.back{color:var(--sub);font-size:13px;white-space:nowrap}
+.rv-top a.back:hover{color:var(--ink)}
+</style>
+<link rel="stylesheet" href="../../showcase/bridge.css">
+<script src="../../showcase/icons.js"></script>
+<script src="../../showcase/navigation.js"></script>
+<script defer src="../../showcase/catalog.js"></script>
+<script defer src="../../showcase/bridge.js"></script>
+</head>
+<body>
+<!-- 共用箭头 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <marker id="m-def" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="mk-def" d="M0,1 L9,5 L0,9 z"/></marker>
+  <marker id="m-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="mk-acc" d="M0,1 L9,5 L0,9 z"/></marker>
+  <marker id="m-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="mk-ok" d="M0,1 L9,5 L0,9 z"/></marker>
+  <marker id="m-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="mk-warn" d="M0,1 L9,5 L0,9 z"/></marker>
+  <marker id="m-stall" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="mk-stall" d="M0,1 L9,5 L0,9 z"/></marker>
+  <marker id="m-unk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="mk-unk" d="M0,1 L9,5 L0,9 z"/></marker>
+  <marker id="m-wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="mk-wait" d="M0,1 L9,5 L0,9 z"/></marker>
+</defs></svg>
+
+<div class="rv">
+  <div class="rv-top">
+    <div class="l">
+      <span class="td-mock">设计样例 · 合成数据，不连接任务 / Git / 目录</span>
+      <span>opencode-workflow · <b>新任务隔离执行与用户选择交付</b> · 评审辅助</span>
+    </div>
+    <div class="r">
+      <label>主题
+        <select class="select ctl" id="skinSel" aria-label="切换主题">
+          <option value="deepseek">deepseek 风</option>
+          <option value="warm">claude 风</option>
+          <option value="spdb">SPDB</option>
+          <option value="github-white">GitHub 白</option>
+        </select></label>
+      <label>减弱动态 <button class="switch" role="switch" id="motionSw" aria-checked="false" aria-label="减弱动态"></button></label>
+      <a class="go" id="toIndex" href="index.html">← 状态总览</a>
+    </div>
+  </div>
+
+  <h1>任务隔离与交付 · <em>状态图与组件复用图</em></h1>
+  <p class="lede2">这一页把原型里已经画好的画面串成图：任务从计划确认到<b>已交付</b>怎样流转，Git 三个完成目标和非 Git 应用各自何时才算完成，工作区什么时候保留、怎样清理，哪些画面复用原组件，以及页面之间怎样跳转和返回。图里的状态名、字段和接口名都是<b>设计候选</b>，不是已冻结的产品路由或 API。</p>
+
+  <div class="toc">
+    <a href="#s1">1 · 任务主线状态图</a>
+    <a href="#s2">2 · Git 交付目标与步骤</a>
+    <a href="#s3">3 · 非 Git 应用流程</a>
+    <a href="#s4">4 · 工作区保全与清理</a>
+    <a href="#s5">5 · 组件复用图</a>
+    <a href="#s6">6 · 导航与返回</a>
+  </div>
+
+  <!-- ===================================================== 1 ===================================================== -->
+  <section class="blk" id="s1">
+    <h2><span class="no">01</span>任务主线状态图</h2>
+    <p class="d">执行与验收、交付是<b>两条并列的事实</b>，由不同的 owner 写入。执行结束只会让交付投影进入「待交付」，任务徽标写「执行已结束 · 等待交付」；所选交付目标全部可信成功、由执行 / 任务状态 owner 结算后，才显示「已交付」。任何结束路径都保留工作区文件。</p>
+    <div class="fig"><svg class="dg" viewBox="0 0 1120 610" role="img" aria-labelledby="f1t"><title id="f1t">任务主线状态图：上方执行与验收事实，下方交付事实</title>
+      <rect class="lane-bg" x="0" y="8" width="1120" height="322" rx="14"/>
+      <rect class="lane-bg l2" x="0" y="340" width="1120" height="262" rx="14"/>
+      <text class="lh" x="20" y="36">执行与验收事实<tspan class="ln" dx="10">原执行 / 验收 writer · 节点保留各自真实状态</tspan></text>
+      <text class="lh" x="20" y="368">交付事实<tspan class="ln" dx="10">TaskDeliveryView 投影（候选 · 未冻结）· 原任务交付 writer</tspan></text>
+
+      <g class="rg rg-warn"><rect x="300" y="176" width="408" height="138" rx="12"/><text class="rl" x="316" y="318">准备异常 · 草稿保留，不自动清理</text></g>
+
+      <!-- 连线 -->
+      <path class="e e-acc" d="M138,112 L172,112" marker-end="url(#m-acc)"/>
+      <path class="e e-acc" d="M300,112 L334,112" marker-end="url(#m-acc)"/>
+      <path class="e e-acc" d="M514,112 L576,112" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M766,112 L806,112" marker-end="url(#m-def)"/>
+      <path class="e e-warn" d="M740,76 V58 H1040 V76" marker-end="url(#m-warn)"/>
+      <path class="e e-def" d="M1040,148 V196" marker-end="url(#m-def)"/>
+      <path class="e e-warn" d="M424,148 V176" marker-end="url(#m-warn)"/>
+      <path class="e e-def" d="M300,272 H236 V148" marker-end="url(#m-def)"/>
+      <path class="e e-def" d="M660,176 V148" marker-end="url(#m-def)"/>
+      <path class="e e-def" d="M878,148 V384 H560 V410" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M590,442 L660,442" marker-end="url(#m-acc)"/>
+      <path class="e e-ok" d="M830,442 L910,442" marker-end="url(#m-ok)"/>
+      <path class="e e-def" d="M700,474 C700,504 550,504 550,474" marker-end="url(#m-def)"/>
+      <path class="e e-unk flow" d="M780,474 V534 H860" marker-end="url(#m-unk)"/>
+      <path class="e e-unk flow" d="M880,506 V452 H830" marker-end="url(#m-unk)"/>
+
+      <!-- 执行与验收 -->
+      <g class="nd k-svc"><rect x="20" y="76" width="118" height="72" rx="12"/><text class="t" x="79" y="102" text-anchor="middle">草稿</text><text class="s" x="79" y="120" text-anchor="middle">需求与计划画布</text><text class="s" x="79" y="136" text-anchor="middle">还没有工作区</text></g>
+      <g class="nd k-user"><rect x="172" y="76" width="128" height="72" rx="12"/><text class="t" x="236" y="102" text-anchor="middle">计划确认</text><text class="s" x="236" y="120" text-anchor="middle">用户审阅并确认</text><text class="s" x="236" y="136" text-anchor="middle">原回执</text></g>
+      <g class="nd k-user"><rect x="334" y="76" width="180" height="72" rx="12"/><text class="t" x="424" y="102" text-anchor="middle">准备独立工作区</text><text class="s" x="424" y="120" text-anchor="middle">Git：任务分支 + worktree</text><text class="s" x="424" y="136" text-anchor="middle">非 Git：基线快照 + 独立副本</text></g>
+      <g class="nd k-svc"><rect x="576" y="76" width="190" height="72" rx="12"/><text class="t" x="671" y="102" text-anchor="middle">执行</text><text class="s" x="671" y="120" text-anchor="middle">写节点只写任务工作区</text><text class="s" x="671" y="136" text-anchor="middle">并行写：子隔离 + 服务汇合</text>
+        <g class="tg tg-acc"><rect x="588" y="67" width="132" height="18" rx="9"/><text x="654" y="80" text-anchor="middle">准备成功前不派发写节点</text></g></g>
+      <g class="nd k-svc"><rect x="806" y="76" width="144" height="72" rx="12"/><text class="t" x="878" y="102" text-anchor="middle">原节点验收</text><text class="s" x="878" y="120" text-anchor="middle">原验收 writer</text><text class="s" x="878" y="136" text-anchor="middle">失败证据保留</text></g>
+      <g class="nd k-warn"><rect x="980" y="76" width="120" height="72" rx="12"/><text class="t" x="1040" y="102" text-anchor="middle">取消 / 失败</text><text class="s" x="1040" y="120" text-anchor="middle">关闭窗口同理</text><text class="s" x="1040" y="136" text-anchor="middle">不称成功</text></g>
+      <g class="nd k-ok"><rect x="980" y="196" width="120" height="56" rx="12"/><text class="t" x="1040" y="220" text-anchor="middle">文件保留</text><text class="s" x="1040" y="238" text-anchor="middle">可稍后查看 / 交付</text></g>
+
+      <!-- 准备异常 -->
+      <g class="nd k-unk"><rect x="312" y="192" width="192" height="50" rx="10"/><text class="t" x="408" y="212" text-anchor="middle">准备回执未知</text><text class="s" x="408" y="230" text-anchor="middle">只核对原创建 · 不建第二目录</text></g>
+      <g class="nd k-warn"><rect x="512" y="192" width="192" height="50" rx="10"/><text class="t" x="608" y="212" text-anchor="middle">部分创建</text><text class="s" x="608" y="230" text-anchor="middle">列出已发生步骤 · 定向恢复</text></g>
+      <g class="nd k-stall"><rect x="312" y="250" width="192" height="50" rx="10"/><text class="t" x="408" y="270" text-anchor="middle">分支 / 目录同名</text><text class="s" x="408" y="288" text-anchor="middle">显示占用对象 · 不覆盖不复用</text></g>
+      <g class="nd k-warn"><rect x="512" y="250" width="192" height="50" rx="10"/><text class="t" x="608" y="270" text-anchor="middle">基线前移</text><text class="s" x="608" y="288" text-anchor="middle">新旧并列 · 重读后重新确认</text></g>
+
+      <!-- 交付 -->
+      <g class="nd k-idle"><rect x="20" y="410" width="140" height="64" rx="12"/><text class="t" x="90" y="435" text-anchor="middle">未到达</text><text class="s" x="90" y="453" text-anchor="middle">执行与验收期间</text><text class="s" x="90" y="468" text-anchor="middle">端点只显示</text></g>
+      <g class="nd k-proj"><rect x="420" y="410" width="170" height="64" rx="12"/><text class="t" x="505" y="435" text-anchor="middle">待交付</text><text class="s" x="505" y="453" text-anchor="middle">执行已结束 · 等待交付</text><text class="s" x="505" y="468" text-anchor="middle">不是绿色「任务已完成」</text>
+        <g class="tg tg-wait"><rect x="432" y="401" width="104" height="18" rx="9"/><text x="484" y="414" text-anchor="middle">投影 · 非内核枚举</text></g></g>
+      <g class="nd k-svc"><rect x="660" y="410" width="170" height="64" rx="12"/><text class="t" x="745" y="435" text-anchor="middle">交付进行中</text><text class="s" x="745" y="453" text-anchor="middle">每步单独确认</text><text class="s" x="745" y="468" text-anchor="middle">提交 / 推送 / MR / 应用</text></g>
+      <g class="nd k-ok"><rect x="910" y="410" width="190" height="64" rx="12"/><text class="t" x="1005" y="435" text-anchor="middle">已交付</text><text class="s" x="1005" y="453" text-anchor="middle">所选目标全部可信成功</text><text class="s" x="1005" y="468" text-anchor="middle">服务读回 · UI 不判终态</text>
+        <g class="tg tg-ok"><rect x="922" y="401" width="172" height="18" rx="9"/><text x="1008" y="414" text-anchor="middle">完成门槛 · 执行 / 任务状态 owner</text></g></g>
+      <g class="nd k-unk"><rect x="860" y="506" width="190" height="56" rx="12"/><text class="t" x="955" y="530" text-anchor="middle">待核对 UNKNOWN</text><text class="s" x="955" y="548" text-anchor="middle">只核对原操作 · 仍未知则保持</text></g>
+
+      <g class="nd k-note"><rect x="20" y="492" width="420" height="96" rx="12"/>
+        <text class="h" x="36" y="515">「待交付」是投影，不是内核状态</text>
+        <text class="s" x="36" y="535">TaskDeliveryView 投影 + 派生原因；四组内核枚举 10 / 10 / 7 / 7 不变</text>
+        <text class="s" x="36" y="553">不加 ExecutionStatus=awaiting_delivery；待交付期间执行状态非终态</text>
+        <text class="s" x="36" y="571">完成门槛由执行 / 任务状态 owner 实现；UI 没有「设为完成」入口</text></g>
+
+      <!-- 连线文字 -->
+      <text class="l" x="545" y="104" text-anchor="middle">准备成功</text>
+      <text class="l" x="545" y="129" text-anchor="middle">开始执行</text>
+      <text class="l" x="890" y="52" text-anchor="middle">取消 / 模型失败 / 关闭窗口</text>
+      <text class="l" x="432" y="167">未成功</text>
+      <text class="l" x="228" y="216" text-anchor="end">重读 / 改名后重新确认</text>
+      <text class="l" x="668" y="167">核对：原请求已创建</text>
+      <text class="l" x="886" y="262">执行与验收结束</text>
+      <text class="l" x="886" y="278">节点状态不改写</text>
+      <text class="l" x="625" y="434" text-anchor="middle">用户确认</text>
+      <text class="l" x="870" y="434" text-anchor="middle">全部成功</text>
+      <text class="l" x="625" y="520" text-anchor="middle">前一步成功、未到目标 → 等下一步确认</text>
+      <text class="l" x="788" y="524">回执未知</text>
+      <text class="l" x="888" y="494">核对原操作 · 不重发</text>
+    </svg></div>
+    <div class="lgd"><span class="cap">图例</span>
+      <span class="li"><span class="sw user"></span>用户明确操作</span>
+      <span class="li"><span class="sw svc"></span>服务 / 原 writer</span>
+      <span class="li"><span class="sw proj"></span>交付投影（非内核枚举）</span>
+      <span class="li"><span class="sw ok"></span>成功 / 保留</span>
+      <span class="li"><span class="sw warn"></span>失败 / 需处理</span>
+      <span class="li"><span class="sw stall"></span>被占用，不覆盖</span>
+      <span class="li"><span class="sw unk"></span>回执未知 · 只核对</span>
+      <span class="li"><span class="sw idle"></span>未到达</span>
+      <span class="li"><span class="sw rg"></span>异常区域</span>
+      <span class="li"><span class="ln-sw acc"></span>用户触发</span>
+      <span class="li"><span class="ln-sw def"></span>系统流转</span>
+      <span class="li"><span class="ln-sw unk"></span>回执未知</span>
+    </div>
+  </section>
+
+  <!-- ===================================================== 2 ===================================================== -->
+  <section class="blk" id="s2">
+    <h2><span class="no">02</span>Git 交付目标与步骤依赖</h2>
+    <p class="d">三个完成目标是<b>依赖完整的目标选择</b>，不是自动授权三步：提交、推送、创建 MR 各有自己的表单和确认框。所选目标的每一步都成功、由服务读回后才算已交付。MR 之后在外部 GitLab 合并，不影响已交付。</p>
+    <div class="fig"><svg class="dg" viewBox="0 0 1120 560" role="img" aria-labelledby="f2t"><title id="f2t">Git 三个完成目标与提交、推送、MR 步骤依赖，以及每一步的确认与回执</title>
+      <text class="ch" x="20" y="30">完成目标（三选一）</text>
+      <text class="ch" x="370" y="30" text-anchor="middle">① 提交</text>
+      <text class="ch" x="550" y="30" text-anchor="middle">② 推送</text>
+      <text class="ch" x="730" y="30" text-anchor="middle">③ 创建 MR</text>
+      <text class="ch" x="975" y="30" text-anchor="middle">什么时候算已交付</text>
+
+      <path class="e e-acc" d="M250,68 L300,68" marker-end="url(#m-acc)"/>
+      <path class="e e-def dash" d="M440,68 L850,68" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M250,122 L300,122" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M440,122 L480,122" marker-end="url(#m-def)"/>
+      <path class="e e-def dash" d="M620,122 L850,122" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M250,176 L300,176" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M440,176 L480,176" marker-end="url(#m-def)"/>
+      <path class="e e-def" d="M620,176 L660,176" marker-end="url(#m-def)"/>
+      <path class="e e-def" d="M800,176 L850,176" marker-end="url(#m-def)"/>
+      <path class="e e-def dash" d="M135,214 V198" marker-end="url(#m-def)"/>
+
+      <g class="nd k-user"><rect x="20" y="46" width="230" height="44" rx="10"/><text class="t" x="135" y="73" text-anchor="middle">仅本地提交</text></g>
+      <g class="nd k-user"><rect x="20" y="100" width="230" height="44" rx="10"/><text class="t" x="135" y="127" text-anchor="middle">提交并推送</text></g>
+      <g class="nd k-user"><rect x="20" y="154" width="230" height="44" rx="10"/><text class="t" x="135" y="181" text-anchor="middle">提交、推送并创建 MR</text></g>
+
+      <g class="nd k-svc"><rect x="300" y="46" width="140" height="44" rx="10"/><text class="t" x="370" y="64" text-anchor="middle">提交</text><text class="s" x="370" y="81" text-anchor="middle">独立确认</text></g>
+      <g class="nd k-svc"><rect x="300" y="100" width="140" height="44" rx="10"/><text class="t" x="370" y="118" text-anchor="middle">提交</text><text class="s" x="370" y="135" text-anchor="middle">独立确认</text></g>
+      <g class="nd k-svc"><rect x="480" y="100" width="140" height="44" rx="10"/><text class="t" x="550" y="118" text-anchor="middle">推送</text><text class="s" x="550" y="135" text-anchor="middle">① 成功后 · 独立确认</text></g>
+      <g class="nd k-svc"><rect x="300" y="154" width="140" height="44" rx="10"/><text class="t" x="370" y="172" text-anchor="middle">提交</text><text class="s" x="370" y="189" text-anchor="middle">独立确认</text></g>
+      <g class="nd k-svc"><rect x="480" y="154" width="140" height="44" rx="10"/><text class="t" x="550" y="172" text-anchor="middle">推送</text><text class="s" x="550" y="189" text-anchor="middle">① 成功后 · 独立确认</text></g>
+      <g class="nd k-svc"><rect x="660" y="154" width="140" height="44" rx="10"/><text class="t" x="730" y="172" text-anchor="middle">创建 MR</text><text class="s" x="730" y="189" text-anchor="middle">② 成功后 · 独立确认</text></g>
+
+      <g class="nd k-ok"><rect x="850" y="46" width="250" height="44" rx="10"/><text class="t" x="975" y="64" text-anchor="middle">提交成功 → 已交付</text><text class="s" x="975" y="81" text-anchor="middle">未选文件留在任务工作区</text></g>
+      <g class="nd k-ok"><rect x="850" y="100" width="250" height="44" rx="10"/><text class="t" x="975" y="118" text-anchor="middle">推送成功 → 已交付</text><text class="s" x="975" y="135" text-anchor="middle">只提交成功时记「已成功」，仍待交付</text></g>
+      <g class="nd k-ok"><rect x="850" y="154" width="250" height="44" rx="10"/><text class="t" x="975" y="172" text-anchor="middle">MR 原回执成功 → 已交付</text><text class="s" x="975" y="189" text-anchor="middle">不等合并；已有合法原 MR 只显示原链接</text></g>
+
+      <g class="nd k-cand"><rect x="20" y="214" width="600" height="48" rx="10"/><text class="t" x="36" y="234">未完成时改变目标</text>
+        <g class="tg tg-unk"><rect x="152" y="223" width="70" height="18" rx="9"/><text x="187" y="236" text-anchor="middle">API 未冻结</text></g>
+        <text class="s" x="36" y="252">已发生的提交 / 推送保留：不撤销、不删远端；需显式确认，并由服务做版本校验</text></g>
+
+      <text class="l" x="645" y="62" text-anchor="middle">不推送 · 不创建 MR</text>
+      <text class="l" x="735" y="116" text-anchor="middle">不创建 MR</text>
+
+      <!-- 每一步 -->
+      <text class="ch" x="20" y="292">每一步（① ② ③ 相同）：自己的表单 → 独立确认 → 原回执</text>
+      <path class="e e-def" d="M890,315 V304 H120 V350" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M170,378 L210,378" marker-end="url(#m-acc)"/>
+      <path class="e e-acc" d="M360,378 L400,378" marker-end="url(#m-acc)"/>
+      <path class="e e-ok" d="M570,378 C595,378 595,345 620,345" marker-end="url(#m-ok)"/>
+      <path class="e e-unk flow" d="M570,378 C595,378 595,419 620,419" marker-end="url(#m-unk)"/>
+      <path class="e e-warn" d="M570,378 C595,378 595,493 620,493" marker-end="url(#m-warn)"/>
+      <path class="e e-def" d="M810,345 L836,345" marker-end="url(#m-def)"/>
+      <path class="e e-ok" d="M944,345 L975,345" marker-end="url(#m-ok)"/>
+      <path class="e e-unk flow" d="M810,410 C848,410 848,436 810,436" marker-end="url(#m-unk)"/>
+      <path class="e e-def dash" d="M1037,370 V430" marker-end="url(#m-def)"/>
+      <path class="e e-warn" d="M285,406 C285,436 95,436 95,406" marker-end="url(#m-warn)"/>
+      <path class="e e-warn" d="M715,518 V542 H45 V406" marker-end="url(#m-warn)"/>
+
+      <g class="nd k-svc"><rect x="20" y="350" width="150" height="56" rx="12"/><text class="t" x="95" y="374" text-anchor="middle">表单 / 预览</text><text class="s" x="95" y="392" text-anchor="middle">每步自己的字段</text></g>
+      <g class="nd k-user"><rect x="210" y="350" width="150" height="56" rx="12"/><text class="t" x="285" y="374" text-anchor="middle">独立确认</text><text class="s" x="285" y="392" text-anchor="middle">列出实际目标与影响</text></g>
+      <g class="nd k-svc"><rect x="400" y="350" width="170" height="56" rx="12"/><text class="t" x="485" y="374" text-anchor="middle">原请求已发出</text><text class="s" x="485" y="392" text-anchor="middle">原 requestKey · 原回执</text></g>
+      <g class="nd k-ok"><rect x="620" y="320" width="190" height="50" rx="12"/><text class="t" x="715" y="340" text-anchor="middle">成功</text><text class="s" x="715" y="358" text-anchor="middle">记为已成功，解锁下一步</text></g>
+      <g class="nd k-unk"><rect x="620" y="388" width="190" height="62" rx="12"/><text class="t" x="715" y="409" text-anchor="middle">回执未知 UNKNOWN</text><text class="s" x="715" y="427" text-anchor="middle">只核对原操作 · 原 key</text><text class="s" x="715" y="442" text-anchor="middle">核对后进入实际结果</text></g>
+      <g class="nd k-warn"><rect x="620" y="468" width="190" height="50" rx="12"/><text class="t" x="715" y="488" text-anchor="middle">明确失败</text><text class="s" x="715" y="506" text-anchor="middle">hook 拒绝 / 权限 / 远端拒绝</text></g>
+      <g class="nd k-dec"><polygon points="836,345 890,315 944,345 890,375"/><text class="h" x="890" y="350" text-anchor="middle">到所选目标？</text></g>
+      <g class="nd k-ok"><rect x="975" y="320" width="125" height="50" rx="12"/><text class="t" x="1037" y="340" text-anchor="middle">任务已交付</text><text class="s" x="1037" y="358" text-anchor="middle">服务读回</text></g>
+      <g class="nd k-idle"><rect x="975" y="430" width="125" height="62" rx="12"/><text class="t" x="1037" y="451" text-anchor="middle">外部 GitLab 合并</text><text class="s" x="1037" y="469" text-anchor="middle">不影响已交付</text><text class="s" x="1037" y="484" text-anchor="middle">MR 关闭也不重开</text></g>
+
+      <text class="l" x="500" y="300" text-anchor="middle">否 · 等下一步确认（不自动发送）</text>
+      <text class="l" x="959" y="338" text-anchor="middle">是</text>
+      <text class="l" x="854" y="427">仍未知 → 保持</text>
+      <text class="l" x="1045" y="404">之后</text>
+      <text class="l" x="190" y="452" text-anchor="middle">版本漂移 / 远端同名 → 重读后重新确认</text>
+      <text class="l" x="380" y="538" text-anchor="middle">明确失败且证明无副作用：修改后以新请求再发，需重新确认</text>
+    </svg></div>
+    <div class="lgd"><span class="cap">图例</span>
+      <span class="li"><span class="sw user"></span>用户选择 / 确认</span>
+      <span class="li"><span class="sw svc"></span>步骤 / 服务</span>
+      <span class="li"><span class="sw dec"></span>判定</span>
+      <span class="li"><span class="sw ok"></span>成功 / 已交付</span>
+      <span class="li"><span class="sw warn"></span>明确失败 / 漂移</span>
+      <span class="li"><span class="sw unk"></span>回执未知 · 只核对原操作</span>
+      <span class="li"><span class="sw idle"></span>产品外 · 不影响完成</span>
+      <span class="li"><span class="sw note" style="border-color:var(--unknown-line)"></span>候选 · API 未冻结</span>
+      <span class="li"><span class="ln-sw acc"></span>用户触发</span>
+      <span class="li"><span class="ln-sw def dash"></span>该目标不需要的步骤</span>
+      <span class="li"><span class="ln-sw warn"></span>退回重填</span>
+      <span class="li"><span class="ln-sw unk"></span>核对循环</span>
+    </div>
+  </section>
+
+  <!-- ===================================================== 3 ===================================================== -->
+  <section class="blk" id="s3">
+    <h2><span class="no">03</span>非 Git 应用流程</h2>
+    <p class="d">非 Git 任务把<b>所选变更逐项</b>应用回原目录。检查和预览只读；冲突逐项处理，没有「全部覆盖」；确认后原目录若又变化，对应项被阻塞并重读，已成功项不重做。所选项全部可信成功后才结算交付。</p>
+    <div class="fig"><svg class="dg" viewBox="0 0 1120 680" role="img" aria-labelledby="f3t"><title id="f3t">非 Git 应用流程：选择、检查、预览、冲突、冻结、确认、逐项结果</title>
+      <text class="ch" x="20" y="24">三方标签固定：基线（快照 10-15 09:40）｜ 任务副本 ｜ 当前原目录（检查于 16:05）· 不用「本地 / 远端」</text>
+
+      <path class="e e-acc" d="M160,86 L200,86" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M350,86 L390,86" marker-end="url(#m-def)"/>
+      <path class="e e-def" d="M540,86 L564,86" marker-end="url(#m-def)"/>
+      <path class="e e-def" d="M660,86 L700,86" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M860,86 L900,86" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M612,116 V134 H960 V116" marker-end="url(#m-def)"/>
+      <path class="e e-def" d="M1060,116 V156 H100 V286" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M180,318 L220,318" marker-end="url(#m-acc)"/>
+      <path class="e e-warn" d="M380,318 C400,318 400,218 420,218" marker-end="url(#m-warn)"/>
+      <path class="e e-unk" d="M380,318 C400,318 400,268 420,268" marker-end="url(#m-unk)"/>
+      <path class="e e-ok" d="M380,318 L420,318" marker-end="url(#m-ok)"/>
+      <path class="e e-def dash" d="M380,318 C400,318 400,368 420,368" marker-end="url(#m-def)"/>
+      <path class="e e-warn" d="M515,196 V184 H275 V116" marker-end="url(#m-warn)"/>
+      <path class="e e-unk flow" d="M610,258 C640,258 640,278 610,278" marker-end="url(#m-unk)"/>
+      <path class="e e-ok" d="M610,318 L656,318" marker-end="url(#m-ok)"/>
+      <path class="e e-ok" d="M784,318 L830,318" marker-end="url(#m-ok)"/>
+      <path class="e e-def" d="M720,350 V400" marker-end="url(#m-def)"/>
+
+      <g class="nd k-user"><rect x="20" y="56" width="140" height="60" rx="12"/><text class="t" x="90" y="81" text-anchor="middle">选择变更</text><text class="s" x="90" y="100" text-anchor="middle">未选项留在独立副本</text></g>
+      <g class="nd k-svc"><rect x="200" y="56" width="150" height="60" rx="12"/><text class="t" x="275" y="81" text-anchor="middle">检查当前原目录</text><text class="s" x="275" y="100" text-anchor="middle">只读 · 不写文件</text></g>
+      <g class="nd k-svc"><rect x="390" y="56" width="150" height="60" rx="12"/><text class="t" x="465" y="81" text-anchor="middle">逐项预览</text><text class="s" x="465" y="100" text-anchor="middle">新增 / 替换 / 删除路径</text></g>
+      <g class="nd k-dec"><polygon points="564,86 612,56 660,86 612,116"/><text class="h" x="612" y="91" text-anchor="middle">有冲突？</text></g>
+      <g class="nd k-user"><rect x="700" y="56" width="160" height="60" rx="12"/><text class="t" x="780" y="81" text-anchor="middle">处理冲突</text><text class="s" x="780" y="100" text-anchor="middle">逐项四选一 · 无全部覆盖</text></g>
+      <g class="nd k-svc"><rect x="900" y="56" width="200" height="60" rx="12"/><text class="t" x="1000" y="81" text-anchor="middle">重新检查并冻结预览</text><text class="s" x="1000" y="100" text-anchor="middle">全部冲突有处理结果才可用</text></g>
+
+      <g class="nd k-user"><rect x="20" y="286" width="160" height="64" rx="12"/><text class="t" x="100" y="310" text-anchor="middle">确认应用</text><text class="s" x="100" y="328" text-anchor="middle">列出 A/M/D 与原目录</text><text class="s" x="100" y="343" text-anchor="middle">不改无关文件</text></g>
+      <g class="nd k-svc"><rect x="220" y="286" width="160" height="64" rx="12"/><text class="t" x="300" y="310" text-anchor="middle">逐项应用</text><text class="s" x="300" y="328" text-anchor="middle">每项独立原意图</text><text class="s" x="300" y="343" text-anchor="middle">不是文件系统全事务</text></g>
+      <g class="nd k-warn"><rect x="420" y="196" width="190" height="44" rx="10"/><text class="t" x="515" y="214" text-anchor="middle">被阻塞</text><text class="s" x="515" y="231" text-anchor="middle">确认后原目录又变化</text></g>
+      <g class="nd k-unk"><rect x="420" y="246" width="190" height="44" rx="10"/><text class="t" x="515" y="264" text-anchor="middle">待核实 UNKNOWN</text><text class="s" x="515" y="281" text-anchor="middle">只核对原操作</text></g>
+      <g class="nd k-ok"><rect x="420" y="296" width="190" height="44" rx="10"/><text class="t" x="515" y="314" text-anchor="middle">已应用</text><text class="s" x="515" y="331" text-anchor="middle">不会重做</text></g>
+      <g class="nd k-idle"><rect x="420" y="346" width="190" height="44" rx="10"/><text class="t" x="515" y="364" text-anchor="middle">未执行</text><text class="s" x="515" y="381" text-anchor="middle">中断前未开始</text></g>
+      <g class="nd k-dec"><polygon points="656,318 720,286 784,318 720,350"/><text class="h" x="720" y="323" text-anchor="middle">所选项全部成功？</text></g>
+      <g class="nd k-ok"><rect x="830" y="290" width="170" height="56" rx="12"/><text class="t" x="915" y="314" text-anchor="middle">任务已交付</text><text class="s" x="915" y="332" text-anchor="middle">服务结算 · 非按钮点击</text>
+        <g class="tg tg-ok"><rect x="842" y="281" width="112" height="18" rx="9"/><text x="898" y="294" text-anchor="middle">全部所选项可信成功</text></g></g>
+      <g class="nd k-idle"><rect x="640" y="400" width="160" height="50" rx="12"/><text class="t" x="720" y="420" text-anchor="middle">保持待交付</text><text class="s" x="720" y="438" text-anchor="middle">部分成功不整批重做</text></g>
+
+      <text class="l" x="622" y="130">无冲突</text>
+      <text class="l" x="680" y="79" text-anchor="middle">有</text>
+      <text class="l" x="700" y="152" text-anchor="middle">冻结后进入确认</text>
+      <text class="l" x="290" y="179">原目录又变化 → 重读、重新检查；已成功项不重做</text>
+      <text class="l" x="646" y="272">核对原操作 · 仍未知则保持</text>
+      <text class="l" x="807" y="311" text-anchor="middle">是</text>
+      <text class="l" x="728" y="380">否</text>
+
+      <!-- 冲突细节 -->
+      <rect class="pn" x="20" y="470" width="536" height="196" rx="14"/>
+      <text class="h" x="36" y="492">处理冲突 · 六类冲突（样例：运营报表脚本 T-2043）</text>
+      <g class="nd k-inner"><rect x="36" y="506" width="250" height="44" rx="9"/><text class="h" x="48" y="524">双方都修改</text><text class="m" x="48" y="541">report/monthly.py</text></g>
+      <g class="nd k-inner"><rect x="294" y="506" width="250" height="44" rx="9"/><text class="h" x="306" y="524">任务新增，原目录已有同名</text><text class="m" x="306" y="541">report/calendar_util.py</text></g>
+      <g class="nd k-inner"><rect x="36" y="556" width="250" height="44" rx="9"/><text class="h" x="48" y="574">任务删除，原文件已修改</text><text class="m" x="48" y="591">report/legacy_week.py</text></g>
+      <g class="nd k-inner"><rect x="294" y="556" width="250" height="44" rx="9"/><text class="h" x="306" y="574">原文件已删，任务继续修改</text><text class="m" x="306" y="591">config/report.yaml</text></g>
+      <g class="nd k-inner"><rect x="36" y="606" width="250" height="44" rx="9"/><text class="h" x="48" y="624">目录 / 文件类型冲突</text><text class="m" x="48" y="641">exports · 原为文件，任务为目录</text></g>
+      <g class="nd k-inner"><rect x="294" y="606" width="250" height="44" rx="9"/><text class="h" x="306" y="624">二进制 / 链接不支持合并</text><text class="m" x="306" y="641">assets/logo.png · 只能保留或采用</text></g>
+
+      <rect class="pn" x="576" y="470" width="524" height="196" rx="14"/>
+      <text class="h" x="592" y="492">四种处理 · 逐项选择</text>
+      <g class="nd k-user"><rect x="592" y="506" width="246" height="44" rx="9"/><text class="h" x="604" y="524">保留当前原文件</text><text class="s" x="604" y="541">原目录这一项不改</text></g>
+      <g class="nd k-user"><rect x="846" y="506" width="246" height="44" rx="9"/><text class="h" x="858" y="524">采用任务版本</text><text class="s" x="858" y="541">替换有冲突的原文件前再确认一次</text></g>
+      <g class="nd k-user"><rect x="592" y="556" width="246" height="44" rx="9"/><text class="h" x="604" y="574">我已手动解决，重新检查</text><text class="s" x="604" y="591">改完原文件后重读该项</text></g>
+      <g class="nd k-user"><rect x="846" y="556" width="246" height="44" rx="9"/><text class="h" x="858" y="574">暂不交付该项</text><text class="s" x="858" y="591">留在独立副本，可稍后再选</text></g>
+      <g class="nd k-stall"><rect x="592" y="606" width="500" height="44" rx="9"/><text class="t" x="604" y="624">✕ 一键覆盖整个项目 · 不提供</text><text class="s" x="604" y="641">也没有「全部采用任务版本」；二进制只能选保留当前或采用任务版本</text></g>
+    </svg></div>
+    <div class="lgd"><span class="cap">图例</span>
+      <span class="li"><span class="sw user"></span>用户选择 / 确认</span>
+      <span class="li"><span class="sw svc"></span>只读检查 / 服务</span>
+      <span class="li"><span class="sw dec"></span>判定</span>
+      <span class="li"><span class="sw ok"></span>已应用 / 已交付</span>
+      <span class="li"><span class="sw warn"></span>被阻塞，需重读</span>
+      <span class="li"><span class="sw unk"></span>待核实 · 只核对</span>
+      <span class="li"><span class="sw idle"></span>未执行 / 保持待交付</span>
+      <span class="li"><span class="sw stall"></span>不提供</span>
+      <span class="li"><span class="ln-sw acc"></span>用户触发</span>
+      <span class="li"><span class="ln-sw warn"></span>确认后漂移循环</span>
+      <span class="li"><span class="ln-sw unk"></span>核对循环</span>
+    </div>
+  </section>
+
+  <!-- ===================================================== 4 ===================================================== -->
+  <section class="blk" id="s4">
+    <h2><span class="no">04</span>工作区保全与清理</h2>
+    <p class="d">任何结束路径都<b>默认保留</b>工作区。清理是用户单独发起的动作：先读清理预览，有阻塞就链到原因；有未交付内容时默认保留，丢弃需要额外知情确认。清理后交付回执仍可读；非 Git 的原目录从来不是清理对象。</p>
+    <div class="fig"><svg class="dg" viewBox="0 0 1120 595" role="img" aria-labelledby="f4t"><title id="f4t">工作区默认保留，清理预览、阻塞、知情确认、部分清理与核对</title>
+      <text class="ch" x="20" y="36">任何结束路径</text>
+      <path class="e e-def" d="M170,68 C190,68 190,168 196,168"/>
+      <path class="e e-def" d="M170,108 C190,108 190,168 196,168"/>
+      <path class="e e-def" d="M170,148 C190,148 190,168 196,168"/>
+      <path class="e e-def" d="M170,188 C190,188 190,168 196,168"/>
+      <path class="e e-def" d="M170,228 C190,228 190,168 196,168"/>
+      <path class="e e-def" d="M170,268 C190,268 190,168 196,168"/>
+      <path class="e e-def" d="M196,168 L210,168" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M370,168 L410,168" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M540,168 L580,168" marker-end="url(#m-def)"/>
+      <path class="e e-def" d="M780,168 L806,168" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M894,168 L940,168" marker-end="url(#m-acc)"/>
+      <path class="e e-stall" d="M850,200 V230 H660 V262" marker-end="url(#m-stall)"/>
+      <path class="e e-def" d="M560,295 H290 V204" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M1020,204 V262" marker-end="url(#m-acc)"/>
+      <path class="e e-ok" d="M1040,318 V372" marker-end="url(#m-ok)"/>
+      <path class="e e-unk flow" d="M955,318 V387 H900" marker-end="url(#m-unk)"/>
+      <path class="e e-ok" d="M900,420 L980,420" marker-end="url(#m-ok)"/>
+      <path class="e e-unk flow" d="M680,392 C650,392 650,416 680,416" marker-end="url(#m-unk)"/>
+
+      <g class="nd k-inner"><rect x="20" y="52" width="150" height="32" rx="8"/><text class="h" x="95" y="73" text-anchor="middle">已交付</text></g>
+      <g class="nd k-inner"><rect x="20" y="92" width="150" height="32" rx="8"/><text class="h" x="95" y="113" text-anchor="middle">取消任务</text></g>
+      <g class="nd k-inner"><rect x="20" y="132" width="150" height="32" rx="8"/><text class="h" x="95" y="153" text-anchor="middle">模型 / 验证失败</text></g>
+      <g class="nd k-inner"><rect x="20" y="172" width="150" height="32" rx="8"/><text class="h" x="95" y="193" text-anchor="middle">关闭窗口</text></g>
+      <g class="nd k-inner"><rect x="20" y="212" width="150" height="32" rx="8"/><text class="h" x="95" y="233" text-anchor="middle">回执未知 UNKNOWN</text></g>
+      <g class="nd k-inner"><rect x="20" y="252" width="150" height="32" rx="8"/><text class="h" x="95" y="273" text-anchor="middle">MR 已创建</text></g>
+
+      <g class="nd k-ok"><rect x="210" y="132" width="160" height="72" rx="12"/><text class="t" x="290" y="158" text-anchor="middle">工作区保留中</text><text class="s" x="290" y="176" text-anchor="middle">文件 / 分支 / 副本都在</text><text class="s" x="290" y="192" text-anchor="middle">任务完成 ≠ 已清理</text>
+        <g class="tg tg-ok"><rect x="222" y="123" width="40" height="18" rx="9"/><text x="242" y="136" text-anchor="middle">默认</text></g></g>
+      <g class="nd k-user"><rect x="410" y="140" width="130" height="56" rx="12"/><text class="t" x="475" y="164" text-anchor="middle">清理工作区…</text><text class="s" x="475" y="182" text-anchor="middle">单独动作</text></g>
+      <g class="nd k-svc"><rect x="580" y="120" width="200" height="96" rx="12"/><text class="t" x="680" y="144" text-anchor="middle">读取清理预览</text><text class="s" x="680" y="164" text-anchor="middle">删除：精确的自有本地对象</text><text class="s" x="680" y="182" text-anchor="middle">保留：原项目、远端、回执</text><text class="s" x="680" y="200" text-anchor="middle">列出未交付文件数量</text></g>
+      <g class="nd k-dec"><polygon points="806,168 850,136 894,168 850,200"/><text class="h" x="850" y="173" text-anchor="middle">有阻塞？</text></g>
+      <g class="nd k-user"><rect x="940" y="132" width="160" height="72" rx="12"/><text class="t" x="1020" y="158" text-anchor="middle">确认清理</text><text class="s" x="1020" y="176" text-anchor="middle">有未交付：默认保留</text><text class="s" x="1020" y="192" text-anchor="middle">丢弃需额外知情确认</text></g>
+      <g class="nd k-stall"><rect x="560" y="262" width="200" height="66" rx="12"/><text class="t" x="660" y="284" text-anchor="middle">清理受阻</text><text class="s" x="660" y="302" text-anchor="middle">运行写 / 未停稳 / UNKNOWN /</text><text class="s" x="660" y="318" text-anchor="middle">内容漂移 / 恢复依赖：链到原因</text></g>
+      <g class="nd k-svc"><rect x="940" y="262" width="160" height="56" rx="12"/><text class="t" x="1020" y="286" text-anchor="middle">逐项清理</text><text class="s" x="1020" y="304" text-anchor="middle">原清理账 · 精确自有对象</text></g>
+      <g class="nd k-unk"><rect x="680" y="372" width="220" height="64" rx="12"/><text class="t" x="790" y="396" text-anchor="middle">部分清理 / 失联</text><text class="s" x="790" y="414" text-anchor="middle">已发生步骤逐项列出</text><text class="s" x="790" y="429" text-anchor="middle">只核对原操作 · 不再发同一删除</text></g>
+      <g class="nd k-ok"><rect x="980" y="372" width="120" height="64" rx="12"/><text class="t" x="1040" y="396" text-anchor="middle">已清理</text><text class="s" x="1040" y="414" text-anchor="middle">交付回执仍可读</text><text class="s" x="1040" y="429" text-anchor="middle">diff 显示已清理</text></g>
+
+      <text class="l" x="917" y="161" text-anchor="middle">无</text>
+      <text class="l" x="858" y="222">有</text>
+      <text class="l" x="420" y="289" text-anchor="middle">保持保留 · 链接到阻塞原因</text>
+      <text class="l" x="948" y="350" text-anchor="end">部分发生 / 失联</text>
+      <text class="l" x="940" y="414" text-anchor="middle">核对完成</text>
+      <text class="l" x="644" y="408" text-anchor="end">仍未知 → 保持</text>
+
+      <!-- 保留对象 / 不提供 -->
+      <rect class="pn" x="20" y="470" width="620" height="112" rx="14"/>
+      <text class="h" x="36" y="492">任何清理都保留</text>
+      <g class="nd k-ok"><rect x="36" y="504" width="70" height="28" rx="14"/><text class="s" x="71" y="522" text-anchor="middle">原项目</text></g>
+      <g class="nd k-ok"><rect x="114" y="504" width="214" height="28" rx="14"/><text class="h" x="221" y="522" text-anchor="middle">非 Git 原目录 · 从不是清理对象</text></g>
+      <g class="nd k-ok"><rect x="336" y="504" width="76" height="28" rx="14"/><text class="s" x="374" y="522" text-anchor="middle">远端分支</text></g>
+      <g class="nd k-ok"><rect x="420" y="504" width="50" height="28" rx="14"/><text class="s" x="445" y="522" text-anchor="middle">MR</text></g>
+      <g class="nd k-ok"><rect x="478" y="504" width="56" height="28" rx="14"/><text class="s" x="506" y="522" text-anchor="middle">提交</text></g>
+      <g class="nd k-ok"><rect x="36" y="540" width="160" height="28" rx="14"/><text class="s" x="116" y="558" text-anchor="middle">交付回执与验证记录</text></g>
+      <g class="nd k-cand"><rect x="204" y="540" width="190" height="28" rx="14"/><text class="s" x="299" y="558" text-anchor="middle">基线快照 · 是否保留由服务说明</text></g>
+
+      <rect class="pn bad" x="660" y="470" width="440" height="112" rx="14"/>
+      <text class="h" x="676" y="492">不提供</text>
+      <g class="nd k-stall"><rect x="676" y="504" width="84" height="28" rx="14"/><text class="s" x="718" y="522" text-anchor="middle">自动清理</text></g>
+      <g class="nd k-stall"><rect x="768" y="504" width="84" height="28" rx="14"/><text class="s" x="810" y="522" text-anchor="middle">定时清理</text></g>
+      <g class="nd k-stall"><rect x="860" y="504" width="118" height="28" rx="14"/><text class="s" x="919" y="522" text-anchor="middle">合并后自动清理</text></g>
+      <g class="nd k-stall"><rect x="986" y="504" width="96" height="28" rx="14"/><text class="s" x="1034" y="522" text-anchor="middle">全目录清空</text></g>
+      <g class="nd k-stall"><rect x="676" y="540" width="112" height="28" rx="14"/><text class="s" x="732" y="558" text-anchor="middle">重发同一删除</text></g>
+      <g class="nd k-stall"><rect x="796" y="540" width="200" height="28" rx="14"/><text class="s" x="896" y="558" text-anchor="middle">删除唯一产物 / 恢复所需副本</text></g>
+    </svg></div>
+    <div class="lgd"><span class="cap">图例</span>
+      <span class="li"><span class="sw inner"></span>结束路径</span>
+      <span class="li"><span class="sw ok"></span>保留 / 已清理</span>
+      <span class="li"><span class="sw user"></span>用户发起 / 确认</span>
+      <span class="li"><span class="sw svc"></span>服务预览 / 执行</span>
+      <span class="li"><span class="sw dec"></span>判定</span>
+      <span class="li"><span class="sw stall"></span>受阻 / 不提供</span>
+      <span class="li"><span class="sw unk"></span>部分发生 · 只核对</span>
+      <span class="li"><span class="sw note" style="border-color:var(--unknown-line)"></span>待冻结</span>
+      <span class="li"><span class="ln-sw acc"></span>用户触发</span>
+      <span class="li"><span class="ln-sw stall"></span>阻塞</span>
+      <span class="li"><span class="ln-sw unk"></span>核对循环</span>
+    </div>
+  </section>
+
+  <!-- ===================================================== 5 ===================================================== -->
+  <section class="blk" id="s5">
+    <h2><span class="no">05</span>组件复用图</h2>
+    <p class="d">行是原稿的容器和组件，列是 TD01–TD07。六个视图都挂在原容器上（<b>修改</b>），<b>唯一新增的交互视图是 TD05</b> 非 Git 三方应用；它的新部件在最后一组。状态样例很多，但不新增一级页面。</p>
+    <div class="fig"><svg class="dg" viewBox="0 0 1120 1048" role="img" aria-labelledby="f5t"><title id="f5t">原稿组件到 TD01–TD07 的复用、修改、新增矩阵</title>
+      <rect class="mx-td5" x="843" y="12" width="84" height="1030" rx="12"/>
+      <g class="mx-hd"><rect x="505" y="20" width="80" height="54" rx="10"/><text class="id" x="545" y="42" text-anchor="middle">TD01</text><text class="nm" x="545" y="61" text-anchor="middle">开始任务</text></g>
+      <g class="mx-hd"><rect x="590" y="20" width="80" height="54" rx="10"/><text class="id" x="630" y="42" text-anchor="middle">TD02</text><text class="nm" x="630" y="61" text-anchor="middle">任务画布</text></g>
+      <g class="mx-hd"><rect x="675" y="20" width="80" height="54" rx="10"/><text class="id" x="715" y="42" text-anchor="middle">TD03</text><text class="nm" x="715" y="61" text-anchor="middle">Git 任务变更</text></g>
+      <g class="mx-hd"><rect x="760" y="20" width="80" height="54" rx="10"/><text class="id" x="800" y="42" text-anchor="middle">TD04</text><text class="nm" x="800" y="61" text-anchor="middle">Git 交付动作</text></g>
+      <g class="mx-hd new"><rect x="845" y="20" width="80" height="54" rx="10"/><text class="id" x="885" y="42" text-anchor="middle">TD05</text><text class="nm" x="885" y="61" text-anchor="middle">非 Git 应用</text></g>
+      <g class="mx-hd"><rect x="930" y="20" width="80" height="54" rx="10"/><text class="id" x="970" y="42" text-anchor="middle">TD06</text><text class="nm" x="970" y="61" text-anchor="middle">保全与清理</text></g>
+      <g class="mx-hd"><rect x="1015" y="20" width="80" height="54" rx="10"/><text class="id" x="1055" y="42" text-anchor="middle">TD07</text><text class="nm" x="1055" y="61" text-anchor="middle">MR 来源</text></g>
+      <g class="cc cc-mod"><rect x="520" y="80" width="50" height="20" rx="10"/><text x="545" y="94" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="605" y="80" width="50" height="20" rx="10"/><text x="630" y="94" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="690" y="80" width="50" height="20" rx="10"/><text x="715" y="94" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="775" y="80" width="50" height="20" rx="10"/><text x="800" y="94" text-anchor="middle">修改</text></g>
+      <g class="cc cc-new"><rect x="853" y="80" width="64" height="20" rx="10"/><text x="885" y="94" text-anchor="middle">新增视图</text></g>
+      <g class="cc cc-mod"><rect x="945" y="80" width="50" height="20" rx="10"/><text x="970" y="94" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="1030" y="80" width="50" height="20" rx="10"/><text x="1055" y="94" text-anchor="middle">修改</text></g>
+      <text class="ch" x="20" y="42">原稿容器 / 组件</text>
+      <text class="ch" x="20" y="60">↓ 行 · 列 → 用在哪个视图、怎么用</text>
+
+      <!-- 组：deepseek -->
+      <rect class="mx-grp" x="20" y="112" width="1080" height="30" rx="6"/>
+      <text class="mx-gt" x="32" y="132">deepseek 通用原稿 · pages/*.html · assets/ds.css · canvas.js</text>
+      <text class="h" x="32" y="158">项目单选卡 + 「将要创建」摘要 + 接下来轨道</text><text class="m" x="32" y="173">start.html · .opt · .summary · .nx</text>
+      <path class="mx-row" d="M20,180 H1100"/>
+      <text class="h" x="32" y="196">计划面板与开始确认框</text><text class="m" x="32" y="211">requirement.html · aside.side · side-foot · #startDlg</text>
+      <path class="mx-row" d="M20,218 H1100"/>
+      <text class="h" x="32" y="234">阶段条（只阶段名，不造百分比）</text><text class="m" x="32" y="249">requirement.html · .stages</text>
+      <path class="mx-row" d="M20,256 H1100"/>
+      <text class="h" x="32" y="272">状态徽标 + 情况条</text><text class="m" x="32" y="287">task.html · .canvas-bar · .badge st-* · #situ</text>
+      <path class="mx-row" d="M20,294 H1100"/>
+      <text class="h" x="32" y="310">执行画布与系统终点「交付」</text><text class="m" x="32" y="325">task.html · #cv · canvas.js system @end</text>
+      <path class="mx-row" d="M20,332 H1100"/>
+      <text class="h" x="32" y="348">右侧详情面板</text><text class="m" x="32" y="363">task.html · aside.side（新增「交付」模式 480）</text>
+      <path class="mx-row" d="M20,370 H1100"/>
+      <text class="h" x="32" y="386">抽屉 520 与确认对话框</text><text class="m" x="32" y="401">aside.drawer · .dialog[role=alertdialog] · #delDlg</text>
+      <path class="mx-row" d="M20,408 H1100"/>
+      <text class="h" x="32" y="424">横幅 / 锁定说明 / 后果块</text><text class="m" x="32" y="439">ds.css · .banner · .lockline · .conseq</text>
+
+      <!-- 组：Git -->
+      <rect class="mx-grp" x="20" y="446" width="1080" height="30" rx="6"/>
+      <text class="mx-gt" x="32" y="466">Git 工作台原稿 · git-workbench/prototype（g01–g61）</text>
+      <text class="h" x="32" y="492">工作台外壳：面包屑、左栏、主区</text><text class="m" x="32" y="507">index.html · crumbs · .wb · .wb-rail</text>
+      <path class="mx-row" d="M20,514 H1100"/>
+      <text class="h" x="32" y="530">文件树 + diff（统一 / 并排 / 空白 / 全宽）</text><text class="m" x="32" y="545">g42 · .fx-diff · fileList · diffView</text>
+      <path class="mx-row" d="M20,552 H1100"/>
+      <text class="h" x="32" y="568">大文件分段、二进制、权限变更</text><text class="m" x="32" y="583">g18</text>
+      <path class="mx-row" d="M20,590 H1100"/>
+      <text class="h" x="32" y="606">「下一步」步骤栏</text><text class="m" x="32" y="621">g42 · .ns-col · ns-step lock/cur/done/bad/unk</text>
+      <path class="mx-row" d="M20,628 H1100"/>
+      <text class="h" x="32" y="644">提交表单（作者来自 设置 → Git 账号）</text><text class="m" x="32" y="659">g50 · 单一「提交…」，不再连发</text>
+      <path class="mx-row" d="M20,666 H1100"/>
+      <text class="h" x="32" y="682">已提交 / 已推送 / MR 已创建回执卡</text><text class="m" x="32" y="697">g51 · g53 · g55（去掉流水线与审批）</text>
+      <path class="mx-row" d="M20,704 H1100"/>
+      <text class="h" x="32" y="720">远端同名 → 换新分支名</text><text class="m" x="32" y="735">g52 · 改为预览阶段发现，重新预览后确认</text>
+      <path class="mx-row" d="M20,742 H1100"/>
+      <text class="h" x="32" y="758">回执未知「核对原操作」</text><text class="m" x="32" y="773">g57 · 原 key，后续步骤锁定</text>
+      <path class="mx-row" d="M20,780 H1100"/>
+      <text class="h" x="32" y="796">放弃确认：删除对象 / 保留对象</text><text class="m" x="32" y="811">g58 · 增未交付数量、阻塞原因、非 Git 保留</text>
+      <path class="mx-row" d="M20,818 H1100"/>
+      <text class="h" x="32" y="834">MR 列表 / 详情（只读）</text><text class="m" x="32" y="849">g17 · mrView · .mr-row · .mr-d</text>
+
+      <!-- 组：TD05 新增 -->
+      <rect class="mx-grp" x="20" y="856" width="1080" height="30" rx="6"/>
+      <text class="mx-gt" x="32" y="876">TD05 新增交互（原稿没有）· apply.html</text>
+      <text class="h" x="32" y="902">三方固定标签：基线｜任务副本｜当前原目录</text><text class="m" x="32" y="917">不用「本地 / 远端」</text>
+      <path class="mx-row" d="M20,924 H1100"/>
+      <text class="h" x="32" y="940">三方上下文切换（文本）</text><text class="m" x="32" y="955">在统一 / 并排之外加「三方」</text>
+      <path class="mx-row" d="M20,962 H1100"/>
+      <text class="h" x="32" y="978">逐项冲突处理：四选一，无全部覆盖</text><text class="m" x="32" y="993">六类冲突 · 采用任务版本需再确认</text>
+      <path class="mx-row" d="M20,1000 H1100"/>
+      <text class="h" x="32" y="1016">冻结预览 + 逐项结果表</text><text class="m" x="32" y="1031">已应用 / 被阻塞 / 待核实 / 未执行</text>
+
+      <!-- 单元格：行中心 y = 行顶 + 19 -->
+      <g class="cc cc-mod"><rect x="520" y="151" width="50" height="20" rx="10"/><text x="545" y="165" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="520" y="189" width="50" height="20" rx="10"/><text x="545" y="203" text-anchor="middle">修改</text></g>
+      <g class="cc cc-reuse"><rect x="520" y="227" width="50" height="20" rx="10"/><text x="545" y="241" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="860" y="227" width="50" height="20" rx="10"/><text x="885" y="241" text-anchor="middle">复用</text></g>
+      <g class="cc cc-mod"><rect x="605" y="265" width="50" height="20" rx="10"/><text x="630" y="279" text-anchor="middle">修改</text></g>
+      <g class="cc cc-reuse"><rect x="860" y="265" width="50" height="20" rx="10"/><text x="885" y="279" text-anchor="middle">复用</text></g>
+      <g class="cc cc-mod"><rect x="605" y="303" width="50" height="20" rx="10"/><text x="630" y="317" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="605" y="341" width="50" height="20" rx="10"/><text x="630" y="355" text-anchor="middle">修改</text></g>
+      <g class="cc cc-reuse"><rect x="945" y="379" width="50" height="20" rx="10"/><text x="970" y="393" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="520" y="417" width="50" height="20" rx="10"/><text x="545" y="431" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="605" y="417" width="50" height="20" rx="10"/><text x="630" y="431" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="690" y="417" width="50" height="20" rx="10"/><text x="715" y="431" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="775" y="417" width="50" height="20" rx="10"/><text x="800" y="431" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="860" y="417" width="50" height="20" rx="10"/><text x="885" y="431" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="945" y="417" width="50" height="20" rx="10"/><text x="970" y="431" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="1030" y="417" width="50" height="20" rx="10"/><text x="1055" y="431" text-anchor="middle">复用</text></g>
+
+      <g class="cc cc-mod"><rect x="690" y="485" width="50" height="20" rx="10"/><text x="715" y="499" text-anchor="middle">修改</text></g>
+      <g class="cc cc-reuse"><rect x="1030" y="485" width="50" height="20" rx="10"/><text x="1055" y="499" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="690" y="523" width="50" height="20" rx="10"/><text x="715" y="537" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="860" y="523" width="50" height="20" rx="10"/><text x="885" y="537" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="690" y="561" width="50" height="20" rx="10"/><text x="715" y="575" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="860" y="561" width="50" height="20" rx="10"/><text x="885" y="575" text-anchor="middle">复用</text></g>
+      <g class="cc cc-mod"><rect x="775" y="599" width="50" height="20" rx="10"/><text x="800" y="613" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="775" y="637" width="50" height="20" rx="10"/><text x="800" y="651" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="775" y="675" width="50" height="20" rx="10"/><text x="800" y="689" text-anchor="middle">修改</text></g>
+      <g class="cc cc-reuse"><rect x="1030" y="675" width="50" height="20" rx="10"/><text x="1055" y="689" text-anchor="middle">复用</text></g>
+      <g class="cc cc-mod"><rect x="775" y="713" width="50" height="20" rx="10"/><text x="800" y="727" text-anchor="middle">修改</text></g>
+      <g class="cc cc-reuse"><rect x="520" y="751" width="50" height="20" rx="10"/><text x="545" y="765" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="775" y="751" width="50" height="20" rx="10"/><text x="800" y="765" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="860" y="751" width="50" height="20" rx="10"/><text x="885" y="765" text-anchor="middle">复用</text></g>
+      <g class="cc cc-reuse"><rect x="945" y="751" width="50" height="20" rx="10"/><text x="970" y="765" text-anchor="middle">复用</text></g>
+      <g class="cc cc-mod"><rect x="945" y="789" width="50" height="20" rx="10"/><text x="970" y="803" text-anchor="middle">修改</text></g>
+      <g class="cc cc-mod"><rect x="1030" y="827" width="50" height="20" rx="10"/><text x="1055" y="841" text-anchor="middle">修改</text></g>
+
+      <g class="cc cc-new"><rect x="860" y="895" width="50" height="20" rx="10"/><text x="885" y="909" text-anchor="middle">新增</text></g>
+      <g class="cc cc-new"><rect x="860" y="933" width="50" height="20" rx="10"/><text x="885" y="947" text-anchor="middle">新增</text></g>
+      <g class="cc cc-new"><rect x="860" y="971" width="50" height="20" rx="10"/><text x="885" y="985" text-anchor="middle">新增</text></g>
+      <g class="cc cc-new"><rect x="860" y="1009" width="50" height="20" rx="10"/><text x="885" y="1023" text-anchor="middle">新增</text></g>
+    </svg>
+    <div class="noreuse">
+      <h3>✕ 旧 Git 设计中刻意不复用的行为（DESIGN-DELTA §2.3）</h3>
+      <ul>
+        <li><b>g54 / g56「直接合并」、旧 API fix.merge</b> <span>— 产品内合并未实现；MR 之后只给「在 GitLab 打开」。</span></li>
+        <li><b>g55 流水线 / 审批徽标、g54 评审人多选</b> <span>— 不是现成能力；评审人显示「当前未接通」，不可选。</span></li>
+        <li><b>g50「提交并推送」连发按钮</b> <span>— 每个副作用独立确认，不自动连发后续步骤。</span></li>
+        <li><b>g55「合并后自动清理」</b> <span>— 工作区不自动清理，清理只能由用户单独发起。</span></li>
+        <li><b>g59「重试提交」、g60「重试推送」</b> <span>— 明确失败且证明无副作用后才「修改后重新提交 / 重新预览推送」；UNKNOWN 只有「核对原操作」。</span></li>
+        <li><b>旧 API「ls-remote 即可结算」「只按 source 找 MR」</b> <span>— 以 PR16 的 create-only push 与原标记 MR 核对为准。</span></li>
+        <li><b>「AI 审查」「修复」页签与 findings 对照</b> <span>— 普通任务没有 review / finding 事实，不伪造 GitFixRun。</span></li>
+      </ul>
+    </div></div>
+    <div class="lgd"><span class="cap">图例</span>
+      <span class="li"><span class="cc-sw reuse">复用</span>原组件原样使用，只换数据</span>
+      <span class="li"><span class="cc-sw mod">修改</span>在原容器加模式 / 字段 / 状态</span>
+      <span class="li"><span class="cc-sw new">新增</span>原稿没有的交互</span>
+      <span class="li"><span class="sw td5"></span>TD05 · 唯一新增交互视图</span>
+      <span class="li"><span class="sw stall" style="border-style:dashed"></span>刻意不复用</span>
+    </div>
+  </section>
+
+  <!-- ===================================================== 6 ===================================================== -->
+  <section class="blk" id="s6">
+    <h2><span class="no">06</span>导航与返回</h2>
+    <p class="d">跨页跳转都带返回上下文：<span class="mono">from</span> 是来源页，<span class="mono">fromState</span> 是来源状态，非 Git 任务再带 <span class="mono">kind=dir</span>；「返回任务」用 <span class="mono">TD.backHref(兜底状态)</span>，有 fromState 就回到它。后台任务只在画布上给不抢焦点的提示，用户点了才切换。</p>
+    <div class="fig"><svg class="dg" viewBox="0 0 1120 500" role="img" aria-labelledby="f6t"><title id="f6t">原型页面之间的跳转与返回，编号见下表</title>
+      <!-- 页面 -->
+      <g class="nd k-page"><rect x="20" y="40" width="210" height="90" rx="16"/><text class="pt" x="36" y="66">开始任务</text><text class="m" x="110" y="66">start.html</text><text class="s" x="36" y="92">TD01 · 计划确认与准备</text><text class="s" x="36" y="112">td01-ready「开始执行」</text></g>
+      <g class="nd k-page"><rect x="20" y="330" width="210" height="160" rx="16"/><text class="pt" x="36" y="356">应用到原项目</text><text class="m" x="132" y="356">apply.html</text></g>
+      <g class="nd k-page"><rect x="310" y="30" width="450" height="460" rx="16"/><text class="pt" x="326" y="56">任务画布</text><text class="m" x="396" y="56">task.html</text></g>
+      <g class="nd k-page"><rect x="840" y="30" width="260" height="300" rx="16"/><text class="pt" x="856" y="56">Git 工作台</text><text class="m" x="940" y="56">git.html</text></g>
+
+      <!-- 连线 -->
+      <path class="e e-acc" d="M230,105 H330" marker-end="url(#m-acc)"/>
+      <path class="e e-acc" d="M740,98 H856" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M856,122 H740" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M590,150 V180 H275 V410 H214" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M214,440 H290 V195 H610 V150" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M970,330 V447 H740" marker-end="url(#m-acc)"/>
+      <path class="e e-acc" d="M214,455 H330" marker-end="url(#m-acc)"/>
+      <path class="e e-acc" d="M720,150 V280 H856" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M856,305 H700 V150" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M400,300 V330" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M450,330 V300" marker-end="url(#m-def)"/>
+      <path class="e e-acc" d="M930,150 V175" marker-end="url(#m-acc)"/>
+      <path class="e e-def" d="M1010,175 V150" marker-end="url(#m-def)"/>
+
+      <!-- task 内部 -->
+      <g class="nd k-inner"><rect x="330" y="80" width="180" height="70" rx="10"/><text class="h" x="420" y="104" text-anchor="middle">画布 + 交付端点</text><text class="s" x="420" y="124" text-anchor="middle">节点保留真实状态</text><text class="s" x="420" y="140" text-anchor="middle">端点：未到达…已交付</text></g>
+      <g class="nd k-inner"><rect x="560" y="80" width="180" height="70" rx="10"/><text class="h" x="650" y="104" text-anchor="middle">右侧「交付」面板 · 480</text><text class="s" x="650" y="124" text-anchor="middle">查看变更并交付</text><text class="s" x="650" y="140" text-anchor="middle">工作区详情 · 查看 MR</text></g>
+      <g class="nd k-note"><rect x="330" y="215" width="180" height="85" rx="10"/><text class="h" x="420" y="237" text-anchor="middle">后台任务提示</text><text class="s" x="420" y="255" text-anchor="middle">T-2042 已结束 · 等待交付</text><text class="s" x="420" y="272" text-anchor="middle">role=status · 不抢焦点</text><text class="s" x="420" y="289" text-anchor="middle">画布与选中保持不变</text></g>
+      <g class="nd k-inner"><rect x="330" y="330" width="180" height="70" rx="10"/><text class="h" x="420" y="354" text-anchor="middle">T-2042 任务画布</text><text class="s" x="420" y="374" text-anchor="middle">页头「返回上一个任务」</text><text class="s" x="420" y="390" text-anchor="middle">回到原任务原状态</text></g>
+      <g class="nd k-inner"><rect x="330" y="420" width="410" height="55" rx="10"/><text class="h" x="535" y="442" text-anchor="middle">工作区详情抽屉 · 520 · TD06</text><text class="s" x="535" y="461" text-anchor="middle">只读 · 显示路径可复制 · 清理确认框在此打开；关闭后焦点回触发按钮</text></g>
+
+      <!-- git 内部 -->
+      <g class="nd k-inner"><rect x="856" y="80" width="228" height="70" rx="10"/><text class="h" x="970" y="104" text-anchor="middle">任务变更 + 交付步骤栏</text><text class="s" x="970" y="124" text-anchor="middle">TD03 · TD04 · 上下文条「返回任务」</text><text class="s" x="970" y="140" text-anchor="middle">Esc 只关弹层，不离开任务</text></g>
+      <g class="nd k-inner"><rect x="856" y="175" width="228" height="60" rx="10"/><text class="h" x="970" y="199" text-anchor="middle">退出任务上下文确认条</text><text class="s" x="970" y="219" text-anchor="middle">草稿保留在 T-2041 下</text></g>
+      <g class="nd k-inner"><rect x="856" y="260" width="228" height="55" rx="10"/><text class="h" x="970" y="282" text-anchor="middle">MR 详情 · TD07</text><text class="s" x="970" y="301" text-anchor="middle">来源任务 chip · 在 GitLab 打开</text></g>
+
+      <!-- apply 内部 -->
+      <g class="nd k-inner"><rect x="36" y="372" width="178" height="98" rx="10"/><text class="h" x="125" y="394" text-anchor="middle">TD05 全宽视图</text><text class="s" x="125" y="414" text-anchor="middle">面包屑回到原任务</text><text class="s" x="125" y="432" text-anchor="middle">「返回任务」「工作区详情」</text><text class="s" x="125" y="450" text-anchor="middle">画布隐藏，无一级菜单</text></g>
+
+      <!-- 编号 -->
+      <g class="nb"><circle cx="262" cy="105" r="9"/><text x="262" y="109" text-anchor="middle">1</text></g>
+      <g class="nb"><circle cx="798" cy="98" r="9"/><text x="798" y="102" text-anchor="middle">2</text></g>
+      <g class="nb"><circle cx="798" cy="122" r="9"/><text x="798" y="126" text-anchor="middle">3</text></g>
+      <g class="nb"><circle cx="440" cy="180" r="9"/><text x="440" y="184" text-anchor="middle">4</text></g>
+      <g class="nb"><circle cx="520" cy="195" r="9"/><text x="520" y="199" text-anchor="middle">5</text></g>
+      <g class="nb"><circle cx="970" cy="390" r="9"/><text x="970" y="394" text-anchor="middle">6</text></g>
+      <g class="nb"><circle cx="262" cy="455" r="9"/><text x="262" y="459" text-anchor="middle">7</text></g>
+      <g class="nb"><circle cx="780" cy="280" r="9"/><text x="780" y="284" text-anchor="middle">8</text></g>
+      <g class="nb"><circle cx="812" cy="305" r="9"/><text x="812" y="309" text-anchor="middle">9</text></g>
+      <g class="nb"><circle cx="384" cy="315" r="9"/><text x="384" y="319" text-anchor="middle">10</text></g>
+      <g class="nb"><circle cx="468" cy="315" r="9"/><text x="468" y="319" text-anchor="middle">11</text></g>
+      <g class="nb"><circle cx="916" cy="162" r="9"/><text x="916" y="166" text-anchor="middle">12</text></g>
+      <g class="nb"><circle cx="1024" cy="162" r="9"/><text x="1024" y="166" text-anchor="middle">13</text></g>
+    </svg></div>
+    <div class="lgd"><span class="cap">图例</span>
+      <span class="li"><span class="sw pg"></span>原型页（产品中的既有容器）</span>
+      <span class="li"><span class="sw inner"></span>页内区域 / 状态</span>
+      <span class="li"><span class="sw note"></span>不抢焦点的提示</span>
+      <span class="li"><span class="ln-sw acc"></span>前往（用户点击）</span>
+      <span class="li"><span class="ln-sw def"></span>返回（带 from / fromState）</span>
+      <span class="li"><span class="nb-sw">1</span>编号见下表</span>
+    </div>
+    <div class="tblwrap"><table class="rt navt"><colgroup><col style="width:52px"><col style="width:215px"><col style="width:280px"><col></colgroup>
+      <thead><tr><th>#</th><th>从 → 到</th><th>触发</th><th>携带参数 / 返回规则</th></tr></thead>
+      <tbody>
+        <tr><td class="no"><span class="nb-sw">1</span></td><td>start.html → task.html</td><td>td01-ready「开始执行」（原 #startDlg 再确认）</td><td><code>td02-running</code>；准备成功前「开始执行」禁用</td></tr>
+        <tr><td class="no"><span class="nb-sw">2</span></td><td>task.html → git.html</td><td>交付面板「查看变更并交付」（Git）</td><td><code>td03-changes&amp;from=task&amp;fromState=&lt;当前 td02 状态&gt;</code>；已有步骤成功时直达当前步骤，如 td02-step-committed → <code>td04-committed-wait-push</code></td></tr>
+        <tr><td class="no"><span class="nb-sw">3</span></td><td>git.html → task.html</td><td>上下文条「返回任务」/ 面包屑任务名</td><td><code>TD.backHref('td02-awaiting')</code>：回到 fromState；任务已交付后回 <code>td02-delivered&amp;from=git</code></td></tr>
+        <tr><td class="no"><span class="nb-sw">4</span></td><td>task.html → apply.html</td><td>交付面板「查看变更并交付」（非 Git）</td><td><code>td05-overview&amp;from=task&amp;fromState=…&amp;kind=dir</code></td></tr>
+        <tr><td class="no"><span class="nb-sw">5</span></td><td>apply.html → task.html</td><td>「返回任务」/ 面包屑</td><td><code>TD.backHref('td02-awaiting') + &amp;kind=dir</code>；结算后回 <code>td02-delivered&amp;kind=dir</code></td></tr>
+        <tr><td class="no"><span class="nb-sw">6</span></td><td>git.html → task.html 抽屉</td><td>「工作区详情」（上下文条 / td04-delivered 卡）</td><td><code>td06-detail-git&amp;from=git&amp;fromState=&lt;当前&gt;</code></td></tr>
+        <tr><td class="no"><span class="nb-sw">7</span></td><td>apply.html → task.html 抽屉</td><td>「工作区详情」</td><td><code>td06-detail-nongit&amp;kind=dir&amp;from=apply&amp;fromState=&lt;当前&gt;</code></td></tr>
+        <tr><td class="no"><span class="nb-sw">8</span></td><td>task.html → git.html MR</td><td>td02-delivered「查看 MR !58」（Git 内 td04-delivered「查看 MR」同去向）</td><td><code>td07-mr-detail&amp;from=task&amp;fromState=td02-delivered</code></td></tr>
+        <tr><td class="no"><span class="nb-sw">9</span></td><td>MR 详情 → task.html</td><td>「来源任务」chip /「返回任务」</td><td><code>td02-delivered&amp;from=git&amp;fromState=&lt;当前&gt;</code>；MR 合并 / 关闭不改任务的已交付</td></tr>
+        <tr><td class="no"><span class="nb-sw">10</span></td><td>后台提示 → T-2042</td><td>只在用户点「打开 T-2042」时切换；「稍后处理」只收起提示</td><td><code>td02-awaiting&amp;task=T-2042&amp;from=task&amp;fromState=td02-background</code>；提示用 role=status，不移动焦点</td></tr>
+        <tr><td class="no"><span class="nb-sw">11</span></td><td>T-2042 → 原任务</td><td>页头「返回上一个任务」</td><td><code>TD.backHref()</code> → <code>td02-background</code>，画布视角与选中恢复</td></tr>
+        <tr><td class="no"><span class="nb-sw">12</span></td><td>任务变更 → 确认条</td><td>左栏切「提交历史 / 分支 / 合并请求」</td><td><code>td03-leave-context</code>：退出任务上下文前确认，文件选择与提交信息草稿留在 T-2041</td></tr>
+        <tr><td class="no"><span class="nb-sw">13</span></td><td>确认条 → 任务变更</td><td>「回到任务变更」</td><td><code>td03-changes</code>；Esc 不会触发离开</td></tr>
+      </tbody>
+    </table></div>
+    <div class="gap"><b>返回来源</b><span>从 Git 任务变更 / 应用视图（编号 6、7）打开工作区抽屉时，抽屉头显示「返回 Git 任务变更 / 返回应用视图」，回到打开前的状态；关闭抽屉则停在任务画布。</span></div>
+  </section>
+
+  <p class="foot">评审辅助页，不属于产品界面。图里的状态 id 来自 <span class="mono">assets/td-states.js</span>，接口与字段名见 <span class="mono">API-DESIGN-CANDIDATE.md</span>（全部为候选 · 未冻结），复用说明见 <span class="mono">DESIGN-DELTA.md</span> §2–§3。<br>全部为合成数据：不发网络请求，不读写本机存储，不执行 Git、GitLab 或目录操作。样例故事：订单服务「退款单分页查询与导出」T-2041（Git）；运营报表脚本「月报改为按自然月汇总」T-2043（非 Git）。<a id="toIndex2" href="index.html">返回状态总览</a></p>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function keep() {
+    var q = new URLSearchParams();
+    q.set('theme', root.dataset.skin);
+    if (root.classList.contains('reduced')) q.set('motion', 'reduce');
+    return q.toString();
+  }
+  function links() {
+    var h = 'index.html?' + keep();
+    document.getElementById('toIndex').href = h;
+    document.getElementById('toIndex2').href = h;
+  }
+  var sel = document.getElementById('skinSel');
+  sel.value = root.dataset.skin;
+  sel.addEventListener('change', function () { root.dataset.skin = sel.value; links(); });
+  var sw = document.getElementById('motionSw');
+  sw.setAttribute('aria-checked', root.classList.contains('reduced'));
+  sw.addEventListener('click', function () {
+    var on = !root.classList.contains('reduced');
+    root.classList.toggle('reduced', on); sw.setAttribute('aria-checked', on); links();
+  });
+  links();
+})();
+</script>
+</body>
+</html>
