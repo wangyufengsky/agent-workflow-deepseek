@@ -40,6 +40,11 @@ type PptView = 'works' | 'workbench';
 /** 执行写命令并取出服务回执；未知/失败由调用方按回执状态展示。 */
 async function executePptCommand(command: PptCommand, requestKey: string): Promise<OperationReceipt> {
   switch (command.kind) {
+    case 'copy':
+    case 'archive':
+    case 'restore': {
+      return (await apiPost<CommandResponse<PptWork>>(`${ROUTES.pptWork(command.workId)}/${command.kind}`, command.body)).data.receipt;
+    }
     case 'create': {
       const response = await apiPost<CommandResponse<readonly PptWork[]>>(ROUTES.pptWorks, command.body, { timeoutMs: 20_000 });
       return response.data.receipt;
@@ -57,7 +62,7 @@ async function executePptCommand(command: PptCommand, requestKey: string): Promi
     case 'update': {
       const response = await request<CommandResponse<PptWork>>(ROUTES.pptWorkUpdate(command.workId), {
         method: 'PATCH',
-        body: command.body,
+        body: { ...command.body, expectedRevision: command.body.expectedRevision },
       });
       return response.data.receipt;
     }
@@ -259,7 +264,8 @@ export function PptPage() {
           onNew={() => {
             setCreateOpen(true);
           }}
-          onRetry={() => {
+          onCommand={(command) => { void runCommand(command); }}
+            onRetry={() => {
             void worksQuery.refetch();
           }}
         />

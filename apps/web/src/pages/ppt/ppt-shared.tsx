@@ -8,6 +8,7 @@ import type {
   PptWorkGenerateRequest,
   PptWorkStatusValue,
   PptWorkUpdateRequest,
+  PptWorkManageRequest,
   ReceiptStatusValue,
 } from '@agent-workflow/shared';
 import { THEMES } from '@agent-workflow/shared';
@@ -151,12 +152,13 @@ export type PptCommand =
   | { readonly kind: 'update'; readonly workId: string; readonly body: PptWorkUpdateRequest }
   | { readonly kind: 'generate'; readonly workId: string; readonly body: PptWorkGenerateRequest }
   | { readonly kind: 'generateSlides'; readonly workId: string; readonly body: PptWorkGenerateContentRequest }
+  | { readonly kind: 'copy' | 'archive' | 'restore'; readonly workId: string; readonly body: PptWorkManageRequest }
   | { readonly kind: 'delete'; readonly workId: string };
 
 export type PptCommandKind = PptCommand['kind'];
 
 export const PPT_COMMAND_LABEL: Record<PptCommandKind, string> = {
-  create: '创建作品',
+  create: '创建作品', copy: '复制作品', archive: '归档或恢复作品', restore: '恢复内容版本',
   attach: '添加附件',
   detach: '移除附件',
   update: '保存作品编辑',
@@ -168,6 +170,9 @@ export const PPT_COMMAND_LABEL: Record<PptCommandKind, string> = {
 /** 客户端生成 requestKey 的命令；服务端自造请求号的命令没有可核对号码。 */
 export function pptCommandRequestKey(command: PptCommand): string | undefined {
   switch (command.kind) {
+    case 'copy':
+    case 'archive':
+    case 'restore':
     case 'create':
     case 'attach':
     case 'update':

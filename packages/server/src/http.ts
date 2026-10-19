@@ -926,6 +926,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       throw new AppError(ErrorCode.INTERNAL_ERROR, '读取来源失败');
     }
   });
+  app.get<{ Params: { id: string }; Querystring: { page?: string; direction?: string } }>('/api/ppt/works/:id/thumbnail', async (request, reply) => reply.header('content-type', 'image/svg+xml; charset=utf-8').header('cache-control', 'no-store').send(engine.ppt.thumbnail(request.params.id, Number(request.query.page ?? 0), request.query.direction)));
+  app.get<{ Params: { id: string } }>('/api/ppt/works/:id/check', async (request) => envelope(engine.ppt.check(request.params.id), requestId(request)));
+  for (const action of ['copy', 'archive', 'restore'] as const) {
+    app.post<{ Params: { id: string } }>(`/api/ppt/works/:id/${action}`, async (request) => envelope(engine.ppt.manage(request.params.id, action, request.body as import('@agent-workflow/shared').PptWorkManageRequest), requestId(request)));
+  }
   app.get('/api/ppt/works', async (request) => envelope(engine.ppt.list(), requestId(request)));
   app.post('/api/ppt/works', async (request) => {
     const body = request.body as PptWorkCreateRequest;

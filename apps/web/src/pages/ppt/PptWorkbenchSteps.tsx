@@ -1,3 +1,4 @@
+import { PptBriefEditor, PptDirections, PptPageChecks } from './PptProductionPanels.tsx';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { THEME_IDS, THEMES, createRequestKey, type PptWork, type ThemeIdValue } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatCount, formatRelativeTime } from '../../app/format.ts';
@@ -31,12 +32,14 @@ export interface PptStepDiscussionProps extends PptStepCommonProps {
   readonly onNext: () => void;
 }
 
-/** ① 讨论需求：真实标题/主题/大纲编辑（PATCH），不伪造设计稿的需求简报五项。 */
+/** ① 五项需求简报与标题/主题/大纲编辑。 */
 export function PptStepDiscussion({ work, busyKind, blocked, blockedReason, projectName, onCommand, onNext }: PptStepDiscussionProps) {
   const [title, setTitle] = useState(work.title);
+  const [baselineRevision, setBaselineRevision] = useState(work.revision ?? 1);
   const [topic, setTopic] = useState(work.topic);
   const [outlineText, setOutlineText] = useState(work.outline.join('\n'));
   const [error, setError] = useState<string | undefined>(undefined);
+  useEffect(() => { if (title === work.title && topic === work.topic && outlineText === work.outline.join('\n')) setBaselineRevision(work.revision ?? 1); }, [work.revision, title, topic, outlineText, work]);
 
   const submit = (): void => {
     const trimmedTitle = title.trim();
@@ -64,21 +67,13 @@ export function PptStepDiscussion({ work, busyKind, blocked, blockedReason, proj
     onCommand({
       kind: 'update',
       workId: work.id,
-      body: { requestKey: createRequestKey(), title: trimmedTitle, topic: trimmedTopic, outline, confirmUpdate: true },
+      body: { expectedRevision: baselineRevision, requestKey: createRequestKey(), title: trimmedTitle, topic: trimmedTopic, outline, confirmUpdate: true },
     });
   };
 
   return (
     <div className="col" style={{ gap: 16 }}>
-      <div className="banner info">
-        <Icon name="info" />
-        <div className="grow">
-          <b>需求简报按真实字段降级</b>
-          <br />
-          设计稿的「给谁看 / 想达到 / 篇幅 / 风格 / 依据资料」五项需要会话返回结构化字段，服务只保存标题、主题、大纲与版式主题。
-          这里直接编辑真实字段并 PATCH 到服务，不显示伪造的简报完成度或助手问题。
-        </div>
-      </div>
+      <PptBriefEditor key={`${work.id}:brief`} {...{ work, blocked, onCommand }} />
 
       <div className="ppt-facts">
         <div className="ppt-fact">
@@ -181,26 +176,18 @@ export function PptStepDiscussion({ work, busyKind, blocked, blockedReason, proj
   );
 }
 
-/** ② 设计方案：版式主题（真实 PATCH）+ 大纲/逐页生成与展示；不伪造三个视觉方向。 */
+/** ② 设计方案：版式主题（真实 PATCH）+ 大纲/逐页生成与展示；三种视觉方向。 */
 export function PptStepDesign({ work, busyKind, blocked, blockedReason, onCommand }: PptStepCommonProps) {
   const [theme, setTheme] = useState<ThemeIdValue>(work.theme);
   const themeChanged = theme !== work.theme;
 
   const saveTheme = (): void => {
-    onCommand({ kind: 'update', workId: work.id, body: { requestKey: createRequestKey(), theme, confirmUpdate: true } });
+    onCommand({ kind: 'update', workId: work.id, body: { expectedRevision: work.revision ?? 1, requestKey: createRequestKey(), theme, confirmUpdate: true } });
   };
 
   return (
     <div className="col" style={{ gap: 18 }}>
-      <div className="banner info">
-        <Icon name="info" />
-        <div className="grow">
-          <b>视觉方向按真实能力降级</b>
-          <br />
-          设计稿的「三个视觉方向缩略图」需要提案字段；服务只保存版式主题（DeepSeek / Warm / SPDB / GitHub White），
-          导出 PPTX 时使用对应背景、文字与强调色。这里只提供主题选择与保存，不展示不存在的方向选项。
-        </div>
-      </div>
+      <PptDirections {...{ work, blocked, onCommand }} />
 
       <div className="ppt-field-row">
         <div className="field" style={{ flex: '0 0 260px' }}>
@@ -259,7 +246,7 @@ export function PptStepDesign({ work, busyKind, blocked, blockedReason, onComman
             disabled={blocked}
             disabledReason={blockedReason}
             onClick={() => {
-              onCommand({ kind: 'generate', workId: work.id, body: { requestKey: createRequestKey(), confirmGenerate: true } });
+              onCommand({ kind: 'generate', workId: work.id, body: { expectedRevision: work.revision ?? 1, requestKey: createRequestKey(), confirmGenerate: true } });
             }}
           >
             {busyKind === 'generate' ? '正在生成大纲…可能较慢' : '生成大纲'}
@@ -296,7 +283,7 @@ export function PptStepDesign({ work, busyKind, blocked, blockedReason, onComman
               onCommand({
                 kind: 'generateSlides',
                 workId: work.id,
-                body: { requestKey: createRequestKey(), confirmGenerate: true },
+                body: { expectedRevision: work.revision ?? 1, requestKey: createRequestKey(), confirmGenerate: true },
               });
             }}
           >
@@ -340,7 +327,7 @@ export function PptStepDesign({ work, busyKind, blocked, blockedReason, onComman
   );
 }
 
-/** ③ 制作检查：真实计数与附件管理；明确说明没有逐页视觉检查接口。 */
+/** ③ 制作检查：真实计数与附件管理；当前修订逐页检查。 */
 export interface PptStepCheckProps extends PptStepCommonProps {
   readonly lastResult: PptCommandSignal | null;
   readonly onGoDesign: () => void;
@@ -385,7 +372,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
     onCommand({
       kind: 'attach',
       workId: work.id,
-      body: { requestKey: createRequestKey(), name, content, kind: attachKind, confirmAttach: true },
+      body: { expectedRevision: work.revision ?? 1, requestKey: createRequestKey(), name, content, kind: attachKind, confirmAttach: true },
     });
   };
 
@@ -419,15 +406,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
 
   return (
     <div className="col" style={{ gap: 18 }}>
-      <div className="banner warn">
-        <Icon name="alert" />
-        <div className="grow">
-          <b>逐页视觉检查未接入</b>
-          <br />
-          服务没有提供逐页视觉检查接口（文字溢出、排版一致性、演讲备注、问题页标记都没有数据），因此本步只汇总服务真实计数与附件，
-          <b>不显示检查结论或“问题页”标记</b>，也不会用示例问题补齐。
-        </div>
-      </div>
+      <PptPageChecks {...{ work, blocked, onCommand }} />
 
       <div className="row wrap" style={{ gap: 8 }}>
         <Button variant="secondary" size="sm" icon="arrowLeft" onClick={onGoDesign} disabled={blocked} disabledReason={blockedReason}>

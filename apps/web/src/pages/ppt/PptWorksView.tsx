@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { PptWork, ProjectSummary } from '@agent-workflow/shared';
+import { createRequestKey, type PptWork, type ProjectSummary } from '@agent-workflow/shared';
 import { formatRelativeTime } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
@@ -12,7 +12,7 @@ import {
   pptStatusMeta,
   themeLabel,
   type PptProgress,
-  type PptStageFilter,
+  type PptStageFilter, type PptCommand,
 } from './ppt-shared.tsx';
 
 type WorksViewMode = 'grid' | 'list';
@@ -25,6 +25,7 @@ export interface PptWorksViewProps {
   readonly fetching: boolean;
   readonly selectedId: string | null;
   readonly onOpen: (work: PptWork) => void;
+  readonly onCommand: (command: PptCommand) => void;
   readonly onNew: () => void;
   readonly onRetry: () => void;
 }
@@ -44,56 +45,25 @@ function StageBar({ progress }: { readonly progress: PptProgress }) {
   );
 }
 
-function WorkCover({ work, progress, small }: { readonly work: PptWork; readonly progress: PptProgress; readonly small?: boolean }) {
-  const firstSlide = work.slides[0];
-  const title = firstSlide?.title ?? work.title;
-  const lines = firstSlide === undefined ? work.outline.slice(1, 4) : firstSlide.bullets.slice(0, 3);
-  return (
-    <span className={['ppt-cover', small === true ? 'ppt-cover-sm' : ''].filter(Boolean).join(' ')} aria-hidden="true">
-      <span className="ppt-cover-tag">{progress.hasOutline ? '示意封面 · 无缩略图接口' : '无缩略图'}</span>
-      {progress.hasOutline ? (
-        <>
-          <b className="ppt-cover-title">{title}</b>
-          {lines.map((line, index) => (
-            <i key={`${String(index)}-${line}`} className="ppt-cover-line" style={{ width: ['76%', '58%', '42%'][index] ?? '50%' }} />
-          ))}
-        </>
-      ) : (
-        <span className="ppt-cover-empty">尚未生成大纲</span>
-      )}
-    </span>
-  );
+function WorkCover({ work, small }: { readonly work: PptWork; readonly progress: PptProgress; readonly small?: boolean }) {
+  return <span className="ppt-cover" data-small={small}><img style={{ width: '100%', height: '100%', objectFit: 'contain' }} src={`/api/ppt/works/${work.id}/thumbnail?revision=${work.revision ?? 1}`} alt={`${work.title} 当前封面渲染`} /></span>;
 }
 
-function DisabledWorkActions() {
-  return (
-    <div className="ppt-work-actions">
-      <Button
-        variant="ghost"
-        size="sm"
-        icon="copy"
-        disabled
-        disabledReason="服务未提供复制作品接口；复制需要新建演示后手动填写标题与主题。"
-      >
-        复制
-      </Button>
-      <Button variant="ghost" size="sm" icon="archive" disabled disabledReason="服务未提供归档接口；PPT 作品没有归档状态。">
-        归档
-      </Button>
-    </div>
-  );
+function WorkActions({ work, onCommand }: { readonly work: PptWork; readonly onCommand: (command: PptCommand) => void }) {
+  return <div className="ppt-work-actions"><Button variant="ghost" size="sm" icon="copy" disabled={work.status === 'generating' || work.mutationBlock !== undefined} disabledReason={work.mutationBlock?.reason ?? '生成尚未结束'} onClick={() => onCommand({ kind: 'copy', workId: work.id, body: { requestKey: createRequestKey(), expectedRevision: work.revision ?? 1, confirm: true } })}>复制</Button><Button variant="ghost" size="sm" icon="archive" disabled={work.status === 'generating' || work.mutationBlock !== undefined} disabledReason={work.mutationBlock?.reason ?? '生成尚未结束'} onClick={() => onCommand({ kind: 'archive', workId: work.id, body: { requestKey: createRequestKey(), expectedRevision: work.revision ?? 1, confirm: true, archived: !work.archived } })}>{work.archived ? '恢复作品' : '归档'}</Button></div>;
 }
 
 function WorkCard({
   work,
   projectName,
   selected,
-  onOpen,
+  onOpen, onCommand,
 }: {
   readonly work: PptWork;
   readonly projectName?: string;
   readonly selected: boolean;
   readonly onOpen: () => void;
+  readonly onCommand: (command: PptCommand) => void;
 }) {
   const progress = derivePptProgress(work);
   const status = pptStatusMeta(work.status);
@@ -129,7 +99,7 @@ function WorkCard({
           </span>
         </span>
       </button>
-      <DisabledWorkActions />
+      <WorkActions work={work} onCommand={onCommand} />
     </article>
   );
 }
@@ -138,12 +108,13 @@ function WorkListRow({
   work,
   projectName,
   selected,
-  onOpen,
+  onOpen, onCommand,
 }: {
   readonly work: PptWork;
   readonly projectName?: string;
   readonly selected: boolean;
   readonly onOpen: () => void;
+  readonly onCommand: (command: PptCommand) => void;
 }) {
   const progress = derivePptProgress(work);
   const status = pptStatusMeta(work.status);
@@ -176,13 +147,14 @@ function WorkListRow({
         </span>
         <Icon name="chevRight" size="sm" />
       </button>
-      <DisabledWorkActions />
+      <WorkActions work={work} onCommand={onCommand} />
     </article>
   );
 }
 
-export function PptWorksView({ works, projects, loading, error, fetching, selectedId, onOpen, onNew, onRetry }: PptWorksViewProps) {
+export function PptWorksView({ works, projects, loading, error, fetching, selectedId, onOpen, onNew, onRetry, onCommand }: PptWorksViewProps) {
   const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [projectFilter, setProjectFilter] = useState('');
   const [stageFilter, setStageFilter] = useState<PptStageFilter>('all');
   const [view, setView] = useState<WorksViewMode>('grid');
@@ -199,6 +171,7 @@ export function PptWorksView({ works, projects, loading, error, fetching, select
 
   const term = search.trim().toLowerCase();
   const base = works.filter((work) => {
+    if (work.archived && !showArchived) return false;
     if (projectFilter !== '' && work.projectId !== projectFilter) return false;
     if (term === '') return true;
     return work.title.toLowerCase().includes(term) || work.topic.toLowerCase().includes(term);
@@ -268,11 +241,8 @@ export function PptWorksView({ works, projects, loading, error, fetching, select
         </Button>
       </div>
 
-      <p className="hint ppt-works-note">
-        缩略图：服务没有提供作品缩略图接口，卡片显示由真实大纲/首屏要点生成的<b>示意封面</b>，不会伪装成渲染图；尚无大纲的作品明确标「无缩略图」。
-        复制、归档没有服务端接口，按钮禁用并写明原因；作品也没有归档状态，因此不提供「显示已归档」开关。
-        阶段条只由真实数据推导：大纲=设计方案、逐页=制作产出；<b>导出不会被持久化为“已完成”</b>。
-      </p>
+      <label className="row"><input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />显示已归档作品</label>
+      <p className="hint ppt-works-note">封面由当前作品标题与主题按同一导出版式渲染；不是示意占位图。版本保留最近30次内容修订；导出状态以实际下载回执为准。</p>
 
       {error !== undefined && works.length === 0 ? (
         <ServiceNotice error={error} onRetry={onRetry} />
@@ -333,7 +303,7 @@ export function PptWorksView({ works, projects, loading, error, fetching, select
               work={work}
               projectName={projectNameFor(work, projects)}
               selected={work.id === selectedId}
-              onOpen={() => {
+              onCommand={onCommand} onOpen={() => {
                 onOpen(work);
               }}
             />
@@ -347,7 +317,7 @@ export function PptWorksView({ works, projects, loading, error, fetching, select
               work={work}
               projectName={projectNameFor(work, projects)}
               selected={work.id === selectedId}
-              onOpen={() => {
+              onCommand={onCommand} onOpen={() => {
                 onOpen(work);
               }}
             />

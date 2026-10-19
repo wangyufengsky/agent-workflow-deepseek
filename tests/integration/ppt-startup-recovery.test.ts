@@ -90,8 +90,9 @@ test('startup recovery fails PPT works left generating and settles their receipt
       url: `/api/ppt/works/${outlineWorkId}/generate`,
       payload: { requestKey: createRequestKey(), confirmGenerate: true },
     });
-    assert.equal(regenerate.statusCode, 503, regenerate.body);
-    assert.equal(regenerate.json().error.code, 'OPENCODE_NOT_READY');
+    assert.equal(regenerate.statusCode, 409, regenerate.body);
+    assert.equal(regenerate.json().error.code, 'RECEIPT_UNKNOWN');
+    assert.equal(regenerate.json().error.details.requestKey, outlineKey);
 
     // Idempotent: a second recovery pass finds no generating work.
     const again = second.engine.recoverOnStartup();

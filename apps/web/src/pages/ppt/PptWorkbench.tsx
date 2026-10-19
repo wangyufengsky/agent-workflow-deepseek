@@ -1,3 +1,4 @@
+import { PptVersions } from './PptProductionPanels.tsx';
 import { useState } from 'react';
 import type { PptWork } from '@agent-workflow/shared';
 import { formatRelativeTime } from '../../app/format.ts';
@@ -27,9 +28,9 @@ export interface PptWorkbenchProps {
 }
 
 const STEP_TITLES: Record<PptStageKey, { readonly title: string; readonly hint: string }> = {
-  discuss: { title: '① 讨论需求', hint: '补全标题、主题与大纲；保存会 PATCH 到服务并返回回执。' },
-  design: { title: '② 设计方案', hint: '选择版式主题，生成或查看大纲与逐页内容；模型调用可能较慢。' },
-  check: { title: '③ 制作检查', hint: '汇总真实页数、附件与状态；服务没有逐页视觉检查接口。' },
+  discuss: { title: '① 讨论需求', hint: '补全五项需求简报、标题、主题与大纲；保存会 PATCH 到服务并返回回执。' },
+  design: { title: '② 设计方案', hint: '选择三个视觉方向和版式主题，生成或查看大纲与逐页内容；模型调用可能较慢。' },
+  check: { title: '③ 制作检查', hint: '逐页查看真实页面、编辑正文和演讲备注；按当前修订检查页面内容与确定性版式边界。' },
   export: { title: '④ 导出', hint: '按当前内容导出 PPTX / Markdown；导出不会回写作品状态。' },
 };
 
@@ -39,12 +40,12 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
   const status = pptStatusMeta(work.status);
   const generating = work.status === 'generating';
   const anyBusy = busyKind !== null;
-  const blocked = anyBusy || generating;
-  const blockedReason = anyBusy
+  const blocked = anyBusy || generating || work.archived === true || work.mutationBlock !== undefined;
+  const blockedReason = work.mutationBlock?.reason ?? (work.archived ? '作品已归档；请先在作品库恢复。' : anyBusy
     ? '另一条 PPT 命令正在等待服务回执；为避免重复提交，先等它结束。'
     : generating
       ? '服务把这份作品标记为「生成中」；等模型调用结束后再操作。'
-      : undefined;
+      : undefined);
   const stepMeta = STEP_TITLES[activeStep];
 
   return (
@@ -79,15 +80,6 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
               资料 {String(work.attachments.length)}
             </Button>
             <Button
-              variant="ghost"
-              size="sm"
-              icon="clock"
-              disabled
-              disabledReason="服务未提供 PPT 版本/修订接口；工作台不展示版本历史或恢复。"
-            >
-              版本
-            </Button>
-            <Button
               variant="primary"
               size="sm"
               icon="download"
@@ -99,6 +91,8 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
             </Button>
           </div>
         </div>
+
+        <PptVersions {...{ work, blocked, onCommand }} />
 
         <div className="ppt-stepper" role="tablist" aria-label="制作步骤">
           {PPT_STAGES.map((stage, index) => {
@@ -136,7 +130,7 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
           <span>{progress.nextHint}</span>
         </div>
         <p className="hint" style={{ marginTop: 6 }}>
-          四步进度只由服务真实数据推导（大纲 / 逐页）；「导出」不会被标成已完成（服务不记录导出），制作检查也没有逐页视觉检查数据。
+          四步进度只由服务真实数据推导（大纲 / 逐页）；「导出」不会被标成已完成（服务不记录导出），制作检查按当前修订读取逐页内容与版式边界，不代替人工判断。
           生成与保存的回执显示在页面顶部；unknown 回执可用请求号核对，不会自动重发。
         </p>
       </section>

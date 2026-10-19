@@ -820,10 +820,12 @@ export interface PptWorkExportResponse {
 }
 
 export interface PptWorkGenerateContentRequest extends CommandRequest {
+  readonly expectedRevision?: number;
   readonly confirmGenerate: true;
 }
 
 export interface PptAttachmentRequest extends CommandRequest {
+  readonly expectedRevision?: number;
   readonly name: string;
   readonly content: string;
   readonly kind?: 'text' | 'image';
@@ -831,6 +833,10 @@ export interface PptAttachmentRequest extends CommandRequest {
 }
 
 export interface PptWorkUpdateRequest extends CommandRequest {
+  readonly expectedRevision?: number;
+  readonly brief?: import('../domain/models.ts').PptBrief;
+  readonly direction?: import('../domain/enums.ts').PptVisualDirectionValue;
+  readonly slides?: readonly import('../domain/models.ts').PptSlide[];
   readonly title?: string;
   readonly topic?: string;
   readonly outline?: readonly string[];
@@ -838,7 +844,15 @@ export interface PptWorkUpdateRequest extends CommandRequest {
   readonly confirmUpdate: true;
 }
 
+export interface PptWorkManageRequest extends CommandRequest {
+  readonly expectedRevision: number;
+  readonly confirm: true;
+  readonly archived?: boolean;
+  readonly revision?: number;
+}
+
 export interface PptWorkGenerateRequest extends CommandRequest {
+  readonly expectedRevision?: number;
   readonly confirmGenerate: true;
 }
 

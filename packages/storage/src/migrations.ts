@@ -390,4 +390,5 @@ CREATE TABLE IF NOT EXISTS task_acceptance (
 ALTER TABLE tasks ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  { version: 12, name: 'ppt_metadata', sql: "ALTER TABLE ppt_works ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';" },
 ];

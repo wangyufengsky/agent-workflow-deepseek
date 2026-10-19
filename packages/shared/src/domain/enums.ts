@@ -617,6 +617,9 @@ export const OperationKind = {
   KNOWLEDGE_ASK: 'knowledge.ask',
   KNOWLEDGE_STOP: 'knowledge.stop',
   PPT_WORK_CREATE: 'ppt.work.create',
+  PPT_WORK_COPY: 'ppt.work.copy',
+  PPT_WORK_ARCHIVE: 'ppt.work.archive',
+  PPT_WORK_RESTORE: 'ppt.work.restore',
   PPT_WORK_DELETE: 'ppt.work.delete',
   PPT_WORK_GENERATE: 'ppt.work.generate',
   PPT_WORK_UPDATE: 'ppt.work.update',
@@ -695,6 +698,9 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'catalog.template.update': op('catalog.template.update', 'global', true, '更新自定义模板'),
   'knowledge.ask': op('knowledge.ask', 'project', true, '知识库问答（单次只读）'),
   'knowledge.stop': op('knowledge.stop', 'project', true, '停止知识问答'),
+  'ppt.work.copy': op('ppt.work.copy', 'global', true, '复制PPT作品'),
+  'ppt.work.archive': op('ppt.work.archive', 'global', true, '归档或恢复PPT作品'),
+  'ppt.work.restore': op('ppt.work.restore', 'global', true, '恢复PPT内容版本'),
   'ppt.work.create': op('ppt.work.create', 'project', true, '创建 PPT 草稿'),
   'ppt.work.delete': op('ppt.work.delete', 'project', true, '删除 PPT 草稿'),
   'ppt.work.generate': op('ppt.work.generate', 'project', true, '生成 PPT 大纲（只读模型）'),
@@ -780,3 +786,6 @@ export const KnowledgeRunStatus = {
   STOPPED: 'stopped', COMPLETED: 'completed', FAILED: 'failed', UNKNOWN: 'unknown',
 } as const;
 export type KnowledgeRunStatusValue = typeof KnowledgeRunStatus[keyof typeof KnowledgeRunStatus];
+/** PPT direction choices are independent of application skin. */
+export const PptVisualDirection = { RESTRAINED: 'restrained', EDITORIAL: 'editorial', CONTRAST: 'contrast' } as const;
+export type PptVisualDirectionValue = (typeof PptVisualDirection)[keyof typeof PptVisualDirection];

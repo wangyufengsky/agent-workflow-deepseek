@@ -1116,6 +1116,8 @@ export interface FixRun {
 export interface PptSlide {
   readonly title: string;
   readonly bullets: readonly string[];
+  readonly notes?: string;
+  readonly imageName?: string;
 }
 
 export interface PptAttachment {
@@ -1133,7 +1135,43 @@ export interface TaskAcceptance {
   readonly decidedAt: IsoDateTime;
 }
 
+export interface PptBrief {
+  readonly audience: string;
+  readonly objective: string;
+  readonly length: string;
+  readonly style: string;
+  readonly sources: string;
+}
+export interface PptVersion {
+  readonly revision: number;
+  readonly savedAt: IsoDateTime;
+  readonly title: string;
+  readonly topic: string;
+  readonly outline: readonly string[];
+  readonly slides: readonly PptSlide[];
+  readonly theme: ThemeIdValue;
+  readonly brief?: PptBrief;
+  readonly direction?: import('./enums.ts').PptVisualDirectionValue;
+}
+export interface PptPageCheck {
+  readonly page: number;
+  readonly title: string;
+  readonly issues: readonly { readonly code: string; readonly message: string }[];
+}
+export interface PptCheckReport {
+  readonly revision: number;
+  readonly checkedAt: IsoDateTime;
+  readonly pages: readonly PptPageCheck[];
+  readonly unchecked: readonly string[];
+}
+
 export interface PptWork {
+  readonly mutationBlock?: { readonly requestKey: string; readonly reason: string };
+  readonly revision?: number;
+  readonly brief?: PptBrief;
+  readonly direction?: import('./enums.ts').PptVisualDirectionValue;
+  readonly archived?: boolean;
+  readonly versions?: readonly PptVersion[];
   readonly id: string;
   readonly projectId?: ProjectId;
   readonly title: string;

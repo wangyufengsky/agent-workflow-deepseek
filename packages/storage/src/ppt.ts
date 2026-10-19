@@ -12,6 +12,7 @@ interface Row {
   usage_json: string | null;
   attachments_json: string;
   theme: string;
+  metadata_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +39,7 @@ export class PptWorkRepository {
       title: input.title,
       topic: input.topic,
       status: 'draft',
+      revision: 1, versions: [], archived: false,
       outline: [],
       slides: [],
       attachments: [],
@@ -62,9 +64,15 @@ export class PptWorkRepository {
   }
 
   update(work: PptWork): PptWork {
+    const before = this.get(work.id);
+    const versions = before?.versions ?? work.versions ?? [];
+    const revision = (before?.revision ?? 1) + 1;
+    const snapshot = before === undefined ? [] : [{ revision: before.revision ?? 1, savedAt: before.updatedAt, title: before.title, topic: before.topic, outline: before.outline, slides: before.slides, theme: before.theme, ...(before.brief === undefined ? {} : { brief: before.brief }), ...(before.direction === undefined ? {} : { direction: before.direction }) }];
+    const metadata = { revision, brief: work.brief, direction: work.direction, archived: work.archived ?? false, versions: [...snapshot, ...versions].slice(0, 30) };
+
     this.#db
-      .prepare('UPDATE ppt_works SET title = ?, topic = ?, status = ?, outline_json = ?, slides_json = ?, updated_at = ?, usage_json = ?, attachments_json = ?, theme = ? WHERE id = ?')
-      .run(work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), nowIso(), work.usage === undefined ? null : JSON.stringify(work.usage), JSON.stringify(work.attachments), work.theme, work.id);
+      .prepare('UPDATE ppt_works SET title = ?, topic = ?, status = ?, outline_json = ?, slides_json = ?, updated_at = ?, usage_json = ?, attachments_json = ?, theme = ?, metadata_json = ? WHERE id = ?')
+      .run(work.title, work.topic, work.status, JSON.stringify(work.outline), JSON.stringify(work.slides), nowIso(), work.usage === undefined ? null : JSON.stringify(work.usage), JSON.stringify(work.attachments), work.theme, JSON.stringify(metadata), work.id);
     return this.get(work.id) ?? work;
   }
 
@@ -75,6 +83,7 @@ export class PptWorkRepository {
 }
 
 function mapRow(row: Row): PptWork {
+  const metadata = JSON.parse(row.metadata_json ?? '{}') as Pick<PptWork, 'revision' | 'brief' | 'direction' | 'archived' | 'versions'>;
   let outline: string[] = [];
   try {
     const parsed = JSON.parse(row.outline_json) as unknown;
@@ -88,6 +97,8 @@ function mapRow(row: Row): PptWork {
     if (Array.isArray(parsed)) {
       slides = parsed.filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object' && typeof (item as { title?: unknown }).title === 'string').map((item) => ({
         title: String(item.title),
+        ...(typeof item.notes === 'string' ? { notes: item.notes } : {}),
+        ...(typeof item.imageName === 'string' ? { imageName: item.imageName } : {}),
         bullets: Array.isArray(item.bullets) ? item.bullets.filter((bullet): bullet is string => typeof bullet === 'string').slice(0, 8) : [],
       }));
     }
@@ -95,6 +106,8 @@ function mapRow(row: Row): PptWork {
     slides = [];
   }
   return {
+    ...metadata,
+    revision: metadata.revision ?? 1,
     id: row.id,
     ...(row.project_id === null ? {} : { projectId: row.project_id }),
     title: row.title,
