@@ -25,7 +25,7 @@
 | settings.html | `/settings` | `/api/settings`、opencode | ✅/🟡 | 外观/服务/模型启停/轮询间隔/Git 账号与令牌/数据库概览已接线；监控阈值未接 |
 | tools.html | `/tools` | MCP 目录 + opencode status + `/api/settings` + `/api/skills` | ✅/🟡 | 工具集启停（重启生效）、本机 Skill 只读目录已接线；单工具开关/正文查看未开放 |
 | knowledge.html / knowledge-history.html | `/knowledge` | `/api/knowledge/{sources,search,source,ask,history}` | ✅/🟡 | 来源/搜索/正文 + 真实模型问答（引用可回原文，最近 3 轮作上下文）+ 本机历史；持久多轮会话仍未接通 |
-| ppt*.html | `/ppt` | `/api/ppt/works` | 🟡 | 作品草稿创建/列表/删除已接通；讨论、逐页生成、附件与导出未接通 |
+| ppt*.html | `/ppt` | `/api/ppt/works{,/:id/generate}` | 🟡 | 草稿 CRUD + 真实模型大纲生成已接通；逐页视觉、附件、导出未接通 |
 | recovery.html | `/recovery`、`/tasks/:id/recovery` | `/recovery` API、`/execution/retry` | ✅/🟡 | 派生草稿创建/历史、执行继续/重试失败步骤/停止已接线；单节点放弃未开放 |
 | insights.html | `/insights` | bootstrap + `/api/insights` | ✅/🟡 | 任务/规划/执行/审查/修复/交付真实计数；规划成本累计（tokens 仍未采集） |
 | runtime.html | `/runtime` | opencode status/data/logs | ✅/🟡 | 状态/重启/数据路径/最近日志（脱敏）；启动历史未接通 |

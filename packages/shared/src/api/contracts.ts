@@ -288,6 +288,10 @@ export interface PptWorksResponse {
   readonly works: readonly PptWork[];
 }
 
+export interface PptWorkGenerateRequest extends CommandRequest {
+  readonly confirmGenerate: true;
+}
+
 export interface PptWorkCreateRequest extends CommandRequest {
   readonly projectId?: string;
   readonly title: string;
@@ -901,6 +905,7 @@ export const ROUTES = {
   taskDetail: (id: string) => `/api/tasks/${encodeURIComponent(id)}/detail`,
   pptWorks: '/api/ppt/works',
   pptWork: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
+  pptWorkGenerate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate`,
   taskPlanFromTemplate: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/from-template`,
   taskRecovery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery`,
   taskRecoveries: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recoveries`,

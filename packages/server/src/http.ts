@@ -11,6 +11,7 @@ import type {
   UseTemplateRequest,
   KnowledgeAskRequest,
   PptWorkCreateRequest,
+  PptWorkGenerateRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
   CommandRequest,
@@ -518,6 +519,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post('/api/ppt/works', async (request) => {
     const body = request.body as PptWorkCreateRequest;
     return envelope(engine.ppt.create(body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/ppt/works/:id/generate', async (request) => {
+    const body = request.body as PptWorkGenerateRequest;
+    return envelope(await engine.ppt.generate(request.params.id, body), requestId(request));
   });
   app.delete<{ Params: { id: string } }>('/api/ppt/works/:id', async (request) => envelope(engine.ppt.delete(request.params.id), requestId(request)));
   app.post('/api/knowledge/ask', async (request) => {

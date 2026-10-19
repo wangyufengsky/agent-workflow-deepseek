@@ -82,6 +82,7 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
   DELETE 与多语句被拒绝；密码从测试项目 `application.yml` 注入，不落库明文。
 - **GitHub**：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；响应与日志不包含令牌。
 - **知识库问答**：基于项目 README/docs 提问，flash 模型返回答案与经校验的 `path:line` 引用（live PASS 31s）。
+- **PPT 大纲**：草稿 → flash 模型生成 12 页大纲并落库（live PASS 16s）；逐页生成未实现。
 - **GitLab / 远端写**：GitHub/GitLab 的 MR 列表与创建通过本地桩服务端到端验证；真实远端写操作未执行。
 
 > 模型说明：`opencode-go/deepseek-v4.1-flash` 在 thinking 模式下拒绝 tool_choice。本项目内置受管

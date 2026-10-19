@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createRequestKey, type PptWork } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, type PptWork } from '@agent-workflow/shared';
 import { apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useProjects } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -30,6 +30,12 @@ export function PptPage() {
     },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
   });
+  const generateDraft = useMutation({
+    mutationFn: async (id: string) => {
+      await apiPost(ROUTES.pptWorkGenerate(id), { requestKey: createRequestKey(), confirmGenerate: true });
+    },
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
+  });
   const deleteDraft = useMutation({
     mutationFn: async (id: string) => { await request(`/api/ppt/works/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
@@ -46,7 +52,7 @@ export function PptPage() {
     <div className="page">
       <PageHeader
         title="PPT 制作"
-        lede="先讨论清楚要讲什么，再逐页制作。当前支持保存/删除演示草稿；讨论与逐页生成仍未接通。"
+        lede="先讨论清楚要讲什么，再逐页制作。当前支持草稿与模型生成大纲；逐页生成仍未接通。"
         actions={
           <Badge tone="wait" icon="layers">
             仅草稿
@@ -145,7 +151,7 @@ export function PptPage() {
             </div>
           ) : null}
           <p className="hint">
-            表单校验：{valid ? '已具备项目与说明，可以保存为演示草稿；页面生成仍未接通。' : '需要选择项目，并至少填写 6 个字说明。'}草稿只记录标题/主题，不调用模型。
+            表单校验：{valid ? '已具备项目与说明，可以保存为演示草稿；页面生成仍未接通。' : '需要选择项目，并至少填写 6 个字说明。'}草稿可生成大纲（只读模型）；逐页生成仍未接通。
           </p>
         </div>
 

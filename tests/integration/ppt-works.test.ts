@@ -25,6 +25,10 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     assert.equal(works.length, 1);
     assert.equal(works[0]!.status, 'draft');
     const id = works[0]!.id;
+    const generate = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/generate`, payload: { requestKey: requestKey('gen'), confirmGenerate: true } });
+    assert.equal(generate.statusCode, 503, generate.body);
+    assert.equal(generate.json().error.code, 'OPENCODE_NOT_READY');
+
     const deleted = await app.app.inject({ method: 'DELETE', url: `/api/ppt/works/${id}` });
     assert.equal(deleted.statusCode, 200, deleted.body);
     assert.equal(deleted.json().data.resource.length, 0);

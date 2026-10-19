@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**307 tests / 54 suites / 298 pass / 9 skipped / 0 fail**，约 24s。
+结果（本轮）：**308 tests / 54 suites / 298 pass / 10 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -42,7 +42,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
 | server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
-| server/ppt | PPT 草稿元数据：创建/列表/删除（SQLite v3 表）；不生成页面/不调用模型 |
+| server/ppt | PPT 草稿创建/列表/删除；真实模型生成大纲并持久化（12 页 live PASS） |
 | server/templates | 固定模板详情/任务数/JSON 导出；按模板生成计划（template source，5 步/4 边）；按模板查历史 |
 | server/settings | 断连轮询间隔持久化/校验、模型档案启停、工具集启停（非空/合法校验）、数据库概览跳转；任务页轮询使用该设置 |
 | mcp/runtime | 工具集过滤：只注入启用前缀的工具；空/未知工具集回退默认；设置经 AGENT_WORKFLOW_TOOLSETS 注入 |
@@ -68,6 +68,11 @@ flash 模型经兼容网关返回文本 `OK`。验证发生在工具集过滤、
 `AGENT_WORKFLOW_LIVE=1 tests/integration/knowledge-ask-live.test.ts`：基于项目 README/docs 提问“交付流程/清理前要做什么”，
 flash 模型返回答案并给出 `README.md:3`、`README.md:4` 两条引用（服务端校验路径与行号），**PASS 31s**。
 问答结果写入本机历史（最多 30 条）；后续问题会带上最近 3 条问答作为上下文；无引用/非法引用会被服务端丢弃。
+
+## 2.7 PPT 大纲生成（真实模型，PASS）
+
+`AGENT_WORKFLOW_LIVE=1 tests/integration/ppt-live.test.ts`：草稿“季度汇报/交付质量计划” → flash 模型生成 12 页大纲并落库，
+列表读取一致，**PASS 16s**。仅生成大纲，逐页视觉/文件导出未实现。
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
