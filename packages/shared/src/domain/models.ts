@@ -91,6 +91,7 @@ export interface ProjectGitlabSettings {
 }
 
 export interface ProjectSettings {
+  readonly evidenceSources?: readonly import('./project-evidence.ts').ProjectEvidenceSource[];
   readonly testCommand?: string;
   readonly gitProvider?: GitProviderValue;
   readonly defaultModelProfileId?: string;
@@ -426,7 +427,7 @@ export interface ResourceRef {
 }
 
 export interface PlanNode {
-  readonly sourceEvidence?: { readonly version: 1; readonly testCommand?: string; readonly stage: import('./enums.ts').SourceEvidenceStageValue; readonly filePaths: readonly string[] };
+  readonly sourceEvidence?: { readonly version: 1; readonly testCommand?: string; readonly reportPatterns?: readonly string[]; readonly stage: import('./enums.ts').SourceEvidenceStageValue; readonly filePaths: readonly string[] };
   readonly id: PlanNodeId;
   readonly key: string;
   readonly title: string;

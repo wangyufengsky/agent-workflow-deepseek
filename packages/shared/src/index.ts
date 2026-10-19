@@ -28,3 +28,5 @@ export * from './domain/insights.ts';
 export * from './domain/runtime-interactions.ts';
 
 export * from './domain/planning-interactions.ts';
+
+export * from './domain/project-evidence.ts';

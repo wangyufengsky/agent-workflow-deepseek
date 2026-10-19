@@ -1,3 +1,4 @@
+import { normalizeEvidenceSources, projectBindingHash } from './project-evidence.ts';
 import { detectProjectTechnology } from './project-technology.ts';
 import { isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview, isPlanningQuestionAnswered, type RuntimeInteraction } from '@agent-workflow/shared';
 import { captureCharterContext, readCharterSource } from './project-charter-context.ts';
@@ -205,8 +206,10 @@ export class ProjectService {
     const project = this.get(projectId);
     const repo = this.#store.repos.get(projectId);
     const tasks = this.#store.tasks.listByProject(projectId).map((task) => this.#toSummary(task));
+    const check = this.#store.settings.getJson<import('@agent-workflow/shared').ProjectBindingCheck>(`project.binding-check.${projectId}`);
     return {
       project,
+      ...(check?.configHash === projectBindingHash(project.settings) ? { bindingCheck: check } : {}),
       repos: repo,
       tasks,
     };
@@ -1001,6 +1004,7 @@ type MutableProjectSettings = { -readonly [K in keyof ProjectSettings]?: Project
 
 function normalizeProjectSettingsPatch(settings: NonNullable<UpdateProjectRequest['settings']>): MutableProjectSettings {
   const patch: MutableProjectSettings = { ...settings };
+  if (settings.evidenceSources !== undefined) patch.evidenceSources = normalizeEvidenceSources(settings.evidenceSources);
   if (settings.docPaths !== undefined) patch.docPaths = normalizeDocPaths(settings.docPaths);
   if (settings.gitlab !== undefined) patch.gitlab = normalizeProjectGitlab(settings.gitlab);
   return patch;

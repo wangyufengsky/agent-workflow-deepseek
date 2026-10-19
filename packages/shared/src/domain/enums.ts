@@ -551,6 +551,7 @@ export const OperationKind = {
   PROJECT_CREATE: 'project.create',
   PROJECT_UPDATE: 'project.update',
   PROJECT_RECHECK: 'project.recheck',
+  PROJECT_BINDING_CHECK: 'project.binding.check',
   PROJECT_CHARTER_GENERATE: 'project.charter.generate',
   PROJECT_CHARTER_STOP: 'project.charter.stop',
   PROJECT_CHARTER_UPDATE: 'project.charter.update',
@@ -661,6 +662,7 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'project.create': op('project.create', 'global', true, '登记项目'),
   'project.update': op('project.update', 'project', true, '更新项目设置'),
   'project.recheck': op('project.recheck', 'project', true, '重新检测项目路径与 Git 状态'),
+  'project.binding.check': op('project.binding.check', 'project', true, '检查GitLab仓库与执行证据来源'),
   'project.charter.generate': op('project.charter.generate', 'project', true, '只读模型生成项目公约草稿'),
   'project.charter.stop': op('project.charter.stop', 'project', true, '请求停止公约生成'),
   'project.charter.update': op('project.charter.update', 'project', true, '保存项目公约草稿'),
@@ -853,3 +855,10 @@ export type TestCaseStatusValue = (typeof TestCaseStatus)[keyof typeof TestCaseS
 
 export const ProjectTechnologyState = { DETECTED: 'detected', UNKNOWN: 'unknown', UNAVAILABLE: 'unavailable' } as const;
 export type ProjectTechnologyStateValue = (typeof ProjectTechnologyState)[keyof typeof ProjectTechnologyState];
+
+export const ProjectEvidenceKind = { JUNIT: 'junit', LOGS: 'logs' } as const;
+export type ProjectEvidenceKindValue = (typeof ProjectEvidenceKind)[keyof typeof ProjectEvidenceKind];
+export const EvidenceSourceReadState = { READABLE: 'readable', EMPTY: 'empty', UNAVAILABLE: 'unavailable' } as const;
+export type EvidenceSourceReadStateValue = (typeof EvidenceSourceReadState)[keyof typeof EvidenceSourceReadState];
+export const ProjectBindingRepositoryState = { CONNECTED: 'connected', NOT_CONFIGURED: 'not_configured', FAILED: 'failed' } as const;
+export type ProjectBindingRepositoryStateValue = (typeof ProjectBindingRepositoryState)[keyof typeof ProjectBindingRepositoryState];

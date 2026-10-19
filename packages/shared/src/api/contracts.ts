@@ -281,6 +281,7 @@ export interface UpdateProjectRequest {
   readonly name?: string;
   readonly description?: string;
   readonly settings?: {
+    readonly evidenceSources?: readonly import('../domain/project-evidence.ts').ProjectEvidenceSource[];
     readonly testCommand?: string;
     readonly gitProvider?: 'github' | 'gitlab';
     readonly defaultMethodId?: string;
@@ -355,6 +356,7 @@ export interface ProjectCharterConfirmRequest extends CommandRequest {
 }
 
 export interface ProjectDetailResponse {
+  readonly bindingCheck?: import('../domain/project-evidence.ts').ProjectBindingCheck;
   readonly project: Project;
   readonly repos?: GitRepo;
   readonly tasks: readonly TaskSummary[];
@@ -1971,6 +1973,7 @@ export const ROUTES = {
   projects: '/api/projects',
   projectSourcePath: (id: string, path?: string) => `/api/projects/${encodeURIComponent(id)}/source-path${path === undefined ? '' : `?path=${encodeURIComponent(path)}`}`,
   project: (id: string) => `/api/projects/${encodeURIComponent(id)}`,
+  projectBindingCheck: (id: string) => `/api/projects/${encodeURIComponent(id)}/binding/check`,
   tasks: '/api/tasks',
   taskArchive: (id: string) => `/api/tasks/${encodeURIComponent(id)}/archive`,
   task: (id: string) => `/api/tasks/${encodeURIComponent(id)}`,

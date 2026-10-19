@@ -1,3 +1,4 @@
+import { evidenceReportFiles } from '../../engine/src/project-evidence.ts';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -47,7 +48,7 @@ export function parseJUnit(xml: string, root: string, candidatePaths: readonly s
     return { className, ...(file ? { fileMapping: reported ? 'reported' as const : 'classname' as const } : { fileReason: '报告未提供文件路径，类名也无法唯一绑定到当前已提交测试产物' }), name: `${item.getAttribute('classname') ? `${item.getAttribute('classname')}.` : ''}${item.getAttribute('name') || '(未命名测试)'}`, status, ...(file ? { file } : {}), ...(Number.isSafeInteger(line) && line > 0 ? { line } : {}), ...(failure ? { message: (failure.getAttribute('message') || failure.textContent || '测试失败').slice(0, 8000) } : {}) };
   });
 }
-export function retainControlledTestRun(input: { readonly store: Store; readonly taskId: string; readonly executionId: string; readonly nodeId: string; readonly attemptId: string; readonly root: string; readonly startedAt: string; readonly argv?: readonly string[]; readonly before?: string; readonly candidatePaths?: readonly string[]; readonly report?: TestReportRequest; readonly result: { readonly command: string; readonly exitCode: number; readonly stdout: string; readonly stderr: string; readonly timedOut: boolean }; readonly allowed: (path: string) => boolean }): ControlledTestRun {
+export function retainControlledTestRun(input: { readonly captureBudget?: { files: number; bytes: number }; readonly store: Store; readonly taskId: string; readonly executionId: string; readonly nodeId: string; readonly attemptId: string; readonly root: string; readonly startedAt: string; readonly argv?: readonly string[]; readonly before?: string; readonly candidatePaths?: readonly string[]; readonly report?: TestReportRequest; readonly result: { readonly command: string; readonly exitCode: number; readonly stdout: string; readonly stderr: string; readonly timedOut: boolean }; readonly allowed: (path: string) => boolean }): ControlledTestRun {
   const { store, result } = input;
   let cases: readonly ControlledTestCase[] = []; let report: ControlledTestRun['report']; let reason: string | undefined;
   try {
@@ -69,6 +70,8 @@ export function retainControlledTestRun(input: { readonly store: Store; readonly
     cases = parseJUnit(xml.slice(start), input.root, input.candidatePaths);
     const paths = [...new Set(cases.flatMap((item) => item.file ? [item.file] : []))];
     if (paths.length > 24) invalid('测试报告关联文件超过24个，请拆分批次');
+    const budget = input.captureBudget ?? { files: 0, bytes: 0 };
+    for (const path of paths) { const bytes = statSync(controlledReportPath(input.root, path)).size; if (++budget.files > 24 || (budget.bytes += bytes) > 8 * 1024 * 1024) invalid('测试关联文件超过整体24文件/8MiB读取上限'); }
     const artifacts = paths.map((path) => captureArtifacts(store.dataDir, input.root, input.attemptId, [{ path }], input.allowed)[0]!);
     cases = cases.map((item) => ({ ...item, ...(item.file ? { artifact: artifacts.find((artifact) => artifact.path === item.file) } : {}) }));
     report ??= captureServiceArtifact(store.dataDir, input.attemptId, 'controlled-test-report.xml', Buffer.from(xml.slice(start)), 'text/xml');
@@ -79,4 +82,28 @@ export function retainControlledTestRun(input: { readonly store: Store; readonly
   if (!reason && passed + failed === 0 && skipped > 0) reason = '所有测试均跳过，未形成实际执行通过证据';
   const record: ControlledTestRun = { workspaceId: workspace?.id, workspaceRevision: workspace?.revision, id: createId('trun'), taskId: input.taskId, executionId: input.executionId, nodeId: input.nodeId, attemptId: input.attemptId, argv: input.argv ?? [result.command], command: result.command, commandSha256: hash(JSON.stringify(input.argv ?? [result.command])), startedAt: input.startedAt, endedAt: new Date().toISOString(), exitCode: result.exitCode, timedOut: result.timedOut, format: 'junit', state: reason ? 'unknown' : failed || result.exitCode !== 0 ? 'failed' : 'passed', ...(reason ? { reason } : {}), ...(cases.length ? { passed, failed, skipped } : {}), cases, ...(report ? { report } : {}) };
   store.settings.putJson(`execution.test-run.${record.id}`, record); store.settings.putJson(`execution.test-run.latest.${record.attemptId}`, record.id); return record;
+}
+
+export interface ConfiguredReportSnapshot { readonly fingerprints: Readonly<Record<string, string | undefined>>; readonly truncated: boolean }
+export function snapshotConfiguredReports(root: string, patterns: readonly string[], allowed: (path: string) => boolean): ConfiguredReportSnapshot {
+  try { const found = evidenceReportFiles(root, patterns, allowed); return { fingerprints: Object.fromEntries(found.paths.map((path) => [path, reportFingerprint(root, { format: 'junit', path })])), truncated: found.truncated }; }
+  catch { return { fingerprints: {}, truncated: true }; }
+}
+/** Aggregate only actual per-file reports, retaining each immutable source identity. */
+export function retainConfiguredTestRun(input: Parameters<typeof retainControlledTestRun>[0] & { readonly patterns: readonly string[]; readonly beforeReports: ConfiguredReportSnapshot }): ControlledTestRun {
+  const discovered = snapshotConfiguredReports(input.root, input.patterns, input.allowed);
+  const paths = Object.keys(discovered.fingerprints);
+  if (discovered.truncated || input.beforeReports.truncated || paths.length === 0 || paths.length > 16) {
+    const record = retainControlledTestRun({ ...input, report: undefined, result: { ...input.result, stdout: '' } });
+    const unknown = { ...record, state: 'unknown' as const, reason: paths.length === 0 ? '已保存的JUnit来源没有匹配报告，未推断测试通过' : 'JUnit来源匹配超过有界读取范围，需缩小来源或拆分批次' };
+    input.store.settings.putJson(`execution.test-run.${record.id}`, unknown); return unknown;
+  }
+  const captureBudget = { files: 0, bytes: 0 };
+  const runs = paths.map((path) => retainControlledTestRun({ ...input, captureBudget, report: { format: 'junit', path }, before: input.beforeReports.fingerprints[path] }));
+  const first = runs[0]!; const reports = runs.flatMap((run) => run.report ? [run.report] : []); const cases = runs.flatMap((run) => run.cases); const unknownRuns = runs.filter((run) => run.state === 'unknown' && !(run.reason === '命令非零退出但报告未记录失败用例，结果无法核实' && cases.some((item) => item.status === 'failed')) && !(run.reason === '所有测试均跳过，未形成实际执行通过证据' && cases.some((item) => item.status !== 'skipped')));
+  const tooMany = cases.length > 2000; const reason = tooMany ? 'JUnit汇总用例超过2000条，未确认完整结果' : unknownRuns.length ? unknownRuns.map((run, index) => `报告${index + 1}：${run.reason ?? '结果未知'}`).join('；') : undefined;
+  const passed = cases.filter((item) => item.status === 'passed').length; const failed = cases.filter((item) => item.status === 'failed').length; const skipped = cases.filter((item) => item.status === 'skipped').length;
+  const summary = captureServiceArtifact(input.store.dataDir, input.attemptId, 'configured-test-reports.md', Buffer.from(`# 配置来源实际测试报告\n\n命令：${first.command}\n\n${reports.map((report) => `- ${report.path ?? report.name} · SHA-256 ${report.sha256}`).join('\n')}\n\n${reason ?? `实际用例：通过${passed} / 失败${failed} / 跳过${skipped}`}\n`), 'text/markdown');
+  const record: ControlledTestRun = { ...first, id: createId('trun'), state: reason ? 'unknown' : runs.some((run) => run.state === 'failed') ? 'failed' : 'passed', ...(reason ? { reason } : { reason: undefined }), cases: tooMany ? [] : cases, ...(tooMany ? { passed: undefined, failed: undefined, skipped: undefined } : { passed, failed, skipped }), reports, report: summary, endedAt: new Date().toISOString() };
+  input.store.settings.putJson(`execution.test-run.${record.id}`, record); input.store.settings.putJson(`execution.test-run.latest.${record.attemptId}`, record.id); return record;
 }

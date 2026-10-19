@@ -1,6 +1,7 @@
+import { matchesEvidencePath } from '../../engine/src/project-evidence.ts';
 import { sourceArtifact, sourceAncestors, sourceReadKey, recordArtifactRead } from '../../engine/src/template-file-evidence.ts';
 import { readArtifactBytes } from '../../engine/src/artifacts.ts';
-import { reportFingerprint, retainControlledTestRun, type TestReportRequest } from './controlled-tests.ts';
+import { reportFingerprint, retainControlledTestRun, retainConfiguredTestRun, snapshotConfiguredReports, type TestReportRequest } from './controlled-tests.ts';
 import { assertDatabaseQueryAccess } from '@agent-workflow/database';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -307,6 +308,11 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     if (controlled && (!attempt || !execution || dispatch.kind !== 'execution')) throw new AppError(ErrorCode.FORBIDDEN, '受控测试必须绑定当前执行尝试');
     if (body.testReport !== undefined && (body.testReport === null || body.testReport.format !== 'junit' || body.testReport.path !== undefined && typeof body.testReport.path !== 'string')) throw new AppError(ErrorCode.VALIDATION_FAILED, '仅支持JUnit stdout或工作区相对报告路径');
     if (controlled && JSON.stringify(argv) !== JSON.stringify(tokenizeCommand(configuredTestCommand))) throw new AppError(ErrorCode.COMMAND_NOT_ALLOWED, '受控测试只执行项目/全局配置的完整测试命令，不接受模型改写命令或参数');
+    const reportPatterns = node?.sourceEvidence?.reportPatterns ?? [];
+    const canRead = (path: string) => dispatch.rolePolicy !== undefined && roleFileAllowed(dispatch.rolePolicy, path, 'read');
+    if (body.testReport?.path && reportPatterns.length && !reportPatterns.some((pattern) => matchesEvidencePath(pattern, body.testReport!.path!))) throw new AppError(ErrorCode.FORBIDDEN, '报告不在本执行冻结的JUnit来源内');
+    const configured = controlled && body.testReport === undefined && reportPatterns.length > 0;
+    const beforeReports = configured ? snapshotConfiguredReports(root, reportPatterns, canRead) : undefined;
     const before = controlled ? reportFingerprint(root, body.testReport) : undefined;
     if (body.testReport?.path) assertRoleResource(request, 'read', body.testReport.path);
     const startedAt = nowIso();
@@ -315,7 +321,8 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     // A stopped/revoked session cannot register a late command result.
     requireSessionScope(request.headers['x-agent-workflow-scope']);
     if (deps.store.executions.getAttempt(attempt!.id)?.status !== 'running') throw new AppError(ErrorCode.STALE_TARGET, '测试命令结束时尝试已失效');
-    const testRun = retainControlledTestRun({ store: deps.store, taskId: body.taskId, executionId: execution!.id, nodeId: attempt!.nodeId, attemptId: attempt!.id, root, startedAt, argv, before, report: body.testReport, result, candidatePaths: sourceAncestors(deps.store, task!, attempt!).flatMap((item) => item.result?.artifacts.flatMap((ref) => ref.path ? [ref.path] : []) ?? []), allowed: (path) => dispatch.rolePolicy !== undefined && roleFileAllowed(dispatch.rolePolicy, path, 'read') });
+    const testInput = { store: deps.store, taskId: body.taskId, executionId: execution!.id, nodeId: attempt!.nodeId, attemptId: attempt!.id, root, startedAt, argv, before, report: body.testReport, result, candidatePaths: sourceAncestors(deps.store, task!, attempt!).flatMap((item) => item.result?.artifacts.flatMap((ref) => ref.path ? [ref.path] : []) ?? []), allowed: canRead };
+    const testRun = configured ? retainConfiguredTestRun({ ...testInput, patterns: reportPatterns, beforeReports: beforeReports! }) : retainControlledTestRun(testInput);
     return { ...result, testRun };
   }));
 }

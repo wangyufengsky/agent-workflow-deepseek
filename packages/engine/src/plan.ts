@@ -125,7 +125,7 @@ export class PlanService {
       refinableGroups: [],
     });
     const testCommand = this.#store.projects.get(task.projectId)?.settings.testCommand || this.#context.settings().git.defaultTestCommand;
-    const evidenceGraph = template.sourceEvidenceVersion === 1 && task.fixedTemplate?.scope ? { ...templateGraph, nodes: templateGraph.nodes.map((node, index) => ({ ...node, sourceEvidence: { version: 1 as const, stage: template.steps[index]?.sourceStage ?? 'prepare' as const, testCommand, filePaths: (task.fixedTemplate!.scope!.sourceFiles ?? []).map((file) => file.path) } })) } : templateGraph;
+    const evidenceGraph = template.sourceEvidenceVersion === 1 && task.fixedTemplate?.scope ? { ...templateGraph, nodes: templateGraph.nodes.map((node, index) => ({ ...node, sourceEvidence: { version: 1 as const, reportPatterns: this.#store.projects.get(task.projectId)?.settings.evidenceSources?.filter((source) => source.kind === 'junit').map((source) => source.path), stage: template.steps[index]?.sourceStage ?? 'prepare' as const, testCommand, filePaths: (task.fixedTemplate!.scope!.sourceFiles ?? []).map((file) => file.path) } })) } : templateGraph;
     const graph = task.fixedTemplate?.snapshot === undefined ? evidenceGraph : snapshotPlanGraph(templateGraph, task.fixedTemplate.snapshot, template);
     const plan = this.#store.plans.create({ taskId, source: 'template', graph, status: 'unconfirmed', baseRevisionId: base?.id });
     this.#store.tasks.update(taskId, { stage: TaskStage.CONFIRMING, attention: TaskAttention.NONE, currentPlanRevisionId: plan.id });

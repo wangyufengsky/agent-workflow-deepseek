@@ -1,3 +1,4 @@
+import { registerProjectEvidenceRoutes } from './project-evidence.ts';
 import { isPlanningQuestionAnswered, isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview } from '@agent-workflow/shared';
 import { normalizeQuestionAnswer, questionChoices } from '@agent-workflow/shared';
 import { readableOutput } from '@agent-workflow/engine';
@@ -355,6 +356,7 @@ const MIME: Record<string, string> = {
 export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): void {
   const { engine, store, opencodeRef, paths, databaseService, remoteService } = deps;
   registerRoleInsightRoutes(app, store, engine);
+  registerProjectEvidenceRoutes(app, store, engine, remoteService);
   const requestId = (request: FastifyRequest): string => String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
   // Command envelopes are validated once, before any handler can reach domain
   // services. Hooks registered here also cover routes added by later plugins.

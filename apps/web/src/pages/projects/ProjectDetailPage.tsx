@@ -1,3 +1,6 @@
+import { ProjectEvidenceEditor, ProjectBindingResult } from './ProjectEvidence.tsx';
+import { pendingCommands, subscribePending, commandScope } from '../../api/pending-commands.ts';
+import { projectBindingIdentity, type ProjectEvidenceSource, type ProjectBindingCheck } from '@agent-workflow/shared';
 import { ProjectBranchValue, ProjectTechnologyValue } from './ProjectFacts.tsx';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
@@ -269,9 +272,12 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
   const [baseUrl, setBaseUrl] = useState(override?.baseUrl ?? '');
   const [projectPath, setProjectPath] = useState(override?.projectPath ?? '');
   const [enabled, setEnabled] = useState(override?.enabled ?? true);
+  const [sources, setSources] = useState<readonly ProjectEvidenceSource[]>(project.settings.evidenceSources ?? []);
+  const [pending, setPending] = useState(pendingCommands);
+  useEffect(() => subscribePending(() => setPending(pendingCommands())), []);
   const [receipt, setReceipt] = useState<OperationReceipt | undefined>(undefined);
   const [error, setError] = useState<unknown>(null);
-  const overrideKey = JSON.stringify(override ?? null);
+  const overrideKey = JSON.stringify({ gitlab: override ?? null, sources: project.settings.evidenceSources ?? [] });
 
   useEffect(() => {
     const next = project.settings.gitlab;
@@ -279,6 +285,7 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
     setBaseUrl(next?.baseUrl ?? '');
     setProjectPath(next?.projectPath ?? '');
     setEnabled(next?.enabled ?? true);
+    setSources(project.settings.evidenceSources ?? []);
   }, [project.id, overrideKey]);
 
   useEffect(() => {
@@ -291,17 +298,19 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
     baseUrl: override?.baseUrl ?? '',
     projectPath: override?.projectPath ?? '',
     enabled: override?.enabled ?? true,
+    sources: project.settings.evidenceSources ?? [],
   });
-  const current = JSON.stringify({ inheritGlobal, baseUrl, projectPath, enabled });
+  const current = JSON.stringify({ inheritGlobal, baseUrl, projectPath, enabled, sources });
   const dirty = initial !== current;
   const urlValid = inheritGlobal || /^https?:\/\/[^\s]+$/iu.test(baseUrl.trim());
   const pathValid = inheritGlobal || /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/u.test(projectPath.trim());
-  const locked = receipt !== undefined && (receipt.status === 'unknown' || receipt.status === 'accepted');
+  const locked = receipt !== undefined && (receipt.status === 'unknown' || receipt.status === 'accepted') || pending.some((item) => item.scope === commandScope(ROUTES.project(project.id)));
   const mutation = useMutation({
     mutationFn: async () => {
       const body: UpdateProjectRequest = {
         requestKey: createRequestKey(),
         settings: {
+          evidenceSources: sources,
           gitlab: {
             inheritGlobal,
             ...(inheritGlobal ? {} : {
@@ -328,8 +337,22 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
     onError: (caught) => { setError(caught); },
   });
 
+  const probe = useMutation({
+    mutationFn: async () => (await request<CommandResponse<ProjectBindingCheck>>(ROUTES.projectBindingCheck(project.id), { method: 'POST', body: { requestKey: createRequestKey(), expectedConfig: projectBindingIdentity(project.settings) } })).data,
+    onSuccess: async (data) => { setReceipt(data.receipt); setError(null); await queryClient.invalidateQueries({ queryKey: projectDetailKey(project.id) }); },
+    onError: (caught) => setError(caught),
+  });
+  useEffect(() => {
+    if (!receipt || !['accepted', 'unknown'].includes(receipt.status)) return;
+    const timer = window.setInterval(() => { void apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(receipt.requestKey)).then(async (response) => { setReceipt(response.data.operation); if (['succeeded', 'failed'].includes(response.data.operation.status)) await queryClient.invalidateQueries({ queryKey: projectDetailKey(project.id) }); }).catch(() => undefined); }, 2000);
+    return () => window.clearInterval(timer);
+  }, [receipt?.requestKey, receipt?.status, project.id, queryClient]);
+  const savedCheck = queryClient.getQueryData<ProjectDetailResponse>(projectDetailKey(project.id))?.bindingCheck;
+  const sourceError = sources.some((source) => !source.path.trim()) ? '请填写每条证据来源路径' : undefined;
+  const probeReason = locked ? '原操作尚未核对完成' : dirty ? '保存绑定与证据来源后才能检查' : !override && project.settings.evidenceSources === undefined && !project.remoteDisplayUrl ? '保存绑定后才能检查' : probe.isPending ? '正在检查绑定与来源' : undefined;
   const disabledReason = locked
     ? '保存结果未明或已受理；按原请求号核对后再修改。'
+    : probe.isPending ? '正在检查绑定与来源' : sourceError !== undefined ? sourceError
     : !dirty
       ? '没有修改。'
       : !inheritGlobal && baseUrl.trim() === ''
@@ -387,7 +410,9 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
         <input type="checkbox" checked={enabled} disabled={mutation.isPending || locked} onChange={(event) => { setEnabled(event.target.checked); }} />
         <span>启用项目级 GitLab 覆盖</span>
       </label>
+      <ProjectEvidenceEditor sources={sources} onChange={setSources} disabled={mutation.isPending || probe.isPending || locked} />
       <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+        <Button variant="secondary" size="sm" icon="check" disabled={probeReason !== undefined || mutation.isPending} disabledReason={probeReason ?? '正在保存绑定'} onClick={() => probe.mutate()}>{probe.isPending ? '检查中…' : '检查绑定'}</Button>
         <span className="hint grow">非敏感配置；不保存 token。远程调用采用已保存的项目覆盖；凭据仍保存在本机。</span>
         <Button
           variant="primary"
@@ -397,10 +422,11 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
           disabledReason={disabledReason}
           onClick={() => { setReceipt(undefined); setError(null); mutation.mutate(); }}
         >
-          {mutation.isPending ? '保存中…' : '保存 GitLab 覆盖'}
+          {mutation.isPending ? '保存中…' : '保存绑定与证据'}
         </Button>
       </div>
-      <ReceiptNotice receipt={receipt} successMessage="项目级 GitLab 覆盖已保存并用于后续远程调用。" />
+      <ReceiptNotice receipt={receipt} successMessage="原操作已确认；仓库与来源是否可读以检查结果为准。" />
+      {!dirty && !probe.isPending ? <ProjectBindingResult check={savedCheck} /> : null}
       {error === null ? null : <CommandErrorNotice error={error} title="GitLab 覆盖未保存" />}
     </div>
   );
@@ -601,14 +627,7 @@ function GitTab({
           )}
 
           <ProjectGitlabForm project={project} {...(gitlabBaseUrl === undefined ? {} : { globalBaseUrl: gitlabBaseUrl })} />
-          <div className="banner info" style={{ marginTop: 12 }}>
-            <Icon name="info" />
-            <div className="grow">
-              <b>证据来源（JUnit 报告 / 日志目录）仍未提供接口。</b>
-              <br />
-              本页不展示可保存的测试报告/日志目录表单，也不伪造绑定结果；GitLab 连接状态以上方服务事实为准。
-            </div>
-          </div>
+
 
           <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: 'wrap' }}>
             {isGit ? (
@@ -1173,7 +1192,7 @@ function ConfigStatusCard({
       : `项目覆盖：${projectGitlab.baseUrl ?? '未填地址'} · ${projectGitlab.projectPath ?? '未填路径'}`;
   const gitlabDetail = !isGit
     ? `非 Git 项目 · ${gitlabOverride} · 远程调用采用项目覆盖或继承全局`
-    : `${gitlabState === 'not_configured' && gitlabConfigured ? '全局 GitLab 已配置' : '证据来源配置服务未提供'} · ${gitlabOverride} · 远程调用采用项目覆盖或继承全局`;
+    : `${gitlabState === 'not_configured' && gitlabConfigured ? '全局 GitLab 已配置' : '执行证据来源按项目保存并受控检查'} · ${gitlabOverride} · 远程调用采用项目覆盖或继承全局`;
 
   const projectProvider = project.settings.gitProvider ?? integration?.git.provider;
   const providerState = integration === undefined || projectProvider === undefined

@@ -168,6 +168,13 @@ export class RemoteService implements RemotePort {
     };
   }
 
+  async inspectProjectBinding(projectId: string): Promise<import('@agent-workflow/shared').ProjectBindingCheck['repository']> {
+    const provider = await this.#providerFor(this.#requireProject(projectId));
+    if (!provider || provider.provider !== 'gitlab') return { state: 'not_configured', reason: '此项目没有可用的GitLab仓库绑定与本机授权；全局账号状态不代表项目绑定已验证' };
+    const project = await provider.getProject();
+    return { state: 'connected', name: project.pathWithNamespace, webUrl: project.webUrl };
+  }
+
   async listMergeRequests(projectId: string, state: 'opened' | 'merged' | 'closed' | 'all' = 'opened'): Promise<readonly GitMergeRequest[]> {
     const project = this.#requireProject(projectId);
     const provider = await this.#providerFor(project);

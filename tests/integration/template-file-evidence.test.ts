@@ -14,17 +14,19 @@ import { prepareSourceSubmission, sourceReadKey, artifactReadKey } from '../../p
 import { methodToGraph } from '../../packages/engine/src/graph.ts';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const testText = "import {test} from 'node:test';import assert from 'node:assert/strict';test('passes',()=>assert.equal(1,1));test('skips',{skip:true},()=>{});test('fails',()=>assert.equal(1,2));\n";
-async function fixture(passing = false) {
+async function fixture(passing = false, configured = false) {
   const root = mkdtempSync(join(tmpdir(), 'aw-file-proof-root-')); mkdirSync(join(root, 'src')); mkdirSync(join(root, 'test')); writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;'); writeFileSync(join(root, 'test/proof.test.mjs'), passing ? testText.replace("test('fails',()=>assert.equal(1,2))", "test('passes-again',()=>assert.equal(1,1))") : testText);
-  const command = `${process.execPath} --test --test-reporter=junit test/proof.test.mjs`;
+  if (configured) mkdirSync(join(root, 'reports'));
+  const argv = [process.execPath, '--test', '--test-reporter=junit', ...(configured ? ['--test-reporter-destination=reports/result.xml'] : []), 'test/proof.test.mjs'];
+  const command = argv.join(' ');
   const app = await createApplication({ dataDir: mkdtempSync(join(tmpdir(), 'aw-file-proof-data-')), disableOpenCode: true, disableListen: true });
   const baseRole = app.engine.catalog.roles.find((role) => role.id === 'role.tester')!;
-  const role: RoleDefinition = { ...baseRole, capabilityGroups: baseRole.capabilityGroups!.map((group) => ({ ...group, items: group.items.map((item) => ({ ...item, enabled: true })) })), resourcePermissions: { ...baseRole.resourcePermissions!, files: [{ kind: 'read', path: '.' }, { kind: 'write', path: '.' }], commands: [{ kind: 'argv', argv: [process.execPath, '--test', '--test-reporter=junit', 'test/proof.test.mjs'] }], tools: [{ kind: 'mcp', name: 'workspace.exec' }, { kind: 'mcp', name: 'workspace.file.read' }, { kind: 'mcp', name: 'workspace.file.write' }] } };
+  const role: RoleDefinition = { ...baseRole, capabilityGroups: baseRole.capabilityGroups!.map((group) => ({ ...group, items: group.items.map((item) => ({ ...item, enabled: true })) })), resourcePermissions: { ...baseRole.resourcePermissions!, files: [{ kind: 'read', path: '.' }, { kind: 'write', path: '.' }], commands: [{ kind: 'argv', argv }], tools: [{ kind: 'mcp', name: 'workspace.exec' }, { kind: 'mcp', name: 'workspace.file.read' }, { kind: 'mcp', name: 'workspace.file.write' }] } };
   const project = app.store.projects.create({ name: 'Offline protocol fixture', rootPath: root, gitState: 'git', settings: { testCommand: command } });
   const template = DEFAULT_CATALOG.templates.find((item) => item.id === 'template.unit-test-development')!;
   const task = app.store.tasks.create({ projectId: project.id, title: 'Evidence fixture', requirementText: 'Scoped source evidence', methodId: 'method.unit-test-development', methodRevision: 'template-v8', fixedTemplate: { templateId: template.id, templateVersion: template.version, contract: template, locked: true, parameters: {}, scope: { sourcePaths: ['src'], sourceFiles: [{ path: 'src/a.ts', blobSha: 'a'.repeat(40), text: 'export const a = 1;' }], documents: [], frozenAt: new Date().toISOString() } } });
   const skeleton = methodToGraph({ ...DEFAULT_CATALOG.methods[0]!, requiredSteps: template.steps });
-  const graph: PlanGraph = { ...skeleton, nodes: skeleton.nodes.map((node, index): PlanNode => ({ ...node, roleSnapshot: role, roleId: role.id, sourceEvidence: { version: 1, stage: template.steps[index]!.sourceStage!, testCommand: command, filePaths: ['src/a.ts'] } })) };
+  const graph: PlanGraph = { ...skeleton, nodes: skeleton.nodes.map((node, index): PlanNode => ({ ...node, roleSnapshot: role, roleId: role.id, sourceEvidence: { version: 1, stage: template.steps[index]!.sourceStage!, testCommand: command, ...(configured ? { reportPatterns: ['reports/*.xml'] } : {}), filePaths: ['src/a.ts'] } })) };
   const plan = app.store.plans.create({ taskId: task.id, source: 'template', graph, status: 'confirmed' });
   const workspace = app.store.workspaces.create({ taskId: task.id, kind: 'directory_copy', displayRoot: root, branch: 'fixture' });
   app.store.workspaces.update(workspace.id, { state: 'ready' });
@@ -200,4 +202,19 @@ test('granted workspace writes create missing parents and keep stale-content and
     assert.equal(escaped.json().error.code, 'PATH_ESCAPE');
     assert.equal(existsSync(join(outside, 'new')), false);
   } finally { running.session.revoke(); await f.close(); }
+});
+
+
+test('workspace.exec consumes frozen configured JUnit sources from a real local command without granting extra read access', async () => {
+  const f = await fixture(true, true);
+  try {
+    const node = f.graph.nodes.find((item) => item.sourceEvidence?.stage === 'test')!; const running = f.sessionFor(node);
+    f.app.store.projects.update(f.project.id, { settings: { testCommand: 'changed', evidenceSources: [{ kind: 'junit', path: 'other/*.xml' }] } });
+    const response = await f.app.app.inject({ method: 'POST', url: '/internal/mcp/workspace/exec', headers: running.headers, payload: { taskId: f.task.id, command: f.command } });
+    assert.equal(response.statusCode, 200, response.body); const run = response.json().data.testRun as ControlledTestRun;
+    assert.equal(run.state, 'passed'); assert.deepEqual([run.passed, run.failed, run.skipped], [2, 0, 1]);
+    assert.equal(run.reports?.[0]?.path, 'reports/result.xml');
+    const denied = await f.app.app.inject({ method: 'POST', url: '/internal/mcp/workspace/exec', headers: running.headers, payload: { taskId: f.task.id, command: f.command, testReport: { format: 'junit', path: 'other/result.xml' } } });
+    assert.equal(denied.json().error.code, 'FORBIDDEN'); running.session.revoke();
+  } finally { await f.close(); }
 });
