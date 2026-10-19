@@ -27,7 +27,7 @@ export interface NodeOutputFragmentEvent extends Omit<OutputFragmentEvent, 'roun
 }
 
 export interface EventMap {
-  'inbox.changed': { readonly taskId: string };
+  'inbox.changed': { readonly taskId?: string; readonly projectId?: string };
   'ready': { readonly serverStartedAt: IsoDateTime };
   'task.changed': { readonly taskId: string; readonly projectId: string; readonly stage: string; readonly revision: number };
   'plan.changed': { readonly taskId: string; readonly planRevisionId: string; readonly revisionNumber: number; readonly status: string };

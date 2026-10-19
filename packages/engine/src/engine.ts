@@ -101,7 +101,7 @@ export class Engine {
     };
     this.#settings = mergeSettings(DEFAULT_SETTINGS, options.store.settings.getSettings() ?? {}) ?? options.initialSettings ?? DEFAULT_SETTINGS;
     this.commands = new CommandService(this.store);
-    this.runtimeInteractions = new RuntimeInteractionService(this.store, this.commands, options.ports.opencode, (taskId) => this.tasks.recomputeAttention(taskId));
+    this.runtimeInteractions = new RuntimeInteractionService(this.store, this.commands, options.ports.opencode, (taskId) => this.tasks.recomputeAttention(taskId), (projectId, key) => this.knowledge.assertRunReadable(projectId, key, true));
     const runtimeInteractions = this.runtimeInteractions;
     const originalPort = options.ports.opencode;
     this.ports = { ...options.ports, opencode: new Proxy(originalPort, { get(target, key) {
@@ -147,7 +147,7 @@ export class Engine {
     this.workspaces = new WorkspaceService(this.store, this.commands, this.context, this.ports.git);
     this.executions = new ExecutionService(this.store, this.commands, this.context, this.ports.opencode);
     this.deliveries = new DeliveryService(this.store, this.commands, this.context, this.ports.git, this.workspaces, this.ports.remote);
-    this.knowledge = new KnowledgeService({ store: this.store, commands: this.commands, context: this.context, opencode: this.ports.opencode, ...(this.ports.database === undefined ? {} : { database: this.ports.database }), ...(this.ports.publicSearch === undefined ? {} : { publicSearch: this.ports.publicSearch }), roles: () => this.catalog.roles });
+    this.knowledge = new KnowledgeService({ onSessionClosed: (sessionId) => this.runtimeInteractions.closeUnansweredSession(sessionId), store: this.store, commands: this.commands, context: this.context, opencode: this.ports.opencode, ...(this.ports.database === undefined ? {} : { database: this.ports.database }), ...(this.ports.publicSearch === undefined ? {} : { publicSearch: this.ports.publicSearch }), roles: () => this.catalog.roles });
     this.ppt = new PptService(this.store, this.commands, this.context, this.ports.opencode);
     this.acceptances = new AcceptanceService(this.store, this.commands);
   }

@@ -145,7 +145,7 @@ export interface InboxItem {
   readonly id: string;
   readonly kind: import('../domain/enums.ts').InboxKindValue;
   readonly projectId: string;
-  readonly taskId: string;
+  readonly taskId?: string;
   readonly taskTitle: string;
   readonly projectName: string;
   readonly title: string;
@@ -424,6 +424,7 @@ export interface KnowledgeAskRequest extends CommandRequest {
 
 export interface KnowledgeStopRequest extends CommandRequest { readonly projectId: string }
 export interface KnowledgeRunProgress {
+  readonly pendingInteractionIds?: readonly string[];
   readonly requestKey: string;
   readonly projectId: string;
   readonly conversationId: string;
@@ -484,13 +485,26 @@ export interface KnowledgeAskResponse {
 }
 
 export interface KnowledgeHistoryEntry extends KnowledgeAskResponse {
+  readonly readability?: 'ok' | 'forbidden';
+  readonly unavailableReason?: string;
   readonly id: string;
   readonly runStatus?: import('../domain/enums.ts').KnowledgeRunStatusValue;
 }
 
+export interface KnowledgeConversation {
+  readonly id: string; readonly projectId: string; readonly title: string; readonly revision: number;
+  readonly createdAt: IsoDateTime; readonly updatedAt: IsoDateTime; readonly archivedAt?: IsoDateTime;
+  readonly state: import('../domain/enums.ts').KnowledgeRunStatusValue;
+  readonly messageCount: number; readonly latest?: KnowledgeHistoryEntry;
+  readonly pendingInteractionIds: readonly string[];
+  readonly actions: { readonly rename: ActionAvailability; readonly archive: ActionAvailability; readonly restore: ActionAvailability; readonly followUp: ActionAvailability };
+}
+export interface KnowledgeConversationCommand extends CommandRequest { readonly projectId: string; readonly expectedRevision: number; readonly confirm: true; readonly title?: string }
 export interface KnowledgeHistoryResponse {
   readonly entries: readonly KnowledgeHistoryEntry[];
+  readonly conversations?: readonly KnowledgeConversation[];
 }
+
 
 /* Knowledge research timeline: every field comes from the real ask execution
  * (document reads, assistant message times, real tool parts, citation checks).
@@ -2124,6 +2138,10 @@ export const ROUTES = {
   knowledgeSourceContent: '/api/knowledge/source',
   knowledgeAsk: '/api/knowledge/ask',
   knowledgeHistory: '/api/knowledge/history',
+  knowledgeConversation: (id: string) => `/api/knowledge/conversations/${encodeURIComponent(id)}`,
+  knowledgeConversationRename: (id: string) => `/api/knowledge/conversations/${encodeURIComponent(id)}/rename`,
+  knowledgeConversationArchive: (id: string) => `/api/knowledge/conversations/${encodeURIComponent(id)}/archive`,
+  knowledgeConversationRestore: (id: string) => `/api/knowledge/conversations/${encodeURIComponent(id)}/restore`,
   knowledgeProgress: (key: string) => `/api/knowledge/runs/${encodeURIComponent(key)}`,
   knowledgeStop: (key: string) => `/api/knowledge/runs/${encodeURIComponent(key)}/stop`,
   knowledgeResult: (requestKey: string) => `/api/knowledge/results/${encodeURIComponent(requestKey)}`,

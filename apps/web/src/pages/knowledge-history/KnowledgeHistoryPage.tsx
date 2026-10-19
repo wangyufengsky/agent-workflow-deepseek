@@ -1,3 +1,4 @@
+import { ConversationActions } from './ConversationActions.tsx';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -5,6 +6,7 @@ import {
   ROUTES,
   type KnowledgeCitation,
   type KnowledgeHistoryEntry,
+  type KnowledgeConversation,
   type KnowledgeHistoryResponse,
   type ProjectSummary,
 } from '@agent-workflow/shared';
@@ -20,16 +22,18 @@ import { SegmentedControl, type SegmentOption } from '../../components/Segmented
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import './knowledge-history.css';
 
-type StatusFilter = 'all' | 'needs_answer' | 'running' | 'completed';
+type StatusFilter = 'all' | 'needs_answer' | 'running' | 'completed' | 'archived';
 
 interface ProjectHistorySlice {
   readonly project: ProjectSummary;
   readonly entries: readonly KnowledgeHistoryEntry[];
+  readonly conversations: readonly KnowledgeConversation[];
   readonly error?: unknown;
 }
 
 interface HistoryRow {
-  readonly entry: KnowledgeHistoryEntry;
+  readonly entry?: KnowledgeHistoryEntry;
+  readonly conversation: KnowledgeConversation;
   readonly projectId: string;
   readonly projectName: string;
 }
@@ -83,20 +87,21 @@ function highlight(text: string, term: string): ReactNode {
 }
 
 function rowKey(row: HistoryRow): string {
-  return `${row.projectId}:${row.entry.id}`;
+  return `${row.projectId}:${row.conversation.id}`;
 }
 
 function CitationList({ row, term }: { readonly row: HistoryRow; readonly term: string }) {
-  if (row.entry.citations.length === 0) {
+  const entry = row.entry;
+  if (entry === undefined || entry.citations.length === 0) {
     return <p className="hint">模型没有给出可核对引用；这条记录不会伪造引用。</p>;
   }
   return (
     <div className="list">
-      {row.entry.citations.map((citation: KnowledgeCitation) => (
+      {entry.citations.map((citation: KnowledgeCitation) => (
         <Link
           key={`${citation.path}:${String(citation.line)}`}
           className="list-row kh-cite"
-          to={`/knowledge?project=${encodeURIComponent(row.projectId)}&source=${encodeURIComponent(citation.path)}${row.entry.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(row.entry.requestKey)}`}`}
+          to={`/knowledge?project=${encodeURIComponent(row.projectId)}&source=${encodeURIComponent(citation.path)}${entry.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(entry.requestKey)}`}`}
           title={`打开原文 ${citation.path}:${String(citation.line)}`}
         >
           <span className="tile">
@@ -113,93 +118,21 @@ function CitationList({ row, term }: { readonly row: HistoryRow; readonly term: 
   );
 }
 
-function HistoryRowItem({
-  row,
-  expanded,
-  term,
-  onToggle,
-}: {
-  readonly row: HistoryRow;
-  readonly expanded: boolean;
-  readonly term: string;
-  readonly onToggle: () => void;
-}) {
-  const cited = row.entry.citations.length > 0;
-  const group = dayGroup(row.entry.generatedAt);
-  const status = row.entry.runStatus ?? 'completed';
-  const label = ({ researching: '研究中', answering: '生成中', stopping: '正在停止', stopped: '已停止', completed: '已完成', failed: '失败', unknown: '待核对' } as const)[status];
-  return (
-    <div className="kh-item" data-cited={cited} data-expanded={expanded}>
-      <Link className="kh-row" to={`/knowledge?project=${encodeURIComponent(row.projectId)}&conversation=${encodeURIComponent(row.entry.conversationId)}${row.entry.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(row.entry.requestKey)}`}`}>
-        <span className="kh-ico" aria-hidden="true">
-          <Icon name={cited ? 'book' : 'help'} size="sm" />
-        </span>
-        <span className="grow kh-main">
-          <span className="kh-q">{highlight(row.entry.question, term)}</span>
-          <span className="kh-a">{highlight(answerSummary(row.entry.answer), term)}</span>
-          <span className="kh-meta">
-            <Badge tone={status === 'completed' ? 'ok' : 'idle'} icon={status === 'completed' ? 'check' : 'clock'}>
-              {label}
-            </Badge>
-            <span>{row.projectName}</span>
-            <span aria-hidden="true">·</span>
-            <span className="mono">{row.entry.model === '' ? '模型未标注' : row.entry.model}</span>
-            <span aria-hidden="true">·</span>
-            <span>{String(row.entry.citations.length)} 处引用</span>
-          </span>
-        </span>
-        <span className="kh-side">
-          <span className="hint num" title={formatAbsoluteTime(row.entry.generatedAt)}>
-            {formatEntryTime(row.entry.generatedAt, group)}
-          </span>
-          <span className="hint">查看对话</span>
-          <Icon name={expanded ? 'chevDown' : 'chevRight'} size="sm" />
-        </span>
-      </Link>
-      <Button variant="ghost" size="sm" onClick={onToggle}>{expanded ? '收起详情' : '展开详情'}</Button>
-      {expanded ? (
-        <div className="kh-detail">
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>
-              问题
-            </div>
-            <p className="kh-question">{highlight(row.entry.question, term)}</p>
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>
-              回答
-            </div>
-            <p className="kh-answer">{highlight(row.entry.answer, term)}</p>
-          </div>
-          <div className="kh-detail-meta">
-            <span>模型：<span className="mono">{row.entry.model === '' ? '服务未标注' : row.entry.model}</span></span>
-            <span>生成于 {formatAbsoluteTime(row.entry.generatedAt)}（{formatRelativeTime(row.entry.generatedAt)}）</span>
-            {row.entry.usage === undefined ? null : <span>{String(row.entry.usage.total)} tokens</span>}
-            <span className="mono" title="服务端保存的对话标识，用于继续追问">
-              对话 {row.entry.conversationId}
-            </span>
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>
-              引用（{String(row.entry.citations.length)}）
-            </div>
-            <CitationList row={row} term={term} />
-          </div>
-          <div className="row wrap" style={{ gap: 8 }}>
-            <LinkButton
-              variant="secondary"
-              size="sm"
-              icon="arrowRight"
-              to={`/knowledge?project=${encodeURIComponent(row.projectId)}&conversation=${encodeURIComponent(row.entry.conversationId)}${row.entry.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(row.entry.requestKey)}`}`}
-            >
-              继续追问
-            </LinkButton>
-            <span className="hint">回到原对话，保留已写回答与来源；未完成的操作按原请求号核对。</span>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+function HistoryRowItem({ row, expanded, term, onToggle }: { readonly row: HistoryRow; readonly expanded: boolean; readonly term: string; readonly onToggle: () => void }) {
+  const { conversation, entry } = row; const status = conversation.state; const group = dayGroup(conversation.updatedAt);
+  const label = ({ needs_answer: '需要你回答', researching: '研究中', answering: '生成中', stopping: '正在停止', stopped: '已停止', completed: '已完成', failed: '失败', unknown: '待核对' } as const)[status];
+  const href = `/knowledge?project=${encodeURIComponent(row.projectId)}&conversation=${encodeURIComponent(conversation.id)}${entry?.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(entry.requestKey)}`}`;
+  return <div className="kh-item" data-cited={(entry?.citations.length ?? 0) > 0} data-expanded={expanded}>
+    <Link className="kh-row" to={href}>
+      <span className="kh-ico"><Icon name={status === 'needs_answer' ? 'help' : status === 'unknown' || status === 'failed' ? 'alert' : 'book'} size="sm" /></span>
+      <span className="grow kh-main"><span className="kh-q">{highlight(conversation.title, term)}</span><span className="kh-a">{highlight(entry?.readability === 'forbidden' ? entry.unavailableReason ?? '原回答不可读' : entry === undefined ? '记录内容未保留' : answerSummary(entry.answer), term)}</span>
+        <span className="kh-meta"><Badge tone={status === 'completed' ? 'ok' : status === 'unknown' ? 'unknown' : status === 'needs_answer' ? 'wait' : 'idle'} icon={status === 'completed' ? 'check' : status === 'needs_answer' ? 'help' : 'clock'}>{label}</Badge>{conversation.archivedAt ? <Badge tone="idle" icon="archive">已归档</Badge> : null}<span>{row.projectName}</span><span>·</span><span className="mono">{entry?.model ?? '模型未标注'}</span><span>· 已保留 {conversation.messageCount} 条问答</span><span>· {entry?.citations.length ?? 0} 处引用</span></span>
+      </span><span className="kh-side"><span className="hint num" title={formatAbsoluteTime(conversation.updatedAt)}>{formatEntryTime(conversation.updatedAt, group)}</span><span className="hint">查看对话</span><Icon name="chevRight" size="sm" /></span>
+    </Link>
+    <div className="row wrap" style={{ gap: 8 }}><Button variant="ghost" size="sm" onClick={onToggle}>{expanded ? '收起详情' : '展开详情'}</Button>{status === 'needs_answer' ? <LinkButton variant="primary" size="sm" to="/inbox">去回答</LinkButton> : status === 'unknown' && entry?.requestKey ? <LinkButton variant="secondary" size="sm" to={href}>核对原问答</LinkButton> : null}</div>
+    <ConversationActions conversation={conversation} />
+    {expanded ? <div className="kh-detail"><div><div className="eyebrow">最近一问</div><p className="kh-question">{entry?.question ?? '原问题未保留'}</p></div><div><div className="eyebrow">回答</div><p className="kh-answer">{entry?.readability === 'forbidden' ? entry.unavailableReason : entry?.answer || '尚无已保存回答'}</p></div><CitationList row={row} term={term} /><div className="row wrap">{conversation.actions.followUp.allowed ? <LinkButton variant="secondary" size="sm" to={href}>继续追问</LinkButton> : <Button variant="secondary" size="sm" disabled disabledReason={conversation.actions.followUp.reason}>继续追问</Button>}<span className="hint">回到原对话，保留模型、项目和已保存问答；未完成操作只核对原请求。</span></div></div> : null}
+  </div>;
 }
 
 export function KnowledgeHistoryPage() {
@@ -233,9 +166,9 @@ export function KnowledgeHistoryPage() {
             const response = await apiGet<KnowledgeHistoryResponse>(
               `${ROUTES.knowledgeHistory}?projectId=${encodeURIComponent(project.id)}`,
             );
-            return { project, entries: response.data.entries };
+            return { project, entries: response.data.entries, conversations: response.data.conversations ?? [] };
           } catch (error) {
-            return { project, entries: [], error };
+            return { project, entries: [], conversations: [], error };
           }
         }),
       );
@@ -248,31 +181,34 @@ export function KnowledgeHistoryPage() {
   const failedSlices = slices.filter((slice) => slice.error !== undefined);
   const rows: readonly HistoryRow[] = slices
     .flatMap((slice) =>
-      slice.entries.map((entry) => ({ entry, projectId: slice.project.id, projectName: slice.project.name })),
+      slice.conversations.map((conversation) => ({ conversation, entry: conversation.latest, projectId: slice.project.id, projectName: slice.project.name })),
     )
-    .sort((left, right) => Date.parse(right.entry.generatedAt) - Date.parse(left.entry.generatedAt));
+    .sort((left, right) => Date.parse(right.conversation.updatedAt) - Date.parse(left.conversation.updatedAt));
 
   const term = searchTerm.trim();
   const lowerTerm = term.toLowerCase();
   const searched = rows.filter(
     (row) =>
       lowerTerm === '' ||
-      row.entry.question.toLowerCase().includes(lowerTerm) ||
-      row.entry.answer.toLowerCase().includes(lowerTerm),
+      row.conversation.title.toLowerCase().includes(lowerTerm) ||
+      row.entry?.question.toLowerCase().includes(lowerTerm) ||
+      row.entry?.answer.toLowerCase().includes(lowerTerm),
   );
-  const runningRows = searched.filter((row) => ['researching', 'answering', 'stopping', 'unknown'].includes(row.entry.runStatus ?? 'completed'));
-  const completedRows = searched.filter((row) => ['completed', 'stopped'].includes(row.entry.runStatus ?? 'completed'));
-  const filtered = statusFilter === 'running' ? runningRows : statusFilter === 'completed' ? completedRows : statusFilter === 'needs_answer' ? [] : searched;
+  const activeRows = searched.filter((row) => row.conversation.archivedAt === undefined);
+  const archivedRows = searched.filter((row) => row.conversation.archivedAt !== undefined);
+  const runningRows = activeRows.filter((row) => ['researching','answering','stopping','unknown'].includes(row.conversation.state));
+  const completedRows = activeRows.filter((row) => row.conversation.state === 'completed');
+  const needsAnswerRows = activeRows.filter((row) => row.conversation.state === 'needs_answer');
+  const filtered = statusFilter === 'archived' ? archivedRows : statusFilter === 'running' ? runningRows : statusFilter === 'completed' ? completedRows : statusFilter === 'needs_answer' ? needsAnswerRows : activeRows;
+  const count = (value: number) => failedSlices.length > 0 ? undefined : value;
   const statusOptions: readonly SegmentOption<StatusFilter>[] = [
-    { value: 'all', label: '全部', count: searched.length },
-    { value: 'needs_answer', label: '需要回答', count: 0 },
-    { value: 'running', label: '进行中', count: runningRows.length },
-    { value: 'completed', label: '已完成', count: completedRows.length },
+    { value: 'all', label: '全部', count: count(activeRows.length) }, { value: 'needs_answer', label: '需要回答', count: count(needsAnswerRows.length) },
+    { value: 'running', label: '进行中', count: count(runningRows.length) }, { value: 'completed', label: '已完成', count: count(completedRows.length) }, { value: 'archived', label: '已归档', count: count(archivedRows.length) },
   ];
 
   const grouped = DAY_GROUPS.map((group) => ({
     group,
-    rows: filtered.filter((row) => dayGroup(row.entry.generatedAt) === group),
+    rows: filtered.filter((row) => dayGroup(row.conversation.updatedAt) === group),
   })).filter((bucket) => bucket.rows.length > 0);
 
   const projectParam = projectFilter === '' ? '' : `?project=${encodeURIComponent(projectFilter)}`;
@@ -294,7 +230,7 @@ export function KnowledgeHistoryPage() {
           </Link>
         }
         title="对话记录"
-        lede="回到任何一次提问，查看当时的回答与引用；记录按项目保存在本机，最多各 30 条。"
+        lede="回到任何一次提问，查看当时的回答与引用；对话按项目保存在本机；重命名与归档不会改写原问答和引用。"
         actions={
           <div className="row" style={{ gap: 8 }}>
             <LinkButton variant="ghost" size="sm" icon="arrowLeft" to={`/knowledge${projectParam}`}>
@@ -363,7 +299,7 @@ export function KnowledgeHistoryPage() {
                 </option>
               ))}
             </select>
-            <SegmentedControl ariaLabel="引用状态" options={statusOptions} value={statusFilter} onChange={setStatusFilter} />
+            <SegmentedControl ariaLabel="对话状态" options={statusOptions} value={statusFilter} onChange={setStatusFilter} />
             <span className="spacer" />
             <span className="hint num">{String(filtered.length)} 条</span>
             <Button
@@ -468,7 +404,7 @@ export function KnowledgeHistoryPage() {
 
       <p className="hint" style={{ marginTop: 18, lineHeight: 1.7 }}>
         记录来自 <span className="mono">GET /api/knowledge/history?projectId=</span>
-        （本机设置 JSON，每个项目最多 30 条，按时间倒序）。页面只读：不提供重命名、归档或删除对话记录的服务接口，因此不显示这些操作。
+        （本机保存，按最近活动时间倒序）。重命名、归档和恢复使用服务端回执；归档保留原始问答与引用，恢复后可继续追问。
       </p>
     </div>
   );

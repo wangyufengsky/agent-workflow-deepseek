@@ -25,3 +25,5 @@ export * from "./role-runtime.ts";
 export { boundAttempt, readableAttempt, readableOutput } from './node-read.ts';
 
 export * from './runtime-interactions.ts';
+
+export * from './knowledge-conversations.ts';

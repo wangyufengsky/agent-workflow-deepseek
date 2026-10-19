@@ -264,6 +264,9 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'PATCH /api/settings',
   'POST /api/settings/databases',
   'POST /api/knowledge/ask',
+  'POST /api/knowledge/conversations/:id/rename',
+  'POST /api/knowledge/conversations/:id/archive',
+  'POST /api/knowledge/conversations/:id/restore',
   'PATCH /api/knowledge/projects/:id/permissions',
   'POST /api/knowledge/runs/:key/stop',
   'POST /api/interactions/:id/resolve',
@@ -1042,6 +1045,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
     return envelope(engine.knowledge.history(projectId), requestId(request));
   });
+  app.get<{ Params: { id: string }; Querystring: { projectId?: string } }>('/api/knowledge/conversations/:id', async (request) => {
+    const projectId = request.query.projectId ?? '';
+    return envelope({ conversation: engine.knowledge.conversations.get(projectId, request.params.id), entries: engine.knowledge.history(projectId).entries.filter((entry) => entry.conversationId === request.params.id) }, requestId(request));
+  });
+  for (const action of ['rename','archive','restore'] as const) app.post<{ Params: { id: string } }>(`/api/knowledge/conversations/:id/${action}`, async (request) => envelope(engine.knowledge.conversations.update(request.params.id, action, request.body as import('@agent-workflow/shared').KnowledgeConversationCommand), requestId(request)));
   app.get<{ Params: { id: string } }>('/api/skills/:id/source', async (request) => {
     try {
       return envelope(readSkillSource(request.params.id), requestId(request));

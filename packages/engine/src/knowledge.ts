@@ -1,3 +1,4 @@
+import { KnowledgeConversationService } from './knowledge-conversations.ts';
 import { KnowledgeInputs, type KnowledgeInputSnapshot } from './knowledge-inputs.ts';
 import {
   AppError,
@@ -40,6 +41,7 @@ export interface KnowledgeServiceOptions {
   readonly database?: DatabasePort;
   readonly publicSearch?: PublicSearchPort;
   readonly roles?: () => readonly RoleDefinition[];
+  readonly onSessionClosed?: (sessionId: string) => void;
 }
 
 /** Read-only document Q&A with durable command receipts and frozen source selection. */
@@ -49,8 +51,10 @@ export class KnowledgeService {
   readonly #context: EngineContext;
   readonly #opencode: OpenCodePort;
   readonly inputs: KnowledgeInputs;
+  readonly conversations: KnowledgeConversationService;
   readonly #active = new Set<string>();
   readonly #roles: () => readonly RoleDefinition[];
+  readonly #onSessionClosed: ((sessionId: string) => void) | undefined;
 
   constructor(options: KnowledgeServiceOptions) {
     this.inputs = new KnowledgeInputs(options.store, options.commands, options.context, options.database, options.publicSearch);
@@ -58,7 +62,9 @@ export class KnowledgeService {
     this.#commands = options.commands;
     this.#context = options.context;
     this.#opencode = options.opencode;
+    this.#onSessionClosed = options.onSessionClosed;
     this.#roles = options.roles ?? (() => []);
+    this.conversations = new KnowledgeConversationService(this.#store, this.#commands, (projectId) => this.#historyEntries(projectId), () => this.askAvailability());
   }
 
   askAvailability(): ActionAvailability {
@@ -103,6 +109,7 @@ export class KnowledgeService {
         throw new AppError(ErrorCode.VALIDATION_FAILED, '只能继续当前对话中已确认停止的回答');
       }
       if (requestedConversationId !== undefined) {
+        this.conversations.assertFollowUp(input.projectId, requestedConversationId);
         const owner = this.#store.settings.getJson<string>(`knowledge.project.${requestedConversationId}`);
         if (owner === undefined && !(this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? []).some((entry) => entry.conversationId === requestedConversationId)) throw new AppError(ErrorCode.NOT_FOUND, '对话不存在，请新建对话');
         if (owner !== undefined && owner !== input.projectId) throw new AppError(ErrorCode.VALIDATION_FAILED, '已有会话不可更换项目');
@@ -124,6 +131,7 @@ export class KnowledgeService {
       const networkSearch = frozenInput?.networkSearch ?? input.networkSearch ?? false;
       if (selectedPaths.length === 0 && !networkSearch) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '请选择原资料或开启独立网络检索');
       const conversationId = requestedConversationId ?? createId('conversation');
+      this.conversations.register(input.projectId, conversationId, question, input.requestKey);
       this.#store.settings.putJson(`knowledge.model.${conversationId}`, model);
       if (role !== undefined) this.#store.settings.putJson(`knowledge.role.${conversationId}`, role);
       this.#store.settings.putJson(`knowledge.project.${conversationId}`, input.projectId);
@@ -167,14 +175,14 @@ export class KnowledgeService {
         .slice(0, 3);
       const result = await this.#opencode.runSession({
         kind: 'review',
-        metadata: { requestKey: input.requestKey, projectId: input.projectId, purpose: 'knowledge.ask' },
+        metadata: { requestKey: input.requestKey, projectId: input.projectId, conversationId, purpose: 'knowledge.ask' },
         cwd: project.rootPath,
         prompt: buildPrompt(question, documents, recent) + (previous === undefined ? '' : `\n继续完成上次停止的回答，返回包含已有内容的完整答案。已保留内容：\n${previous.answer}`),
         system: `${role?.instructions ?? role?.purpose ?? ''}\n${SYSTEM_PROMPT}`,
         ...(role === undefined ? {} : { rolePolicy: structuredClone(role) }),
         model,
         permission: 'read_only',
-        toolPolicy: 'none',
+        toolPolicy: 'questions_only',
         onSessionId: (sessionId) => {
           const progress = this.progress(input.requestKey, input.projectId);
           if (progress.stopRequestKey !== undefined) {
@@ -278,7 +286,8 @@ export class KnowledgeService {
     }
     const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${requestKey}`);
     if (input !== undefined) { try { this.inputs.assertCurrent(projectId, input); } catch { return { ...progress, answer: '', error: '资料许可已撤销，内容已清空' }; } }
-    return progress;
+    const pending = (this.#store.settings.getJson<readonly import('@agent-workflow/shared').RuntimeInteraction[]>('runtime.interactions') ?? []).filter((item) => item.binding.knowledgeRequestKey === requestKey && item.binding.projectId === projectId && item.kind === 'question' && item.state !== 'resolved');
+    return ['researching','answering'].includes(progress.status) && pending.length > 0 ? { ...progress, status: pending.some((item) => item.state === 'unknown') ? 'unknown' : 'needs_answer', pendingInteractionIds: pending.map((item) => item.id) } : progress;
   }
 
   async stop(askKey: string, input: KnowledgeStopRequest): Promise<CommandResponse> {
@@ -311,6 +320,7 @@ export class KnowledgeService {
   }
 
   async reconcileOperation(key: string): Promise<void> {
+    this.conversations.reconcileOperation(key);
     const operation = this.#commands.get(key);
     if (operation === undefined || !['knowledge.ask', 'knowledge.stop'].includes(operation.operation) || !['accepted', 'unknown'].includes(operation.status)) return;
     const askKey = operation.operation === 'knowledge.ask' ? key : this.#store.settings.getJson<string>(`knowledge.stop-target.${key}`);
@@ -384,7 +394,7 @@ export class KnowledgeService {
     this.#store.settings.putJson(historyKey(response.projectId), [entry, ...history].slice(0, 30));
     this.#store.settings.putJson(resultKey(requestKey), response);
     const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(requestKey));
-    if (progress !== undefined) this.#saveProgress({ ...progress, answer: response.answer, status: response.status === 'stopped' ? 'stopped' : 'completed' });
+    if (progress !== undefined) { this.#saveProgress({ ...progress, answer: response.answer, status: response.status === 'stopped' ? 'stopped' : 'completed' }); if (progress.sessionId !== undefined) this.#onSessionClosed?.(progress.sessionId); }
     this.#commands.settle(requestKey, { historyId: entry.id, conversationId: response.conversationId });
   }
 
@@ -402,18 +412,36 @@ export class KnowledgeService {
     return result;
   }
 
+  assertRunReadable(projectId: string, requestKey: string, requireSnapshot = false): void {
+    const operation = this.#commands.get(requestKey);
+    if (operation?.operation !== 'knowledge.ask' || operation.target.projectId !== projectId) throw new AppError(ErrorCode.NOT_FOUND, '问答操作不存在');
+    const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${requestKey}`);
+    if (input !== undefined) this.inputs.assertCurrent(projectId, input); else if (requireSnapshot) throw new AppError(ErrorCode.NOT_RETAINED, '原问答输入快照不可读'); else this.inputs.requireOriginal(projectId);
+  }
+
   history(projectId: string): KnowledgeHistoryResponse {
+    const entries = this.#historyEntries(projectId);
+    return { entries, conversations: this.conversations.list(projectId, entries) };
+  }
+
+  #historyEntries(projectId: string): readonly KnowledgeHistoryEntry[] {
     if (this.#store.projects.get(projectId) === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
-    const completed = this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(projectId)) ?? [];
-    const keys = this.#store.settings.getJson<string[]>(`knowledge.runs.${projectId}`) ?? [];
-    const pending: KnowledgeHistoryEntry[] = keys.flatMap((key) => {
+    const retained = this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(projectId)) ?? [];
+    const keys = [...new Set([...(this.#store.settings.getJson<string[]>(`knowledge.runs.${projectId}`) ?? []), ...this.conversations.requestKeys(projectId)])];
+    const byRequest = new Map<string, KnowledgeHistoryEntry>(retained.map((entry) => [entry.requestKey ?? entry.id, entry]));
+    for (const key of keys) {
+      const raw = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(key));
+      if (raw === undefined || raw.projectId !== projectId) continue;
       const progress = this.progress(key, projectId);
-      if (['completed', 'stopped'].includes(progress.status)) return [];
-      return [{ id: key, requestKey: key, projectId, conversationId: progress.conversationId, question: progress.question,
-        answer: progress.answer, model: progress.model, generatedAt: progress.startedAt, sources: progress.sources,
-        runStatus: progress.status, citations: [] }];
-    });
-    return { entries: [...pending, ...completed].map((entry) => { const input = entry.requestKey === undefined ? undefined : this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${entry.requestKey}`); try { if (input !== undefined) this.inputs.assertCurrent(projectId, input); else this.inputs.requireOriginal(projectId); return entry; } catch { return { ...entry, answer: '', citations: [] }; } }).sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)) };
+      if (['completed','stopped'].includes(progress.status)) {
+        const result = this.#store.settings.getJson<KnowledgeAskResponse>(resultKey(key));
+        if (result !== undefined && result.projectId === projectId) byRequest.set(key, { id: byRequest.get(key)?.id ?? key, ...result, runStatus: progress.status });
+      } else byRequest.set(key, { id: key, requestKey: key, projectId, conversationId: progress.conversationId, question: progress.question, answer: progress.answer, model: progress.model, generatedAt: progress.startedAt, sources: progress.sources, roleEvidence: progress.roleEvidence, runStatus: progress.status, citations: [] });
+    }
+    return [...byRequest.values()].map((entry) => {
+      try { if (entry.requestKey !== undefined) this.assertRunReadable(projectId, entry.requestKey); else this.inputs.requireOriginal(projectId); return { ...entry, readability: 'ok' as const }; }
+      catch { return { ...entry, answer: '', citations: [], toolActivity: [], steps: [], readability: 'forbidden' as const, unavailableReason: '原资料许可已撤回或冻结来源不可读，回答与引用已隐藏' }; }
+    }).sort((a,b) => b.generatedAt.localeCompare(a.generatedAt));
   }
 
   #model(): ModelProfile {
@@ -508,7 +536,7 @@ function toolStepsFrom(messages: readonly OpenCodeMessage[]): KnowledgeStep[] {
   });
 }
 
-const SYSTEM_PROMPT = `你是项目知识库的研究员。只依据本轮提供的代码、文档、获准数据库样本与公共检索摘要回答，不要编造这些输入之外的事实。公共检索摘要不等于已打开网页全文；不能用自由工具补读。
+const SYSTEM_PROMPT = `你是项目知识库的研究员。只依据本轮提供的代码、文档、获准数据库样本与公共检索摘要回答，不要编造这些输入之外的事实。公共检索摘要不等于已打开网页全文；不能用自由工具补读。若缺少用户必须澄清的信息，可使用原生 question 通信工具询问；它不会提供新的文件、命令或 MCP 权限，收到答复或拒答后再决定如何继续。
 只输出一个 JSON 对象，不要 Markdown：
 {"answer":"回答（可多句）","citations":[{"path":"文档相对路径","line":行号,"snippet":"该行原文"}]}
 line 必须来自文档真实行号；answer 中引用的每个关键结论都要有 citation。文档不足时明确说“文档中没有足够依据”。`;

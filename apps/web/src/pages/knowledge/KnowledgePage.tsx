@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
+  ROUTES,
   type KnowledgeAskResponse,
   type KnowledgePermissions as KnowledgePermissionState,
   type KnowledgeCitation,
@@ -214,6 +215,7 @@ export function KnowledgePage() {
   const bootstrap = useBootstrap();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const openedLocation = useRef('');
   const narrow = useNarrowViewport();
   const [question, setQuestion] = useState('');
   const projects = bootstrap.data?.projects ?? [];
@@ -236,6 +238,7 @@ export function KnowledgePage() {
   const [selectionProject, setSelectionProject] = useState<string>('');
   const projectId = selectedProjectId !== '' ? selectedProjectId : (projects[0]?.id ?? '');
 
+  const conversationQuery = useQuery({ queryKey: ['knowledge', 'conversation', projectId, conversationId], queryFn: async () => (await apiGet<{ conversation: import('@agent-workflow/shared').KnowledgeConversation }>(`${ROUTES.knowledgeConversation(conversationId!)}?projectId=${encodeURIComponent(projectId)}`)).data.conversation, enabled: projectId !== '' && conversationId !== undefined, refetchInterval: 3000, retry: false });
   const historyQuery = useQuery({
     queryKey: ['knowledge', 'history', projectId],
     queryFn: async () => (await apiGet<KnowledgeHistoryResponse>(`/api/knowledge/history?projectId=${encodeURIComponent(projectId)}`)).data,
@@ -246,6 +249,7 @@ export function KnowledgePage() {
       setSelectedProjectId(result.projectId);
       setAskResult(result);
       setConversationId(result.conversationId);
+      setSearchParams({ project: result.projectId, conversation: result.conversationId, ...(result.requestKey === undefined ? {} : { requestKey: result.requestKey }) }, { replace: true });
       setCitationIndex(null);
       setSourcePath(null);
       void queryClient.invalidateQueries({ queryKey: ['knowledge', 'history', result.projectId] });
@@ -314,12 +318,15 @@ export function KnowledgePage() {
   // 从「对话记录」页跳转回来时：?project= 选中项目、?source= 直接打开原文、?conversation= 延续同一对话。
   useEffect(() => {
     if (bootstrap.data === undefined) return;
+    const locationKey = searchParams.toString();
+    if (openedLocation.current === locationKey) return;
     const projectParam = searchParams.get('project');
     const sourceParam = searchParams.get('source');
     const conversationParam = searchParams.get('conversation');
     const requestParam = searchParams.get('requestKey');
     if (projectParam === null && sourceParam === null && conversationParam === null && requestParam === null) return;
     if (askCommand.pending !== undefined && requestParam !== askCommand.pending.input.requestKey) return;
+    openedLocation.current = locationKey;
     if (requestParam !== null && projectParam !== null) void askCommand.openRun(requestParam, projectParam).then(() => { if (sourceParam !== null && sourceParam !== '') { setSourcePath(sourceParam); setSourceRequestKey(requestParam); } });
     if (projectParam !== null && bootstrap.data.projects.some((project) => project.id === projectParam)) {
       setSelectedProjectId(projectParam);
@@ -330,12 +337,6 @@ export function KnowledgePage() {
       setSourcePath(sourceParam);
     }
     if (conversationParam !== null && conversationParam !== '') setConversationId(conversationParam);
-    const next = new URLSearchParams(searchParams);
-    next.delete('project');
-    next.delete('source');
-    next.delete('conversation');
-    next.delete('requestKey');
-    setSearchParams(next, { replace: true });
   }, [bootstrap.data, searchParams, setSearchParams]);
 
   const projectName = projects.find((project) => project.id === projectId)?.name ?? '未知项目';
@@ -353,6 +354,10 @@ export function KnowledgePage() {
   const askDisabledReason =
     projectId === ''
       ? '先选择项目'
+      : conversationId !== undefined && (conversationQuery.isError || conversationQuery.isPending)
+        ? '先读取原对话状态后继续追问。'
+      : conversationQuery.data?.actions.followUp.allowed === false
+        ? conversationQuery.data.actions.followUp.reason ?? '当前对话不可继续追问'
       : permissionLocked
         ? '许可变更尚未核对，请先核对原许可操作。'
       : sourcesQuery.data?.askAvailability?.allowed === false
@@ -412,6 +417,7 @@ export function KnowledgePage() {
   const startNewConversation = () => {
     if (askCommand.pending !== undefined) return;
     setConversationId(undefined);
+    setSearchParams({ project: projectId }, { replace: true });
     setModelId('');
     setAskResult(undefined);
     setQuestion('');
@@ -423,6 +429,7 @@ export function KnowledgePage() {
     if (askCommand.pending !== undefined) return;
     setAskResult(entry);
     setConversationId(entry.conversationId);
+    if (entry.requestKey) setSearchParams({ project: entry.projectId, conversation: entry.conversationId, requestKey: entry.requestKey }, { replace: true });
     setQuestion(entry.question);
     closeReader();
     setResearcherOpen(false);
@@ -583,12 +590,13 @@ export function KnowledgePage() {
                 <div className="card pad" role="status" style={{ marginTop: 12 }}>
                   <div className="row wrap">
                     <Icon name="clock" size="sm" />
-                    <b>{askCommand.progress?.status === 'stopping' ? '正在停止…' : askCommand.progress?.status === 'unknown' ? '执行状态待核对' : '研究中'}</b>
+                    <b>{askCommand.progress?.status === 'needs_answer' ? '需要你回答' : askCommand.progress?.status === 'stopping' ? '正在停止…' : askCommand.progress?.status === 'unknown' ? '执行状态待核对' : '研究中'}</b>
                     {askCommand.progress === undefined ? null : <span className="hint">已读取 {String(askCommand.progress.sources.readPaths.length)} 份来源 · 用时 {String(Math.max(0, Math.round((Date.now() - Date.parse(askCommand.progress.startedAt)) / 1000)))}s</span>}
                     <span className="spacer" />
                     <Button variant="secondary" size="sm" onClick={() => { void askCommand.stop(); }} disabled={askCommand.stopping || askCommand.progress?.stopRequestKey !== undefined} disabledReason="停止请求已发送，请核对原操作。">停止生成</Button>
                   </div>
-                  {askCommand.progress?.answer && canPresent(askCommand.progress.sources) ? <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askCommand.progress.answer}</p> : <p className="hint">正在依据所选资料组织回答…</p>}
+                  {askCommand.progress?.status === 'needs_answer' ? <LinkButton variant="primary" size="sm" to="/inbox">去回答研究员问题</LinkButton> : null}
+                  {askCommand.progress?.answer && canPresent(askCommand.progress.sources) ? <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askCommand.progress.answer}</p> : <p className="hint">{askCommand.progress?.status === 'needs_answer' ? '原运行时正在等待答复；可以在待处理中心回答或拒答。' : '正在依据所选资料组织回答…'}</p>}
                 </div>
               )}
               {askCommand.pending !== undefined && !askCommand.busy ? (
@@ -698,7 +706,7 @@ export function KnowledgePage() {
               <span className="tile"><Icon name="archive" /></span>
               <div className="grow">
                 <span className="section-title">问答历史</span>
-                <div className="hint" style={{ marginTop: 2 }}>只保存在本机设置中，最多 30 条；点击可重新查看。</div>
+                <div className="hint" style={{ marginTop: 2 }}>只保存在本机；点击可重新查看已保留的问答。</div>
               </div>
               <LinkButton
                 variant="ghost"

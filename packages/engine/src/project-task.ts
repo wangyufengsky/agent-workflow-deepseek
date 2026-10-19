@@ -629,10 +629,11 @@ export class InboxService {
     }
     for (const item of this.#store.settings.getJson<readonly RuntimeInteraction[]>('runtime.interactions') ?? []) {
       if (item.state === 'resolved') continue;
-      const task = this.#store.tasks.get(item.binding.taskId);
-      if (task?.lifecycle !== TaskLifecycle.ACTIVE) continue;
-      const project = this.#store.projects.get(task.projectId);
-      items.push({ id: item.id, kind: item.kind === 'question' ? 'runtime_question' : item.hard ? 'runtime_policy' : 'runtime_permission', title: item.kind === 'question' ? '运行时需要答复' : item.hard ? '策略已阻止' : '运行时请求只读授权', detail: item.state === 'unknown' ? '原请求待核对' : item.stepName, taskId: task.id, taskTitle: task.title, projectId: task.projectId, projectName: project?.name ?? '未知项目', createdAt: item.createdAt, returnTo: `/inbox` });
+      const task = item.binding.taskId === undefined ? undefined : this.#store.tasks.get(item.binding.taskId);
+      if (task === undefined && item.binding.knowledgeRequestKey === undefined) continue;
+      if (task !== undefined && task.lifecycle !== TaskLifecycle.ACTIVE) continue;
+      const project = this.#store.projects.get(item.binding.projectId);
+      items.push({ id: item.id, kind: item.kind === 'question' ? 'runtime_question' : item.hard ? 'runtime_policy' : 'runtime_permission', title: item.kind === 'question' ? '运行时需要答复' : item.hard ? '策略已阻止' : '运行时请求只读授权', detail: item.state === 'unknown' ? '原请求待核对' : item.stepName, taskId: task?.id, taskTitle: task?.title ?? item.contextTitle ?? '知识对话', projectId: item.binding.projectId, projectName: project?.name ?? '未知项目', createdAt: item.createdAt, returnTo: `/inbox` });
     }
     return items
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))

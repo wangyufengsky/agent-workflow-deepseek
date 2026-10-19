@@ -544,6 +544,9 @@ export type EventTypeValue = (typeof EventType)[keyof typeof EventType];
 
 /** Every mutating command. Kept in shared so MCP, server and UI agree. */
 export const OperationKind = {
+  KNOWLEDGE_CONVERSATION_RENAME: 'knowledge.conversation.rename',
+  KNOWLEDGE_CONVERSATION_ARCHIVE: 'knowledge.conversation.archive',
+  KNOWLEDGE_CONVERSATION_RESTORE: 'knowledge.conversation.restore',
   RUNTIME_INTERACTION_RESOLVE: 'runtime.interaction.resolve',
   PROJECT_CREATE: 'project.create',
   PROJECT_UPDATE: 'project.update',
@@ -651,6 +654,9 @@ export interface OperationDefinition {
 }
 
 export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
+  'knowledge.conversation.rename': op('knowledge.conversation.rename', 'project', true, '重命名知识对话'),
+  'knowledge.conversation.archive': op('knowledge.conversation.archive', 'project', true, '归档知识对话'),
+  'knowledge.conversation.restore': op('knowledge.conversation.restore', 'project', true, '恢复知识对话'),
   'runtime.interaction.resolve': op('runtime.interaction.resolve', 'task', true, '答复原运行时权限或问题请求'),
   'project.create': op('project.create', 'global', true, '登记项目'),
   'project.update': op('project.update', 'project', true, '更新项目设置'),
@@ -801,7 +807,7 @@ export const Rationale = {
 export type RationaleValue = (typeof Rationale)[keyof typeof Rationale];
 
 export const KnowledgeRunStatus = {
-  RESEARCHING: 'researching', ANSWERING: 'answering', STOPPING: 'stopping',
+  NEEDS_ANSWER: 'needs_answer', RESEARCHING: 'researching', ANSWERING: 'answering', STOPPING: 'stopping',
   STOPPED: 'stopped', COMPLETED: 'completed', FAILED: 'failed', UNKNOWN: 'unknown',
 } as const;
 export type KnowledgeRunStatusValue = typeof KnowledgeRunStatus[keyof typeof KnowledgeRunStatus];

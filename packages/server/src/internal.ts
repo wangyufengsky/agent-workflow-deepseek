@@ -526,7 +526,7 @@ const ROUTE_TO_TOOL: Readonly<Record<string, string>> = {
 
 function authorizeSessionRequest(request: FastifyRequest, deps: InternalDependencies): void {
   const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
-  if ((dispatch as typeof dispatch & { toolPolicy?: 'none' }).toolPolicy === 'none') throw new AppError(ErrorCode.FORBIDDEN, '此会话只能使用已提供的资料，禁止调用工具');
+  if (dispatch.toolPolicy === 'none' || dispatch.toolPolicy === 'questions_only') throw new AppError(ErrorCode.FORBIDDEN, '此会话只能使用已提供的资料，禁止调用工具');
   const values = { ...(request.query as Record<string, unknown> ?? {}), ...(request.body as Record<string, unknown> ?? {}) };
   const metadata = dispatch.metadata;
   const taskRef = metadata.taskId ?? metadata.fixRunId;

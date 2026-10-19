@@ -125,7 +125,7 @@ export interface OpenCodeRunRequest {
   readonly model: ModelProfile;
   readonly permission: 'read_only' | 'workspace_write';
   /** No runtime tools; only the supplied context may be used. */
-  readonly toolPolicy?: 'none';
+  readonly toolPolicy?: 'none' | 'questions_only';
   readonly rolePolicy?: RoleDefinition;
   readonly allowedTools?: readonly string[];
   readonly databaseAccess?: readonly import('@agent-workflow/shared').DatabaseAccessGrant[];

@@ -63,7 +63,8 @@ export function rolePermission(role: RoleDefinition, mcpServerName: string): unk
 }
 
 export function sessionPermission(request: OpenCodeRunRequest, mcpServerName: string): unknown[] {
-  if ((request as OpenCodeRunRequest & { toolPolicy?: 'none' }).toolPolicy === 'none') return [{ permission: '*', pattern: '*', action: 'deny' }];
+  if (request.toolPolicy === 'questions_only') return [{ permission: '*', pattern: '*', action: 'deny' }, { permission: 'question', pattern: '*', action: 'allow' }];
+  if (request.toolPolicy === 'none') return [{ permission: '*', pattern: '*', action: 'deny' }];
   if (request.allowedTools === undefined) return request.rolePolicy === undefined ? request.permission === 'read_only' ? readOnlyPermission() : workspacePermission() : rolePermission(request.rolePolicy, mcpServerName);
   const roleTools = request.rolePolicy?.resourcePermissions?.tools.filter((tool) => tool.kind === 'mcp').map((tool) => tool.name);
   const allowed = request.allowedTools.filter((name) => (roleTools === undefined || name === 'workflow.context.get' || name === 'workflow.result.submit' || roleTools.includes(name)) && (request.permission !== 'read_only' || !['workspace.exec', 'workspace.file.write'].includes(name)));
@@ -233,7 +234,7 @@ export class OpenCodeAdapter implements OpenCodePort {
     const tool = readTools.find((name) => permission.permission === `${this.#options.mcpServerName}_${name.replaceAll('.', '_')}`);
     if (tool === undefined) return false;
     const includes = (request: OpenCodeRunRequest) => {
-      if (request.toolPolicy === 'none' || request.allowedTools?.includes(tool) === false) return false;
+      if (request.toolPolicy !== undefined || request.allowedTools?.includes(tool) === false) return false;
       if (request.rolePolicy !== undefined && tool !== 'workflow.context.get' && request.rolePolicy.capabilityGroups?.flatMap((group) => group.items).find((item) => item.id === 'external_mcp')?.enabled !== true) return false;
       const roleTools = request.rolePolicy?.resourcePermissions?.tools.filter((item) => item.kind === 'mcp').map((item) => item.name);
       return roleTools === undefined || tool === 'workflow.context.get' || roleTools.includes(tool);

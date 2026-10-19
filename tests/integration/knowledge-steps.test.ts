@@ -224,7 +224,7 @@ test('knowledge freezes selected input, rejects outside inventory and includes s
     const selected = await fixture.engine.knowledge.ask({ requestKey: requestKey('selected'), projectId: fixture.projectId, question: '这个项目是什么？', sourcePaths: ['README.md'] });
     assert.deepEqual(selected.resource?.sources?.readPaths, ['README.md']);
     assert.ok(!fixture.opencode.requests[0]!.prompt.includes('EXCLUDED_SECRET_MARKER'));
-    assert.equal(fixture.opencode.requests[0]!.toolPolicy, 'none');
+    assert.equal(fixture.opencode.requests[0]!.toolPolicy, 'questions_only');
     const all = await fixture.engine.knowledge.ask({ requestKey: requestKey('all'), projectId: fixture.projectId, question: '这些来源是什么？' });
     assert.equal(all.resource?.sources?.readPaths.length, 17);
     assert.ok(fixture.opencode.requests[1]!.prompt.includes('source marker 14'));

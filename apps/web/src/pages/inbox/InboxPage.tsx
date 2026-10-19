@@ -87,6 +87,7 @@ interface ResolveInput {
 type DraftMap = Record<string, Record<string, QuestionDraft>>;
 
 function targetHref(item: InboxItem): string {
+  if (item.taskId === undefined || item.kind.startsWith('runtime_')) return '/inbox';
   const base =
     item.kind === InboxKind.DELIVERY_CONFIRM || item.kind === InboxKind.EXECUTION_FAILED
       ? `/tasks/${encodeURIComponent(item.taskId)}`
@@ -654,7 +655,7 @@ export function InboxPage() {
   }
 
   if (runtimeFiltered.length > 0) {
-    leftBody = <><div className="list" style={{ padding: '4px 6px 8px' }}>{runtimeFiltered.map((item) => <button className="list-row inbox-row" type="button" key={item.id} aria-selected={selectedRuntime?.id === item.id} onClick={() => setSelectedRuntimeId(item.id)}><Icon name={item.hard ? 'lock' : 'help'} /><span className="grow"><b>{item.kind === 'question' ? '需要你回答' : item.hard ? '策略已阻止' : '需要只读授权'} · {item.stepName}</b><span className="hint">{item.taskTitle} · {item.state === 'unknown' ? '待核对' : '待处理'}</span></span></button>)}</div>{filtered.length > 0 ? leftBody : null}</>;
+    leftBody = <><div className="list" style={{ padding: '4px 6px 8px' }}>{runtimeFiltered.map((item) => <button className="list-row inbox-row" type="button" key={item.id} aria-selected={selectedRuntime?.id === item.id} onClick={() => setSelectedRuntimeId(item.id)}><Icon name={item.hard ? 'lock' : 'help'} /><span className="grow"><b>{item.kind === 'question' ? '需要你回答' : item.hard ? '策略已阻止' : '需要只读授权'} · {item.stepName}</b><span className="hint">{item.contextTitle ?? item.taskTitle} · {item.state === 'unknown' ? '待核对' : '待处理'}</span></span></button>)}</div>{filtered.length > 0 ? leftBody : null}</>;
   }
   let detailBody: ReactNode;
   if (runtimeQuery.isError && (selectedRuntime !== undefined || selectedSummary === undefined)) {

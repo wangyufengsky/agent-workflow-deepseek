@@ -237,6 +237,7 @@ export function inboxKindIcon(item: InboxItem): IconName {
 }
 
 export function inboxHref(item: InboxItem): string {
+  if (item.taskId === undefined || item.kind.startsWith('runtime_')) return '/inbox';
   if (item.kind === 'planning_answer' || item.kind === 'planning_review' || item.kind === 'planning_reconcile') {
     return `/requirement/${encodeURIComponent(item.taskId)}`;
   }

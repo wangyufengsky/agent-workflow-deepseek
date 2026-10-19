@@ -12,30 +12,41 @@ export class RuntimeInteractionService {
   readonly #store: Store; readonly #commands: CommandService; readonly #port: OpenCodePort;
   readonly #sessionGrants = new Map<string, string>();
   readonly #live = new Set<string>();
+  readonly #knowledgeReadable: ((projectId: string, requestKey: string) => void) | undefined;
   readonly #onChanged: ((taskId: string) => void) | undefined;
-  constructor(store: Store, commands: CommandService, port: OpenCodePort, onChanged?: (taskId: string) => void) { this.#store = store; this.#commands = commands; this.#port = port; this.#onChanged = onChanged; }
+  constructor(store: Store, commands: CommandService, port: OpenCodePort, onChanged?: (taskId: string) => void, knowledgeReadable?: (projectId: string, requestKey: string) => void) { this.#store = store; this.#commands = commands; this.#port = port; this.#onChanged = onChanged; this.#knowledgeReadable = knowledgeReadable; }
   list(): readonly RuntimeInteraction[] { return this.#store.settings.getJson<readonly RuntimeInteraction[]>(INDEX) ?? []; }
   get(id: string): RuntimeInteraction { const item = this.list().find((item) => item.id === id); if (!item) throw new AppError(ErrorCode.NOT_FOUND, '运行时互动不存在'); return item; }
   view(item: RuntimeInteraction): RuntimeInteraction {
     const attempt = item.binding.attemptId === undefined ? undefined : this.#store.executions.getAttempt(item.binding.attemptId);
     if (attempt?.readability.output === 'forbidden') return { ...item, questions: [], patterns: [], permission: undefined, resolution: undefined, confirmation: undefined, reason: '原步骤内容读取权限已撤回', resolveAllowed: false, grantAllowed: false, unavailableReason: '原步骤内容读取权限已撤回' };
+    if (item.binding.knowledgeRequestKey !== undefined) {
+      try { if (this.#knowledgeReadable === undefined) throw new Error(); this.#knowledgeReadable(item.binding.projectId, item.binding.knowledgeRequestKey); }
+      catch { return { ...item, questions: [], patterns: [], permission: undefined, resolution: undefined, confirmation: undefined, reason: '知识对话来源许可已撤回或原快照不可读', resolveAllowed: false, grantAllowed: false, unavailableReason: '知识对话来源许可已撤回或原快照不可读' }; }
+    }
     const active = this.#active(item.binding);
     const resolveAllowed = item.state === 'open' && (item.hard || active);
     const grantAllowed = item.kind === 'permission' && this.#allowed(item);
     return { ...item, resolveAllowed, grantAllowed, ...(!resolveAllowed ? { unavailableReason: item.state === 'unknown' ? item.requestKey === undefined ? '尚未发送答复；原会话上下文已失效，请回到任务核对或停止原会话' : '原请求结果未知，只能核对原请求号' : item.state === 'resolved' ? '原请求已经处理' : '原会话或尝试已不再活动' } : item.kind === 'permission' && !grantAllowed ? { unavailableReason: '当前授权上限已收紧，只能拒绝原请求' } : {}) };
   }
-  #put(item: RuntimeInteraction) { const all = this.list(); this.#store.settings.putJson(INDEX, [item, ...all.filter((entry) => entry.id !== item.id)]); this.#store.events.publish('inbox.changed', { taskId: item.binding.taskId }); this.#onChanged?.(item.binding.taskId); }
+  #put(item: RuntimeInteraction) { const all = this.list(); this.#store.settings.putJson(INDEX, [item, ...all.filter((entry) => entry.id !== item.id)]); this.#store.events.publish('inbox.changed', { taskId: item.binding.taskId, projectId: item.binding.projectId }); if (item.binding.taskId !== undefined) this.#onChanged?.(item.binding.taskId); }
   #active(binding: RuntimeInteractionBinding): boolean {
     if (!this.#live.has(binding.sessionId)) return false;
-    const task = this.#store.tasks.get(binding.taskId);
+    if (binding.knowledgeRequestKey !== undefined && binding.conversationId !== undefined) {
+      const progress = this.#store.settings.getJson<import('@agent-workflow/shared').KnowledgeRunProgress>(`knowledge.progress.${binding.knowledgeRequestKey}`);
+      const operation = this.#commands.get(binding.knowledgeRequestKey);
+      if (progress?.projectId !== binding.projectId || progress.conversationId !== binding.conversationId || progress.sessionId !== binding.sessionId || !['researching','answering'].includes(progress.status) || progress.stopRequestKey !== undefined || operation?.operation !== 'knowledge.ask' || operation.status !== 'accepted' || this.#store.settings.getJson(`knowledge.pending.${binding.conversationId}`) !== binding.knowledgeRequestKey) return false;
+      try { if (!this.#knowledgeReadable) return false; this.#knowledgeReadable(binding.projectId, binding.knowledgeRequestKey); return true; } catch { return false; }
+    }
+    const task = binding.taskId === undefined ? undefined : this.#store.tasks.get(binding.taskId);
     if (!task || task.projectId !== binding.projectId || task.lifecycle !== 'active') return false;
     if (binding.attemptId !== undefined) {
       const attempt = this.#store.executions.getAttempt(binding.attemptId);
       const execution = binding.executionId === undefined ? undefined : this.#store.executions.get(binding.executionId);
       const node = execution?.nodes.find((node) => node.nodeId === binding.nodeId);
-      return task.executionId === binding.executionId && attempt !== undefined && attempt.executionId === binding.executionId && attempt.nodeId === binding.nodeId && attempt.status === 'running' && execution?.taskId === binding.taskId && execution.status === 'running' && node?.currentAttemptId === binding.attemptId && node.status === 'running';
+      return task.executionId === binding.executionId && attempt !== undefined && attempt.executionId === binding.executionId && attempt.nodeId === binding.nodeId && attempt.status === 'running' && execution !== undefined && execution.taskId === binding.taskId && execution.status === 'running' && node?.currentAttemptId === binding.attemptId && node.status === 'running';
     }
-    if (binding.roundId !== undefined) { const round = this.#store.planning.get(binding.roundId); return round?.taskId === binding.taskId && round.status === 'running' && (task.currentPlanningRoundId ?? this.#store.planning.latest(binding.taskId)?.id) === binding.roundId; }
+    if (binding.roundId !== undefined) { const round = this.#store.planning.get(binding.roundId); return round !== undefined && round.taskId === task.id && round.status === 'running' && (task.currentPlanningRoundId ?? this.#store.planning.latest(task.id)?.id) === binding.roundId; }
     return false; // Unbound/background sessions cannot gain permission through Inbox.
   }
   #permission(item: RuntimeInteraction): PermissionRequest { return { id: item.requestId, sessionID: item.binding.sessionId, permission: item.permission ?? 'unknown', patterns: item.patterns, protocol: item.protocol }; }
@@ -48,6 +59,7 @@ export class RuntimeInteractionService {
       request.onSessionId?.(sessionId);
       const taskId = request.metadata.taskId;
       const task = taskId === undefined ? undefined : this.#store.tasks.get(taskId);
+      if (task === undefined && request.metadata.purpose === 'knowledge.ask' && request.metadata.projectId !== undefined && request.metadata.requestKey !== undefined && request.metadata.conversationId !== undefined) { binding = { projectId: request.metadata.projectId, sessionId, knowledgeRequestKey: request.metadata.requestKey, conversationId: request.metadata.conversationId, kind: request.kind }; this.#live.add(sessionId); }
       if (task !== undefined) { binding = { taskId: task.id, projectId: task.projectId, sessionId, kind: request.kind, ...Object.fromEntries(['executionId','nodeId','attemptId','roundId'].flatMap((key) => request.metadata[key] === undefined ? [] : [[key, request.metadata[key]]])) }; this.#live.add(sessionId); }
     }, sink: { ...original,
       onPermission: async (permission) => {
@@ -70,15 +82,18 @@ export class RuntimeInteractionService {
       onInteractionReplyError: (permission, message) => { original.onInteractionReplyError?.(permission, message); },
     } };
   }
+  closeUnansweredSession(sessionId: string): void {
+    for (const item of this.list()) if (item.binding.sessionId === sessionId && item.kind === 'question' && item.requestKey === undefined && item.state !== 'resolved') this.#put({ ...item, state: 'resolved', reason: '原会话已确认结束；该问题未通过应用答复，不再等待用户输入', updatedAt: nowIso() });
+  }
   sessionEnded(sessionId: string): void { this.#live.delete(sessionId); for (const [key, owner] of this.#sessionGrants) if (owner === sessionId) this.#sessionGrants.delete(key); for (const item of this.list()) if (item.binding.sessionId === sessionId && item.state === 'open' && !item.hard) this.#put({ ...item, state: 'unknown', reason: '原会话已结束，尚无明确答复确认；不能重新提交', updatedAt: nowIso() }); }
   #create(binding: RuntimeInteractionBinding, requestId: string, protocol: 'legacy' | 'v2', kind: RuntimeInteraction['kind'], permission: string | undefined, patterns: readonly string[], questions: RuntimeInteraction['questions'], hard: boolean, requestHash = stableHash({ permission, patterns })): RuntimeInteraction {
     const id = `runtime_${createHash('sha256').update(`${binding.sessionId}:${requestId}`).digest('hex').slice(0, 32)}`;
     const prior = this.list().find((item) => item.id === id);
     if (prior !== undefined) return prior;
-    const task = this.#store.tasks.get(binding.taskId);
+    const task = binding.taskId === undefined ? undefined : this.#store.tasks.get(binding.taskId);
     const attempt = binding.attemptId === undefined ? undefined : this.#store.executions.getAttempt(binding.attemptId);
     const timestamp = nowIso();
-    const item: RuntimeInteraction = { requestHash, id, requestId, protocol, kind, state: 'open', binding, taskTitle: task?.title ?? binding.taskId, stepName: attempt?.definition?.node.title ?? (binding.roundId === undefined ? '运行会话' : '规划会话'), permission, patterns: [...patterns], hard, questions, reason: hard ? '请求超出当前会话冻结的只读授权上限；已拒绝或正在核对拒绝结果，此处不能授权' : kind === 'question' ? '运行时正在等待你的回答，其他步骤可以继续' : '仅可在当前会话冻结的只读授权范围内答复', createdAt: timestamp, updatedAt: timestamp };
+    const item: RuntimeInteraction = { requestHash, id, requestId, protocol, kind, state: 'open', binding, ...(task === undefined ? {} : { taskTitle: task.title }), contextTitle: task?.title ?? `${this.#store.projects.get(binding.projectId)?.name ?? '项目'} · 知识对话`, stepName: attempt?.definition?.node.title ?? (binding.knowledgeRequestKey !== undefined ? '知识研究员' : binding.roundId === undefined ? '运行会话' : '规划会话'), permission, patterns: [...patterns], hard, questions, reason: hard ? '请求超出当前会话冻结的只读授权上限；已拒绝或正在核对拒绝结果，此处不能授权' : kind === 'question' ? '运行时正在等待你的回答，其他步骤可以继续' : '仅可在当前会话冻结的只读授权范围内答复', createdAt: timestamp, updatedAt: timestamp };
     this.#put(item); return item;
   }
   async #automaticReject(item: RuntimeInteraction) { await this.#automatic(item, 'reject'); }
