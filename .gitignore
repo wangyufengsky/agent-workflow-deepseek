@@ -11,3 +11,4 @@ coverage/
 test-results/
 .tmp/
 *.tsbuildinfo
+release/

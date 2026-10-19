@@ -2,7 +2,7 @@
   "name": "agent-workflow",
   "private": true,
   "version": "0.1.0",
-  "description": "Agent Workflow — requirement-to-plan-to-execution workflow desktop app backed by a managed OpenCode runtime",
+  "description": "Agent Workflow — local AI development workflow desktop app",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -30,7 +30,9 @@
     "verify": "npm run typecheck && npm run test",
     "clean": "rm -rf .build dist apps/web/dist",
     "build:mcp": "node scripts/build-mcp.mjs",
-    "desktop:dev": "node scripts/desktop-dev.mjs"
+    "desktop:dev": "node scripts/desktop-dev.mjs",
+    "dist": "npm run build && electron-builder --config electron-builder.yml",
+    "dist:dir": "npm run build && electron-builder --dir --config electron-builder.yml"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
@@ -46,9 +48,12 @@
     "@vitejs/plugin-react": "5.1.0",
     "concurrently": "9.2.1",
     "electron": "44.7.0",
+    "electron-builder": "^26.0.12",
     "esbuild": "0.25.12",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
     "vite": "7.1.9"
-  }
+  },
+  "main": ".build/desktop/main.mjs",
+  "author": "Agent Workflow"
 }

@@ -1,0 +1,28 @@
+appId: dev.agentworkflow.desktop
+productName: Agent Workflow
+copyright: Copyright © 2026 Agent Workflow
+asar: false
+directories:
+  output: release
+files:
+  - package.json
+  - .build/**/*
+  - apps/web/dist/**/*
+# The built MCP stdio server and managed server are spawned as external Node
+# processes; asar is disabled so file paths under .build stay executable.
+mac:
+  category: public.app-category.developer-tools
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  target:
+    - target: dir
+      arch:
+        - arm64
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+win:
+  target:
+    - nsis
+linux:
+  target:
+    - AppImage
