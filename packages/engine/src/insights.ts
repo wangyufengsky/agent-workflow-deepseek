@@ -64,4 +64,11 @@ export class InsightsService {
       },
     };
   }
+
+  taskUsage(): readonly { readonly taskId: string; readonly tokens: number }[] {
+    const rows = this.#store.db
+      .prepare("SELECT task_id AS taskId, COALESCE(SUM(CAST(json_extract(usage_json, '$.tokens.total') AS INTEGER)), 0) AS tokens FROM planning_rounds GROUP BY task_id ORDER BY task_id")
+      .all() as unknown as { taskId: string; tokens: number }[];
+    return rows.map((row) => ({ taskId: row.taskId, tokens: Number(row.tokens) }));
+  }
 }

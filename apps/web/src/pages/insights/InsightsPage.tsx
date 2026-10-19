@@ -4,7 +4,7 @@ import { TaskLifecycle, type TaskLifecycleValue, type TaskSummary } from '@agent
 import { useQuery } from '@tanstack/react-query';
 import { useBootstrap } from '../../api/hooks.ts';
 import { apiGet } from '../../api/client.ts';
-import type { InsightsResponse } from '@agent-workflow/shared';
+import type { InsightsResponse, InsightsTaskUsageResponse } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatCount, formatRelativeTime } from '../../app/format.ts';
 import { deriveTaskStatus, sortByUpdatedDesc, taskHref, taskProgressText } from '../../app/taskStatus.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -116,6 +116,8 @@ function TaskDetail({ task }: { readonly task: TaskSummary }) {
 export function InsightsPage() {
   const bootstrap = useBootstrap();
   const insights = useQuery({ queryKey: ['insights'], queryFn: async () => (await apiGet<InsightsResponse>('/api/insights')).data, retry: false });
+  const taskUsage = useQuery({ queryKey: ['insights', 'task-usage'], queryFn: async () => (await apiGet<InsightsTaskUsageResponse>('/api/insights/task-usage')).data, retry: false });
+  const usageByTask = useMemo(() => new Map((taskUsage.data?.usage ?? []).map((entry) => [entry.taskId, entry.tokens])), [taskUsage.data]);
   const tasks = bootstrap.data?.tasks ?? [];
   const counts = bootstrap.data?.counts;
   const [quality, setQuality] = useState<QualityFilter>('all');
@@ -215,7 +217,9 @@ export function InsightsPage() {
                         <UnknownValue reason="验收 / 评审接口尚未接通" />
                       </td>
                       <td style={{ padding: '12px 16px' }}>
-                        <UnknownValue reason="用量 / 成本接口尚未接通" />
+                        {taskUsage.data === undefined ? <UnknownValue reason="正在读取规划用量" /> : (
+                          <span className="hint num">{formatCount(usageByTask.get(task.id) ?? 0)} 规划 tokens</span>
+                        )}
                       </td>
                       <td style={{ padding: '12px 16px' }}>
                         <span className="hint num">{formatRelativeTime(task.updatedAt)}</span>
@@ -230,7 +234,7 @@ export function InsightsPage() {
             <span className="hint grow">
               已加载 {String(rows.length)} 个任务 · 汇总覆盖当前筛选范围
             </span>
-            <span className="hint">用量与成本：未知</span>
+            <span className="hint">逐任务用量：仅统计规划轮次 tokens</span>
           </div>
         </section>
         {selected === undefined ? null : <TaskDetail task={selected} />}

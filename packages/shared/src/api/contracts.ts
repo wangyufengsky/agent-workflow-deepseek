@@ -285,6 +285,10 @@ export interface InsightsResponse {
   readonly deliveries: { readonly delivered: number; readonly blocked: number; readonly inProgress: number };
 }
 
+export interface InsightsTaskUsageResponse {
+  readonly usage: readonly { readonly taskId: string; readonly tokens: number }[];
+}
+
 export interface PptWorksResponse {
   readonly works: readonly PptWork[];
 }
@@ -1023,6 +1027,7 @@ export const ROUTES = {
   opencodeDetect: '/api/opencode/detect',
   opencodeLogs: '/api/opencode/logs',
   insights: '/api/insights',
+  insightsTaskUsage: '/api/insights/task-usage',
   skills: '/api/skills',
   knowledgeSources: '/api/knowledge/sources',
   knowledgeSearch: '/api/knowledge/search',

@@ -70,6 +70,12 @@ test('insights aggregate real task/review counters from SQLite', async () => {
     const planning = (empty.json().data as { planning: { costKnown: number; tokens: { total: number } } }).planning;
     assert.equal(planning.costKnown, 0.01);
     assert.equal(planning.tokens.total, 165);
+    const taskUsage = await app.app.inject({ method: 'GET', url: '/api/insights/task-usage' });
+    assert.equal(taskUsage.statusCode, 200, taskUsage.body);
+    const usage = taskUsage.json().data.usage as { taskId: string; tokens: number }[];
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0]!.taskId, firstTask.id);
+    assert.equal(usage[0]!.tokens, 165);
 
     const review = app.store.reviews.create({
       projectId,
