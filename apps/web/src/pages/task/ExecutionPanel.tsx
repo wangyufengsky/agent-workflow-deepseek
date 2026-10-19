@@ -61,6 +61,10 @@ export function ExecutionPanel(props: ExecutionPanelProps) {
   const { plan, execution, workspace, actions, busy } = props;
   const status = execution?.status;
 
+  if (props.detail.task.readOnly === true) {
+    return <PanelEmpty icon="lock" title="只读验证已有产物" description={actions.startExecution?.reason ?? '此任务用于核对父任务已有产物，不创建新的执行或工作区。'} action={<Button size="sm" variant="secondary" icon="file" onClick={props.onOpenRequirement}>查看验证需求</Button>} />;
+  }
+
   if (plan === undefined) {
     return (
       <div>

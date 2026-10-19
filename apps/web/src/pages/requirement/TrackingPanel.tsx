@@ -7,12 +7,16 @@ import { PanelEmpty, Section } from './requirement-ui.tsx';
 export interface TrackingPanelProps {
   readonly plan?: PlanRevision;
   readonly execution?: ExecutionView;
+  readonly readOnlyReason?: string;
   readonly onOpenTask: () => void;
   readonly onOpenNode: (nodeId: string) => void;
 }
 
 /** B08 read-only tracking after execution starts; evidence lives on the execution side. */
-export function TrackingPanel({ plan, execution, onOpenTask, onOpenNode }: TrackingPanelProps) {
+export function TrackingPanel({ plan, execution, readOnlyReason, onOpenTask, onOpenNode }: TrackingPanelProps) {
+  if (readOnlyReason !== undefined) {
+    return <PanelEmpty icon="lock" title="只读验证已有产物" description={readOnlyReason} action={<Button size="sm" icon="panel" onClick={onOpenTask}>查看验证任务</Button>} />;
+  }
   if (execution === undefined) {
     return <PanelEmpty icon="play" title="执行尚未创建" description="确认计划并准备工作区后，执行侧才会产生可追踪的步骤与结果。" action={<Button size="sm" icon="panel" onClick={onOpenTask}>打开任务画布</Button>} />;
   }

@@ -322,6 +322,8 @@ export function TaskCanvasPage() {
   }
 
   const { task, project } = detail;
+  const readOnly = task.readOnly === true;
+  const readOnlyReason = actions.startExecution?.reason ?? '此任务用于核对父任务已有产物，不创建新的执行或工作区。';
   const progress = execution?.progress;
   const percent = progress === undefined || progress.total === 0 ? 0 : Math.round((progress.done / progress.total) * 100);
   const editSession = execution?.editSession;
@@ -336,6 +338,7 @@ export function TaskCanvasPage() {
             </span>
             <Badge outline>{project.name}</Badge>
             <Badge outline>{task.id}</Badge>
+            {readOnly ? <Badge tone="wait" icon="lock">只读验证</Badge> : null}
             {isFixed ? (
               <Badge tone="wait" icon="lock">
                 固定模板 · {task.fixedTemplate?.templateId} v{task.fixedTemplate?.templateVersion}
@@ -349,10 +352,10 @@ export function TaskCanvasPage() {
           </div>
           <div className="task-subline">
             <span>
-              {EXECUTION_STATUS_LABEL[execution?.status ?? 'idle']} · 计划修订 {plan?.revisionNumber ?? '—'} · {plan === undefined ? '无计划' : PLAN_REVISION_STATUS_LABEL[plan.status]}
+              {readOnly ? '核对父任务已有产物' : <>{EXECUTION_STATUS_LABEL[execution?.status ?? 'idle']} · 计划修订 {plan?.revisionNumber ?? '—'} · {plan === undefined ? '无计划' : PLAN_REVISION_STATUS_LABEL[plan.status]}</>}
             </span>
             <span className="sep">·</span>
-            <span>工作区 {workspace === undefined ? '未创建' : WORKSPACE_STATE_LABEL[workspace.state]}</span>
+            <span>{readOnly ? '不创建新执行或工作区' : <>工作区 {workspace === undefined ? '未创建' : WORKSPACE_STATE_LABEL[workspace.state]}</>}</span>
             {execution === undefined ? null : (
               <>
                 <span className="sep">·</span>
@@ -393,7 +396,7 @@ export function TaskCanvasPage() {
             </Button>
           ) : null}
           <Button variant="secondary" size="sm" icon="file" onClick={openRequirement}>
-            需求画布
+            {readOnly ? '查看验证需求' : '需求画布'}
           </Button>
           <div className="task-menu-wrap" ref={menuRef}>
             <IconButton
@@ -505,12 +508,13 @@ export function TaskCanvasPage() {
           </span>
         )}
         <span className="situ-notice">
-          {execution?.notice === undefined ? (execution === undefined ? '执行尚未创建；下一步在需求画布准备工作区。' : '没有待处理情况。') : execution.notice.message}
+          {readOnly ? '只读验证：核对父任务已有产物。' : execution?.notice === undefined ? (execution === undefined ? '执行尚未创建；下一步在需求画布准备工作区。' : '没有待处理情况。') : execution.notice.message}
         </span>
       </div>
 
       <div className="task-banners">
         <ConnectionBanner connection={live.connection} transport={live.transport} />
+        {readOnly ? <div className="banner info" role="status"><Icon name="lock" /><div className="grow"><b>只读验证</b> · {readOnlyReason}</div></div> : null}
         <CommandErrorNotice error={command.state.error} />
         <ReceiptNotice receipt={command.state.receipt} successMessage={lastCommand === undefined ? undefined : `${lastCommand} · 服务回执 succeeded`} />
         <ReceiptNotice receipt={pageReceipt} successMessage={pageReceiptMessage} />
@@ -606,7 +610,7 @@ export function TaskCanvasPage() {
             </div>
           </div>
         ) : null}
-        {plan !== undefined && plan.status === 'unconfirmed' && !isFixed ? (
+        {!readOnly && plan !== undefined && plan.status === 'unconfirmed' && !isFixed ? (
           <div className="banner warn">
             <Icon name="alert" />
             <div className="grow">
@@ -619,7 +623,7 @@ export function TaskCanvasPage() {
             </div>
           </div>
         ) : null}
-        {isFixed ? (
+        {isFixed && !readOnly ? (
           <div className="banner info">
             <Icon name="lock" />
             <div className="grow">{FIXED_TEMPLATE_REASON}可以查看、确认、准备工作区并按原配置执行。</div>
@@ -640,12 +644,12 @@ export function TaskCanvasPage() {
           legend={legend}
           emptyState={
             <EmptyState
-              icon="flow"
-              title="当前没有可显示的节点"
-              description={plan === undefined ? '服务还没有返回计划；确认计划后执行画布才会显示步骤。' : '计划图里没有节点；这里不会补造步骤。'}
+              icon={readOnly ? 'lock' : 'flow'}
+              title={readOnly ? '只读验证已有产物' : '当前没有可显示的节点'}
+              description={readOnly ? readOnlyReason : plan === undefined ? '服务还没有返回计划；确认计划后执行画布才会显示步骤。' : '计划图里没有节点；这里不会补造步骤。'}
               action={
                 <Button size="sm" variant="secondary" icon="file" onClick={openRequirement}>
-                  回到需求画布
+                  {readOnly ? '查看验证需求' : '回到需求画布'}
                 </Button>
               }
             />

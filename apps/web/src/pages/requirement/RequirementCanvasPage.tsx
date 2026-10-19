@@ -993,7 +993,7 @@ export function RequirementCanvasPage() {
                 />
               ) : null}
               {tab === 'tracking' ? (
-                <TrackingPanel plan={plan} execution={detail.execution} onOpenTask={() => openTaskCanvas()} onOpenNode={(nodeId) => openTaskCanvas(nodeId)} />
+                <TrackingPanel plan={plan} execution={detail.execution} readOnlyReason={task.readOnly === true ? capabilities.startExecution?.reason ?? '此任务用于核对父任务已有产物，不创建新的执行或工作区。' : undefined} onOpenTask={() => openTaskCanvas()} onOpenNode={(nodeId) => openTaskCanvas(nodeId)} />
               ) : null}
             </div>
             {tab === 'input' && plan === undefined ? (
