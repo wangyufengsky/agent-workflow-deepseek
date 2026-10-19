@@ -11,6 +11,7 @@ import { DeliveryRepository } from './delivery.ts';
 import { OperationRepository } from './operations.ts';
 import { DatabaseConnectionRepository, SettingsRepository } from './settings.ts';
 import { FixRepository, RepoRepository, ReviewRepository } from './git.ts';
+import { PptWorkRepository } from './ppt.ts';
 
 export interface StoreOptions {
   readonly dataDir: string;
@@ -40,6 +41,7 @@ export class Store {
   readonly repos: RepoRepository;
   readonly reviews: ReviewRepository;
   readonly fixes: FixRepository;
+  readonly pptWorks: PptWorkRepository;
 
   constructor(options: StoreOptions) {
     this.dataDir = options.dataDir;
@@ -64,6 +66,7 @@ export class Store {
     this.repos = new RepoRepository(this.db);
     this.reviews = new ReviewRepository(this.db);
     this.fixes = new FixRepository(this.db);
+    this.pptWorks = new PptWorkRepository(this.db);
   }
 
   transaction<T>(fn: () => T): T {

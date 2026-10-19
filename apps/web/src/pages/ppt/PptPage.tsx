@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createRequestKey, type PptWork } from '@agent-workflow/shared';
+import { apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useProjects } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
@@ -7,9 +10,8 @@ import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { PendingBackendNotice, ServiceNotice } from '../../components/ServiceNotice.tsx';
 
-const CREATE_BLOCKED_REASON = 'PPT 制作接口尚未接通：服务端没有 /api/ppt/works 与讨论会话接口，本页不会创建演示或调用模型。';
+const CREATE_BLOCKED_REASON = 'PPT 内容生成尚未接通：当前只能创建/删除作品草稿，不会生成页面或调用模型。';
 const UPLOAD_BLOCKED_REASON = '附件上传接口尚未接通：当前不能添加资料文件。';
-const HISTORY_BLOCKED_REASON = '演示作品列表接口尚未接通：不能读取最近的演示。';
 
 const IDEAS = ['新人入门：项目架构说明', '季度复盘：交付与质量', '技术方案评审：恢复机制'] as const;
 
@@ -20,6 +22,18 @@ const STEPS = [
 ];
 
 export function PptPage() {
+  const queryClient = useQueryClient();
+  const worksQuery = useQuery({ queryKey: ['ppt', 'works'], queryFn: async () => (await apiGet<{ works: readonly PptWork[] }>('/api/ppt/works')).data.works, retry: false });
+  const createDraft = useMutation({
+    mutationFn: async () => {
+      await apiPost('/api/ppt/works', { requestKey: createRequestKey(), ...(projectId === '' ? {} : { projectId }), title: text.trim().slice(0, 40) || '未命名演示', topic: text.trim(), confirmCreate: true });
+    },
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
+  });
+  const deleteDraft = useMutation({
+    mutationFn: async (id: string) => { await request(`/api/ppt/works/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
+  });
   const projectsQuery = useProjects();
   const projects = projectsQuery.data ?? [];
   const [projectId, setProjectId] = useState('');
@@ -32,10 +46,10 @@ export function PptPage() {
     <div className="page">
       <PageHeader
         title="PPT 制作"
-        lede="先讨论清楚要讲什么，再逐页制作，全程可以改。当前只保留本地输入；创建讨论与逐页制作接口尚未接通。"
+        lede="先讨论清楚要讲什么，再逐页制作。当前支持保存/删除演示草稿；讨论与逐页生成仍未接通。"
         actions={
-          <Badge tone="unknown" icon="help">
-            尚未接通
+          <Badge tone="wait" icon="layers">
+            仅草稿
           </Badge>
         }
       />
@@ -112,8 +126,14 @@ export function PptPage() {
               添加资料
             </Button>
             <span className="spacer" />
-            <Button variant="primary" icon="arrowRight" disabled disabledReason={CREATE_BLOCKED_REASON}>
-              开始讨论
+            <Button
+              variant="primary"
+              icon="arrowRight"
+              disabled={!valid || createDraft.isPending}
+              disabledReason={!valid ? '选择项目并至少写 6 个字' : undefined}
+              onClick={() => { createDraft.mutate(); }}
+            >
+              {createDraft.isPending ? '正在创建…' : '保存为演示草稿'}
             </Button>
           </div>
           {projects.length === 0 && !projectsQuery.isLoading ? (
@@ -125,7 +145,7 @@ export function PptPage() {
             </div>
           ) : null}
           <p className="hint">
-            表单校验：{valid ? '已具备项目与说明，但创建接口未接通，按钮仍禁用。' : '需要选择项目，并至少填写 6 个字说明。'}输入只保留在当前页面。
+            表单校验：{valid ? '已具备项目与说明，可以保存为演示草稿；页面生成仍未接通。' : '需要选择项目，并至少填写 6 个字说明。'}草稿只记录标题/主题，不调用模型。
           </p>
         </div>
 
@@ -163,25 +183,6 @@ export function PptPage() {
         ))}
       </div>
 
-      <div className="section">
-        <div className="section-head">
-          <span className="section-title">最近的演示</span>
-          <span className="hint">作品列表尚未接通</span>
-        </div>
-        <div className="card">
-          <EmptyState
-            compact
-            icon="slides"
-            title="还没有可读取的演示"
-            description={HISTORY_BLOCKED_REASON}
-            action={
-              <LinkButton to="/projects" variant="secondary" size="sm" icon="folder">
-                查看项目
-              </LinkButton>
-            }
-          />
-        </div>
-      </div>
 
       <PendingBackendNotice message="需要先接通：创建演示 / 讨论会话、逐页生成与检查、作品与导出、附件上传。当前页面不会发起任何模型调用或写入文件。" />
     </div>

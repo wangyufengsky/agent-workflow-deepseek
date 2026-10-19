@@ -312,4 +312,20 @@ ALTER TABLE planning_rounds ADD COLUMN session_id TEXT;
 ALTER TABLE planning_rounds ADD COLUMN abort_requested INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    version: 3,
+    name: 'ppt_works',
+    sql: `
+CREATE TABLE IF NOT EXISTS ppt_works (
+  id TEXT PRIMARY KEY,
+  project_id TEXT,
+  title TEXT NOT NULL,
+  topic TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'draft',
+  outline_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];

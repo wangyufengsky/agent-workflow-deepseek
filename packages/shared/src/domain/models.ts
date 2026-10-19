@@ -41,6 +41,7 @@ import type {
   PlanningApplyStatusValue,
   PlanningRunStatusValue,
   PlanningStageValue,
+  PptWorkStatusValue,
   ReceiptStatusValue,
   RepoGitStateValue,
   ReviewRunStateValue,
@@ -959,6 +960,17 @@ export interface FixRun {
   readonly commitDraft?: { readonly message: string; readonly author: GitPerson };
   readonly fixRevision: Revision;
   readonly actions: Record<string, ActionAvailability>;
+}
+
+export interface PptWork {
+  readonly id: string;
+  readonly projectId?: ProjectId;
+  readonly title: string;
+  readonly topic: string;
+  readonly status: PptWorkStatusValue;
+  readonly outline: readonly string[];
+  readonly createdAt: IsoDateTime;
+  readonly updatedAt: IsoDateTime;
 }
 
 /* ------------------------------------------------------------------ */

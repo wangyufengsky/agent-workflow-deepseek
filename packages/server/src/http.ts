@@ -10,6 +10,7 @@ import type {
   NodeSkipRequest,
   UseTemplateRequest,
   KnowledgeAskRequest,
+  PptWorkCreateRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
   CommandRequest,
@@ -513,6 +514,12 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       throw new AppError(ErrorCode.INTERNAL_ERROR, '读取来源失败');
     }
   });
+  app.get('/api/ppt/works', async (request) => envelope(engine.ppt.list(), requestId(request)));
+  app.post('/api/ppt/works', async (request) => {
+    const body = request.body as PptWorkCreateRequest;
+    return envelope(engine.ppt.create(body), requestId(request));
+  });
+  app.delete<{ Params: { id: string } }>('/api/ppt/works/:id', async (request) => envelope(engine.ppt.delete(request.params.id), requestId(request)));
   app.post('/api/knowledge/ask', async (request) => {
     const body = request.body as KnowledgeAskRequest;
     return envelope(await engine.knowledge.ask(body), requestId(request));

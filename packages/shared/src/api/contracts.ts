@@ -26,6 +26,7 @@ import type {
   PlanNode,
   PlanRevision,
   PlanningPreview,
+  PptWork,
   PlanningView,
   Project,
   ProjectSummary,
@@ -281,6 +282,17 @@ export interface InsightsResponse {
   readonly reviews: { readonly total: number; readonly completed: number; readonly failed: number; readonly openFindings: number };
   readonly fixes: { readonly total: number; readonly ready: number; readonly discarded: number };
   readonly deliveries: { readonly delivered: number; readonly blocked: number; readonly inProgress: number };
+}
+
+export interface PptWorksResponse {
+  readonly works: readonly PptWork[];
+}
+
+export interface PptWorkCreateRequest extends CommandRequest {
+  readonly projectId?: string;
+  readonly title: string;
+  readonly topic: string;
+  readonly confirmCreate: true;
 }
 
 export interface OpenCodeDetectResponse {
@@ -887,6 +899,8 @@ export const ROUTES = {
   tasks: '/api/tasks',
   task: (id: string) => `/api/tasks/${encodeURIComponent(id)}`,
   taskDetail: (id: string) => `/api/tasks/${encodeURIComponent(id)}/detail`,
+  pptWorks: '/api/ppt/works',
+  pptWork: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
   taskPlanFromTemplate: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/from-template`,
   taskRecovery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery`,
   taskRecoveries: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recoveries`,

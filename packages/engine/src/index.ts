@@ -16,3 +16,4 @@ export * from './recovery.ts';
 export * from './role-catalog.ts';
 export * from './insights.ts';
 export * from './knowledge.ts';
+export * from './ppt.ts';

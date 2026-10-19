@@ -336,6 +336,14 @@ export const FindingStatus = {
 } as const;
 export type FindingStatusValue = (typeof FindingStatus)[keyof typeof FindingStatus];
 
+export const PptWorkStatus = {
+  DRAFT: 'draft',
+  GENERATING: 'generating',
+  READY: 'ready',
+  FAILED: 'failed',
+} as const;
+export type PptWorkStatusValue = (typeof PptWorkStatus)[keyof typeof PptWorkStatus];
+
 export const FixRunState = {
   PREPARING: 'preparing',
   EDITING: 'editing',
@@ -521,6 +529,8 @@ export const OperationKind = {
   CATALOG_ROLE_PUBLISH: 'catalog.role.publish',
   CATALOG_ROLE_ARCHIVE: 'catalog.role.archive',
   KNOWLEDGE_ASK: 'knowledge.ask',
+  PPT_WORK_CREATE: 'ppt.work.create',
+  PPT_WORK_DELETE: 'ppt.work.delete',
 } as const;
 export type OperationKindValue = (typeof OperationKind)[keyof typeof OperationKind];
 
@@ -577,6 +587,8 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'catalog.role.publish': op('catalog.role.publish', 'global', true, '发布职业'),
   'catalog.role.archive': op('catalog.role.archive', 'global', true, '归档职业'),
   'knowledge.ask': op('knowledge.ask', 'project', true, '知识库问答（单次只读）'),
+  'ppt.work.create': op('ppt.work.create', 'project', true, '创建 PPT 草稿'),
+  'ppt.work.delete': op('ppt.work.delete', 'project', true, '删除 PPT 草稿'),
   'git.fetch': op('git.fetch', 'git', true, '获取远端更新'),
   'review.start': op('review.start', 'git', true, '开始 AI 审查'),
   'review.stop': op('review.stop', 'git', true, '停止 AI 审查'),
