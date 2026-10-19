@@ -207,6 +207,7 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 自定义职业先以草稿存在，发布后进入目录；归档内置覆盖会还原默认，归档自定义会移除。
 - 每个写操作 requestKey + 回执、幂等重放；目录变更发 `catalog.changed` 事件。
 - UI 角色页已接线：新建/编辑草稿、发布、还原/归档、草稿徽标。
+- UI 证据：[roles-editor.png](evidence/roles-editor.png)（真实服务数据：内置职业草稿待发布）。
 测试：`tests/integration/roles-api.test.ts` PASS。
 
 ## 9. 已知限制 / 未验证
