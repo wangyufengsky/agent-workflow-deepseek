@@ -24,3 +24,5 @@
 - `roles-editor.png`：角色管理（内置职业草稿待发布、编辑/发布/还原入口）。
 
 - `insights-real-counters.png`：质量与用量（真实任务计数与规划成本，未知项明确标注）。
+
+- `electron-packaged-current.png`：第 35 轮重新打包后的 Electron 应用启动截图（内置 server）。
