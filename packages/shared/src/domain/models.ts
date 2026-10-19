@@ -368,6 +368,14 @@ export interface PlanningStageRun {
   readonly detail?: string;
 }
 
+export interface TokenUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly reasoning: number;
+  readonly cache: number;
+  readonly total: number;
+}
+
 export interface PlanningUsage {
   readonly dispatches: { readonly used: number; readonly maximum: number };
   readonly revisions: { readonly used: number; readonly maximum: number };
@@ -378,7 +386,7 @@ export interface PlanningUsage {
     readonly currency: string;
     readonly limit?: number;
   };
-  readonly tokens?: { readonly input: number; readonly output: number; readonly reasoning: number; readonly cache: number; readonly total: number };
+  readonly tokens?: TokenUsage;
   readonly deadlineAt?: IsoDateTime;
   readonly modelDisplayName?: string;
 }
@@ -570,6 +578,7 @@ export interface Attempt {
   readonly startedAt?: IsoDateTime;
   readonly endedAt?: IsoDateTime;
   readonly result?: AttemptResult;
+  readonly usage?: TokenUsage;
   readonly readability: { readonly output: string; readonly tools: string; readonly result: string };
 }
 

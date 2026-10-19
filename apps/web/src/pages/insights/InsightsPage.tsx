@@ -246,7 +246,7 @@ export function InsightsPage() {
     <div className="page">
       <PageHeader
         title="质量与用量"
-        lede="按任务核对状态、验收与消耗。任务与计数来自 /api/bootstrap 与 /api/insights；规划成本已统计，tokens、验收与评审仍按未知显示。"
+        lede="按任务核对状态、验收与消耗。计数、规划 tokens/成本与执行 tokens 来自 /api/insights；验收与评审结论仍按未知显示。"
         actions={
           <button
             type="button"
@@ -296,7 +296,7 @@ export function InsightsPage() {
             {insights.data === undefined ? <UnknownValue reason="正在读取 insights" /> : `${insights.data.planning.currency} ${insights.data.planning.costKnown.toFixed(4)}`}
           </div>
           <div className="hint" style={{ marginTop: 6 }}>
-            规划轮次已结账成本；执行/评审/修复用量尚未聚合，不混入。
+            规划成本已结账；执行 tokens 已汇总，评审/修复用量未聚合。
           </div>
         </div>
         <div className="card pad">
@@ -334,7 +334,7 @@ export function InsightsPage() {
             <div className="grid-2" style={{ gap: 12 }}>
               <div className="card pad"><div className="eyebrow">任务</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.tasks.total)}</div><div className="hint">进行中 {String(insights.data.tasks.active)} · 已完成 {String(insights.data.tasks.completed)} · 待处理 {String(insights.data.tasks.attention)}</div></div>
               <div className="card pad"><div className="eyebrow">规划轮次</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.planning.rounds)}</div><div className="hint">完成 {String(insights.data.planning.completed)} · 失败 {String(insights.data.planning.failed)} · 进行中 {String(insights.data.planning.running)} · 已记录成本 {insights.data.planning.costKnown.toFixed(4)} {insights.data.planning.currency}（{String(insights.data.planning.budgetUnknownRounds)} 轮未知预算）</div></div>
-              <div className="card pad"><div className="eyebrow">执行 / 尝试</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.executions.total)} / {String(insights.data.executions.attempts)}</div><div className="hint">运行中 {String(insights.data.executions.running)} · 失败 {String(insights.data.executions.failed)}</div></div>
+              <div className="card pad"><div className="eyebrow">执行 / 尝试</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.executions.total)} / {String(insights.data.executions.attempts)}</div><div className="hint">运行中 {String(insights.data.executions.running)} · 失败 {String(insights.data.executions.failed)}</div><div className="hint">执行 tokens {formatCount(insights.data.executions.tokens.total)}（输入 {formatCount(insights.data.executions.tokens.input)} · 输出 {formatCount(insights.data.executions.tokens.output)}）</div></div>
               <div className="card pad"><div className="eyebrow">审查</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.reviews.total)}</div><div className="hint">完成 {String(insights.data.reviews.completed)} · 失败 {String(insights.data.reviews.failed)} · 待处理问题 {String(insights.data.reviews.openFindings)}</div></div>
               <div className="card pad"><div className="eyebrow">修复</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.fixes.total)}</div><div className="hint">待提交 {String(insights.data.fixes.ready)} · 已放弃 {String(insights.data.fixes.discarded)}</div></div>
               <div className="card pad"><div className="eyebrow">交付</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.deliveries.delivered)}</div><div className="hint">已交付 · 受阻 {String(insights.data.deliveries.blocked)} · 进行中 {String(insights.data.deliveries.inProgress)}</div></div>

@@ -215,15 +215,16 @@ export class ExecutionRepository {
     return rows.map(mapAttempt);
   }
 
-  finishAttempt(id: string, status: NodeStatusValue, result?: AttemptResult, error?: string): void {
+  finishAttempt(id: string, status: NodeStatusValue, result?: AttemptResult, error?: string, usage?: Attempt['usage']): void {
     const endedAt = nowIso();
     this.#db
-      .prepare('UPDATE attempts SET status = ?, ended_at = ?, result_json = ?, readability_json = ? WHERE id = ?')
+      .prepare('UPDATE attempts SET status = ?, ended_at = ?, result_json = ?, readability_json = ?, usage_json = ? WHERE id = ?')
       .run(
         status,
         endedAt,
         result === undefined ? null : jsonStringify(result),
         jsonStringify({ output: 'ok', tools: 'ok', result: result === undefined ? 'not_submitted' : 'ok', error }),
+        usage === undefined ? null : jsonStringify(usage),
         id,
       );
   }
@@ -290,6 +291,7 @@ function mapAttempt(row: Row): Attempt {
     startedAt: row.started_at === null ? undefined : String(row.started_at),
     endedAt: row.ended_at === null ? undefined : String(row.ended_at),
     result: jsonParse<AttemptResult | undefined>(row.result_json as string | null, undefined),
+    usage: jsonParse<Attempt['usage']>(row.usage_json as string | null, undefined),
     readability: jsonParse<Attempt['readability']>(row.readability_json as string, { output: 'unknown', tools: 'unknown', result: 'unknown' }),
   };
 }

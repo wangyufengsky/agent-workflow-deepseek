@@ -335,4 +335,11 @@ CREATE TABLE IF NOT EXISTS ppt_works (
 ALTER TABLE ppt_works ADD COLUMN slides_json TEXT NOT NULL DEFAULT '[]';
 `,
   },
+  {
+    version: 5,
+    name: 'attempt_usage',
+    sql: `
+ALTER TABLE attempts ADD COLUMN usage_json TEXT;
+`,
+  },
 ];

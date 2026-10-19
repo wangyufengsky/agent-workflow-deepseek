@@ -11,6 +11,7 @@ import type {
   PlanRevision,
   Task,
   TaskDelivery,
+  TokenUsage,
 } from '@agent-workflow/shared';
 import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, createId, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
@@ -438,6 +439,7 @@ export class ExecutionService {
     }
 
     flushText();
+    const attemptUsage = usageFromMessages(outcome.outcome.messages);
     const settled = await Promise.race([
       resultPromise,
       new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2500)),
@@ -447,15 +449,15 @@ export class ExecutionService {
       this.#finishNode(execution.id, node.id, attempt.id, outcome.outcome.timedOut ? NodeStatus.UNKNOWN : NodeStatus.FAILED, undefined, {
         code: outcome.outcome.timedOut ? 'MODEL_BUDGET_EXCEEDED' : 'NODE_NOT_EXECUTABLE',
         message: error,
-      });
+      }, attemptUsage);
       return;
     }
     const verificationFailed = settled.verification?.state === 'failed';
-    this.#finishNode(execution.id, node.id, attempt.id, verificationFailed ? NodeStatus.FAILED : NodeStatus.SUCCEEDED, settled, verificationFailed ? { code: 'VALIDATION_FAILED', message: '验证未通过' } : undefined);
+    this.#finishNode(execution.id, node.id, attempt.id, verificationFailed ? NodeStatus.FAILED : NodeStatus.SUCCEEDED, settled, verificationFailed ? { code: 'VALIDATION_FAILED', message: '验证未通过' } : undefined, attemptUsage);
   }
 
-  #finishNode(executionId: string, nodeId: string, attemptId: string, status: NodeStatusValue, result?: AttemptResult, error?: { code: string; message: string }): void {
-    this.#store.executions.finishAttempt(attemptId, status, result, error?.message);
+  #finishNode(executionId: string, nodeId: string, attemptId: string, status: NodeStatusValue, result?: AttemptResult, error?: { code: string; message: string }, usage?: TokenUsage): void {
+    this.#store.executions.finishAttempt(attemptId, status, result, error?.message, usage);
     this.#resultWaiters.delete(attemptId);
     this.#store.executions.updateNode(executionId, nodeId, { status, endedAt: nowIso(), error });
     const execution = this.#store.executions.get(executionId);
@@ -542,4 +544,23 @@ ${task.requirement.text}
     if (task === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务不存在');
     return task;
   }
+}
+
+
+function usageFromMessages(messages: readonly { readonly info: { readonly role: string; readonly tokens?: Record<string, unknown> } }[] | undefined): TokenUsage {
+  let input = 0;
+  let output = 0;
+  let reasoning = 0;
+  let cache = 0;
+  for (const message of messages ?? []) {
+    if (message.info.role !== 'assistant') continue;
+    const raw = message.info.tokens ?? {};
+    const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+    const cacheInfo = raw['cache'] !== null && typeof raw['cache'] === 'object' ? raw['cache'] as Record<string, unknown> : {};
+    input += num(raw['input']);
+    output += num(raw['output']);
+    reasoning += num(raw['reasoning']);
+    cache += num(cacheInfo['read']) + num(cacheInfo['write']);
+  }
+  return { input, output, reasoning, cache, total: input + output + reasoning + cache };
 }

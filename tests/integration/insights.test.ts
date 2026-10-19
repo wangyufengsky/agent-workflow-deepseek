@@ -70,6 +70,14 @@ test('insights aggregate real task/review counters from SQLite', async () => {
     const planning = (empty.json().data as { planning: { costKnown: number; tokens: { total: number } } }).planning;
     assert.equal(planning.costKnown, 0.01);
     assert.equal(planning.tokens.total, 165);
+    app.store.db.exec('PRAGMA foreign_keys = OFF');
+    app.store.db.prepare("INSERT OR REPLACE INTO attempts (id, execution_id, node_id, ordinal, status, started_at, ended_at, result_json, readability_json, usage_json) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)")
+      .run('attempt_test_usage', 'exec_test_usage', 'node_test', 1, 'failed', '2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z', '{"output":"ok","tools":"ok","result":"not_submitted"}', '{"input":600,"output":300,"reasoning":0,"cache":0,"total":900}');
+    app.store.db.exec('PRAGMA foreign_keys = ON');
+    const withUsage = await app.app.inject({ method: 'GET', url: '/api/insights' });
+    const executionTokens = (withUsage.json().data as { executions: { tokens: { total: number } } }).executions.tokens;
+    assert.equal(executionTokens.total, 900);
+
     const taskUsage = await app.app.inject({ method: 'GET', url: '/api/insights/task-usage' });
     assert.equal(taskUsage.statusCode, 200, taskUsage.body);
     const usage = taskUsage.json().data.usage as { taskId: string; tokens: number }[];

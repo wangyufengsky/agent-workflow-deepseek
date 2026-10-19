@@ -45,6 +45,13 @@ export class InsightsService {
         running: count("SELECT COUNT(*) AS n FROM executions WHERE status IN ('running','pausing','stopping')"),
         failed: count("SELECT COUNT(*) AS n FROM executions WHERE status = 'failed'"),
         attempts: count('SELECT COUNT(*) AS n FROM attempts'),
+        tokens: {
+          input: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.input') AS INTEGER)), 0) AS n FROM attempts"),
+          output: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.output') AS INTEGER)), 0) AS n FROM attempts"),
+          reasoning: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.reasoning') AS INTEGER)), 0) AS n FROM attempts"),
+          cache: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.cache') AS INTEGER)), 0) AS n FROM attempts"),
+          total: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.total') AS INTEGER)), 0) AS n FROM attempts"),
+        },
       },
       reviews: {
         total: count('SELECT COUNT(*) AS n FROM reviews'),

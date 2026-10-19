@@ -279,7 +279,7 @@ export interface InsightsResponse {
     readonly tokens: { readonly input: number; readonly output: number; readonly reasoning: number; readonly cache: number; readonly total: number };
     readonly currency: string;
   };
-  readonly executions: { readonly total: number; readonly running: number; readonly failed: number; readonly attempts: number };
+  readonly executions: { readonly total: number; readonly running: number; readonly failed: number; readonly attempts: number; readonly tokens: { readonly input: number; readonly output: number; readonly reasoning: number; readonly cache: number; readonly total: number } };
   readonly reviews: { readonly total: number; readonly completed: number; readonly failed: number; readonly openFindings: number };
   readonly fixes: { readonly total: number; readonly ready: number; readonly discarded: number };
   readonly deliveries: { readonly delivered: number; readonly blocked: number; readonly inProgress: number };
