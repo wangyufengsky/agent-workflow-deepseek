@@ -234,6 +234,9 @@ export class ReviewService {
 
   async start(projectId: string, input: ReviewStartRequest): Promise<CommandResponse<ReviewResponse>> {
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '审查请求体不合法');
+    const frozen = this.#commands.originalBody<{ model: string }>(input.requestKey);
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'review.start', body: { projectId, sha: requireNonEmpty(input.sha, '提交 SHA'), compareId: requireNonEmpty(input.compareId, '对比基线'), dimensions: normalizeDimensions(input.dimensions), context: normalizeContext(input.context), professionId: requireNonEmpty(input.professionId, '审查职业'), professionRevision: requireNonEmpty(input.professionRevision, '职业版本'), model: frozen?.model ?? this.#context.settings().models.find((item) => item.enabled && item.roles.includes('reviewer'))?.id } }, () => { const review = this.#reviewsByRequestKey(projectId, input.requestKey); return review === undefined ? undefined : { review }; });
+    if (originalReceipt !== undefined) return originalReceipt;
     const project = this.#requireProject(projectId);
     this.#assertGitProject(project);
     const sha = requireNonEmpty(input.sha, '提交 SHA');
@@ -266,10 +269,7 @@ export class ReviewService {
     if (replayed) {
       const existing = this.#reviewsByRequestKey(projectId, input.requestKey);
       if (existing !== undefined) return { receipt: this.#commands.toReceipt(record), resource: { review: existing } };
-      if (record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
-      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理但还没有审查记录；请按 requestKey 核对回执', {
-        details: { requestKey: input.requestKey },
-      });
+      return { receipt: this.#commands.toReceipt(record) };
     }
 
     const active = this.#activeReview(projectId, sha, compareId);
@@ -311,6 +311,8 @@ export class ReviewService {
   }
 
   async stop(projectId: string, reviewRunId: string, input: { readonly requestKey: string }): Promise<CommandResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'review.stop', body: { projectId, reviewRunId } });
+    if (originalReceipt !== undefined) return originalReceipt;
     const review = this.#requireReview(projectId, reviewRunId);
     if (!ACTIVE_REVIEW_STATES.includes(review.state)) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '审查已结束，无需停止', { details: { state: review.state } });
@@ -321,7 +323,7 @@ export class ReviewService {
       body: { projectId, reviewRunId },
       target: { projectId, ref: review.subject.commitSha },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record) };
     if (review.state !== ReviewRunState.STOPPING) {
       const updated: ReviewRun = { ...review, state: ReviewRunState.STOPPING, stage: 'stopping' };
       this.#store.reviews.update(updated);
@@ -336,6 +338,8 @@ export class ReviewService {
   }
 
   async updateFinding(projectId: string, findingId: string, input: ReviewFindingUpdateRequest): Promise<CommandResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'review.finding.update', body: { projectId, findingId, status: normalizeFindingStatus(input.status), reason: input.reason ?? '', expectedStatusRevision: input.expectedStatusRevision ?? '' } });
+    if (originalReceipt !== undefined) return originalReceipt;
     const status = normalizeFindingStatus(input.status);
     const review = this.#findReviewByFinding(projectId, findingId);
     const existing = review.findings.find((finding) => finding.findingId === findingId);
@@ -353,7 +357,7 @@ export class ReviewService {
       body: { projectId, findingId, status, reason: input.reason ?? '', expectedStatusRevision: expected ?? '' },
       target: { projectId, ref: review.subject.commitSha },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record) };
     const reason = typeof input.reason === 'string' && input.reason.trim() !== '' ? input.reason.trim().slice(0, 1_000) : undefined;
     const findings = review.findings.map((finding) =>
       finding.findingId === findingId ? { ...finding, status, ...(reason === undefined ? {} : { statusReason: reason }) } : finding,

@@ -96,6 +96,13 @@ export class RecoveryService {
     if (input.confirmCreate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '需要显式确认创建恢复草稿');
     if (!RECOVERY_MODES.includes(input.mode)) throw new AppError(ErrorCode.VALIDATION_FAILED, '恢复方式不合法');
     const note = typeof input.note === 'string' ? input.note.trim().slice(0, MAX_NOTE) : '';
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.recovery.create', body: { parentTaskId, mode: input.mode, note } }, (record) => {
+      const derivedTaskId = typeof record.outcome?.taskId === 'string' ? record.outcome.taskId : this.#store.tasks.list().find((task) => this.#store.settings.getJson<{ requestKey: string }>(`${RECOVERY_KEY_PREFIX}${task.id}`)?.requestKey === input.requestKey)?.id;
+      const task = derivedTaskId === undefined ? undefined : this.#store.tasks.get(derivedTaskId);
+      const recovery = task === undefined ? undefined : this.#record(task.id);
+      return task === undefined || recovery === undefined ? undefined : { task, recovery };
+    });
+    if (originalReceipt !== undefined) return originalReceipt;
     const parent = this.#requireTask(parentTaskId);
     this.#assertRecoverable(parent);
     const evidence = this.#evidence(parent);
@@ -109,17 +116,7 @@ export class RecoveryService {
       body: { parentTaskId, mode: input.mode, note },
       target: { taskId: parentTaskId },
     });
-    if (replayed) {
-      if (record.status === 'accepted') {
-        throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号的恢复草稿正在创建；请按 requestKey 核对回执');
-      }
-      const derivedTaskId = typeof record.outcome?.taskId === 'string' ? record.outcome.taskId : this.#store.tasks.list().find((task) => this.#store.settings.getJson<{ requestKey: string }>(`${RECOVERY_KEY_PREFIX}${task.id}`)?.requestKey === input.requestKey)?.id;
-      const derived = derivedTaskId === undefined ? undefined : this.#store.tasks.get(derivedTaskId);
-      if (derived === undefined) {
-        throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '恢复回执存在但派生任务不可读；请按 requestKey 核对');
-      }
-      return { receipt: this.#commands.toReceipt(record), resource: { task: derived, recovery: this.#record(derived.id)! } };
-    }
+    if (replayed) return { receipt: this.#commands.toReceipt(record) };
 
     this.#store.settings.putJson(`task.recovery-source-lock.${parent.id}`, { requestKey: input.requestKey });
     try {

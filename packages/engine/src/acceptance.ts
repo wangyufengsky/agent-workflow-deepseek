@@ -17,18 +17,20 @@ export class AcceptanceService {
   }
 
   decide(taskId: string, input: TaskAcceptanceRequest): CommandResponse<{ acceptance?: TaskAcceptance }> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.accept', body: { taskId, verdict: input.verdict, note: typeof input.note === 'string' ? input.note.trim().slice(0, 2_000) : '' } }, () => this.get(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     if (input?.confirmDecide !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '验收结论需要显式确认');
     if (input.verdict !== 'accepted' && input.verdict !== 'rejected') throw new AppError(ErrorCode.VALIDATION_FAILED, '验收结论不合法');
     const task = this.#store.tasks.get(taskId);
     if (task === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务不存在');
     const note = typeof input.note === 'string' ? input.note.trim().slice(0, 2_000) : '';
-    const { replayed } = this.#commands.begin({
+    const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'task.accept',
       body: { taskId, verdict: input.verdict, note },
       target: { taskId },
     });
-    if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.get(taskId) };
     const acceptance: TaskAcceptance = {
       taskId,
       verdict: input.verdict,

@@ -232,6 +232,12 @@ export class DirectoryApplyService {
 
   async apply(taskId: string, request: DeliveryApplyRequest): Promise<CommandResponse<DirectoryApplyResource>> {
     validateApplyRequest(request);
+    const originalReceipt = this.#commands.replay({ requestKey: request.requestKey, operation: 'task.delivery.apply', body: { taskId, previewRef: request.previewRef, previewRevision: request.previewRevision, resolutions: request.resolutions, confirmApply: true } }, (record) => {
+      const delivery = this.#deliveryFor(taskId);
+      const stored = this.#store.settings.getJson<StoredApplyPreview>(previewKey(request.previewRef));
+      return delivery === undefined || stored === undefined || stored.taskId !== taskId || !Array.isArray(stored.items) ? undefined : { delivery, preview: toPublicPreview(stored), result: summaryFromRecord(record.outcome) };
+    });
+    if (originalReceipt !== undefined) return originalReceipt;
     const context = await this.#requireContext(taskId);
     const stored = this.#loadStoredPreview(taskId, request.previewRef);
     if (stored.revision !== request.previewRevision) {
@@ -275,7 +281,7 @@ export class DirectoryApplyService {
       target: { taskId, ref: request.previewRef },
       resultResource: { kind: 'delivery', id: delivery.id },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return {
         receipt: this.#commands.toReceipt(record),
         resource: { delivery: this.#deliveryFor(taskId) ?? delivery, preview: toPublicPreview(stored), result: summaryFromRecord(record.outcome) },

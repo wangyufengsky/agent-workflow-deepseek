@@ -106,6 +106,8 @@ export class WorkspaceService {
   }
 
   async prepare(taskId: string, input: PrepareWorkspaceRequest): Promise<CommandResponse<{ workspace: TaskWorkspace }>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.workspace.prepare', body: { taskId, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber, expectedBaseRef: input.expectedBaseRef, expectedBaseTip: input.expectedBaseTip, baselineSelectionRef: input.baselineSelectionRef, confirmPrepare: true }, legacyBodies: [{ taskId, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber, expectedBaseRef: input.expectedBaseRef, expectedBaseTip: input.expectedBaseTip, confirmPrepare: true }] }, () => { const workspace = this.get(taskId); return workspace === undefined ? undefined : { workspace }; });
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#requireTask(taskId);
     const project = this.#requireProject(task.projectId);
     const plan = task.currentPlanRevisionId === undefined ? undefined : this.#store.plans.get(task.currentPlanRevisionId);
@@ -126,11 +128,12 @@ export class WorkspaceService {
         expectedPlanRevisionNumber: input.expectedPlanRevisionNumber,
         expectedBaseRef: input.expectedBaseRef,
         expectedBaseTip: input.expectedBaseTip,
+        baselineSelectionRef: input.baselineSelectionRef,
         confirmPrepare: true,
       },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: { workspace: this.get(taskId)! } };
     }
     try {
@@ -327,6 +330,8 @@ export class WorkspaceService {
   }
 
   async cleanupConfirm(taskId: string, input: { requestKey: string; previewRef: string; workspaceRevision: string; confirmCleanup: true }): Promise<CommandResponse<{ workspace?: TaskWorkspace }>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.workspace.cleanup.confirm', body: { taskId, previewRef: input.previewRef, workspaceRevision: input.workspaceRevision, confirmCleanup: true } }, () => { const workspace = this.get(taskId); return workspace === undefined ? undefined : { workspace }; });
+    if (originalReceipt !== undefined) return originalReceipt;
     const workspace = this.get(taskId);
     if (workspace === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务没有工作区');
     const task = this.#requireTask(taskId);
@@ -345,7 +350,7 @@ export class WorkspaceService {
       body: { taskId, previewRef: input.previewRef, workspaceRevision: input.workspaceRevision, confirmCleanup: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { workspace: this.get(taskId) } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { workspace: this.get(taskId) } };
     const previousState = workspace.state;
     let cleaningStarted = false;
     try {

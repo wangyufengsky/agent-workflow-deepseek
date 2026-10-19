@@ -207,6 +207,11 @@ export class FixService {
 
   async start(projectId: string, input: FixStartRequest): Promise<CommandResponse<FixResponse>> {
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '修复请求体不合法');
+    const frozen = this.#commands.originalBody<{ model: string }>(input.requestKey);
+    const priorId = this.#commands.get(input.requestKey)?.resultResource?.id;
+    const priorFix = priorId === undefined ? undefined : this.#store.fixes.get(priorId);
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'fix.start', body: { projectId, reviewRunId: requireNonEmpty(input.reviewRunId, '审查记录'), findingIds: input.findingIds, baseBranch: normalizeBranchName(requireNonEmpty(input.baseBranch, '基线分支')), expectedBaseTip: requireNonEmpty(input.expectedBaseTip, '基线提交'), professionId: requireNonEmpty(input.professionId, '修复职业'), professionRevision: requireNonEmpty(input.professionRevision, '职业版本'), model: frozen?.model ?? this.#context.settings().models.find((item) => item.enabled && item.roles.some((role) => ['repairer', 'coder'].includes(role)))?.id } }, () => priorFix === undefined ? undefined : { fix: this.#requireFix(projectId, priorFix.fixRunId) });
+    if (originalReceipt !== undefined) return originalReceipt;
     const project = this.#requireProject(projectId);
     this.#assertGitProject(project);
     const review = this.#requireReview(projectId, requireNonEmpty(input.reviewRunId, '审查记录'));
@@ -252,10 +257,7 @@ export class FixService {
       const existingId = record.resultResource?.id;
       const existing = existingId === undefined ? undefined : this.#store.fixes.get(existingId);
       if (existing !== undefined) return { receipt: this.#commands.toReceipt(record), resource: { fix: existing } };
-      if (record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
-      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理但还没有修复记录；请按 requestKey 核对回执', {
-        details: { requestKey: input.requestKey },
-      });
+      return { receipt: this.#commands.toReceipt(record) };
     }
 
     const guardKey = `${projectId}:${baseBranch}`;
@@ -364,6 +366,8 @@ export class FixService {
   }
 
   async stop(projectId: string, fixRunId: string, input: { readonly requestKey: string }): Promise<CommandResponse<FixResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'fix.stop', body: { projectId, fixRunId } }, () => ({ fix: this.#requireFix(projectId, fixRunId) }));
+    if (originalReceipt !== undefined) return originalReceipt;
     const fix = this.#requireFix(projectId, fixRunId);
     if (!IN_PROGRESS_FIX_STATES.includes(fix.state)) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '修复已结束，无需停止', { details: { state: fix.state } });
@@ -374,7 +378,7 @@ export class FixService {
       body: { projectId, fixRunId },
       target: { projectId, ref: fix.fixBranch },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
     if (fix.state !== FixRunState.STOPPING) {
       const updated = this.#store.fixes.update({
         ...fix,
@@ -396,6 +400,8 @@ export class FixService {
   }
 
   async revertFile(projectId: string, fixRunId: string, input: FixFileRevertRequest): Promise<CommandResponse<FixResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'fix.file.revert', body: { projectId, fixRunId, fileId: input.fileId, expectedFixRevision: input.expectedFixRevision } }, () => ({ fix: this.#requireFix(projectId, fixRunId) }));
+    if (originalReceipt !== undefined) return originalReceipt;
     const fix = this.#requireFix(projectId, fixRunId);
     if (fix.state !== FixRunState.READY) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '只有就绪且未提交的修复才能撤销文件', { details: { state: fix.state } });
@@ -412,7 +418,7 @@ export class FixService {
       body: { projectId, fixRunId, fileId: input.fileId, expectedFixRevision: input.expectedFixRevision },
       target: { projectId, ref: fix.fixBranch },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
     try {
       await this.#workspace.restoreFile({
         worktreePath: await this.#worktreePath(fix),
@@ -439,6 +445,8 @@ export class FixService {
   }
 
   async commit(projectId: string, fixRunId: string, input: FixCommitRequest): Promise<CommandResponse<FixResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'fix.commit', body: { projectId, fixRunId, message: requireNonEmpty(input.message, '提交信息').slice(0, 4000), fileIds: input.fileIds, expectedFixRevision: input.expectedFixRevision, confirmVerifyFailed: input.confirmVerifyFailed === true } }, () => ({ fix: this.#requireFix(projectId, fixRunId) }));
+    if (originalReceipt !== undefined) return originalReceipt;
     const fix = this.#requireFix(projectId, fixRunId);
     if (fix.state === FixRunState.NO_CHANGES) throw new AppError(ErrorCode.FIX_NO_CHANGES, '没有可提交的修复改动');
     if (fix.state !== FixRunState.READY) throw new AppError(ErrorCode.VALIDATION_FAILED, '修复尚未就绪，不能提交', { details: { state: fix.state } });
@@ -467,7 +475,7 @@ export class FixService {
       },
       target: { projectId, ref: fix.fixBranch, expectedSha: fix.base.tipSha },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
     try {
       const commit = await this.#git.commit({
         worktreePath: await this.#worktreePath(fix),
@@ -501,6 +509,10 @@ export class FixService {
   }
 
   async merge(projectId: string, fixRunId: string, input: FixMergeRequest): Promise<CommandResponse<FixResponse>> {
+    const frozen = this.#commands.originalBody<{ message: string }>(input.requestKey);
+    const priorFix = this.#store.fixes.get(fixRunId);
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'fix.merge', body: { projectId, fixRunId, expectedBaseTip: input.expectedBaseTip, message: input.message === undefined ? frozen?.message ?? `merge: ${priorFix?.fixBranch} 修复提交` : input.message.trim().slice(0, 4000), strategy: input.strategy ?? 'no_ff', confirmMerge: true } }, () => ({ fix: this.#requireFix(projectId, fixRunId) }));
+    if (originalReceipt !== undefined) return originalReceipt;
     const project = this.#requireProject(projectId);
     const fix = this.#requireFix(projectId, fixRunId);
     const commitStep = stepOf(fix, 'commit');
@@ -524,7 +536,7 @@ export class FixService {
       body: { projectId, fixRunId, expectedBaseTip: input.expectedBaseTip, message, strategy: input.strategy ?? 'no_ff', confirmMerge: true },
       target: { projectId, ref: fix.base.branch, expectedSha: input.expectedBaseTip },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
     try {
       const merged = await this.#git.mergeTaskBranch({
         repoRoot: project.rootPath,
@@ -554,6 +566,8 @@ export class FixService {
   }
 
   async push(projectId: string, fixRunId: string, input: FixPushRequest): Promise<CommandResponse<FixResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'fix.push', body: { projectId, fixRunId, expectedLocalSha: input.expectedLocalSha } }, () => ({ fix: this.#requireFix(projectId, fixRunId) }));
+    if (originalReceipt !== undefined) return originalReceipt;
     const fix = this.#requireFix(projectId, fixRunId);
     const project = this.#requireProject(projectId);
     const commitStep = stepOf(fix, 'commit');
@@ -571,7 +585,7 @@ export class FixService {
       body: { projectId, fixRunId, expectedLocalSha: input.expectedLocalSha },
       target: { projectId, ref: fix.fixBranch },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
     if (fix.fixBranch.startsWith('-')) throw new AppError(ErrorCode.VALIDATION_FAILED, '修复分支名不合法');
     try {
       const result = await this.#git.push({
@@ -615,6 +629,8 @@ export class FixService {
   }
 
   async createMergeRequest(projectId: string, fixRunId: string, input: FixMergeRequestRequest): Promise<CommandResponse<FixResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'fix.mergeRequest.create', body: { projectId, fixRunId, targetBranch: normalizeBranchName(requireNonEmpty(input.targetBranch, '目标分支')), title: requireNonEmpty(input.title, '合并请求标题').slice(0, 300), description: typeof input.description === 'string' ? input.description.slice(0, 10000) : '' } }, () => ({ fix: this.#requireFix(projectId, fixRunId) }));
+    if (originalReceipt !== undefined) return originalReceipt;
     const fix = this.#requireFix(projectId, fixRunId);
     const project = this.#requireProject(projectId);
     const pushStep = stepOf(fix, 'push');
@@ -628,7 +644,7 @@ export class FixService {
       body: { projectId, fixRunId, targetBranch, title, description },
       target: { projectId, ref: fix.fixBranch },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
     try {
       let mr: { iid: number; webUrl: string };
       if (this.#remote !== undefined) {
@@ -670,6 +686,8 @@ export class FixService {
   }
 
   async discard(projectId: string, fixRunId: string, input: FixDiscardRequest): Promise<CommandResponse<FixResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'fix.discard', body: { projectId, fixRunId, confirmDiscard: true } }, () => ({ fix: this.#requireFix(projectId, fixRunId) }));
+    if (originalReceipt !== undefined) return originalReceipt;
     const fix = this.#requireFix(projectId, fixRunId);
     const project = this.#requireProject(projectId);
     if (input.confirmDiscard !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '放弃修复需要显式确认');
@@ -688,7 +706,7 @@ export class FixService {
       body: { projectId, fixRunId, confirmDiscard: true },
       target: { projectId, ref: fix.fixBranch },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
     try {
       const worktreePath = await this.#worktreePath(fix);
       await this.#git.removeWorktree({ repoRoot: project.rootPath, worktreePath, branch: fix.fixBranch, deleteBranch: true });

@@ -317,14 +317,19 @@ export class TaskService {
   }
 
   create(input: CreateTaskRequest, snapshot?: import('@agent-workflow/shared').CodeReviewSnapshot, scope?: import('@agent-workflow/shared').TemplateTaskScope): CommandResponse<TaskDetailResponse> {
+    const originalReceipt = this.#activeCreates.has(input.requestKey) ? undefined : this.#commands.replay({ requestKey: input.requestKey, operation: input.template === undefined ? 'task.create' : 'template.task.create', body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, template: input.template } }, (record) => {
+      const taskId = record.target.taskId ?? record.outcome?.taskId;
+      return typeof taskId === 'string' ? this.detail(taskId) : undefined;
+    });
+    if (originalReceipt !== undefined) return originalReceipt;
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: input.template === undefined ? 'task.create' : 'template.task.create',
       body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, template: input.template },
       target: { projectId: input.projectId },
     });
-    if (replayed && record.status !== 'accepted') {
-      return { receipt: this.#commands.toReceipt(record), resource: record.target.taskId === undefined ? undefined : this.detail(record.target.taskId) };
+    if (replayed && !this.#activeCreates.has(input.requestKey)) {
+      return { receipt: this.#commands.toReceipt(record), resource: typeof (record.target.taskId ?? record.outcome?.taskId) === 'string' ? this.detail(String(record.target.taskId ?? record.outcome?.taskId)) : undefined };
     }
     try {
       const project = this.#store.projects.get(input.projectId);
@@ -376,6 +381,8 @@ export class TaskService {
   }
 
   updateDraft(taskId: string, input: UpdateDraftRequest): CommandResponse<TaskDetailResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.updateDraft', body: { taskId, title: input.title, requirementText: input.requirementText, supplementText: input.supplementText, expected: input.expected } }, () => this.detail(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     // A verify_only recovery draft is read-only: refuse at the service boundary
     // (not only in the UI projection) so every write entry point agrees.
     const task = this.get(taskId);
@@ -386,7 +393,7 @@ export class TaskService {
       body: { taskId, title: input.title, requirementText: input.requirementText, supplementText: input.supplementText, expected: input.expected },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.detail(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.detail(taskId) };
     try {
       if (task.stage !== TaskStage.DRAFT) throw new AppError(ErrorCode.TASK_STAGE_CONFLICT, '只有在需求草稿阶段可以修改原文');
       let requirement = task.requirement;

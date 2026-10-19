@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { OperationKindValue, OperationReceipt, OperationRecord } from '@agent-workflow/shared';
+import type { CommandResponse, OperationKindValue, OperationReceipt, OperationRecord } from '@agent-workflow/shared';
 import { AppError, ErrorCode, createId, OPERATIONS, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 
@@ -31,6 +31,27 @@ export class CommandService {
     this.#store = store;
   }
 
+  /** Check an original request before mutable resource/state preconditions. Never accepts or resumes work. */
+  replay<T = Record<string, unknown>>(input: { readonly requestKey: string; readonly operation: OperationKindValue; readonly body: unknown; readonly legacyBodies?: readonly unknown[] }, read?: (record: OperationRecord) => T | undefined): CommandResponse<T> | undefined {
+    const record = this.#store.operations.get(input.requestKey);
+    if (record === undefined) return undefined;
+    const matches = record.bodyHash === stableHash(input.body) || (this.#store.settings.getJson(`operation.identity.${input.requestKey}`) === undefined && input.legacyBodies?.some((body) => record.bodyHash === stableHash(body)) === true);
+    if (record.operation !== input.operation || !matches) {
+      throw new AppError(ErrorCode.REQUEST_KEY_REUSED, '同一请求号对应了不同的操作或请求内容，请使用新的请求号', { details: { requestKey: input.requestKey } });
+    }
+    let resource: T | undefined;
+    try { resource = read?.(record); } catch (error) {
+      if (!(error instanceof AppError) || error.code !== ErrorCode.NOT_FOUND) throw error;
+      // The original receipt remains queryable even when its resource was removed.
+    }
+    return { receipt: this.toReceipt(record), ...(resource === undefined ? {} : { resource }) };
+  }
+
+  /** Frozen canonical body for service-resolved fields; it never changes on replay. */
+  originalBody<T>(requestKey: string): T | undefined {
+    return this.#store.settings.getJson<T>(`operation.body.${requestKey}`);
+  }
+
   begin(input: {
     readonly requestKey: string;
     readonly operation: OperationKindValue;
@@ -46,7 +67,7 @@ export class CommandService {
     const bodyHash = stableHash(input.body);
     const existing = this.#store.operations.get(input.requestKey);
     if (existing !== undefined) {
-      if (existing.bodyHash !== bodyHash) {
+      if (existing.operation !== input.operation || existing.bodyHash !== bodyHash) {
         throw new AppError(ErrorCode.REQUEST_KEY_REUSED, '同一请求号对应了不同的请求内容，请使用新的请求号', {
           details: { requestKey: input.requestKey },
         });
@@ -61,6 +82,10 @@ export class CommandService {
       target: input.target,
       resultResource: input.resultResource,
     });
+    this.#store.settings.putJson(`operation.identity.${input.requestKey}`, 1);
+    // Only these canonical bodies contain service-derived non-secret identifiers.
+    // Never copy arbitrary settings/database command bodies (which can contain credentials).
+    if (['plan.template.use', 'review.start', 'fix.start', 'fix.merge'].includes(input.operation)) this.#store.settings.putJson(`operation.body.${input.requestKey}`, input.body);
     return { record, replayed: false };
   }
 

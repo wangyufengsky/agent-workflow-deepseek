@@ -240,6 +240,8 @@ export class PlanningService {
   }
 
   start(taskId: string, input: ScopedPlanningStartInput): CommandResponse<PlanningResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'planning.start', body: { taskId, previewId: input.previewId, sourceInputRevision: input.sourceInputRevision, confirmModelDispatch: true, ...(input.scope === undefined ? {} : { scope: { groupRef: input.scope.groupRef } }) } }, () => this.planningResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '开始规划');
     const previewRecord = this.#previews.get(input.previewId);
     const refineRecord = this.#refinePreviews.get(input.previewId);
@@ -293,7 +295,7 @@ export class PlanningService {
       },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: this.planningResponse(taskId) };
     }
     const method = this.#method(task);
@@ -1084,6 +1086,8 @@ export class PlanningService {
   }
 
   stop(taskId: string, input: PlanningStopRequest): CommandResponse<PlanningResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'planning.stop', body: { taskId, roundId: input.roundId, confirmStop: true } }, () => this.planningResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '停止规划');
     const round = this.#requireRound(input.roundId);
     if (round.taskId !== task.id) throw new AppError(ErrorCode.STALE_TARGET, '轮次与任务不匹配');
@@ -1094,7 +1098,7 @@ export class PlanningService {
       body: { taskId, roundId: round.id, confirmStop: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: this.planningResponse(taskId) };
     }
     this.#stopKeys.set(round.id, input.requestKey);
@@ -1132,6 +1136,8 @@ export class PlanningService {
   }
 
   apply(taskId: string, input: PlanningApplyRequest): CommandResponse<PlanningResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'planning.apply', body: { taskId, roundId: input.roundId, candidatePlanRevisionId: input.candidatePlanRevisionId, acceptedDecisionIds: input.acceptedDecisionIds, confirmApply: true } }, () => this.planningResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '应用规划候选');
     const round = this.#requireRound(input.roundId);
     if (round.candidate === undefined) throw new AppError(ErrorCode.CANDIDATE_PENDING, '本轮没有可应用的候选');
@@ -1156,7 +1162,7 @@ export class PlanningService {
       body: { taskId, roundId: round.id, candidatePlanRevisionId: input.candidatePlanRevisionId, acceptedDecisionIds: input.acceptedDecisionIds, confirmApply: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: this.planningResponse(taskId) };
     }
     const candidatePlan = this.#store.plans.get(round.candidate.planRevisionId);
@@ -1197,6 +1203,8 @@ export class PlanningService {
   }
 
   reject(taskId: string, input: PlanningRejectRequest): CommandResponse<PlanningResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'planning.reject', body: { taskId, roundId: input.roundId, reason: input.reason, confirmReject: true } }, () => this.planningResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     this.#assertWritable(taskId, '不采用规划候选');
     const round = this.#requireRound(input.roundId);
     if (round.candidate === undefined) throw new AppError(ErrorCode.CANDIDATE_PENDING, '本轮没有可审阅的候选');
@@ -1206,7 +1214,7 @@ export class PlanningService {
       body: { taskId, roundId: round.id, reason: input.reason, confirmReject: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.planningResponse(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.planningResponse(taskId) };
     this.#store.planning.update(round.id, { applyStatus: 'rejected', lastActivity: `候选未采用：${input.reason}` });
     const seq = this.#store.planning.appendRecord(round.id, {
       fragmentId: `${round.id}-reject`,
@@ -1221,6 +1229,8 @@ export class PlanningService {
   }
 
   saveAnswer(taskId: string, input: SaveAnswerRequest): CommandResponse<PlanningResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'requirement.answer.save', body: { taskId, roundId: input.roundId, answers: input.answers } }, () => this.planningResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '保存规划答复');
     const round = this.#requireRound(input.roundId);
     const { record, replayed } = this.#commands.begin({
@@ -1229,7 +1239,7 @@ export class PlanningService {
       body: { taskId, roundId: round.id, answers: input.answers },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.planningResponse(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.planningResponse(taskId) };
     const questions = round.questions.map((question) => {
       const answer = input.answers.find((item) => item.questionId === question.id);
       return answer === undefined ? question : { ...question, answer: answer.answer, answeredAt: nowIso(), answeredBy: 'user' };

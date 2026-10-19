@@ -590,3 +590,30 @@ test('未知文件引用与重复/未冻结处理选择被拒绝', async () => {
     fx.close();
   }
 });
+
+test('original apply receipts survive a missing preview and cleaned workspace without writing original files again', async () => {
+  const fx = createFixture({ 'a.txt': 'baseline' });
+  try {
+    writeTreeFile(fx.copyRoot, 'a.txt', 'task change');
+    const preview = await fx.service.preview(fx.taskId);
+    let request = applyRequest(preview);
+    const result = await fx.service.apply(fx.taskId, request);
+    assert.equal(result.receipt.status, 'succeeded');
+    assert.equal(readFileSync(join(fx.sourceRoot, 'a.txt'), 'utf8'), 'task change');
+    writeTreeFile(fx.sourceRoot, 'a.txt', 'later user edit');
+    fx.store.workspaces.update(fx.workspaceId, { state: 'cleaned' });
+    // All preview entries are disposable UI/read models. The command ledger remains authoritative.
+    fx.store.settings.removeJson(`directory.apply.preview.${preview.previewRef}`);
+    for (const status of ['succeeded', 'accepted', 'unknown'] as const) {
+      if (status !== 'accepted') fx.store.operations.settle(request.requestKey, status);
+      else {
+        // A separate accepted operation has never performed a file write.
+        request = { ...request, requestKey: createRequestKey() };
+        new CommandService(fx.store).begin({ requestKey: request.requestKey, operation: 'task.delivery.apply', body: { taskId: fx.taskId, previewRef: request.previewRef, previewRevision: request.previewRevision, resolutions: request.resolutions, confirmApply: true }, target: { taskId: fx.taskId } });
+      }
+      const replay = await new DirectoryApplyService(fx.store, new CommandService(fx.store)).apply(fx.taskId, request);
+      assert.equal(replay.receipt.status, status);
+      assert.equal(readFileSync(join(fx.sourceRoot, 'a.txt'), 'utf8'), 'later user edit');
+    }
+  } finally { fx.close(); }
+});

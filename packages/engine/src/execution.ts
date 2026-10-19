@@ -114,6 +114,8 @@ export class ExecutionService {
   }
 
   start(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.start', body: { taskId, expectedStatus: input.expectedStatus, confirm: true } }, () => this.#viewResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '开始执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建，请先确认计划');
@@ -125,7 +127,7 @@ export class ExecutionService {
       body: { taskId, expectedStatus: input.expectedStatus, confirm: true },
       target: { taskId, executionId: execution.id },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     }
     if (execution.status !== 'idle' && execution.status !== 'ready' && execution.status !== 'paused') {
@@ -148,6 +150,8 @@ export class ExecutionService {
   }
 
   pause(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.pause', body: { taskId, expectedStatus: input.expectedStatus } }, () => this.#viewResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     this.#assertWritable(taskId, '暂停执行');
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);
@@ -158,7 +162,7 @@ export class ExecutionService {
       body: { taskId, expectedStatus: input.expectedStatus },
       target: { taskId, executionId: execution.id },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     this.#store.executions.update(execution.id, { status: 'paused', pause: { requestedAt: nowIso(), settledAt: nowIso(), requestKey: input.requestKey }, notice: { kind: 'paused', message: '已暂停新增领取' } });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'paused', revision: 1 });
     this.#wake(execution.id);
@@ -167,6 +171,8 @@ export class ExecutionService {
   }
 
   resume(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.resume', body: { taskId, expectedStatus: input.expectedStatus } }, () => this.#viewResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     this.#assertWritable(taskId, '继续执行');
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);
@@ -179,7 +185,7 @@ export class ExecutionService {
       body: { taskId, expectedStatus: input.expectedStatus },
       target: { taskId, executionId: execution.id },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     this.#store.executions.update(execution.id, { status: 'running', notice: null, pause: null, endedAt: null });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
     this.#wake(execution.id);
@@ -198,6 +204,8 @@ export class ExecutionService {
    * task — the explicit `resume`/`advance` action stays the user's decision.
    */
   setAutoAdvance(taskId: string, input: ExecutionAutoAdvanceRequest): CommandResponse<ExecutionResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.autoAdvance', body: { taskId, autoAdvance: input.autoAdvance, confirmChange: true } }, () => this.#viewResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     this.#assertWritable(taskId, '切换自动推进');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
@@ -209,7 +217,7 @@ export class ExecutionService {
       body: { taskId, autoAdvance: input.autoAdvance, confirmChange: true },
       target: { taskId, executionId: execution.id },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     const allowed: readonly ExecutionStatusValue[] = ['running', 'pausing', 'paused', 'waiting_confirmation', 'unknown', 'failed'];
     const reject = (message: string, details: Record<string, unknown>): never => {
       const error = new AppError(ErrorCode.OPERATION_IN_PROGRESS, message, { details });
@@ -235,6 +243,8 @@ export class ExecutionService {
    * only after that batch finished.
    */
   advance(taskId: string, input: ExecutionAdvanceRequest): CommandResponse<ExecutionResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.advance', body: { taskId, nodeId: input.nodeId ?? null, confirmAdvance: true } }, () => this.#viewResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     this.#assertWritable(taskId, '推进执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
@@ -247,7 +257,7 @@ export class ExecutionService {
     });
     // A settled replay answers from the stored receipt before any state guard:
     // the execution may have moved on since the first call.
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     const reject = (code: ErrorCodeValue, message: string, details: Record<string, unknown> = {}): never => {
       const error = new AppError(code, message, { details });
       this.#commands.fail(input.requestKey, error);
@@ -332,14 +342,11 @@ export class ExecutionService {
   }
 
   retry(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.retry', body: { taskId, expectedStatus: input.expectedStatus, confirm: true } }, () => this.#viewResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '重试执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
-    const replay = this.#commands.get(input.requestKey);
-    if (replay !== undefined) {
-      const checked = this.#commands.begin({ requestKey: input.requestKey, operation: 'execution.retry', body: { taskId, expectedStatus: input.expectedStatus, confirm: true }, target: { taskId, executionId: execution.id } });
-      return { receipt: this.#commands.toReceipt(checked.record), resource: this.#viewResponse(taskId) };
-    }
     const plan = this.#store.plans.get(execution.planRevisionId);
     if (this.#stops.get(execution.id)?.settled === false || (execution.status === 'unknown' && this.#store.operations.listPending().some((operation) => operation.operation === 'execution.cancel' && operation.target.executionId === execution.id))) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '停止尚未确认，请先按原请求号核对，不能重试');
@@ -377,7 +384,7 @@ export class ExecutionService {
       body: { taskId, expectedStatus: input.expectedStatus, confirm: true },
       target: { taskId, executionId: execution.id },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     this.#beginGeneration(execution.id);
     for (const node of [...failedNodes, ...rejectedNodes]) {
       const delayMs = retryDelayMs(policy, node.error, node.attemptCount);
@@ -434,6 +441,8 @@ export class ExecutionService {
   }
 
   skipNode(taskId: string, nodeId: string, input: NodeSkipRequest): CommandResponse<ExecutionResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.skipNode', body: { taskId, nodeId, confirmSkip: true } }, () => this.#viewResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '跳过执行节点');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
@@ -455,7 +464,7 @@ export class ExecutionService {
       body: { taskId, nodeId, confirmSkip: true },
       target: { taskId, executionId: execution.id, ref: nodeId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     const skipped = new Set<string>([nodeId]);
     const queue = [nodeId];
     while (queue.length > 0) {
@@ -503,6 +512,8 @@ export class ExecutionService {
   }
 
   async cancel(taskId: string, input: ExecutionCommandRequest, reason?: string): Promise<CommandResponse<ExecutionResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.cancel', body: { taskId, expectedStatus: input.expectedStatus, confirm: true } }, () => this.#viewResponse(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     this.#assertWritable(taskId, '取消执行');
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);

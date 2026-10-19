@@ -92,6 +92,10 @@ export class PlanService {
   }
 
   useTemplate(taskId: string, input: UseTemplateRequest): CommandResponse<PlanResponse> {
+    const frozen = this.#commands.originalBody<{ templateId: string; templateVersion: number }>(input.requestKey);
+    const frozenFixed = this.#store.tasks.get(taskId)?.fixedTemplate;
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.template.use', body: { taskId, templateId: frozen?.templateId ?? frozenFixed?.templateId, templateVersion: frozen?.templateVersion ?? frozenFixed?.templateVersion, confirmUseTemplate: true } }, () => this.view(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '按模板生成计划');
     const fixed = task.fixedTemplate;
     if (fixed === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '这个任务不是固定模板任务');
@@ -108,7 +112,7 @@ export class PlanService {
       body: { taskId, templateId, templateVersion: template.version, confirmUseTemplate: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     const base = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
     const method = this.#method(task);
     const templateGraph = methodToGraph({
@@ -130,6 +134,8 @@ export class PlanService {
   }
 
   useSkeleton(taskId: string, input: UseSkeletonRequest): CommandResponse<PlanResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.skeleton.use', body: { taskId, confirmUseSkeleton: true } }, () => this.view(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '生成计划骨架');
     if (task.fixedTemplate !== undefined) throw new AppError(ErrorCode.FIXED_TEMPLATE_LOCKED, '固定模板任务使用模板步骤，不能使用方法骨架');
     const method = this.#method(task);
@@ -139,7 +145,7 @@ export class PlanService {
       body: { taskId, confirmUseSkeleton: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     const base = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
     const graph = methodToGraph(method);
     const plan = this.#store.plans.create({ taskId, source: 'skeleton', graph, status: 'unconfirmed', baseRevisionId: base?.id });
@@ -152,14 +158,11 @@ export class PlanService {
   }
 
   confirm(taskId: string, input: ConfirmPlanRequest): CommandResponse<TaskDetailResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.confirm', body: { taskId, planRevisionId: input.planRevisionId, expectedRevisionNumber: input.expectedRevisionNumber, confirmPlan: true } }, () => this.#tasks().detail(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '确认计划');
     const plan = this.#store.plans.get(input.planRevisionId);
     if (plan === undefined || plan.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '计划不存在');
-    const original = this.#commands.get(input.requestKey);
-    if (original !== undefined && original.status !== 'accepted') {
-      const replay = this.#commands.begin({ requestKey: input.requestKey, operation: 'plan.confirm', body: { taskId, planRevisionId: plan.id, expectedRevisionNumber: input.expectedRevisionNumber, confirmPlan: true }, target: { taskId } });
-      return { receipt: this.#commands.toReceipt(replay.record), resource: this.#tasks().detail(taskId) };
-    }
     if (plan.status !== 'unconfirmed' && plan.status !== 'draft') {
       throw new AppError(ErrorCode.PLAN_REVISION_CONFLICT, '只有未确认的计划可以确认');
     }
@@ -183,7 +186,7 @@ export class PlanService {
       body: { taskId, planRevisionId: plan.id, expectedRevisionNumber: input.expectedRevisionNumber, confirmPlan: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: this.#tasks().detail(taskId) };
     }
     const settings = this.#context.settings();
@@ -226,6 +229,8 @@ export class PlanService {
   }
 
   editBegin(taskId: string, input: EditBeginRequest): CommandResponse<PlanResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.edit.begin', body: { taskId, planRevisionId: input.planRevisionId, confirmPause: true } }, () => this.view(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '调整执行中的计划');
     if (task.fixedTemplate !== undefined) throw new AppError(ErrorCode.FIXED_TEMPLATE_LOCKED, '该任务使用固定模板，创建后不能修改步骤；要改要求，请新建模板任务。');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
@@ -236,7 +241,7 @@ export class PlanService {
       body: { taskId, planRevisionId: input.planRevisionId, confirmPause: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     if (execution.status !== 'running' && execution.status !== 'paused') {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前执行状态不能调整计划');
     }
@@ -267,6 +272,8 @@ export class PlanService {
   }
 
   editSave(taskId: string, input: EditSaveRequest): CommandResponse<PlanResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.edit.save', body: { taskId, editSessionId: input.editSessionId, changes: input.changes, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber } }, () => this.view(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '保存计划调整');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
@@ -276,7 +283,7 @@ export class PlanService {
       body: { taskId, editSessionId: input.editSessionId, changes: input.changes, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     const plan = task.currentPlanRevisionId === undefined ? undefined : this.#store.plans.get(task.currentPlanRevisionId);
     if (plan === undefined) throw new AppError(ErrorCode.NOT_FOUND, '计划不存在');
     if (input.editSessionId !== execution.editSession.id || !['editing', 'conflict'].includes(execution.editSession.state)) throw new AppError(ErrorCode.STALE_TARGET, '调整会话已变化或不在编辑状态');
@@ -348,6 +355,8 @@ export class PlanService {
   }
 
   editFinish(taskId: string, input: EditFinishRequest): CommandResponse<PlanResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.edit.finish', body: { taskId, editSessionId: input.editSessionId, continueExecution: input.continueExecution } }, () => this.view(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '结束计划调整');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
@@ -358,7 +367,7 @@ export class PlanService {
       body: { taskId, editSessionId: input.editSessionId, continueExecution: input.continueExecution },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     if (input.editSessionId !== execution.editSession.id || !['editing', 'saved', 'conflict'].includes(execution.editSession.state)) throw new AppError(ErrorCode.STALE_TARGET, '调整会话已变化或已结束');
     if (nextPlan === undefined || nextPlan.status !== 'confirmed') throw new AppError(ErrorCode.PLAN_REVISION_CONFLICT, '调整后的计划需要单独重新确认，确认不会自动继续执行');
     this.#executions().bindConfirmedPlan(execution.id, nextPlan);
@@ -388,6 +397,8 @@ export class PlanService {
    * paused instead, so the last confirmed plan stays authoritative here.
    */
   abandonEdit(taskId: string, input: PlanEditAbandonRequest): CommandResponse<PlanResponse> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.edit.abandon', body: { taskId, editSessionId: input.editSessionId, confirmAbandon: true } }, () => this.view(taskId));
+    if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '放弃计划调整');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
@@ -404,7 +415,7 @@ export class PlanService {
     });
     // A replay of a settled abandon returns the original receipt even though the
     // session state has already moved on; only first-time calls fail the guard.
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     const reject = (message: string, details: Record<string, unknown> = {}): never => {
       const error = new AppError(ErrorCode.OPERATION_IN_PROGRESS, message, { details });
       this.#commands.fail(input.requestKey, error);
@@ -499,6 +510,9 @@ export class PlanService {
     input: NodeAcceptRequest | NodeRejectRequest,
     verdict: 'accepted' | 'rejected',
   ): CommandResponse<NodeResponse> {
+    const normalizedNote = (typeof input.note === 'string' ? input.note.trim() : '').slice(0, 2_000);
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: verdict === NodeManualAcceptanceState.ACCEPTED ? 'node.accept' : 'node.reject', body: { taskId, nodeId, verdict, note: normalizedNote } }, () => ({ node: this.nodeDetail(taskId, nodeId) }));
+    if (originalReceipt !== undefined) return originalReceipt;
     this.#requireTask(taskId);
     const confirmed = verdict === NodeManualAcceptanceState.ACCEPTED
       ? (input as NodeAcceptRequest).confirmAccept === true
@@ -524,7 +538,7 @@ export class PlanService {
     });
     // A settled replay answers from the stored receipt before the verdict guard:
     // the persisted verdict may have been replaced since the first call.
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: { node: this.nodeDetail(taskId, nodeId) } };
     }
     const reject = (code: ErrorCodeValue, message: string, details: Record<string, unknown> = {}): never => {

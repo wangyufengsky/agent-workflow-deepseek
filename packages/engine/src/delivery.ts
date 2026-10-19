@@ -49,6 +49,8 @@ export class DeliveryService {
   }
 
   async select(taskId: string, input: DeliverySelectRequest): Promise<CommandResponse<DeliveryResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.delivery.select', body: { taskId, goal: input.goal, fileIds: input.fileIds, changesRevision: input.changesRevision, expectedDeliveryRevision: input.expectedDeliveryRevision } }, () => { const delivery = this.#store.deliveries.byTask(taskId); return delivery === undefined ? undefined : { delivery, actions: {} }; });
+    if (originalReceipt !== undefined) return originalReceipt;
     const delivery = this.get(taskId);
     const task = this.#assertWritable(taskId, '交付任务');
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
@@ -62,7 +64,7 @@ export class DeliveryService {
       body: { taskId, goal: input.goal, fileIds: input.fileIds, changesRevision: input.changesRevision, expectedDeliveryRevision: input.expectedDeliveryRevision },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
     const changes = await this.#workspaces.changes(taskId).catch(() => undefined);
     const updated = this.#store.deliveries.update(delivery.id, {
       goal: input.goal,
@@ -79,6 +81,8 @@ export class DeliveryService {
   }
 
   async commit(taskId: string, input: DeliveryCommitRequest): Promise<CommandResponse<DeliveryResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.delivery.commit', body: { taskId, fileIds: input.fileIds, message: input.message, expectedChangesRevision: input.expectedChangesRevision, expectedBranchHead: input.expectedBranchHead, confirmCommit: true } }, () => { const delivery = this.#store.deliveries.byTask(taskId); return delivery === undefined ? undefined : { delivery, actions: {} }; });
+    if (originalReceipt !== undefined) return originalReceipt;
     if (input?.confirmCommit !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '提交任务变更需要 confirmCommit=true 确认');
     const delivery = this.get(taskId);
     const task = this.#assertWritable(taskId, '交付任务');
@@ -90,7 +94,7 @@ export class DeliveryService {
       body: { taskId, fileIds: input.fileIds, message: input.message, expectedChangesRevision: input.expectedChangesRevision, expectedBranchHead: input.expectedBranchHead, confirmCommit: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
     const changes = await this.#workspaces.changes(taskId);
     if (input.expectedChangesRevision !== undefined && changes.changesRevision !== input.expectedChangesRevision) {
       throw new AppError(ErrorCode.STALE_TARGET, '内容版本已变化，请重新读取后确认', { details: { actual: changes.changesRevision } });
@@ -128,6 +132,8 @@ export class DeliveryService {
   }
 
   async push(taskId: string, input: DeliveryPushRequest): Promise<CommandResponse<DeliveryResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.delivery.push', body: { taskId, expectedLocalSha: input.expectedLocalSha, remoteBranchName: input.remoteBranchName, expectRemote: input.expectRemote, confirmPush: true }, legacyBodies: [{ taskId, expectedLocalSha: input.expectedLocalSha, remoteBranchName: input.remoteBranchName, confirmPush: true }] }, () => { const delivery = this.#store.deliveries.byTask(taskId); return delivery === undefined ? undefined : { delivery, actions: {} }; });
+    if (originalReceipt !== undefined) return originalReceipt;
     if (input?.confirmPush !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '推送任务分支需要 confirmPush=true 确认');
     const delivery = this.get(taskId);
     const task = this.#assertWritable(taskId, '交付任务');
@@ -135,10 +141,10 @@ export class DeliveryService {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'task.delivery.push',
-      body: { taskId, expectedLocalSha: input.expectedLocalSha, remoteBranchName: input.remoteBranchName, confirmPush: true },
+      body: { taskId, expectedLocalSha: input.expectedLocalSha, remoteBranchName: input.remoteBranchName, expectRemote: input.expectRemote, confirmPush: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
     if (project.gitState !== 'git') throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '非 Git 项目不支持推送');
     try {
       const result = await this.#git.push({
@@ -174,6 +180,8 @@ export class DeliveryService {
   }
 
   async createMergeRequest(taskId: string, input: DeliveryMergeRequestRequest): Promise<CommandResponse<DeliveryResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.delivery.mergeRequest.create', body: { taskId, sourceRef: input.sourceRef, pushedSha: input.pushedSha, targetBranch: input.targetBranch, expectedTargetTip: input.expectedTargetTip, title: input.title, description: input.description, confirmMergeRequest: true } }, () => { const delivery = this.#store.deliveries.byTask(taskId); return delivery === undefined ? undefined : { delivery, actions: {} }; });
+    if (originalReceipt !== undefined) return originalReceipt;
     if (input?.confirmMergeRequest !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '创建合并请求需要 confirmMergeRequest=true 确认');
     const delivery = this.get(taskId);
     const task = this.#assertWritable(taskId, '交付任务');
@@ -185,7 +193,7 @@ export class DeliveryService {
       body: { taskId, sourceRef: input.sourceRef, pushedSha: input.pushedSha, targetBranch: input.targetBranch, expectedTargetTip: input.expectedTargetTip, title: input.title, description: input.description, confirmMergeRequest: true },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
     try {
       const mr = this.#remote !== undefined
         ? await this.#remote.createMergeRequest(task.projectId, { sourceBranch: input.sourceRef, targetBranch: input.targetBranch, title: input.title, description: input.description })
@@ -221,6 +229,8 @@ export class DeliveryService {
   }
 
   async merge(taskId: string, input: DeliveryMergeRequest): Promise<CommandResponse<DeliveryResponse>> {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.delivery.merge', body: { taskId, targetBranch: input.targetBranch, expectedTargetSha: input.expectedTargetSha, sourceSha: input.sourceSha, message: input.message, strategy: input.strategy, confirmMerge: true } }, () => { const delivery = this.#store.deliveries.byTask(taskId); return delivery === undefined ? undefined : { delivery, actions: {} }; });
+    if (originalReceipt !== undefined) return originalReceipt;
     if (input?.confirmMerge !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '合并任务分支需要 confirmMerge=true 确认');
     const delivery = this.get(taskId);
     const task = this.#assertWritable(taskId, '交付任务');
@@ -230,6 +240,7 @@ export class DeliveryService {
     if (commitStep?.state !== 'succeeded' || commitStep.commitSha === undefined) {
       throw new AppError(ErrorCode.DELIVERY_BLOCKED, '需要先成功提交任务变更，才能合并');
     }
+    if (input.sourceSha !== sourceSha) throw new AppError(ErrorCode.STALE_TARGET, '提交版本已变化，请重新读取后确认合并');
     if (this.#git.mergeTaskBranch === undefined) {
       throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前 Git 适配未提供合并能力');
     }
@@ -239,7 +250,7 @@ export class DeliveryService {
       body: { taskId, targetBranch: input.targetBranch, expectedTargetSha: input.expectedTargetSha, sourceSha, message: input.message, strategy: input.strategy, confirmMerge: true },
       target: { taskId, ref: input.targetBranch, expectedSha: input.expectedTargetSha },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
     try {
       const result = await this.#git.mergeTaskBranch({
         repoRoot: project.rootPath,
