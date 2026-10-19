@@ -67,7 +67,7 @@
 | W2-2 | 放弃调整 `plan/edit/abandon`（恢复原自动推进/暂停模式） | be-exec + fe | 兑现 `planEditAbandon` | done |
 | W2-3 | 非 Git 工作区清理真正删除副本/baseline + 测试 | be-workspace | 修「假清理」 | done |
 | W2-4 | 恢复三种模式真实语义（from_failed_stage/all_stages/verify_only） | be-workspace | 不只改标题 | done |
-| W2-5 | GitLab host/API base 推导 + `gitlabConfigured` 真实检测 + 真实 smoke | be-workspace | 需要真实 GitLab 凭据（可由用户提供） | pending |
+| W2-5 | GitLab host/API base 推导 + `gitlabConfigured` 真实检测 + 真实 smoke | be-workspace | 需要真实 GitLab 凭据（可由用户提供） | blocked（缺真实 GitLab 实例/凭据） |
 | W2-6 | 节点验收（若 W0-4 未做） | be-exec | 路由+引擎+UI | pending |
 | W2-7 | 硬编码状态/契约快照剩余项：view actions、tools 计数、database.connected | be-api | — | pending |
 | W2-8 | 远端写失败 UNKNOWN 语义；GitHub 关闭/合并/删分支产品边界确认与文档 | be-workspace | 远端可能已成功 | pending |
@@ -91,8 +91,8 @@
 | W3-1 | 项目详情 `/projects/:id` + 四页签（概览/Git 与 GitLab/文档路径/项目公约）+ 配置状态 + 公约后端 | design-pages | 设计 REVIEW §4 | in_progress |
 | W3-2 | 待处理中心就地处理：问题/权限/策略禁止/结果未明/草稿；后端 interactions 契约 | design-pages | 设计 REVIEW §11 | done |
 | W3-3 | 角色管理四页签 + 能力/资源权限/形象/发布检查/权限预估（扩展 RoleDefinition） | design-pages | 设计 REVIEW §23 | done |
-| W3-4 | 知识库体验：研究步骤、来源选择、流式/轮询回答、引用原文面板、研究员面板 | design-pages | 设计 REVIEW §14/B-08 | in_progress |
-| W3-5 | 任务画布：恢复/冻结计划/审计记录/运行内容入口、快照评审面板（B-07） | design-pages | 设计 task.html | in_progress |
+| W3-4 | 知识库体验：研究步骤、来源选择、流式/轮询回答、引用原文面板、研究员面板 | design-pages | 设计 REVIEW §14/B-08 | done |
+| W3-5 | 任务画布：恢复/冻结计划/审计记录/运行内容入口、快照评审面板（B-07） | design-pages | 设计 task.html | done |
 | W3-6 | PE37 大需求分组逐步细化：refineScope preview/start、未细化确认拦截 | design-pages | v5 已批准 | done |
 | W3-7 | 缺失页：knowledge-history、ppt-works、ppt-studio、run、roles-legacy | design-pages | 先只读/空/加载/错误/未知 | done |
 | W3-8 | 工作流编辑器：method CRUD/复制/归档/校验 + 前端画布编辑 | design-pages | 设计 REVIEW §6-7 | in_progress |
@@ -112,7 +112,7 @@
 | W3-7d | run/roles-legacy 面包屑与入口映射（navigation.ts / 角色页链接） | fe | 来自 W3-7c 验收 | `apps/web/src/app/navigation.ts`、页面链接 | 面包屑正确、可发现 | pending |
 
 | W0-4c | 任务画布显示「待人工验收」情况条/唯一主动作（execution.acceptance 投影） | fe | 来自 W0-4b 验收 | `apps/web/src/pages/task/**`、`pages/node/**` | 待验收任务可一键去验收；驳回后可重试 | done |
-| W3-4b | 知识研究过程/工具轨迹/流式回答 DTO 与 UI（当前诚实降级） | be+fe | 来自 W3-4a | `shared/api/contracts.ts`、`engine/knowledge.ts`、`server/http.ts`、页面 | 研究步骤与工具轨迹真实可读；流式或轮询 | pending |
+| W3-4b | 知识研究过程/工具轨迹/流式回答 DTO 与 UI（当前诚实降级） | be+fe | 来自 W3-4a | `shared/api/contracts.ts`、`engine/knowledge.ts`、`server/http.ts`、页面 | 研究步骤与工具轨迹真实可读；流式或轮询 | done |
 | W3-9c | 结构缺口：数据库授权项目/类型/三态、工具范围、模板分支/时间/文档、需求目录抽屉 | design | 来自 W3-9b | 对应页面 + 必要后端 | 设计清单逐项验收 | pending |
 | W3-11b | 品牌名决策：agent-workflow vs opencode-workflow；页头主题入口口径 | design | 来自 W3-11a | 品牌文案/Shell | 产品确认并统一 | pending |
 | W4-1d | 文档同步 Wave 3C（371 tests、gating、设置、知识、CI） | docs | 来自 W4-3a | README/remaining-work/verification/design-coverage | 计数与状态一致 | pending |
@@ -125,11 +125,11 @@
 | W3-1c | 项目详情 UI 接入 charter/docPaths/项目级 GitLab：公约页签生成(501)/编辑/确认写入、文档路径保存、GitLab 覆盖读回 | fe | 来自 W3-1b | `apps/web/src/pages/projects/**` | 四页签均有真实数据或明确 501/降级 | done |
 | W3-8c | method catalog HTTP/Engine 接线：engine.methods、contracts/ROUTES、Engine/http 路由、回执、校验/冲突透传 | be | 来自 W3-8a | `engine/index.ts`、`engine.ts`、`shared/**`、`server/http.ts` | 流程 CRUD 路由可用；测试 | done |
 | W3-8b | 工作流编辑器前端：目录（内置/我的）、详情步骤链、复制/归档、画布编辑/检查/保存/冲突 | fe | 依赖 W3-8c | `apps/web/src/pages/workflows/**`、`App.tsx` | 设计 7 项状态可验收 | done |
-| W3-5 | 任务画布扩展：恢复/冻结计划/审计记录/运行内容入口、快照评审 B-07（后端+UI） | be+fe | 设计 task.html/B-07 | `engine/**`、`server/http.ts`、`apps/web/src/pages/task/**` | 入口与面板可用；无 mock | in_progress |
+| W3-5 | 任务画布扩展：恢复/冻结计划/审计记录/运行内容入口、快照评审 B-07（后端+UI） | be+fe | 设计 task.html/B-07 | `engine/**`、`server/http.ts`、`apps/web/src/pages/task/**` | 入口与面板可用；无 mock | done |
 | W4-3c | 修设置页 `.snav .cap` 命中首页 `.cap` 导致 300px 间距；重拍设置/相关截图 | fe | 来自 W4-3b | `apps/web/src/pages/settings/settings.css`、`scripts/capture-ui.cjs`、证据 | 设置导航正常；截图更新 | done |
 
-| W3-5b | 任务画布扩展 HTTP/UI：冻结计划/审计记录/快照评审 B-07/运行内容入口与面板 | be+fe | 来自 W3-5 后端核心 | `shared/api/contracts.ts`、`server/http.ts`、`engine/engine.ts`、`apps/web/src/pages/task/**`、`pages/node/**` | 「⋯」菜单四入口可用；B-07 面板真实数据/空态 | pending |
-| W3-4b | 知识研究步骤/工具轨迹/流式：后端采集真实步骤与工具事件（或诚实不可用），前端时间线/进度 | be+fe | 设计 REVIEW §14/B-08 | `engine/knowledge.ts`、`shared/api/contracts.ts`、`server/http.ts`、knowledge 页面 | 研究步骤与工具轨迹真实可读；流式或明确降级 | pending |
+| W3-5b | 任务画布扩展 HTTP/UI：冻结计划/审计记录/快照评审 B-07/运行内容入口与面板 | be+fe | 来自 W3-5 后端核心 | `shared/api/contracts.ts`、`server/http.ts`、`engine/engine.ts`、`apps/web/src/pages/task/**`、`pages/node/**` | 「⋯」菜单四入口可用；B-07 面板真实数据/空态 | done |
+| W3-4b | 知识研究步骤/工具轨迹/流式：后端采集真实步骤与工具事件（或诚实不可用），前端时间线/进度 | be+fe | 设计 REVIEW §14/B-08 | `engine/knowledge.ts`、`shared/api/contracts.ts`、`server/http.ts`、knowledge 页面 | 研究步骤与工具轨迹真实可读；流式或明确降级 | done |
 
 ### Wave 4 · 文档与验证体系
 
@@ -141,7 +141,7 @@
 | W4-4 | 打包：重新 dist、签名/公证、Windows/Linux 目标评估 | docs-keeper + Lead | 需要环境/凭据 | done |
 | W4-5 | 真实 PostgreSQL/GitLab 验证 | be-workspace + Lead | 需要实例/凭据 | blocked（本机无 PG/GitLab 实例/凭据） |
 
-| W4-6 | 全部任务完成后推送 main：添加 origin，合并远端初始提交（如需要），推送本地历史到 `https://github.com/wangyufengsky/agent-workflow-deepseek` 的 main 分支并核对 | Lead | 全部任务 done | git remote/origin、main 分支 | 远端 main 包含本次全部提交；`git ls-remote` 与本地 HEAD 一致；推送结果记录 execution-log | pending |
+| W4-6 | 全部任务完成后推送 main：添加 origin，合并远端初始提交（如需要），推送本地历史到 `https://github.com/wangyufengsky/agent-workflow-deepseek` 的 main 分支并核对 | Lead | 全部任务 done | git remote/origin、main 分支 | 远端 main 包含本次全部提交；`git ls-remote` 与本地 HEAD 一致；推送结果记录 execution-log | in_progress |
 
 ## 4. 波次与并行策略
 

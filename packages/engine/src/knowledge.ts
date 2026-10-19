@@ -10,12 +10,15 @@ import {
   type KnowledgeAskResponse,
   type KnowledgeHistoryEntry,
   type KnowledgeHistoryResponse,
+  type KnowledgeStep,
+  type KnowledgeToolActivity,
   type ModelProfile,
 } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { OpenCodePort } from './ports.ts';
+import type { OpenCodeMessage, OpenCodePart } from '@agent-workflow/opencode';
 import { listKnowledgeSources } from '../../server/src/knowledge.ts';
 import { usageFromMessages } from './token-usage.ts';
 
@@ -51,6 +54,8 @@ export class KnowledgeService {
     if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
     const model = this.#model();
     if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法问答');
+    const retrieveStartedAt = nowIso();
+    const retrieveStartedMs = Date.now();
     const sources = listKnowledgeSources(project.rootPath).slice(0, MAX_DOCS);
     if (sources.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '项目里没有可读的文档来源');
     const documents = sources.map((source) => {
@@ -63,6 +68,19 @@ export class KnowledgeService {
       return { path: source.path, content };
     }).filter((document) => document.content !== '');
     if (documents.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '文档来源不可读');
+    const retrieveEndedAt = nowIso();
+    const steps: KnowledgeStep[] = [
+      {
+        id: 'step_retrieve',
+        kind: 'retrieve',
+        label: `读取 ${String(documents.length)} 份文档`,
+        status: 'succeeded',
+        startedAt: retrieveStartedAt,
+        endedAt: retrieveEndedAt,
+        durationMs: Math.max(0, Date.parse(retrieveEndedAt) - retrieveStartedMs),
+        detail: documents.map((document) => document.path).join('、').slice(0, 500),
+      },
+    ];
     const conversationId = typeof input.conversationId === 'string' && input.conversationId.trim() !== ''
       ? input.conversationId.trim().slice(0, 64)
       : createId('conversation');
@@ -92,11 +110,32 @@ export class KnowledgeService {
       if (result.outcome.error !== undefined && result.outcome.error !== '') {
         throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `知识问答失败：${result.outcome.error}`);
       }
+      // Real model timing comes from the assistant message itself; tool parts
+      // are recorded only when the runtime actually emitted them. Nothing here
+      // is a fixed template.
+      const modelStep = modelStepFrom(result.outcome.messages);
+      if (modelStep !== undefined) steps.push(modelStep);
+      const toolSteps = toolStepsFrom(result.outcome.messages);
+      const toolActivity = toolActivityFrom(result.outcome.messages);
+      steps.push(...toolSteps);
+      const validateStartedAt = nowIso();
       const parsed = extractJson(result.outcome.assistantText ?? '');
       if (parsed === undefined || typeof parsed.answer !== 'string') {
         throw new AppError(ErrorCode.VALIDATION_FAILED, '模型输出不是约定的 JSON（缺少 answer），未生成问答结果');
       }
       const citations = validateCitations(parsed.citations, documents);
+      const validateEndedAt = nowIso();
+      steps.push({
+        id: 'step_validate',
+        kind: 'validate',
+        label: '引用校验',
+        status: 'succeeded',
+        startedAt: validateStartedAt,
+        endedAt: validateEndedAt,
+        durationMs: Math.max(0, Date.parse(validateEndedAt) - Date.parse(validateStartedAt)),
+        detail: `接受 ${String(citations.length)} 条引用（模型给出 ${String(Array.isArray(parsed.citations) ? parsed.citations.length : 0)} 条）`,
+      });
+      const orderedSteps = [...steps].sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0));
       const response: KnowledgeAskResponse = {
         projectId: input.projectId,
         question,
@@ -106,6 +145,8 @@ export class KnowledgeService {
         generatedAt: nowIso(),
         conversationId,
         usage: usageFromMessages(result.outcome.messages),
+        steps: orderedSteps,
+        ...(toolActivity.length === 0 ? {} : { toolActivity }),
       };
       const entry: KnowledgeHistoryEntry = { id: createId('knowledge'), ...response };
       const key = historyKey(input.projectId);
@@ -130,6 +171,84 @@ export class KnowledgeService {
     if (model === undefined) throw new AppError(ErrorCode.MODEL_NOT_CONFIGURED, '没有启用的模型可用于知识问答');
     return model;
   }
+}
+
+/** Real assistant-message timing (undefined when the runtime did not report it). */
+function modelStepFrom(messages: readonly OpenCodeMessage[]): KnowledgeStep | undefined {
+  const assistant = [...messages].reverse().find((message) => message.info.role === 'assistant');
+  if (assistant === undefined) return undefined;
+  const created = assistant.info.time?.created;
+  const completed = assistant.info.time?.completed;
+  if (created === undefined) return undefined;
+  const startedAt = new Date(created).toISOString();
+  const endedAt = completed === undefined ? undefined : new Date(completed).toISOString();
+  const durationMs = completed === undefined ? undefined : Math.max(0, completed - created);
+  return {
+    id: `step_model_${assistant.info.id}`,
+    kind: 'model',
+    label: '模型回答',
+    status: completed === undefined ? 'unknown' : 'succeeded',
+    startedAt,
+    ...(endedAt === undefined ? {} : { endedAt }),
+    ...(durationMs === undefined ? {} : { durationMs }),
+  };
+}
+
+function toolParts(messages: readonly OpenCodeMessage[]): readonly OpenCodePart[] {
+  return messages.flatMap((message) => message.parts).filter((part) => part.type === 'tool' && typeof part.tool === 'string');
+}
+
+function toolStatus(status: string | undefined): KnowledgeToolActivity['status'] {
+  switch (status) {
+    case 'completed':
+    case 'succeeded':
+      return 'succeeded';
+    case 'error':
+    case 'failed':
+      return 'failed';
+    case 'running':
+      return 'running';
+    case 'pending':
+      return 'pending';
+    default:
+      return 'unknown';
+  }
+}
+
+function toolActivityFrom(messages: readonly OpenCodeMessage[]): KnowledgeToolActivity[] {
+  return toolParts(messages).map((part) => {
+    const state = part.state;
+    const started = typeof state?.time?.['start'] === 'number' ? new Date(state.time['start']).toISOString() : undefined;
+    const ended = typeof state?.time?.['end'] === 'number' ? new Date(state.time['end']).toISOString() : undefined;
+    const summary = state?.title ?? state?.output ?? state?.error;
+    return {
+      name: part.tool ?? 'unknown',
+      status: toolStatus(state?.status),
+      ...(summary === undefined || summary === '' ? {} : { summary: summary.slice(0, 300) }),
+      ...(part.callID === undefined ? {} : { callId: part.callID }),
+      ...(started === undefined ? {} : { startedAt: started }),
+      ...(ended === undefined ? {} : { endedAt: ended }),
+    };
+  });
+}
+
+function toolStepsFrom(messages: readonly OpenCodeMessage[]): KnowledgeStep[] {
+  return toolParts(messages).flatMap((part) => {
+    const state = part.state;
+    const started = typeof state?.time?.['start'] === 'number' ? new Date(state.time['start']).toISOString() : undefined;
+    if (started === undefined) return [];
+    const ended = typeof state?.time?.['end'] === 'number' ? new Date(state.time['end']).toISOString() : undefined;
+    const summary = state?.title ?? state?.output ?? state?.error;
+    return [{
+      id: part.callID ?? `tool_${part.id ?? started}`,
+      kind: 'tool' as const,
+      label: part.tool ?? '工具调用',
+      status: toolStatus(state?.status),
+      startedAt: started,
+      ...(ended === undefined ? {} : { endedAt: ended, durationMs: Math.max(0, Date.parse(ended) - Date.parse(started)) }),
+      ...(summary === undefined || summary === '' ? {} : { detail: summary.slice(0, 300) }),
+    }];
+  });
 }
 
 const SYSTEM_PROMPT = `你是项目知识库的研究员。只依据用户提供的文档回答问题，不要编造文档之外的事实。

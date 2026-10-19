@@ -21,6 +21,7 @@ import { Icon } from '../../components/Icon.tsx';
 import { IconButton } from '../../components/IconButton.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { ResearchTimeline } from './ResearchTimeline.tsx';
 import './knowledge.css';
 
 const NARROW_QUERY = '(max-width: 1200px)';
@@ -247,15 +248,6 @@ function ResearcherDrawer({
         />
       ) : (
         <>
-          <div className="banner info">
-            <Icon name="terminal" />
-            <div className="grow">
-              <b>研究过程与工具轨迹：服务未提供。</b>
-              <br />
-              当前 /api/knowledge/ask 只返回最终回答、引用与用量；没有阶段、工具调用或流式事件，本面板不伪造这些内容。
-            </div>
-          </div>
-
           <dl className="kv kb-researcher-facts">
             <dt>项目</dt>
             <dd>{projectName}</dd>
@@ -286,6 +278,10 @@ function ResearcherDrawer({
           <div className="kb-researcher-section">
             <span className="section-title">回答正文</span>
             <div className="kb-researcher-question">{result.answer}</div>
+          </div>
+
+          <div className="kb-researcher-section">
+            <ResearchTimeline steps={result.steps} toolActivity={result.toolActivity} compact />
           </div>
 
           <div className="kb-researcher-section">
@@ -322,9 +318,9 @@ function ResearcherDrawer({
             <div className="banner unknown">
               <Icon name="help" />
               <div className="grow">
-                <b>角色证据（三项核对）、项目许可与工具记录：服务未提供。</b>
+                <b>角色证据（三项核对）与项目许可：服务未提供。</b>
                 <br />
-                本面板只展示真实回答、引用、模型、会话与用量；不补写角色证据或工具轨迹。
+                本面板只展示真实回答、引用、研究步骤/工具轨迹（若服务返回）、模型、会话与用量；不补写角色证据。
               </div>
             </div>
           </div>
@@ -687,7 +683,7 @@ export function KnowledgePage() {
               {askMutation.isPending ? (
                 <div className="kb-research-note">
                   <Icon name="clock" size="sm" />
-                  <span>研究中… 服务不提供研究阶段、工具轨迹或流式片段；完成后直接返回最终回答与引用。</span>
+                  <span>研究中… 研究步骤与工具轨迹会在回答完成后由服务一次性返回；本轮非流式，不显示假进度。</span>
                 </div>
               ) : null}
               {askMutation.isError ? (
@@ -719,10 +715,7 @@ export function KnowledgePage() {
                     </Button>
                   </div>
                   <p style={{ marginTop: 10, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askResult.answer}</p>
-                  <div className="kb-research-note">
-                    <Icon name="terminal" size="sm" />
-                    <span><b>研究过程与工具轨迹：服务未提供。</b> 当前接口只返回最终回答、引用、模型与用量，页面不补造阶段或工具调用。</span>
-                  </div>
+                  <ResearchTimeline steps={askResult.steps} toolActivity={askResult.toolActivity} />
                   {askResult.citations.length === 0 ? <p className="hint">模型没有给出可验证的引用。</p> : (
                     <div className="kb-cite-list">
                       {askResult.citations.map((citation, index) => (
@@ -924,7 +917,7 @@ export function KnowledgePage() {
                 <Badge tone="idle" icon="lock">只读</Badge>
               </div>
               <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
-                基于服务返回的回答、引用、模型、会话与用量；研究步骤、工具轨迹和角色证据没有 DTO，已明确降级。
+                基于服务返回的回答、引用、模型、会话与用量；研究步骤/工具轨迹有则展示，无则明确未提供；角色证据仍无 DTO。
               </p>
               {askResult === undefined ? (
                 <p className="hint" style={{ marginTop: 10 }}>先提一个问题，才有可核对的回答与引用。</p>
@@ -942,7 +935,13 @@ export function KnowledgePage() {
               )}
               <div className="banner unknown" style={{ marginTop: 10 }}>
                 <Icon name="help" />
-                <div className="grow">研究过程 / 工具轨迹 / 角色证据：服务未提供。</div>
+                <div className="grow">
+                  <b>角色证据：服务未提供。</b>
+                  <br />
+                  {(askResult?.steps?.length ?? 0) === 0 && (askResult?.toolActivity?.length ?? 0) === 0
+                    ? '本轮服务未返回研究步骤/工具轨迹。'
+                    : '研究步骤/工具轨迹来自服务返回，可在“研究员检查”查看。'}
+                </div>
               </div>
               <div className="row" style={{ marginTop: 10 }}>
                 <Button

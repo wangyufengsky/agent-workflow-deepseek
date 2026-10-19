@@ -1,0 +1,304 @@
+/* 任务画布扩展：⋯ 菜单、冻结计划、审计记录、快照评审 B-07。颜色全部来自主题令牌。 */
+
+.task-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.task-extras-menu {
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 214px;
+}
+
+.task-extras-menu button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.task-extras-side .side-foot {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+/* ---------- freeze ---------- */
+.tx-freeze-card {
+  border: 1px solid var(--line);
+  background: var(--fill-1);
+}
+
+.tx-kv {
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tx-kv-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.tx-kv-row dt {
+  color: var(--muted);
+}
+
+.tx-kv-row dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+
+/* ---------- audit ---------- */
+.tx-audit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--fill-1);
+}
+
+.tx-audit-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.tx-audit-item + .tx-audit-item {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.tx-audit-time {
+  flex: none;
+  width: 132px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.tx-audit-action {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  font-size: 11.5px;
+}
+
+/* ---------- snapshot review ---------- */
+.tx-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tx-metric {
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+  border: 1px solid var(--line);
+}
+
+.tx-metric .v {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.tx-metric .v.warn {
+  color: var(--warn);
+}
+
+.tx-metric .k {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tx-phase {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tx-phase-label {
+  flex: 0 1 120px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tx-meter {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--fill-4);
+  overflow: hidden;
+}
+
+.tx-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--done);
+}
+
+.tx-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--fill-2);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+}
+
+.tx-scope {
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+  border: 1px solid var(--line);
+}
+
+.tx-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.tx-toggle .tx-chev-open {
+  transform: rotate(90deg);
+}
+
+.tx-batch {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.tx-batch + .tx-batch {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.tx-batch .t {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.tx-batch .s {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tx-batch-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--warn-fill);
+  border: 1px solid var(--warn-line);
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.tx-report-bar {
+  display: flex;
+  height: 10px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: var(--fill-4);
+}
+
+.tx-report-bar i {
+  display: block;
+  height: 100%;
+}
+
+.tx-report-bar .analyzed {
+  background: var(--done);
+}
+
+.tx-report-bar .pending {
+  background: var(--fill-5);
+}
+
+.tx-report-bar .excluded {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+
+.tx-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  margin-right: 5px;
+}
+
+.tx-dot.analyzed {
+  background: var(--done);
+}
+
+.tx-dot.pending {
+  background: var(--fill-5);
+}
+
+.tx-dot.excluded {
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+
+.tx-report-doc {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 42vh;
+  overflow: auto;
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+  border: 1px solid var(--line);
+  font-family: var(--font);
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  color: var(--ink-2);
+}
+
+@media (max-width: 960px) {
+  .tx-audit-item {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .tx-audit-time {
+    width: auto;
+  }
+}

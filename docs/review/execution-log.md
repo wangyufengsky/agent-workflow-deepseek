@@ -1049,3 +1049,77 @@
 - **构建/脚本**：`docs:api` 重生成（158 路由）、`check:docs-routes` OK、`build:web`、`build:server`、`test-e2e --skip-build` 通过。
 - **功能证据**：流程目录内置/我的、创建/复制/归档/版本冲突、编辑器画布/检查/保存/冲突横幅；项目公约手动编辑/确认写入 AGENTS.md/501 生成/unknown、docPaths、GitLab 覆盖；任务扩展读模型（冻结 6 测试）；method catalog 7 测试；ui:smoke 设置导航修复后 13 截图通过。
 - **剩余**：W3-5b（HTTP/UI 接线）、W3-4b（知识研究步骤/工具轨迹/流式）、W4-6 推送 main；W4-5/W2-5 blocked（真实 PG/GitLab）。
+
+### 22:00 分派 | Wave 3G（最后功能波次）
+
+- `be-api` → task-52：W3-5b 任务扩展 HTTP/契约（freeze/freezes/audit/snapshot-review/run-content）+ W3-4b 知识研究步骤/工具轨迹后端（真实执行数据，不编造）。
+- `fe-templates` → task-53：W3-5b UI（任务画布「⋯」四入口、冻结/审计/快照评审 B-07）。
+- `design-audit` → task-54：W3-4b UI（知识研究过程/工具轨迹时间线，无数据明确降级）。
+- 完成后：Lead 跑全量验收 + 文档同步（W4-1g）+ 推送 GitHub main（W4-6）。
+- 阻塞：W4-5/W2-5 真实 PG/GitLab 仍需用户提供环境/凭据。
+
+### 22:05 任务完成 | W3-4b（task-54）| 知识研究过程/工具轨迹时间线
+
+- 负责人：`design-audit`；写范围：`apps/web/src/pages/knowledge/**`。新增 `ResearchTimeline.tsx`、`research-timeline.css`；改 `KnowledgePage.tsx`。来源选择、引用 520 面板、研究员检查 Drawer 全部保留。
+- 契约匹配（task-52 最终 shared）：使用 `KnowledgeAskResponse.steps?: KnowledgeStep[]`（id/kind retrieve|model|tool|validate/label/status/startedAt/endedAt?/durationMs?/detail?）与 `toolActivity?: KnowledgeToolActivity[]`（name/status/summary?/callId?/startedAt?/endedAt?）；历史 `KnowledgeHistoryEntry` 同一形状。没有 capabilities/SSE，明确按“完成后时间线”展示，不显示假动画/进度。
+- 回答区时间线：顺序渲染真实 steps（kind 图标、label、status 文字+图标、startedAt/endedAt、durationMs 或真实时间差、detail），不重排不补造；toolActivity 独立列表显示工具名/status/摘要/callId/真实起止/耗时；failed/unknown 如实展示。无 steps/无 toolActivity 时明确「服务未提供研究步骤/工具轨迹…不补造固定四步」；部分缺失分别标注缺步骤或缺工具轨迹。
+- 研究员检查 Drawer 同一时间线（compact），删除旧的「服务未提供研究过程/工具轨迹」硬编码；角色证据/项目许可仍按无 DTO 明确降级。回答尾部/摘要卡同步区分「服务未返回」与「已由服务返回」。
+- 历史：点击历史记录载入的 `askResult` 携带新字段时同一组件展示；旧历史无字段时走明确降级，不回填/伪造。
+- 验证：`npx tsc -p tsconfig.json --noEmit` exit 0；本范围 `--noUnusedLocals --noUnusedParameters` 0；`git diff --check` 通过；Vite 5173 对 KnowledgePage/ResearchTimeline/时间线 CSS 转译 HTTP 200；5177 只读历史接口探针成功（现有旧记录不含 steps/toolActivity，UI 会明确降级）。未发起新 `/ask`（避免模型调用/写历史），未跑 build:web/全量 test，未做浏览器点击。
+- 未覆盖：
+  1. 现有真实历史全部是接入前记录，无 steps/toolActivity，无法在 5177 看到完整时间线渲染；建议用新一次真实 ask 做浏览器 smoke。
+  2. 本轮服务没有 SSE；若后续新增 `knowledge.progress`，需要另接实时追加（当前按完成任务的一次性 DTO）。
+  3. 工具轨迹空数组与字段缺省都按“未提供/为空”处理，不补造调用。
+
+### 22:04 任务完成 | W3-5b 任务扩展 HTTP + W3-4b 知识研究步骤/工具轨迹（task-52）| be-api
+
+- 负责人：`be-api`；写范围：`packages/shared/src/api/contracts.ts`、`packages/engine/src/{engine,knowledge}.ts`、`packages/server/src/http.ts`、新增 `tests/integration/{task-extras-http,knowledge-steps}.test.ts`。`engine/task-extras.ts` 无需改（直接实例化导出类型）；`enums.ts` 仅加 `task.plan.freeze` 操作（OPERATIONS 需要，属契约最小补充）。未改 `apps/web/**`、其他服务、docs。契约已同步 Lead、fe-templates（W3-5b UI）、design-audit（W3-4b 时间线）。
+- A) W3-5b：
+  - Engine 持有 `extras: TaskExtrasService`（`templates: () => this.catalog.templates`）。
+  - shared：OPERATIONS `task.plan.freeze`（requestKey 强制）；contracts 镜像 task-extras 全量 DTO：`FrozenPlanSnapshot`、`TaskPlanFreezeRequest/Response`、`TaskPlanFreezesResponse`、`TaskAuditEntry/Page`、`SnapshotBatchState`、`SnapshotReviewBatch/Progress/Scope/BatchesPage`、`SnapshotPartialReport`、`SnapshotReviewModel`、`RunContentCategory/Node/Group/Model`；ROUTES `taskPlanFreeze/taskPlanFreezes/taskAudit/taskSnapshotReview/taskRunContent`。
+  - HTTP：`POST /api/tasks/:id/plan/freeze` 走 `commands.begin/settle/fail`，body `{requestKey,confirmFreeze:true,planRevisionId?,note?}` → `{receipt, resource:{freeze,replayed}}`，同 key 重放返回原快照（replayed=true），无计划 404 且回执 failed；`GET …/plan/freezes` → `{items,latest?}`；`GET …/audit?limit&cursor&kinds`（kinds 逗号分隔前缀，cursor 不透明透传）→ TaskAuditPage；`GET …/snapshot-review?limit&cursor` → SnapshotReviewModel（非固定模板 applicable:false + 空 partialReport；无执行不编造 batch）；`GET …/run-content` → RunContentModel；未知任务全部 404。
+- B) W3-4b：
+  - `KnowledgeAskResponse`（及继承它的 `KnowledgeHistoryEntry`）新增可选 `steps?: KnowledgeStep[]`（kind retrieve/model/tool/validate；status/startedAt/endedAt?/durationMs?/detail?/label 来自实际执行）与 `toolActivity?: KnowledgeToolActivity[]`（name/status/summary?/callId?/startedAt?/endedAt?）。
+  - knowledge.ts 采集真实数据：retrieve=实际读取文档数与耗时；model=assistant message `time.created/completed`（缺失则不产生 model 步骤）；tool=OpenCode 消息真实 tool parts（tool/state.status/state.time/state.title|output 摘要；callID 为步骤 id），无 tool parts 时 **toolActivity 字段整体缺省**；validate=真实引用校验接受/拒绝条数。不编造固定四步，步骤按真实 startedAt 排序；步骤/工具轨迹随历史条目落库，历史读取同样返回。
+  - 本轮非流式（未加 SSE/knowledge.progress）；完成后一次性返回时间线，UI 按“已完成时间线”展示（已同步 design-audit）。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → 后端/测试 0 错（前端 fe-templates 正在编辑 TaskExtrasPanel，其临时错误不在本任务；收尾后 Lead 复跑）。
+  - 新增 `task-extras-http.test.ts + knowledge-steps.test.ts` → **5 tests / 5 pass / 0 fail**：冻结回执/by-key/重放/列表/无计划 404；审计分页+nextCursor+kinds 前缀过滤；快照评审 applicable:false 与固定模板空 batch/progress.available:false/scope.versionsFixed；运行内容；知识 ask 的 retrieve/tool/model/validate 真实时间与 toolActivity 落库+历史读取、无工具时 toolActivity 缺省且无 tool 步骤、无 message time 时不产生 model 步骤、失败回答不落历史。
+  - 回归：`routes-contract + api-contract + server-smoke + knowledge-sources + task-extras-http + knowledge-steps + plan-edit-dependencies + node-acceptance + workflow-catalog + pe37-http` → 24 pass / 0 fail。
+  - 运行中 5177 探针：`plan/freezes`、`audit`、`snapshot-review`、`run-content` 均返回真实数据/空态（非固定模板 applicable:false）；冻结写操作未在真实数据上执行。
+- 未覆盖 / 说明：
+  1. 未做 SSE `knowledge.progress`（明确非流式）；老历史条目没有 steps/toolActivity 属正常，UI 隐藏时间线。
+  2. 冻结只写 settings JSON 快照，不改变计划/执行；无独立 latest 路由（清单内含 latest）。
+  3. B-07 partialReport 的评审结论字段仍诚实不可用（available:false/null），未接入评审报告服务。
+  4. 未跑 `build:web`/全量 `npm test`/浏览器点击（Lead 整合范围）。
+
+### 22:07 任务完成 | W3-5b（task-53）| 任务画布「⋯」四入口 + 冻结/审计/快照评审 B-07
+
+- 负责人：`fe-templates`；写范围：`apps/web/src/pages/task/**`、`apps/web/src/pages/node/**`。
+- 新增文件：`pages/task/task-extras.ts`（客户端与 shared DTO/ROUTES：freeze/freezes/audit/snapshot-review）、`pages/task/TaskExtrasPanel.tsx`（自由/审计/评审三面板）、`pages/task/task-extras.css`；修改 `pages/task/TaskCanvasPage.tsx`（⋯ 菜单 + 面板分支 + 打开面板时收起节点/交付/调整面板）。
+- 「⋯」菜单：任务恢复…（`/recovery?taskId=`）、冻结计划…、审计记录、快照评审、运行内容（`/runs/:taskId`）、暂停任务…/继续任务…/停止任务…（复用现有命令，禁用时 title 写原因）；支持外部点击/Esc 关闭。
+- 冻结计划：`POST /plan/freeze`（`requestKey + confirmFreeze:true + 可选 planRevisionId/note`，shared `TaskPlanFreezeRequest`），面板显示 receipt/replayed；只读快照说明与当前快照/历史快照（版本/时间/操作人/备注/摘要/模板/planHash/冻结时执行事实）；冻结不改变计划/执行；读 `GET /plan/freezes`（items+latest），失败/空态真实。
+- 审计记录：`GET /audit?limit&cursor&kinds`（kinds 逗号前缀），`useInfiniteQuery` 分页加载更多；类型筛选（计划/执行/节点验收/冻结/交付/工作区/恢复/任务）；时间线显示时间、summary、status、action、requestKey、refs；空/错误/未知状态真实。
+- 快照评审 B-07：`GET /snapshot-review?limit&cursor`（游标只控制 batches 页，用 infinite query 合并去重）；非模板任务按 `applicable:false + reason` 显示空态；执行进度四格（已验证/未验证/执行中/剩余，attention 额外提示，`totalBatches null` 显示待定）、阶段进度条（total null 待定）、`progress.note` 的「进度不等于完成」；审查范围卡（plan/template/baseline/target/branch/short sha/full sha title、版本固定说明）；mode/depth=unknown 明确「服务未提供」，不伪造审查方式；功能批次按模板步骤分组、状态徽标、错误行、加载更多；模板报告页签渲染 `partialReport` 空态：`available:false` 原因、读取按钮禁用并写原因、下载禁用并显示 `download.reason`；未来 available=true 时展示 units 比例与 Markdown（下载仍无前端端点，禁用说明）；页脚固定「查看进度和报告不会启动、暂停或改变执行」。
+- 契约匹配：按 be-api 最终契约实现并与 shared 落地一致（freeze `{receipt, resource:{freeze, replayed}}`、freezes `{items, latest?}`、audit 直接 `TaskAuditPage` + `kinds` 逗号串、snapshot-review 直接 `SnapshotReviewModel`、非模板 200 applicable:false）；真实服务 inject 探针 + `task-extras-http.test.ts` 2 pass 验证。前端 `task-extras.ts` 客户端函数也已用真实 HTTP 注入探针验证（freeze → replayed、freezes latest、audit kinds、review applicable:false）。
+- 验证：`npx tsc -p tsconfig.json --noEmit` → exit 0；`--noUnusedLocals` 过滤 `pages/task|pages/node` → 0；`tests/integration/task-extras-http.test.ts` 2 pass；`tests/integration/routes-contract.test.ts` 2 pass；`git diff --check` 通过。
+- 未覆盖：按要求未运行 `npm run build:web`、未跑全量 `npm test`；无浏览器点击验证（菜单/面板已按现有 task-side/.menu/.banner 样式与令牌实现）。快照评审的 mode/depth 与阶段报告字段后端目前是诚实 unknown/空态，前端不补造；若后续接入评审服务，只需替换数据来源。
+
+### 22:14 任务完成 | W4-1g（task-55）| 最终文档收口 + design-coverage 全页覆盖
+
+- 负责人：`docs-audit`；写范围：`README.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/design-coverage.md`；未改 `docs/review/**`、`docs/task-assignment.md`、`docs/api.md`、产品代码、设计稿。
+- 最终计数统一：**403 tests / 54 suites / 392 pass / 11 skipped / 0 fail**（67.6s，`.tmp/wave3g-verify.log`）；`docs:api`/`check:docs-routes`（**163 路由**）、`build:web`/`build:server`、`test:e2e`、`ui:smoke`（兼容 flags，13 截图 + 2 交互 / 15 条 smoke）通过。
+- README：实现状态改为 **Wave 0–3G 全部功能完成、外部验证 blocked**；补 Wave 3F（工作流编辑器/charter UI/task extras 核心/设置修复）与 Wave 3G（任务扩展 UI/知识时间线/最终 163 路由）；「未完成」只剩 W4-5/W2-5 blocked（`WF_PG_*`/`GITLAB_TEST_*` + `docs/packaging.md` §7）、W4-4 签名/公证/跨平台/自动更新、W4-6 推送 main、可选像素级视觉回归与设计级降级；界面证据写清 30 张 docs/evidence（8 当前 + 22 历史）+ 13 张 root、ui:smoke 命令、W4-3c 已修复；补仓库地址 `https://github.com/wangyufengsky/agent-workflow-deepseek`。
+- remaining-work：重写为 blocked/发布类 + 可选深度，不再列已完成功能；W4-5/W2-5 blocked 变量、W4-4 发布残留、W4-6 推送、像素级回归、设计级降级（B-07/非流式/charter 501/角色/DB·工具·模板/编辑器限制/PPT 等）写清。
+- verification：顶部计数 403/392/67.6s；新增 **Wave 3F（398 tests / 69.6s / 158 路由）** 与 **Wave 3G（403 tests / 67.6s / 163 路由，最终）** 验收记录；§10 更新为最终 blocked/发布/可选深度；历史小节标注历史计数并修正「当前 403 见下」。
+- design-coverage：25 页 **✅ 3 / 🟡 22 / 缺失 0**（`workflow-editor` 改为已实现 🟡，含并行/连线/缩放/抽屉/视觉 diff 限制）；更新 projects（charter UI）、knowledge（非流式步骤/工具轨迹）、task（W3-5b 四入口/B-07 降级）、workflows/editor、settings（W4-3c 修复）、roles 等；新增「最终剩余项」表（仅 blocked/发布/设计降级）。
+- 验证：4 文件当前计数统一 403、无旧当前计数；design-coverage 25 行、无缺失页标记；链接 0 broken；`check:docs-routes` exit 0；`git diff --check` 干净；未跑全量 test（Lead 已最终验收 403 tests）。
+- 未覆盖 / 说明：W4-5/W2-5 仍 blocked（无 PG/GitLab 环境/凭据）；W4-4 仍为未签名 346MB arm64 `.app`；W4-6 推送 main 待在文档提交后由 Lead 执行。
+
+### 22:15 最终整合 | Wave 3G 验收 + 全部功能任务完成
+
+- **最终验证**：`npx tsc --noEmit` exit 0；`npm test` → **403 tests / 54 suites / 392 pass / 11 skipped / 0 fail**（67.6s）；`docs:api` 163 路由 + `check:docs-routes` OK；`build:web`、`build:server`、`test-e2e --skip-build` 通过。
+- **最终 UI 冒烟**：`CAPTURE_UI_NO_SANDBOX=1 CAPTURE_UI_PORT=5294 CAPTURE_UI_TMP_DIR=.tmp/ui-final CAPTURE_UI_EXTRA=1 npm run ui:smoke` → **exit 0**，13 截图目标 + 2 交互 smoke 全通过；根 `evidence/` 与 `docs/evidence/*-2026-10-19.png` 已更新到最终构建（22:10）。
+- **最终功能验收**：W3-5b 任务画布「⋯」四入口（冻结/审计/快照评审 B-07/运行内容）+ HTTP 回执（5 测试）；W3-4b 知识研究步骤/工具轨迹时间线（真实执行、非流式，5 测试）；W4-1g 文档收口（README/remaining-work/verification/design-coverage：25 页 ✅3/🟡22/⛔0，剩余仅 blocked/发布/设计降级）。
+- **全部功能任务状态**：任务分派文档中除 W4-5/W2-5（真实 PG/GitLab，blocked 外部环境）与 W4-6（推送，执行中）外均为 done。
+- **下一步**：提交最终改动 → 合并远端初始 main → 推送 `main` → `git ls-remote` 核对；W4-5/W2-5 保持 blocked，W4-4 打包未签名/未公证为发布前置。

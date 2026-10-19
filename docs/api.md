@@ -249,8 +249,13 @@
 | GET / PATCH | `/api/projects/:id/charter` | （待补说明：projectCharter） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/confirm` | （待补说明：projectCharterConfirm） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/generate` | （待补说明：projectCharterGenerate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/tasks/:id/audit` | （待补说明：taskAudit） | 读口；无写回执 |
+| POST | `/api/tasks/:id/plan/freeze` | （待补说明：taskPlanFreeze） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/tasks/:id/plan/freezes` | （待补说明：taskPlanFreezes） | 读口；无写回执 |
 | GET | `/api/tasks/:id/planning/proposal` | （待补说明：planningProposal） | 读口；无写回执 |
 | POST | `/api/tasks/:id/planning/refine-preview` | （待补说明：planningRefinePreview） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/tasks/:id/run-content` | （待补说明：taskRunContent） | 读口；无写回执 |
+| GET | `/api/tasks/:id/snapshot-review` | （待补说明：taskSnapshotReview） | 读口；无写回执 |
 | GET / POST | `/api/workflows` | （待补说明：workflows） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET / PATCH / DELETE | `/api/workflows/:id` | （待补说明：workflow） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/workflows/:id/copy` | （待补说明：workflowCopy） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |

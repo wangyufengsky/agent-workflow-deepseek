@@ -417,6 +417,10 @@ export interface KnowledgeAskResponse {
   readonly generatedAt: IsoDateTime;
   readonly conversationId: string;
   readonly usage?: TokenUsage;
+  /** Absent for legacy answers recorded before steps were observed. */
+  readonly steps?: readonly KnowledgeStep[];
+  /** Omitted entirely when the run had no real tool parts. */
+  readonly toolActivity?: readonly KnowledgeToolActivity[];
 }
 
 export interface KnowledgeHistoryEntry extends KnowledgeAskResponse {
@@ -425,6 +429,38 @@ export interface KnowledgeHistoryEntry extends KnowledgeAskResponse {
 
 export interface KnowledgeHistoryResponse {
   readonly entries: readonly KnowledgeHistoryEntry[];
+}
+
+/* Knowledge research timeline: every field comes from the real ask execution
+ * (document reads, assistant message times, real tool parts, citation checks).
+ * No fixed/fabricated steps are ever emitted. */
+
+export type KnowledgeStepKind = 'retrieve' | 'model' | 'tool' | 'validate';
+export type KnowledgeStepStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'unknown';
+
+export interface KnowledgeStep {
+  /** Real event id (a tool callID for tool steps, an observed id otherwise). */
+  readonly id: string;
+  readonly kind: KnowledgeStepKind;
+  /** Observed action label, e.g. "读取 3 份文档" or the real tool name. */
+  readonly label: string;
+  readonly status: KnowledgeStepStatus;
+  readonly startedAt: IsoDateTime;
+  readonly endedAt?: IsoDateTime;
+  /** Only when both real timestamps are available. */
+  readonly durationMs?: number;
+  readonly detail?: string;
+}
+
+export type KnowledgeToolStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'unknown';
+
+export interface KnowledgeToolActivity {
+  readonly name: string;
+  readonly status: KnowledgeToolStatus;
+  readonly summary?: string;
+  readonly callId?: string;
+  readonly startedAt?: IsoDateTime;
+  readonly endedAt?: IsoDateTime;
 }
 
 export interface KnowledgeSourceContentResponse {
@@ -487,6 +523,223 @@ export interface InsightsResponse {
   readonly reviews: { readonly total: number; readonly completed: number; readonly failed: number; readonly openFindings: number; readonly tokens: { readonly input: number; readonly output: number; readonly total: number } };
   readonly fixes: { readonly total: number; readonly ready: number; readonly discarded: number; readonly tokens: { readonly input: number; readonly output: number; readonly total: number } };
   readonly deliveries: { readonly delivered: number; readonly blocked: number; readonly inProgress: number };
+}
+
+/* ------------------------------------------------------------------ */
+/* Task canvas extras (freeze / audit / snapshot review / run content) */
+/* ------------------------------------------------------------------ */
+
+export interface FrozenPlanSnapshot {
+  readonly snapshotId: string;
+  readonly taskId: string;
+  readonly planRevisionId: string;
+  readonly planRevisionNumber: number;
+  readonly planStatus: string;
+  readonly planHash: string;
+  readonly frozenAt: IsoDateTime;
+  readonly actor: string;
+  readonly note?: string;
+  readonly requestKey?: string;
+  readonly requirementRevision: number;
+  readonly methodId: string;
+  readonly methodRevision: string;
+  readonly template?: { readonly id: string; readonly version: number; readonly name: string };
+  readonly summary: {
+    readonly nodes: number;
+    readonly edges: number;
+    readonly groups: number;
+    readonly groupLabels: readonly string[];
+    readonly nodeKeys: readonly string[];
+  };
+  readonly executionAtFreeze?: {
+    readonly executionId: string;
+    readonly status: string;
+    readonly progress: { readonly done: number; readonly total: number; readonly running: number; readonly failed: number };
+  };
+}
+
+export interface TaskPlanFreezeRequest extends CommandRequest {
+  readonly confirmFreeze: true;
+  readonly note?: string;
+  readonly planRevisionId?: string;
+}
+
+export interface TaskPlanFreezeResponse {
+  readonly freeze: FrozenPlanSnapshot;
+  readonly replayed: boolean;
+}
+
+export interface TaskPlanFreezesResponse {
+  readonly items: readonly FrozenPlanSnapshot[];
+  readonly latest?: FrozenPlanSnapshot;
+}
+
+export interface TaskAuditEntry {
+  readonly id: string;
+  readonly at: IsoDateTime;
+  readonly source: 'event' | 'operation';
+  readonly action: string;
+  readonly summary: string;
+  readonly status?: string;
+  readonly requestKey?: string;
+  readonly refs: {
+    readonly projectId?: string;
+    readonly planRevisionId?: string;
+    readonly roundId?: string;
+    readonly executionId?: string;
+    readonly workspaceId?: string;
+    readonly deliveryId?: string;
+    readonly nodeId?: string;
+  };
+}
+
+export interface TaskAuditPage {
+  readonly taskId: string;
+  readonly items: readonly TaskAuditEntry[];
+  readonly total: number;
+  readonly limit: number;
+  readonly cursor: string;
+  readonly nextCursor?: string;
+}
+
+export type SnapshotBatchState = 'verified' | 'unverified' | 'running' | 'attention' | 'pending' | 'skipped';
+
+export interface SnapshotReviewBatch {
+  readonly batchId: string;
+  readonly title: string;
+  readonly purpose: string;
+  readonly state: SnapshotBatchState;
+  readonly source: 'execution' | 'template';
+  readonly templateStepKey?: string;
+  readonly nodeId?: string;
+  readonly groupLabel?: string;
+  readonly attemptId?: string;
+  readonly attemptCount: number;
+  readonly attemptStatus?: string;
+  readonly verificationState?: string;
+  readonly fragmentCount: number;
+  readonly errorMessage?: string;
+  readonly updatedAt?: IsoDateTime;
+}
+
+export interface SnapshotReviewProgress {
+  readonly available: boolean;
+  readonly totalBatches: number | null;
+  readonly verifiedBatches: number;
+  readonly unverifiedBatches: number;
+  readonly runningBatches: number;
+  readonly attentionBatches: number;
+  readonly skippedBatches: number;
+  readonly remainingBatches: number | null;
+  readonly phases: readonly { readonly label: string; readonly total: number | null; readonly completed: number }[];
+  readonly note: string;
+}
+
+export interface SnapshotReviewScope {
+  readonly planRevisionNumber?: number;
+  readonly planStatus?: string;
+  readonly template?: { readonly id: string; readonly version: number; readonly name: string };
+  readonly mode: 'full' | 'incremental' | 'unknown';
+  readonly depth: 'full' | 'lightweight' | 'unknown';
+  readonly modeSource: 'unavailable';
+  readonly baselineSha?: string;
+  readonly targetSha?: string;
+  readonly targetShaSource: 'delivery' | 'none';
+  readonly branch?: string;
+  readonly versionsFixed: true;
+  readonly limitations: readonly string[];
+}
+
+export interface SnapshotReviewBatchesPage {
+  readonly items: readonly SnapshotReviewBatch[];
+  readonly total: number;
+  readonly limit: number;
+  readonly cursor: string;
+  readonly nextCursor?: string;
+}
+
+export interface SnapshotPartialReport {
+  readonly available: boolean;
+  readonly readAt?: IsoDateTime;
+  readonly analyzedUnits: number | null;
+  readonly pendingUnits: number | null;
+  readonly excludedUnits: number | null;
+  readonly contentMarkdown: string | null;
+  readonly download: { readonly available: boolean; readonly reason: string };
+  readonly reason: string;
+  readonly note: string;
+}
+
+export interface SnapshotReviewModel {
+  readonly taskId: string;
+  readonly applicable: boolean;
+  readonly reason?: string;
+  readonly readOnly: true;
+  readonly note: string;
+  readonly scope?: SnapshotReviewScope;
+  readonly progress?: SnapshotReviewProgress;
+  readonly batches?: SnapshotReviewBatchesPage;
+  readonly partialReport: SnapshotPartialReport;
+}
+
+export type RunContentCategory = 'documents' | 'source' | 'tests' | 'other';
+
+export interface RunContentNode {
+  readonly nodeId: string;
+  readonly key: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly category: RunContentCategory;
+  readonly status: string;
+  readonly attemptCount: number;
+  readonly confirmedAcceptance?: 'accepted' | 'rejected' | 'pending';
+  readonly latestAttempt?: {
+    readonly attemptId: string;
+    readonly ordinal: number;
+    readonly status: string;
+    readonly startedAt?: IsoDateTime;
+    readonly endedAt?: IsoDateTime;
+    readonly summary?: string;
+    readonly verification?: { readonly state: string; readonly summary?: string };
+    readonly artifactCount: number;
+    readonly errorCount: number;
+    readonly fragmentCount: number;
+  };
+  readonly outputs: readonly string[];
+  readonly writes: readonly string[];
+  readonly errorMessage?: string;
+}
+
+export interface RunContentGroup {
+  readonly category: RunContentCategory;
+  readonly label: string;
+  readonly total: number;
+  readonly nodes: readonly RunContentNode[];
+}
+
+export interface RunContentModel {
+  readonly taskId: string;
+  readonly available: boolean;
+  readonly note: string;
+  readonly planRevisionId?: string;
+  readonly executionId?: string;
+  readonly workspace?: {
+    readonly state: string;
+    readonly kind: string;
+    readonly displayRoot?: string;
+    readonly baseSha?: string;
+    readonly retention: string;
+  };
+  readonly deliveryEvidence?: {
+    readonly projection: string;
+    readonly commitSha?: string;
+    readonly pushedSha?: string;
+    readonly remoteRef?: string;
+    readonly mrIid?: number;
+    readonly mrWebUrl?: string;
+  };
+  readonly groups: readonly RunContentGroup[];
+  readonly totals: { readonly nodes: number; readonly attempts: number; readonly fragments: number };
 }
 
 export interface TaskAcceptanceRequest extends CommandRequest {
@@ -1507,6 +1760,11 @@ export const ROUTES = {
   pptWorkUpdate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
   pptWorkGenerate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate`,
   taskAcceptance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/acceptance`,
+  taskPlanFreeze: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/freeze`,
+  taskPlanFreezes: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/freezes`,
+  taskAudit: (id: string) => `/api/tasks/${encodeURIComponent(id)}/audit`,
+  taskSnapshotReview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/snapshot-review`,
+  taskRunContent: (id: string) => `/api/tasks/${encodeURIComponent(id)}/run-content`,
   taskPlanFromTemplate: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/from-template`,
   taskRecovery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery`,
   taskRecoveries: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recoveries`,

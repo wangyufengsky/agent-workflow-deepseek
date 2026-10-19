@@ -5,6 +5,7 @@ import { CommandService } from './operations.ts';
 import { RecoveryService } from './recovery.ts';
 import { RoleCatalogService } from './role-catalog.ts';
 import { MethodCatalogService } from './method-catalog.ts';
+import { TaskExtrasService } from './task-extras.ts';
 import { InsightsService } from './insights.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { PptService } from './ppt.ts';
@@ -57,6 +58,7 @@ export class Engine {
   readonly recoveries: RecoveryService;
   readonly roleCatalog: RoleCatalogService;
   readonly methods: MethodCatalogService;
+  readonly extras: TaskExtrasService;
   readonly insights: InsightsService;
   readonly knowledge: KnowledgeService;
   readonly ppt: PptService;
@@ -120,6 +122,7 @@ export class Engine {
     this.projects = new ProjectService(this.store, this.ports.git, this.commands, this.context);
     this.tasks = new TaskService(this.store, this.commands, this.context, this.projects, this.catalog);
     this.charters = new CharterService(this.store, this.commands);
+    this.extras = new TaskExtrasService({ store: this.store, templates: () => this.catalog.templates });
     this.inbox = new InboxService(this.store, this.tasks);
     this.recoveries = new RecoveryService({ store: this.store, commands: this.commands });
     this.planning = new PlanningService(this.store, this.commands, this.context, this.ports.opencode, () => this.tasks, this.catalog);

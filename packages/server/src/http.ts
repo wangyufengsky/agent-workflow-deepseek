@@ -41,6 +41,7 @@ import type {
   EditSaveRequest,
   EditFinishRequest,
   PlanEditAbandonRequest,
+  TaskPlanFreezeRequest,
   ExecutionAdvanceRequest,
   ExecutionAutoAdvanceRequest,
   PlanningStartRequest,
@@ -214,6 +215,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/tasks/:id/plan/from-template',
   'POST /api/tasks/:id/plan/skeleton',
   'POST /api/tasks/:id/plan/confirm',
+  'POST /api/tasks/:id/plan/freeze',
   'POST /api/tasks/:id/plan/edit/begin',
   'POST /api/tasks/:id/plan/edit/save',
   'POST /api/tasks/:id/plan/edit/finish',
@@ -524,6 +526,73 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/from-template', async (request) => envelope(engine.plans.useTemplate(request.params.id, request.body as UseTemplateRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/skeleton', async (request) => envelope(engine.plans.useSkeleton(request.params.id, request.body as UseSkeletonRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/confirm', async (request) => envelope(engine.plans.confirm(request.params.id, request.body as ConfirmPlanRequest), requestId(request)));
+
+  // W3-5b task-canvas extras: freeze is the only mutating entry; everything else
+  // is a read model (audit / B-07 snapshot review / run content).
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/freeze', async (request) => {
+    const body = request.body as TaskPlanFreezeRequest;
+    if (body === null || typeof body !== 'object' || body.confirmFreeze !== true) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '冻结计划需要 confirmFreeze=true 确认');
+    }
+    const taskId = request.params.id;
+    const { record, replayed } = engine.commands.begin({
+      requestKey: body.requestKey,
+      operation: 'task.plan.freeze',
+      body: { taskId, planRevisionId: body.planRevisionId ?? null, note: body.note ?? null },
+      target: { taskId },
+    });
+    if (replayed && record.status !== 'accepted') {
+      const snapshot = engine.extras.listPlanFreezes(taskId).find((item) => item.requestKey === body.requestKey) ?? engine.extras.latestPlanFreeze(taskId);
+      return envelope(
+        { receipt: engine.commands.toReceipt(record), ...(snapshot === undefined ? {} : { resource: { freeze: snapshot, replayed: true } }) },
+        requestId(request),
+      );
+    }
+    try {
+      const result = engine.extras.freezePlan(taskId, {
+        requestKey: body.requestKey,
+        ...(body.planRevisionId === undefined ? {} : { planRevisionId: body.planRevisionId }),
+        ...(body.note === undefined ? {} : { note: body.note }),
+      });
+      engine.commands.settle(body.requestKey, { snapshotId: result.snapshot.snapshotId, planRevisionId: result.snapshot.planRevisionId, replayed: result.replayed });
+      return envelope(
+        { receipt: engine.commands.toReceipt(engine.commands.get(body.requestKey)!), resource: { freeze: result.snapshot, replayed: result.replayed } },
+        requestId(request),
+      );
+    } catch (error) {
+      engine.commands.fail(body.requestKey, error instanceof Error ? error : new Error('冻结计划失败'));
+      throw error;
+    }
+  });
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/plan/freezes', async (request) => {
+    const items = engine.extras.listPlanFreezes(request.params.id);
+    return envelope({ items, ...(items[0] === undefined ? {} : { latest: items[0] }) }, requestId(request));
+  });
+  app.get<{ Params: { id: string }; Querystring: { limit?: string; cursor?: string; kinds?: string } }>('/api/tasks/:id/audit', async (request) => {
+    const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
+    const kinds = request.query.kinds === undefined ? undefined : request.query.kinds.split(',').map((kind) => kind.trim()).filter((kind) => kind !== '');
+    return envelope(
+      engine.extras.audit(request.params.id, {
+        ...(limit === undefined || Number.isNaN(limit) ? {} : { limit }),
+        ...(request.query.cursor === undefined ? {} : { cursor: request.query.cursor }),
+        ...(kinds === undefined || kinds.length === 0 ? {} : { kinds }),
+      }),
+      requestId(request),
+    );
+  });
+  app.get<{ Params: { id: string }; Querystring: { limit?: string; cursor?: string } }>('/api/tasks/:id/snapshot-review', async (request) => {
+    const limit = request.query.limit === undefined ? undefined : Number(request.query.limit);
+    return envelope(
+      engine.extras.snapshotReview(request.params.id, {
+        ...(limit === undefined || Number.isNaN(limit) ? {} : { limit }),
+        ...(request.query.cursor === undefined ? {} : { cursor: request.query.cursor }),
+      }),
+      requestId(request),
+    );
+  });
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/run-content', async (request) => {
+    return envelope(engine.extras.runContent(request.params.id), requestId(request));
+  });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/begin', async (request) => envelope(engine.plans.editBegin(request.params.id, request.body as EditBeginRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/save', async (request) => envelope(engine.plans.editSave(request.params.id, request.body as EditSaveRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/finish', async (request) => {

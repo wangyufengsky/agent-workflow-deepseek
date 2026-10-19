@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（最近一次完整验证：2026-10-19，日志 `.tmp/wave3e-verify.log`）：**391 tests / 54 suites / 380 pass / 11 skipped / 0 fail**，约 65.0s。数字以最近一次 `npm test` 日志为准，不在本文档固定历史计数。
+结果（最终完整验证：2026-10-19，日志 `.tmp/wave3g-verify.log`）：**403 tests / 54 suites / 392 pass / 11 skipped / 0 fail**，约 67.6s。数字以最近一次 `npm test` 日志为准，不在本文档固定历史计数。
 
 跳过项（共 11）：10 个 `live:` gate（planning / execution / AI review / AI fix / GitHub 写入 / GitHub 只读 / knowledge / provider gateway / PPT / MySQL，需 `AGENT_WORKFLOW_LIVE=1` 或真实凭据）＋ 1 个 MySQL 探测（无可达实例或未提供账号时 skip）。其余测试全部执行。
 
@@ -269,17 +269,17 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - W3-12 已修复：`GET /api/tasks/:id/changes/files/:fileId/diff` 无 headSha 时改用 `git diff base -- path`，有 headSha 时保持 `base..head`；W3-13 把 `fetch` 与 fix push 接入远端 UNKNOWN 结算。
 - 节点验收 gating 已实现（有验收标准的节点 succeeded 后 park 到 paused；accept 后完成、reject 可重试）；W0-4c 待验收情况条/去验收/驳回重试已在 Wave 3D 完成；W3-10 节点详情工具/产物/引用/宽阅读子视图已完成（服务无产物正文/工具增量接口处如实降级，平移到节点未实现）。
 - Electron 打包（W4-4）：Wave 3D 已用当前代码 `npm run dist:dir` 重建 **346MB** 未签名 `.app`（arm64，无 dmg/zip/安装包，默认图标，asar 关闭）；打包内 server/Web smoke PASS；默认 GUI 在本沙箱因 Chromium sandbox/GPU 失败，兼容 flags 离屏捕获 PASS；签名/公证、桌面默认参数验收、Windows/Linux、自动更新、CI 打包未做。完整证据见 `docs/packaging.md` §1/§5/§6/§8/§9。
-- 视觉与证据：`test:e2e`、最小 CI 与 `docs/evidence/README.md` 清单已接入；Wave 3E `ui:smoke` 兼容 flags 通过（13 截图 + 2 交互），当前 8 张截图 + 22 张历史已标注；仍不是像素级视觉回归，W4-3c 设置页导航样式缺陷待修并重拍。
-- 设计覆盖：`docs/design-coverage.md` 已更新到 Wave 3E：25 页中 ✅ 3 / 🟡 21 / ⛔ 1（唯一整页缺失 `workflow-editor`，W3-8b/8c 进行中）。`docs/api.md` 由 ROUTES + 服务端注册生成（**153 路由**），`check:docs-routes` 接入 `verify`。
+- 视觉与证据：`test:e2e`、最小 CI 与 `docs/evidence/README.md` 清单已接入；最终 `ui:smoke` 兼容 flags 通过（13 截图 + 2 交互），W4-3c 设置导航缺陷已修复并重拍（8 张当前 + 22 张历史，30 张清单）；仍不是像素级视觉回归，四主题全状态未自动覆盖。
+- 设计覆盖：`docs/design-coverage.md` 已更新到 Wave 3G：25 页全部 ✅/🟡（**⛔ 0**，`workflow-editor` 已实现并标 🟡 限制）。`docs/api.md` 由 ROUTES + 服务端注册生成（**163 路由**），`check:docs-routes` 接入 `verify`。
 - 品牌：产品名继续 `agent-workflow` / `Agent Workflow`；设计稿 `opencode-workflow` 仅作来源名，不做全局改名（README「品牌与命名」）。
 - 角色管理（W3-3，Wave 3D）：四页签/能力/资源权限/形象/发布核对/历史已实现（`role-catalog-extended.test.ts` 5 pass + 前端四页签）；B-02 已发布版本回执核对、B-03 权限预估、形象目录与步骤级使用统计仍无接口/未实现。
 - 数据库/工具/模板（W3-9c，Wave 3D）：前端按真实字段降级（33 项 UI 断言）；后端仍缺数据库授权项目/多 schema/会话只读、工具项目级配置/单工具策略/来源级停用、模板分类/时间范围/源码范围/需求文档/分支与 B-06 归档/自动化档案。
 - PE37（W3-6/6b，Wave 3D/3E）：引擎 API/作用域合并/confirm 前置/SCOPE_VIOLATION（`pe37-scope-planning.test.ts` 3 pass）；HTTP `proposal`/`refine-preview`/`scope`/`continuePlanning`（`pe37-http.test.ts` 5 pass）与 UI 总览/占位/选区/组候选/确认拦截已完成。
-- 项目公约后端（W3-1b，Wave 3E）：GET/PATCH/confirm 原子写 `AGENTS.md`、unknown 恢复、`generate` 诚实 501、`docPaths` 与项目级 GitLab 覆盖契约/读回（`charter.test.ts` + `pe37-http.test.ts` 5 pass）；项目详情 UI 接入 W3-1c 进行中，模型生成未接线。
-- 方法目录核心（W3-8a，Wave 3E）：合并视图/CRUD/校验/版本冲突/复制/归档/instantiate（`method-catalog.test.ts` 7 pass）；HTTP/Engine 接线 W3-8c 与编辑器 UI W3-8b 进行中。
-- UI 视觉与证据（W4-3b）：`ui:smoke` 兼容 flags 通过（13 截图 + 2 交互），`evidence/` 13 张刷新、`docs/evidence/` 8 张当前 + 22 张历史（README 30 张清单）；不是像素级视觉回归，且 W4-3c 设置页导航 `.snav .cap` 样式缺陷待修/重拍。
+- 项目公约后端（W3-1b，Wave 3E）：GET/PATCH/confirm 原子写 `AGENTS.md`、unknown 恢复、`generate` 诚实 501、`docPaths` 与项目级 GitLab 覆盖契约/读回（`charter.test.ts` + `pe37-http.test.ts` 5 pass）；项目详情 UI 已在 W3-1c 接入（手动编辑/确认写入/501/unknown）；charter 模型生成仍未接线（真实 501）。
+- 方法目录核心（W3-8a，Wave 3E）：合并视图/CRUD/校验/版本冲突/复制/归档/instantiate（`method-catalog.test.ts` 7 pass）；HTTP/Engine（W3-8c）与编辑器 UI（W3-8b）已在 Wave 3F 完成。
+- UI 视觉与证据（W4-3b）：`ui:smoke` 兼容 flags 通过（13 截图 + 2 交互），`evidence/` 13 张刷新、`docs/evidence/` 8 张当前 + 22 张历史（README 30 张清单）；不是像素级视觉回归；W4-3c 设置导航 `.snav .cap` 缺陷已修复并重拍。
 - W4-5 真实 PG/GitLab 与 W2-5 **blocked**：本机无实例/凭据、仓库无 PG/GitLab live 测试，未伪造 PASS；所需环境变量与补测步骤见 `docs/packaging.md` §7。
-- 其他未完成：W3-1c（项目详情 UI 接入 charter/docPaths/GitLab）、W3-4b（研究步骤/流式）、W3-5（任务画布扩展/快照评审）、W3-8b/W3-8c（工作流编辑器 UI/HTTP 接线，进行中）、W3-10 剩余降级（平移/产物正文/补读）、W4-3c（设置页导航样式+重拍）、W4-4 残留（签名/公证/安装包/跨平台/自动更新）。
+- 功能波次已全部完成：W3-1c/W3-8b/W3-8c/W3-4b/W3-5b/W4-3c 均已在 Wave 3F/3G 验收；剩余只有 W4-5/W2-5 真实 PG/GitLab（**blocked**，详见 `docs/packaging.md` §7）、W4-4 签名/公证/安装包/跨平台/自动更新、W4-6 推送 main（Lead 待执行）与可选像素级视觉回归。设计级降级（B-07 阶段报告、知识非流式、charter generate 501、角色 B-02/B-03、数据库/工具/模板后端字段、工作流编辑器限制、PPT 高级视觉等）逐页记录在 `docs/design-coverage.md`，不是功能波次缺口。
 ## 11. 轮次日志（历史）
 
 ### 第 64 轮打包回归（2026-10-19）
@@ -347,7 +347,7 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 修复：知识库问答请求超时 130s；PPT 大纲 120s、PPT 逐页 150s；问答中提示“模型正在阅读文档，通常 15–90 秒”。
 - 实测（运行中的服务）：知识库问答 **11s** 返回答案、4 条校验引用、usage 24119 tokens；OpenCode ready、MCP 13 工具。
 
-### Wave 0 + Wave 1 验收（2026-10-19；历史计数 330 tests，当前 391 见下）
+### Wave 0 + Wave 1 验收（2026-10-19；历史计数 330 tests，当前 403 见下）
 
 依据 [`docs/review/execution-log.md`](review/execution-log.md) 20:32 整合记录；验收范围 W0-1、W0-2、W0-3、W0-5、W1-1~W1-12（15 个工作包），W0-4 节点验收仍 pending。
 
@@ -424,7 +424,7 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - **真实环境（W4-5）**：本机无 PostgreSQL/GitLab 实例或凭据，仓库无 PG/GitLab live 测试；**标记 blocked，未写任何 live PASS**。所需环境变量/补测步骤见 `docs/packaging.md` §7。
 - **状态/后续**：W4-5 blocked；W3-6 引擎完成但 HTTP/UI 待 W3-6b；W3-8 拆为 W3-8a/W3-8b；W3-1b、W3-4b、W3-5、W4-3b 继续。
 
-### Wave 3E 验收（2026-10-19，391 tests）
+### Wave 3E 验收（2026-10-19；历史计数 391 tests）
 
 依据 [`docs/review/execution-log.md`](review/execution-log.md) 21:45 整合记录；验收范围：W3-6b PE37 HTTP+UI、W3-1b 项目公约/docPaths/GitLab 后端、W3-8a method catalog 后端核心、W4-3b 视觉回归/截图、W4-1e 文档同步。
 
@@ -434,3 +434,23 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - **功能证据**：PE37 proposal/refine-preview/scoped start/确认拦截/组候选 UI（`pe37-http.test.ts` 5 pass）；项目公约 GET/PATCH/generate(501)/confirm（原子写 `AGENTS.md`、unknown 恢复）、docPaths/GitLab 项目级覆盖；method catalog CRUD/校验/版本/合并（`method-catalog.test.ts` 7 pass）；`evidence/` 11 张刷新 + `ui-roles`/`ui-ppt`，`docs/evidence/` 8 张当前 + 22 张历史（README 30 张清单）。
 - **发现缺陷**：设置页左侧导航 `.snav .cap` 命中全局首页 `.cap` 样式（min-height:300px/display:flex），分组间距约 300px；`settings-2026-10-19.png`/`evidence/ui-settings.png` 如实显示，新登记 W4-3c。
 - **状态/后续**：W3-1c（项目详情 UI 接 charter/docPaths/GitLab）、W3-8c/W3-8b（method catalog HTTP/Engine + 编辑器 UI）、W3-5（任务画布扩展/快照评审）、W4-3c（设置页样式+重拍）继续；W4-5/W2-5 blocked 不变。
+
+### Wave 3F 验收（2026-10-19；历史计数 398 tests）
+
+依据 [`docs/review/execution-log.md`](review/execution-log.md) 21:58 整合记录；验收范围：W3-8c method catalog HTTP/Engine、W3-8b 工作流编辑器 UI、W3-1c 项目详情 charter/docPaths/GitLab、W3-5 任务扩展后端核心、W4-3c 设置导航修复、W4-1f 文档同步。
+
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **398 tests / 54 suites / 387 pass / 11 skipped / 0 fail**（69.6s；日志 `.tmp/wave3f-verify.log`）。
+- **构建/脚本**：`docs:api` 重生成（158 路由）、`check:docs-routes` OK、`build:web`、`build:server`、`test:e2e --skip-build` 通过；设置导航修复后 `ui:smoke` 13 截图通过。
+- **功能证据**：`/api/workflows` CRUD/复制/归档/validate/instantiate（`workflow-catalog.test.ts` 1 pass，33 回归 pass）；工作流编辑器 `/workflows/:id/edit` 画布/检查/保存/409 冲突；项目详情 charter 状态机/confirm 写 AGENTS.md/501/unknown、docPaths、GitLab 项目级覆盖；任务扩展读模型（冻结 6 测试）。
+- **遗留**：W3-5b HTTP/UI、W3-4b 知识时间线、W4-6 推送 main；W4-5/W2-5 blocked。
+
+### Wave 3G 验收（2026-10-19，403 tests，最终）
+
+依据 [`docs/review/execution-log.md`](review/execution-log.md) 22:00 后整合记录；验收范围：W3-5b 任务扩展 HTTP/UI、W3-4b 知识研究步骤/工具轨迹 UI、W4-1g 最终文档收口。
+
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **403 tests / 54 suites / 392 pass / 11 skipped / 0 fail**（67.6s；日志 `.tmp/wave3g-verify.log`）。
+- **构建/脚本**：`docs:api` 重生成（**163 路由**）、`check:docs-routes` OK、`build:web`、`build:server`、`test:e2e --skip-build`、`ui:smoke`（兼容 flags，13 截图 + 2 交互）通过。
+- **功能证据**：任务画布「⋯」四入口（恢复/冻结/审计/快照评审 B-07/运行内容）+ 冻结/审计/快照评审 HTTP 与回执（`task-extras-http.test.ts` 2 pass）；知识研究步骤/工具轨迹时间线真实执行（`knowledge-steps.test.ts` 2 pass，非流式，旧历史缺字段时隐藏）；项目详情 charter UI、工作流编辑器、角色四页签、PE37、设置导航修复均已验收。
+- **最终状态**：功能波次全部完成；W4-5/W2-5 真实 PG/GitLab **blocked**（无实例/凭据，未伪造 PASS）；W4-4 仍为未签名 346MB arm64 `.app`；W4-6 推送 main 待 Lead 执行。设计级降级见 `docs/design-coverage.md`。

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   EXECUTION_STATUS_LABEL,
@@ -26,6 +26,7 @@ import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { EmptyState, Skeleton, SkeletonText } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { IconButton } from '../../components/IconButton.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { StageCapsule } from '../../components/StageCapsule.tsx';
@@ -36,6 +37,7 @@ import { NodeDetailPanel } from '../node/NodeDetailPanel.tsx';
 import { TaskDeliveryPanel } from '../delivery/TaskDeliveryPanel.tsx';
 import { ExecutionPanel } from './ExecutionPanel.tsx';
 import { PlanEditPanel } from './PlanEditPanel.tsx';
+import { TaskExtrasPanel, type TaskExtrasMode } from './TaskExtrasPanel.tsx';
 import './task.css';
 
 const FIXED_TEMPLATE_REASON = '该任务使用固定模板，创建后不能修改步骤；要改要求，请新建模板任务。';
@@ -53,6 +55,9 @@ export function TaskCanvasPage() {
   const command = useWorkflowCommand(taskId ?? '');
 
   const [editMode, setEditMode] = useState(false);
+  const [extrasMode, setExtrasMode] = useState<TaskExtrasMode | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [deliveryFocusRequest, setDeliveryFocusRequest] = useState(0);
   const [pageReceipt, setPageReceipt] = useState<OperationReceipt | undefined>(undefined);
@@ -103,6 +108,28 @@ export function TaskCanvasPage() {
     }
   }, [execution?.editSession?.id, execution?.editSession?.state]);
 
+  useEffect(() => {
+    setExtrasMode(null);
+    setMenuOpen(false);
+  }, [taskId]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target) === true) return;
+      setMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [menuOpen]);
+
   const patchParams = (patch: Readonly<Record<string, string | undefined>>) => {
     setSearchParams(
       (previous) => {
@@ -118,8 +145,28 @@ export function TaskCanvasPage() {
   };
 
   const requestDeliveryFocus = () => {
+    setExtrasMode(null);
     setDeliveryFocusRequest((current) => current + 1);
     if (!deliveryOpen) patchParams({ delivery: '1', node: undefined });
+  };
+
+  const openExtras = (mode: TaskExtrasMode) => {
+    setMenuOpen(false);
+    setEditMode(false);
+    setExtrasMode(mode);
+    patchParams({ node: undefined, accept: undefined, delivery: undefined });
+  };
+
+  const openEdit = () => {
+    setExtrasMode(null);
+    setEditMode(true);
+    patchParams({ node: undefined, accept: undefined, delivery: undefined });
+  };
+
+  const openRunContent = () => {
+    if (taskId === undefined) return;
+    setMenuOpen(false);
+    navigate(`/runs/${encodeURIComponent(taskId)}`);
   };
 
   const graph = useMemo(() => {
@@ -143,11 +190,13 @@ export function TaskCanvasPage() {
   );
 
   const openNode = (nextNodeId: string) => {
+    setExtrasMode(null);
     patchParams({ node: nextNodeId, accept: undefined });
   };
 
   const goAccept = (targetNodeId: string | undefined) => {
     if (targetNodeId === undefined) return;
+    setExtrasMode(null);
     patchParams({ node: targetNodeId, accept: String(Date.now()), delivery: undefined });
   };
 
@@ -323,7 +372,7 @@ export function TaskCanvasPage() {
               icon="edit"
               disabled={actions.adjustExecutionPlan?.allowed !== true || command.state.busy}
               disabledReason={command.state.busy ? '正在提交操作，等待服务回执…' : actions.adjustExecutionPlan?.reason}
-              onClick={() => setEditMode(true)}
+              onClick={openEdit}
             >
               调整待执行计划
             </Button>
@@ -346,6 +395,71 @@ export function TaskCanvasPage() {
           <Button variant="secondary" size="sm" icon="file" onClick={openRequirement}>
             需求画布
           </Button>
+          <div className="task-menu-wrap" ref={menuRef}>
+            <IconButton
+              icon="more"
+              label="更多任务操作"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              onClick={() => { setMenuOpen((current) => !current); }}
+            />
+            {!menuOpen ? null : (
+              <div className="menu task-menu task-extras-menu" role="menu" aria-label="更多任务操作">
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); if (taskId !== undefined) navigate(`/recovery?taskId=${encodeURIComponent(taskId)}`); }}>
+                  <Icon name="refresh" size="sm" />
+                  任务恢复…
+                </button>
+                <button type="button" role="menuitem" onClick={() => { openExtras('freeze'); }}>
+                  <Icon name="layers" size="sm" />
+                  冻结计划…
+                </button>
+                <button type="button" role="menuitem" onClick={() => { openExtras('audit'); }}>
+                  <Icon name="clock" size="sm" />
+                  审计记录
+                </button>
+                <button type="button" role="menuitem" onClick={() => { openExtras('snapshot-review'); }}>
+                  <Icon name="eye" size="sm" />
+                  快照评审
+                </button>
+                <button type="button" role="menuitem" onClick={openRunContent}>
+                  <Icon name="terminal" size="sm" />
+                  运行内容
+                </button>
+                <hr />
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={command.state.busy || execution?.status !== 'running' || actions.pauseExecution?.allowed !== true}
+                  title={command.state.busy ? '正在提交操作，等待服务回执…' : execution?.status !== 'running' ? '当前没有运行中的执行' : actions.pauseExecution?.reason}
+                  onClick={() => { setMenuOpen(false); runPause(); }}
+                >
+                  <Icon name="pause" size="sm" />
+                  暂停任务…
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={command.state.busy || execution?.status !== 'paused' || actions.resumeExecution?.allowed !== true}
+                  title={command.state.busy ? '正在提交操作，等待服务回执…' : execution?.status !== 'paused' ? '当前没有暂停的执行' : actions.resumeExecution?.reason}
+                  onClick={() => { setMenuOpen(false); runResume(); }}
+                >
+                  <Icon name="play" size="sm" />
+                  继续任务…
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="danger"
+                  disabled={command.state.busy || actions.cancelExecution?.allowed !== true}
+                  title={command.state.busy ? '正在提交操作，等待服务回执…' : actions.cancelExecution?.reason}
+                  onClick={() => { setMenuOpen(false); setCancelOpen(true); }}
+                >
+                  <Icon name="stop" size="sm" />
+                  停止任务…
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -587,6 +701,8 @@ export function TaskCanvasPage() {
               />
             </div>
           </aside>
+        ) : extrasMode !== null ? (
+          <TaskExtrasPanel taskId={taskId} mode={extrasMode} plan={plan} onClose={() => { setExtrasMode(null); }} />
         ) : (
           <aside className="side task-side" aria-label="执行面板">
             <div className="side-head task-side-head">
@@ -609,7 +725,7 @@ export function TaskCanvasPage() {
                 onAdvanceAll={runAdvanceAll}
                 onAdvanceSuccessors={runAdvanceSuccessors}
                 onOpenNode={openNode}
-                onOpenEdit={() => setEditMode(true)}
+                onOpenEdit={openEdit}
                 onOpenRequirement={openRequirement}
               />
             </div>
