@@ -1,3 +1,4 @@
+import { networkFetch } from './remote-network.ts';
 import { readFileSync } from 'node:fs';
 import { AppError, DEFAULT_SETTINGS, ErrorCode, mergeSettings, nowIso, type AppSettings, type GitConnectionStatus, type GitMergeRequest, type Project } from '@agent-workflow/shared';
 import type { RemoteProvider } from '@agent-workflow/git';
@@ -102,11 +103,11 @@ export class RemoteService implements RemotePort {
     }
     const started = Date.now();
     try {
-      const response = await fetch(`${apiBaseUrl.replace(/\/+$/, '')}/user`, {
+      const response = await networkFetch(settings.git.network)(`${apiBaseUrl.replace(/\/+$/, '')}/user`, {
         headers: provider === 'github'
           ? { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'user-agent': 'agent-workflow' }
           : { 'PRIVATE-TOKEN': token, accept: 'application/json' },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(settings.git.network.requestTimeoutMs),
       });
       if (response.status === 401 || response.status === 403) {
         const state: GitConnectionState = { provider, state: 'auth_failed', lastVerifiedAt: nowIso(), message: '账户认证失败，请检查令牌权限' };
@@ -217,6 +218,8 @@ export class RemoteService implements RemotePort {
         owner: coordinates.owner ?? '',
         repo: coordinates.repo ?? '',
         token,
+        fetchImpl: networkFetch(settings.git.network),
+        timeoutMs: settings.git.network.requestTimeoutMs,
         apiBaseUrl: settings.git.github.apiBaseUrl,
         webBaseUrl: settings.git.github.baseUrl,
       });
@@ -224,6 +227,8 @@ export class RemoteService implements RemotePort {
     return new GitLabAdapter({
       projectId: coordinates.pathWithNamespace,
       token,
+      fetchImpl: networkFetch(settings.git.network),
+      timeoutMs: settings.git.network.requestTimeoutMs,
       apiBaseUrl: override?.inheritGlobal === false ? `${override.baseUrl!.replace(/\/$/, '')}/api/v4` : settings.git.gitlab.apiBaseUrl,
       webBaseUrl: override?.inheritGlobal === false ? override.baseUrl! : settings.git.gitlab.baseUrl,
     });

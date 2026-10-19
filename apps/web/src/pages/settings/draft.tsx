@@ -10,7 +10,7 @@ const draftStorageKey = 'agent-workflow.settings-draft.v1';
 function restoredFields(): Record<string, DraftField> {
   try { return JSON.parse(sessionStorage.getItem(draftStorageKey) ?? '{}') as Record<string, DraftField>; } catch { return {}; }
 }
-type DraftValue = string | number | boolean;
+type DraftValue = string | number | boolean | readonly string[];
 
 export interface DraftField {
   readonly path: string;
@@ -69,14 +69,14 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
 
   useEffect(() => {
     // These draft rows contain execution/monitoring limits, never credential inputs.
-    const safeFields = Object.fromEntries(Object.entries(fields).filter(([path]) => path.startsWith('execution.') || path.startsWith('monitoring.')));
+    const safeFields = Object.fromEntries(Object.entries(fields).filter(([path]) => path.startsWith('execution.') || path.startsWith('monitoring.') || path.startsWith('git.network.') || path.startsWith('git.gitlab.')));
     try { sessionStorage.setItem(draftStorageKey, JSON.stringify(safeFields)); } catch { /* current draft remains in memory */ }
   }, [fields]);
   const setField = (field: DraftField) => {
     setSaveMessage(undefined);
     setFields((current) => {
       const next = { ...current };
-      if (field.issue === undefined && field.value === field.baseline) {
+      if (field.issue === undefined && JSON.stringify(field.value) === JSON.stringify(field.baseline)) {
         delete next[field.path];
       } else {
         next[field.path] = field;

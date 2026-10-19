@@ -53,7 +53,14 @@ export interface OpenCodeSettings {
   };
 }
 
+export interface PublishNetworkSettings {
+  readonly allowedHttpHosts: readonly string[];
+  readonly connectTimeoutMs: number;
+  readonly requestTimeoutMs: number;
+}
+
 export interface GitSettings {
+  readonly network: PublishNetworkSettings;
   readonly author: GitAuthorSettings;
   readonly defaultProvider: GitProviderValue;
   readonly github: { readonly baseUrl: string; readonly apiBaseUrl: string };
@@ -197,6 +204,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   git: {
     author: { name: 'Agent Workflow', email: 'agent-workflow@localhost' },
     defaultProvider: 'github',
+    network: { allowedHttpHosts: ['localhost', '127.0.0.1', '[::1]'], connectTimeoutMs: 10000, requestTimeoutMs: 60000 },
     github: { baseUrl: 'https://github.com', apiBaseUrl: 'https://api.github.com' },
     gitlab: { baseUrl: 'https://gitlab.com', apiBaseUrl: 'https://gitlab.com/api/v4' },
     worktreeRoot: '.data/worktrees',
@@ -335,6 +343,16 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
   if (!settings.git.author.name.trim() || !settings.git.author.email.trim()) {
     issues.push({ path: 'git.author', message: '提交作者名称与邮箱不能为空' });
   }
+  const network = settings.git.network;
+  if (!network || !Array.isArray(network.allowedHttpHosts) || network.allowedHttpHosts.length > 64 || network.allowedHttpHosts.some((host) => typeof host !== 'string' || !isPublishHttpHost(host))) issues.push({ path: 'git.network.allowedHttpHosts', message: '允许的 HTTP 主机最多64个，仅填写主机名或主机名:端口，不含路径或通配符' });
+  for (const [field, max] of [['connectTimeoutMs', 120000], ['requestTimeoutMs', 300000]] as const) {
+    const value = network?.[field];
+    if (!Number.isInteger(value) || value < 1000 || value > max) issues.push({ path: `git.network.${field}`, message: `超时需要在1000–${max}ms之间` });
+  }
+  for (const provider of ['github', 'gitlab'] as const) for (const field of ['baseUrl', 'apiBaseUrl'] as const) {
+    try { const url = new URL(settings.git[provider][field]); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error(); }
+    catch { issues.push({ path: `git.${provider}.${field}`, message: '地址必须是无凭据、查询或片段的 HTTP(S) URL' }); }
+  }
   const modelIds = new Set<string>();
   const modelRoles = new Set(['planner', 'coder', 'reviewer', 'repairer']);
   for (const model of settings.models) {
@@ -372,4 +390,8 @@ export interface IntegrationStatus {
     readonly gitlab: { readonly configured: boolean; readonly authState: string };
   };
   readonly database: { readonly configured: number; readonly connected: number };
+}
+
+export function isPublishHttpHost(value: string): boolean {
+  try { const url = new URL(`http://${value}`); return value.length <= 253 && value === value.trim().toLowerCase() && url.host === value && url.pathname === '/' && !url.username && !url.password && !url.search && !url.hash && !value.includes('*'); } catch { return false; }
 }

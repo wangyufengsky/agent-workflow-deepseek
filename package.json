@@ -46,7 +46,8 @@
     "mysql2": "3.24.6",
     "pg": "^8.16.3",
     "pptxgenjs": "^3.12.0",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "undici": "7.30.1"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
