@@ -19,7 +19,7 @@ import type {
   OperationReceipt,
   ReviewRun,
 } from '@agent-workflow/shared';
-import { DEFAULT_CATALOG, createId, createRequestKey, nowIso } from '@agent-workflow/shared';
+import { AppError, DEFAULT_CATALOG, ErrorCode, createId, createRequestKey, nowIso } from '@agent-workflow/shared';
 import type { OpenCodeManagerStatus, OpenCodeSession, PromptOutcome } from '@agent-workflow/opencode';
 import { Store } from '@agent-workflow/storage';
 import { Engine } from './engine.ts';
@@ -42,6 +42,7 @@ class FakeGit implements GitPort {
   removedWorktrees: Array<{ worktreePath: string; branch?: string; deleteBranch: boolean }> = [];
   commitCalls: Array<{ worktreePath: string; filePaths: readonly string[]; message: string; expectedHeadSha?: string; author: { name: string; email: string } }> = [];
   pushCalls: Array<{ localSha: string; remote: string; remoteRef: string }> = [];
+  mergeCalls: Array<{ targetBranch: string; expectedTargetSha: string; sourceSha: string }> = [];
   listCommitsCalls: Array<{ ref?: string; limit?: number }> = [];
   worktreeRoot = mkdtempSync(join(tmpdir(), 'aw-fix-wt-'));
   commitSha = COMMIT_SHA;
@@ -97,6 +98,11 @@ class FakeGit implements GitPort {
 
   async worktreeChangedFiles(): Promise<{ files: readonly FileChange[]; changesRevision: string }> {
     return this.changeSets.shift() ?? { files: [], changesRevision: 'empty' };
+  }
+
+  async mergeTaskBranch(input: { repoRoot: string; targetBranch: string; expectedTargetSha: string; sourceSha: string; message: string; tempRoot: string; strategy: 'no_ff' | 'ff_only' }): Promise<{ mergeSha: string; kind: 'merge' | 'ff' }> {
+    this.mergeCalls.push({ targetBranch: input.targetBranch, expectedTargetSha: input.expectedTargetSha, sourceSha: input.sourceSha });
+    return { mergeSha: 'e'.repeat(40), kind: 'merge' };
   }
 
   async commit(input: { worktreePath: string; filePaths: readonly string[]; message: string; expectedHeadSha?: string; author: { name: string; email: string } }): Promise<{ sha: string }> {
@@ -566,6 +572,56 @@ test('fix rejects a second active run on the same base branch', async () => {
     }, 'stopped');
     assert.equal(stopped.state, 'stopped');
     assert.deepEqual(h.opencode.aborted, ['fix_session_1']);
+  } finally {
+    h.store.close();
+  }
+});
+
+
+test('fix merge merges the committed fix branch into the base branch with CAS and forbids a second merge', async () => {
+  const h = harness();
+  try {
+    h.git.changeSets = [{ files: [file('src/a.ts')], changesRevision: 'rev_1' }];
+    h.opencode.outcome = { idle: true, timedOut: false, assistantText: outcomesJson(h.findingIds), messages: [] };
+    const started = await h.service.start(h.projectId, fixStart(h.projectId, h.review.reviewRunId, h.findingIds));
+    const fixRunId = started.resource!.fix.fixRunId;
+    const ready = await waitFor(() => {
+      const fix = h.store.fixes.get(fixRunId);
+      return fix?.state === 'ready' ? fix : undefined;
+    }, 'fix ready');
+    await h.service.commit(h.projectId, fixRunId, {
+      requestKey: createRequestKey(),
+      projectId: h.projectId,
+      fixRunId,
+      message: 'fix: 空输入',
+      fileIds: [ready.changes!.files[0]!.fileId],
+      expectedFixRevision: ready.fixRevision,
+    });
+    const merged = await h.service.merge(h.projectId, fixRunId, {
+      requestKey: createRequestKey(),
+      projectId: h.projectId,
+      fixRunId,
+      expectedBaseTip: TIP_SHA,
+      confirmMerge: true,
+    });
+    assert.equal(merged.receipt.status, 'succeeded');
+    assert.equal(h.git.mergeCalls.length, 1);
+    assert.equal(h.git.mergeCalls[0]?.targetBranch, 'main');
+    assert.equal(h.git.mergeCalls[0]?.sourceSha, h.git.commitSha);
+    assert.equal(h.git.mergeCalls[0]?.expectedTargetSha, TIP_SHA);
+    const step = merged.resource!.fix.steps.find((item) => item.step === 'merge');
+    assert.equal(step?.state, 'succeeded');
+    assert.equal(step?.commitSha, 'e'.repeat(40));
+    await assert.rejects(
+      h.service.merge(h.projectId, fixRunId, {
+        requestKey: createRequestKey(),
+        projectId: h.projectId,
+        fixRunId,
+        expectedBaseTip: TIP_SHA,
+        confirmMerge: true,
+      }),
+      (error: unknown) => error instanceof AppError && error.code === ErrorCode.VALIDATION_FAILED,
+    );
   } finally {
     h.store.close();
   }

@@ -82,7 +82,7 @@
 | POST | `.../findings/:id` | 接受/忽略/误报（可选 expectedStatusRevision CAS） |
 | POST | `/api/git/repos/:projectId/fixes/start` | 在 `ai-fix/*` 隔离 worktree 修复选中 findings |
 | GET | `.../fixes`、`.../fixes/:id`、`.../fixes/:id/diff` | 修复记录与权威 diff |
-| POST | `.../fixes/:id/{stop,commit,push,merge-request,discard}` | 每步独立 requestKey/回执，无自动连锁 |
+| POST | `.../fixes/:id/{stop,commit,push,merge-request,merge,discard}` | 每步独立 requestKey/回执，无自动连锁；merge 为本地 no-ff + 目标 tip CAS |
 | POST | `.../fixes/:id/files/:fileId/revert` | 撤销单个修复文件 |
 
 工作区读口 `GET /changes`、`GET /changes/files/:fileId/diff`；合并 `POST /delivery/merge`。

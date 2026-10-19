@@ -7,6 +7,7 @@ import type {
   FixCommitRequest,
   FixDiscardRequest,
   FixFileRevertRequest,
+  FixMergeRequest,
   FixMergeRequestRequest,
   FixPushRequest,
   FixResponse,
@@ -140,6 +141,11 @@ export function registerReviewRoutes(app: FastifyInstance, deps: ReviewRoutesDep
     const body = bodyOf<FixPushRequest>(request, { projectId: request.params.projectId, fixRunId: request.params.fixRunId });
     const result = await fixes.push(request.params.projectId, request.params.fixRunId, body);
     return fixEnvelope(result, request);
+  });
+
+  app.post<{ Params: { projectId: string; fixRunId: string } }>('/api/git/repos/:projectId/fixes/:fixRunId/merge', async (request) => {
+    const body = bodyOf<FixMergeRequest>(request, { projectId: request.params.projectId, fixRunId: request.params.fixRunId });
+    return fixEnvelope(await fixes.merge(request.params.projectId, request.params.fixRunId, body), request);
   });
 
   app.post<{ Params: { projectId: string; fixRunId: string } }>('/api/git/repos/:projectId/fixes/:fixRunId/merge-request', async (request) => {

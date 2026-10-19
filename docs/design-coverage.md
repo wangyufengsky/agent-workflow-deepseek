@@ -15,7 +15,7 @@
 | requirements.html | `/requirements` | `/api/tasks` | ✅ | 需求目录（筛选/项目/加载更多） |
 | inbox.html | `/inbox` | bootstrap.inbox | ✅ | 5 类待处理分组；写动作归画布 |
 | projects.html | `/projects` | `/api/projects` | ✅ | 列表 + 登记项目（requestKey/回执核对） |
-| git/index.html | `/git`、`/git/:projectId` | `/api/git/*` | ✅ | 读模型、fetch、MR 读取、AI 审查/修复（真实模型验证） |
+| git/index.html | `/git`、`/git/:projectId` | `/api/git/*` | ✅ | 读模型、fetch、MR、AI 审查/修复（真实模型验证）、修复分支合并 |
 | delivery/* | 任务页交付 | `/delivery/*`、`/delivery/merge`、`/delivery/apply` | ✅/🟡 | 选择/提交/推送/MR/合并/非 Git 应用已接线；真实远端写待验证 |
 | node/index.html | 任务页节点面板 | `/nodes/:nodeId` | ✅/🟡 | 事实条、正文/工具、attempts、输出；历史分页/补读未做 |
 | databases.html | `/databases` | `/api/settings/databases` | ✅ | 连接管理、探针、只读查询；真实 MySQL 9.2 已验证 |
@@ -79,7 +79,7 @@
 | B-04 历史角色配置 | ⛔ |
 | B-05 需求高级澄清与规划 | ✅ 合并为需求画布按阶段页签（见 PE01–PE32） |
 | B-06 历史模板档案 | ⛔ |
-| B-07 快照评审 | ⛔ |
+| B-07 快照评审 | 🟡 审查/修复真实可用；快照对比视图未做 |
 | B-08 知识研究员检查面板 | ⛔ |
 | B-09 PPT 七模块 | ⛔ |
 | B-10 OpenCode 自动检测 | 🟡 受管服务状态/重启；自动检测设置未接 |

@@ -77,7 +77,7 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
   提交结果；节点成功，worktree 变更可读。
 - **AI 审查**：真实模型对真实提交产出结构化 findings，服务端校验位置/严重度/维度后结算 completed。
 - **AI 修复**：真实模型在 `ai-fix/*` 隔离 worktree 内通过 MCP 修改代码，outcome=fixed（exact）→ 提交 → 放弃
-  并清理 worktree/本地分支。
+  并清理 worktree/本地分支；修复分支可单独合并回基线分支（no-ff + CAS）。
 - **MySQL**：连接本机 `opencode_workflow_test`（MySQL 9.2.0），探针 / `SHOW TABLES` / 只读 SELECT 通过，
   DELETE 与多语句被拒绝；密码从测试项目 `application.yml` 注入，不落库明文。
 - **GitHub**：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；响应与日志不包含令牌。

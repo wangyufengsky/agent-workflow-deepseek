@@ -12,6 +12,7 @@ import {
 import {
   classifyGitFailure,
   commitFix,
+  mergeFix,
   createFixMergeRequest,
   discardFix,
   fetchFix,
@@ -48,7 +49,7 @@ import {
   shortSha,
 } from './git-shared.tsx';
 
-type FixDialog = 'start' | 'commit' | 'push' | 'mr' | 'discard' | null;
+type FixDialog = 'start' | 'commit' | 'push' | 'mr' | 'merge' | 'discard' | null;
 
 function shouldRetry(failureCount: number, error: unknown): boolean {
   return classifyGitFailure(error) === 'failed' && failureCount < 2;
@@ -112,6 +113,7 @@ export function FixPanel({
   const queryClient = useQueryClient();
   const bootstrap = useBootstrap();
   const [dialog, setDialog] = useState<FixDialog>(null);
+  const [mergeMessage, setMergeMessage] = useState('');
   const [receipt, setReceipt] = useState<ReceiptView | null>(null);
   const [lookupKey, setLookupKey] = useState<string | null>(null);
   const [fixRunId, setFixRunId] = useState<string | undefined>(undefined);
@@ -326,6 +328,23 @@ export function FixPanel({
     setDialog('push');
   };
 
+  const mergeMutation = useMutation({
+    mutationFn: async () => {
+      if (fix === undefined || mergeBaseTip === undefined) throw new Error('没有读取到基线分支 tip');
+      return mergeFix({
+        projectId: repo.projectId,
+        fixRunId: fix.fixRunId,
+        expectedBaseTip: mergeBaseTip,
+        ...(mergeMessage.trim() === '' ? {} : { message: mergeMessage.trim() }),
+      });
+    },
+    onSuccess: async (result) => {
+      setReceipt(result.receipt ?? null);
+      setDialog(null);
+      await invalidateFix();
+    },
+  });
+
   const openMrDialog = () => {
     const target = repo.defaultBranch ?? branches[0]?.name ?? '';
     setMrTarget(target);
@@ -340,6 +359,8 @@ export function FixPanel({
   const commitStep = fix === undefined ? undefined : stepOf(fix, 'commit');
   const pushStep = fix === undefined ? undefined : stepOf(fix, 'push');
   const mrStep = fix === undefined ? undefined : stepOf(fix, 'mergeRequest');
+  const mergeStep = fix === undefined ? undefined : stepOf(fix, 'merge');
+  const mergeBaseTip = fix === undefined ? undefined : branches.find((branch) => branch.name === fix.base.branch && branch.kind === 'local')?.tipSha ?? branches.find((branch) => branch.name === fix.base.branch)?.tipSha;
   const gitlabReady = repo.gitlab === 'connected' && repo.remote !== undefined;
 
   const startBlockedReason =
@@ -648,6 +669,37 @@ export function FixPanel({
                 )}
               </div>
             </div>
+
+            <div className={`fix-step ${commitStep?.state === 'succeeded' ? '' : 'locked'}`}>
+              <div className="fix-step-head">
+                <Badge tone={mergeStep?.state === 'succeeded' ? 'ok' : commitStep?.state === 'succeeded' ? 'accent' : 'neutral'}>
+                  {mergeStep?.state === 'succeeded' ? '已合并' : commitStep?.state === 'succeeded' ? '可确认' : '未开始'}
+                </Badge>
+                <span className="fix-step-title">④ 合并回基线分支</span>
+                {mergeStep?.commitSha === undefined ? null : <span className="mono-sm">{shortSha(mergeStep.commitSha)}</span>}
+              </div>
+              <div className="fix-step-desc">
+                在本地仓库把修复分支合并回 <span className="mono">{fix.base.branch}</span>（no-ff + 目标分支 CAS）；不代替推送/MR，可独立选择。
+              </div>
+              <div className="fix-step-actions">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon="branch"
+                  disabled={commitStep?.state !== 'succeeded' || mergeStep?.state === 'succeeded' || mergeBaseTip === undefined || mergeMutation.isPending}
+                  disabledReason={
+                    commitStep?.state !== 'succeeded' ? '提交成功后才能合并。'
+                      : mergeStep?.state === 'succeeded' ? '修复分支已合并。'
+                        : mergeBaseTip === undefined ? '没有读取到目标分支当前 tip；刷新分支后再确认。'
+                          : undefined
+                  }
+                  onClick={() => { setDialog('merge'); }}
+                >
+                  {mergeStep?.state === 'succeeded' ? '已合并' : '合并修复分支'}
+                </Button>
+                {mergeStep?.state === 'succeeded' ? null : <span className="muted-note">合并前会再次读取目标分支 tip；漂移即停止。</span>}
+              </div>
+            </div>
           </div>
 
           <div className="row-wrap">
@@ -656,10 +708,10 @@ export function FixPanel({
               放弃修复
             </Button>
           </div>
-          {startMutation.isError || commitMutation.isError || pushMutation.isError || mrMutation.isError || revertMutation.isError || discardMutation.isError || stopMutation.isError ? (
+          {startMutation.isError || commitMutation.isError || pushMutation.isError || mrMutation.isError || mergeMutation.isError || revertMutation.isError || discardMutation.isError || stopMutation.isError ? (
             <FailureNotice
               error={
-                startMutation.error ?? commitMutation.error ?? pushMutation.error ?? mrMutation.error ??
+                startMutation.error ?? commitMutation.error ?? pushMutation.error ?? mrMutation.error ?? mergeMutation.error ??
                 revertMutation.error ?? discardMutation.error ?? stopMutation.error
               }
               compact
@@ -874,6 +926,45 @@ export function FixPanel({
             <span>创建成功只代表所选交付完成，不等待合并；合并在 GitLab 完成。已有同源 → 目标的打开 MR 时服务不会重复创建。</span>
           </div>
           {mrMutation.isError ? <FailureNotice error={mrMutation.error} compact /> : null}
+        </div>
+      </Modal>
+
+      {/* 合并修复确认 */}
+      <Modal
+        open={dialog === 'merge'}
+        title="合并修复分支？"
+        onClose={() => { setDialog(null); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setDialog(null); }}>取消</Button>
+            <span className="spacer" />
+            <Button
+              variant="primary"
+              icon="branch"
+              disabled={mergeBaseTip === undefined || mergeMutation.isPending}
+              disabledReason={mergeBaseTip === undefined ? '没有读取到目标分支 tip。' : undefined}
+              onClick={() => { mergeMutation.mutate(); }}
+            >
+              {mergeMutation.isPending ? '合并中…' : '确认合并'}
+            </Button>
+          </>
+        }
+      >
+        <div className="stack-loose">
+          <div className="dialog-facts">
+            <div className="row-line"><span className="k">源提交</span><span className="v mono">{commitStep?.commitSha ?? '—'}</span></div>
+            <div className="row-line"><span className="k">修复分支</span><span className="v mono">{fix?.fixBranch ?? '—'}</span></div>
+            <div className="row-line"><span className="k">目标分支</span><span className="v mono">{fix?.base.branch ?? '—'} @ {mergeBaseTip === undefined ? '未知' : shortSha(mergeBaseTip)}</span></div>
+          </div>
+          <label className="form-label">
+            合并提交信息
+            <input className="input" value={mergeMessage} placeholder="可选：默认使用修复分支与摘要" maxLength={400} onChange={(event) => { setMergeMessage(event.target.value); }} />
+          </label>
+          <div className="dialog-warning">
+            <Icon name="shield" />
+            <span>合并只更新本地目标分支（no-ff + CAS）；不会推送、不会创建 MR。目标分支在确认后前移时停止并返回 STALE_TARGET。</span>
+          </div>
+          {mergeMutation.isError ? <FailureNotice error={mergeMutation.error} compact /> : null}
         </div>
       </Modal>
 

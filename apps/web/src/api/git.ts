@@ -29,6 +29,7 @@ import {
   type FixCommitRequest,
   type FixDiscardRequest,
   type FixFileRevertRequest,
+  type FixMergeRequest,
   type FixMergeRequestRequest,
   type FixPushRequest,
   type FixResponse,
@@ -424,6 +425,28 @@ export async function createFixMergeRequest(input: FixMergeRequestInput): Promis
     `${ROUTES.fix(input.projectId, input.fixRunId)}/merge-request`,
     body,
   );
+  return response.data;
+}
+
+export interface FixMergeInput {
+  readonly projectId: string;
+  readonly fixRunId: string;
+  readonly expectedBaseTip: string;
+  readonly message?: string;
+  readonly strategy?: 'no_ff' | 'ff_only';
+}
+
+export async function mergeFix(input: FixMergeInput): Promise<CommandResponse<FixResponse>> {
+  const body: FixMergeRequest = {
+    requestKey: createRequestKey(),
+    projectId: input.projectId,
+    fixRunId: input.fixRunId,
+    expectedBaseTip: input.expectedBaseTip,
+    ...(input.message === undefined ? {} : { message: input.message }),
+    ...(input.strategy === undefined ? {} : { strategy: input.strategy }),
+    confirmMerge: true,
+  };
+  const response = await apiPost<CommandResponse<FixResponse>>(ROUTES.fixMerge(input.projectId, input.fixRunId), body);
   return response.data;
 }
 

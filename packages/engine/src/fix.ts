@@ -10,6 +10,7 @@ import type {
   FixCommitRequest,
   FixDiscardRequest,
   FixFileRevertRequest,
+  FixMergeRequest,
   FixMergeRequestRequest,
   FixOutcomeValue,
   FixPushRequest,
@@ -491,6 +492,59 @@ export class FixService {
     } catch (error) {
       this.#recordStepFailure(fix, 'commit', input.requestKey, error);
       this.#failCommand(input.requestKey, error);
+      throw error;
+    }
+  }
+
+  async merge(projectId: string, fixRunId: string, input: FixMergeRequest): Promise<CommandResponse<FixResponse>> {
+    const project = this.#requireProject(projectId);
+    const fix = this.#requireFix(projectId, fixRunId);
+    const commitStep = stepOf(fix, 'commit');
+    if (commitStep?.state !== 'succeeded' || commitStep.commitSha === undefined) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '需要先成功提交修复，才能合并修复分支');
+    }
+    if (stepOf(fix, 'merge')?.state === 'succeeded') throw new AppError(ErrorCode.VALIDATION_FAILED, '修复分支已经合并过');
+    if (input.confirmMerge !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '合并需要显式确认');
+    if (!/^[0-9a-f]{7,40}$/i.test(input.expectedBaseTip)) throw new AppError(ErrorCode.VALIDATION_FAILED, '目标分支基线必须是 SHA');
+    if (this.#git.mergeTaskBranch === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前 Git 适配未提供合并能力');
+    const branches = await this.#git.branches(project.rootPath);
+    const base = resolveBaseBranch(branches, fix.base.branch);
+    if (base === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, `基线分支不存在：${fix.base.branch}`);
+    if (base.tipSha !== input.expectedBaseTip) {
+      throw new AppError(ErrorCode.STALE_TARGET, '目标分支已前移，请重新读取后确认', { details: { expected: input.expectedBaseTip, actual: base.tipSha } });
+    }
+    const message = (input.message ?? `merge: ${fix.fixBranch} 修复提交`).trim().slice(0, 4_000);
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'fix.merge',
+      body: { projectId, fixRunId, expectedBaseTip: input.expectedBaseTip, message, strategy: input.strategy ?? 'no_ff', confirmMerge: true },
+      target: { projectId, ref: fix.base.branch, expectedSha: input.expectedBaseTip },
+    });
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    try {
+      const merged = await this.#git.mergeTaskBranch({
+        repoRoot: project.rootPath,
+        targetBranch: fix.base.branch,
+        expectedTargetSha: input.expectedBaseTip,
+        sourceSha: commitStep.commitSha,
+        message,
+        tempRoot: join(this.#store.dataDir, 'merge-tmp'),
+        strategy: input.strategy ?? 'no_ff',
+      });
+      const steps = setStep(fix.steps, {
+        step: 'merge',
+        state: 'succeeded',
+        requestKey: input.requestKey,
+        settledAt: nowIso(),
+        commitSha: merged.mergeSha,
+      });
+      const next: FixRun = { ...fix, steps, fixRevision: nextFixRevision(fix.fixRevision) };
+      const updated = this.#store.fixes.update({ ...next, actions: fixActions(next) });
+      this.#publish(updated);
+      this.#settle(input.requestKey, { mergeSha: merged.mergeSha, kind: merged.kind, targetBranch: fix.base.branch });
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { fix: this.#requireFix(projectId, fixRunId) } };
+    } catch (error) {
+      this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('合并修复分支失败'));
       throw error;
     }
   }
@@ -1036,6 +1090,7 @@ export function fixActions(fix: FixRun): Record<string, ActionAvailability> {
   const commitStep = stepOf(fix, 'commit');
   const pushStep = stepOf(fix, 'push');
   const mrStep = stepOf(fix, 'mergeRequest');
+  const mergeStep = stepOf(fix, 'merge');
   const files = fix.changes?.files.length ?? 0;
   const committed = commitStep?.state === 'succeeded';
   const pushed = pushStep?.state === 'succeeded';
@@ -1046,7 +1101,9 @@ export function fixActions(fix: FixRun): Record<string, ActionAvailability> {
     commit: ready && !committed && files > 0 ? allowed() : denied(committed ? 'ALREADY_COMMITTED' : Rationale.NO_CHANGES, committed ? '已提交；下一步是推送' : '没有可提交的修复改动'),
     push: committed && !pushed ? allowed() : denied(committed ? 'ALREADY_PUSHED' : 'NOT_COMMITTED', committed ? '已推送；下一步是创建合并请求' : '需要先成功提交修复'),
     createMr: pushed && !mrCreated ? allowed() : denied(pushed ? 'ALREADY_CREATED' : 'NOT_PUSHED', pushed ? '已创建合并请求' : '需要先成功推送修复分支'),
-    merge: denied('NOT_IMPLEMENTED', '直接合并尚未接通；请通过合并请求交付'),
+    merge: committed && mergeStep?.state !== 'succeeded'
+      ? allowed()
+      : denied(mergeStep?.state === 'succeeded' ? 'ALREADY_MERGED' : 'NOT_COMMITTED', mergeStep?.state === 'succeeded' ? '修复分支已合并' : '需要先成功提交修复'),
     discard: !inProgress && !stopping ? allowed() : denied(Rationale.OPERATION_IN_PROGRESS, '修复进行中不能放弃；先停止并等停稳'),
   };
 }

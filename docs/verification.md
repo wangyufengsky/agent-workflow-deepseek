@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**289 tests / 54 suites / 281 pass / 8 skipped / 0 fail**，约 24s。
+结果（本轮）：**290 tests / 54 suites / 282 pass / 8 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -82,7 +82,8 @@ AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integrati
 
 结果（PASS，25s）：构造真实 finding → 在 `ai-fix/*` 隔离 worktree 内用 MCP 文件工具修复 →
 outcome=fixed(exact)、`app.ts` 为唯一变更 → `fixes/:id/commit` 成功 → discard 清理 worktree、本地分支与
-`fix.worktree.<id>` 映射；用户工作区未被触碰（独立测试同样覆盖）。
+`fix.worktree.<id>` 映射；用户工作区未被触碰（独立测试同样覆盖）。修复分支可直接合并回基线：
+`POST /fixes/:id/merge`（no-ff + 目标 tip CAS；二次合并与漂移拒绝），离线测试覆盖。
 
 ### 3.5 真实 MySQL（PASS）
 

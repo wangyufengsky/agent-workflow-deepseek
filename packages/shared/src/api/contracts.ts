@@ -600,6 +600,15 @@ export interface FixPushRequest extends CommandRequest {
   readonly expectedLocalSha: string;
 }
 
+export interface FixMergeRequest extends CommandRequest {
+  readonly projectId: string;
+  readonly fixRunId: string;
+  readonly expectedBaseTip: string;
+  readonly message?: string;
+  readonly strategy?: 'no_ff' | 'ff_only';
+  readonly confirmMerge: true;
+}
+
 export interface FixMergeRequestRequest extends CommandRequest {
   readonly projectId: string;
   readonly fixRunId: string;
@@ -796,6 +805,7 @@ export const ROUTES = {
   fixes: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes`,
   fix: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}`,
   fixStart: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/start`,
+  fixMerge: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/merge`,
   settings: '/api/settings',
   gitlabConnection: '/api/settings/gitlab',
   gitlabConnectionTest: '/api/settings/gitlab/test',
