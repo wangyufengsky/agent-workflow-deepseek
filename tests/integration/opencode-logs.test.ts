@@ -16,6 +16,15 @@ test('OpenCode log tail returns recent lines with credential-shaped strings reda
   ].join('\n') + '\n', 'utf8');
   const app = await createApplication({ dataDir, disableOpenCode: true, disableListen: true });
   try {
+    const status = await app.app.inject({ method: 'GET', url: '/api/opencode/status' });
+    assert.equal(status.statusCode, 200, status.body);
+    const statusData = status.json().data.status as { state: string; managed: boolean; enabled: boolean; mcp: { connected: boolean; tools: number } };
+    assert.equal(statusData.state, 'stopped');
+    assert.equal(statusData.managed, false);
+    assert.equal(statusData.enabled, true);
+    assert.equal(statusData.mcp.connected, false);
+    assert.equal(statusData.mcp.tools, 0);
+
     const response = await app.app.inject({ method: 'GET', url: '/api/opencode/logs?lines=10' });
     assert.equal(response.statusCode, 200, response.body);
     const body = response.json().data as { lines: string[]; truncated: boolean; path: string };

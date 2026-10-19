@@ -112,3 +112,5 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 真实远端写、模板编辑、知识库/PPT、用量质量、签名打包与视觉回归仍待完成，见 `docs/remaining-work.md`。
 
 > 若从某些工具终端启动桌面应用时只见日志、不开窗，检查是否继承了 `ELECTRON_RUN_AS_NODE=1`；桌面主进程需要普通 Electron 模式（可 `unset ELECTRON_RUN_AS_NODE` 后再启动）。
+
+> 若设置页显示「受管 OpenCode 未启用」，检查启动命令是否设置了 `AGENT_WORKFLOW_DISABLE_OPENCODE=1`，或设置中 `opencode.enabled=false`；启用后需要重启整个 Agent Workflow 服务。

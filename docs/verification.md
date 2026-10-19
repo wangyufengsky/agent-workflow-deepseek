@@ -298,3 +298,10 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 同页可直接配置：OpenCode 可执行文件路径（保存后重启生效）、启用受管运行时、自动启动、权限模式、Agent、重启按钮；完整检测/日志仍在「服务」分区。
 - UI smoke 新增 `/settings?section=model` 断言（职责模型/添加模型/OpenCode 可执行文件），截图 `evidence/ui-settings-model.png`。
 - 服务端测试：自定义模型写入、全部停用 400、非法角色 400。
+
+### 第 85 轮 OpenCode 未启用状态（2026-10-19）
+
+- `/api/opencode/status` 新增 `managed`（本次进程是否加载了受管适配器）与 `enabled`（保存的设置）。
+- 服务页在 `managed=false` 时显示明确原因：“受管 OpenCode 未启用（opencode.enabled=false 或启动环境 AGENT_WORKFLOW_DISABLE_OPENCODE=1），请启用后重启 Agent Workflow 服务”，不再把重启的 NOT_CONFIGURED 误报成“本地后端未连接”。
+- 重启按钮在未加载适配器时禁用；重启错误直接显示服务返回文案。
+- 测试：disabledOpenCode 应用 status 返回 stopped/managed=false/enabled=true/MCP 未连接 0 工具。

@@ -183,8 +183,8 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
                 variant="secondary"
                 size="sm"
                 icon="refresh"
-                disabled={restart.isPending || statusQuery.isError}
-                disabledReason={statusQuery.isError ? '读取不到 OpenCode 状态，不能重启' : undefined}
+                disabled={restart.isPending || statusQuery.isError || !settings.opencode.enabled}
+                disabledReason={!settings.opencode.enabled ? '先启用受管 OpenCode 并重启 Agent Workflow 服务' : statusQuery.isError ? '读取不到 OpenCode 状态，不能重启' : undefined}
                 onClick={() => { restart.mutate(); }}
               >
                 {restart.isPending ? '重启中…' : '重启 OpenCode'}
@@ -205,7 +205,7 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
         <div className="frow">
           <div className="l">
             运行时开关
-            <span className="hint">保存后下次启动/重启生效</span>
+            <span className="hint">保存后需重启 Agent Workflow 服务生效（不是只重启 OpenCode）</span>
           </div>
           <div className="v">
             <div className="row wrap" style={{ gap: 16, marginBottom: 8 }}>
@@ -236,6 +236,7 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
               </Button>
             </div>
             {saveRuntime.isError ? <p className="hint" style={{ marginTop: 6, color: 'var(--danger)' }}>{errorMessage(saveRuntime.error)}</p> : null}
+            {!settings.opencode.enabled ? <p className="hint" style={{ marginTop: 6, color: 'var(--danger)' }}>当前保存的设置为「未启用受管 OpenCode」；需要打开并保存，然后重启 Agent Workflow 服务。</p> : null}
           </div>
         </div>
       </div>

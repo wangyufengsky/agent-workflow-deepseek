@@ -964,6 +964,8 @@ export interface DatabaseQueryResponseEnvelope {
 export interface OpenCodeStatusResponse {
   readonly status: {
     readonly state: string;
+    readonly managed: boolean;
+    readonly enabled: boolean;
     readonly version?: string;
     readonly binaryPath: string;
     readonly host?: string;

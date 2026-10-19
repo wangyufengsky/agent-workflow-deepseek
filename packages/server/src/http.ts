@@ -785,6 +785,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       {
         status: {
           state: status.state,
+          managed: opencode !== undefined,
+          enabled: setting.opencode.enabled,
           version: status.version,
           binaryPath: setting.opencode.binaryPath,
           host: status.host,

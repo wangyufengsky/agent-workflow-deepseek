@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createRequestKey } from '@agent-workflow/shared';
 import { OpencodeServiceStatus, type IntegrationStatus, type OpencodeServiceStatusValue } from '@agent-workflow/shared';
-import { apiGet, isServiceUnavailable, request } from '../../api/client.ts';
+import { apiGet, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useBootstrap, useOpenCodeDetect, useOpenCodeStatus, useRestartOpenCode } from '../../api/hooks.ts';
 import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
@@ -82,11 +82,14 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
   const restart = useRestartOpenCode();
   const status = statusQuery.data;
   const disconnected = statusQuery.isError && isServiceUnavailable(statusQuery.error);
+  const managed = status?.managed !== false;
   const restartBlockedReason = disconnected
     ? '服务未连接：无法读取 OpenCode 状态，也不能提交重启请求。'
     : statusQuery.isError
       ? 'OpenCode 状态读取失败，先修复状态接口再重启。'
-      : '正在读取 OpenCode 状态…';
+      : !managed
+        ? '受管 OpenCode 未随当前服务启动（设置被禁用或进程以 AGENT_WORKFLOW_DISABLE_OPENCODE=1 启动）。先在「模型与执行」启用并重启 Agent Workflow 服务。'
+        : '正在读取 OpenCode 状态…';
 
   return (
     <div className="sect">
@@ -113,6 +116,21 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
           <p className="hint" style={{ marginTop: 10 }}>
             POST /api/opencode/restart 在状态不可读时不会发送。
           </p>
+        </div>
+      ) : null}
+
+      {status !== undefined && !managed ? (
+        <div className="banner danger" style={{ marginTop: 16 }}>
+          <Icon name="alert" />
+          <div className="grow">
+            <b>受管 OpenCode 未启用</b>
+            <br />
+            当前服务启动时没有加载 OpenCode（<span className="mono">opencode.enabled={String(status.enabled)}</span>
+            ，或启动环境设置了 <span className="mono">AGENT_WORKFLOW_DISABLE_OPENCODE=1</span>）。
+            请到「模型与执行」打开「启用受管 OpenCode」并保存，然后重启 Agent Workflow 服务（不是只重启 OpenCode）。
+            <br />
+            因此这里显示“已停止 / MCP 未连接 0 工具”是预期状态，并不代表本地后端没连上。
+          </div>
         </div>
       ) : null}
 
@@ -193,7 +211,7 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
                 size="sm"
                 icon="refresh"
                 title="重启 OpenCode 受管进程（会结束当前会话）"
-                disabled={statusQuery.isError || restart.isPending}
+                disabled={statusQuery.isError || restart.isPending || !managed}
                 disabledReason={restartBlockedReason}
                 onClick={() => restart.mutate()}
               >
@@ -208,7 +226,12 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
                   </span>
                 </div>
               ) : null}
-              {restart.isError ? <ServiceNotice className="inline-banner" error={restart.error} /> : null}
+              {restart.isError ? (
+                <div className="banner danger" style={{ marginTop: 10 }}>
+                  <Icon name="alert" />
+                  <span>{errorMessage(restart.error)}</span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
