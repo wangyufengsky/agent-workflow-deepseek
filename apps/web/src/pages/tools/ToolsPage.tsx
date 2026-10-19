@@ -1,4 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { createRequestKey } from '@agent-workflow/shared';
+import { errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useBootstrap, useOpenCodeStatus } from '../../api/hooks.ts';
 import { MANAGED_MCP_TOOLS, MCP_TOOLSETS, TOOL_ACCESS_LABEL, toolsOfToolset, type ManagedToolMeta } from '../../api/catalog.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
@@ -11,7 +14,7 @@ import { formatRelativeTime } from '../../app/format.ts';
 
 type ToolsTab = 'tools' | 'skills';
 
-const TOGGLE_BLOCKED_REASON = '工具开关写入接口尚未接通：当前只能读取受管工具清单，不能启用 / 停用工具。';
+const TOGGLE_BLOCKED_REASON = '单个工具开关未开放；按工具集启停并重启受管 OpenCode 后生效。';
 const SKILL_BLOCKED_REASON = 'Skill 目录接口尚未接通：服务端没有 /api/skills，页面不列出示例 Skill。';
 
 const TOOLSET_ICON: Record<string, IconName> = {
@@ -52,16 +55,32 @@ function ToolRow({ tool }: { readonly tool: ManagedToolMeta }) {
           </div>
         )}
       </div>
-      <Button variant="ghost" size="sm" icon="pause" disabled disabledReason={TOGGLE_BLOCKED_REASON}>
-        停用
+      <Button variant="ghost" size="sm" icon="lock" disabled disabledReason={TOGGLE_BLOCKED_REASON}>
+        工具集控制
       </Button>
     </div>
   );
 }
 
 function ToolsView() {
+  const queryClient = useQueryClient();
   const statusQuery = useOpenCodeStatus();
   const bootstrap = useBootstrap();
+  const toggleToolset = useMutation({
+    mutationFn: async (toolset: string) => {
+      const current = bootstrap.data?.settings.opencode.toolsets ?? [];
+      const next = current.includes(toolset) ? current.filter((item) => item !== toolset) : [...current, toolset];
+      await request('/api/settings', { method: 'PATCH', body: { requestKey: createRequestKey(), patch: { opencode: { toolsets: next } } } });
+      return next;
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+        queryClient.invalidateQueries({ queryKey: ['settings'] }),
+      ]);
+    },
+  });
+  const enabledToolsets = bootstrap.data?.settings.opencode.toolsets ?? [];
   const status = statusQuery.data;
   const integrationStatus = bootstrap.data?.integration.opencode.status;
 
@@ -99,10 +118,27 @@ function ToolsView() {
         </div>
         <div className="row wrap" style={{ gap: 6, marginTop: 12 }}>
           {integrationStatus === undefined ? null : <Badge outline>集成状态：{integrationStatus}</Badge>}
-          <span className="hint">
-            工具开关与 Skill 目录需要服务端写接口；本页只展示真实清单与运行状态，不提供模拟开关。
-          </span>
+          <span className="hint">按工具集启停，保存后重启受管 OpenCode 才会改变注入清单；单个工具开关未开放。</span>
         </div>
+        <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+          {MCP_TOOLSETS.map((toolset) => {
+            const enabled = enabledToolsets.includes(toolset.id);
+            return (
+              <Button
+                key={toolset.id}
+                variant={enabled ? 'secondary' : 'ghost'}
+                size="sm"
+                icon={enabled ? 'check' : 'minus'}
+                disabled={toggleToolset.isPending}
+                onClick={() => { toggleToolset.mutate(toolset.id); }}
+              >
+                {toolset.label} · {enabled ? '已启用' : '已停用'}
+              </Button>
+            );
+          })}
+        </div>
+        {toggleToolset.isError ? <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>{isServiceUnavailable(toggleToolset.error) ? '服务未连接，未保存。' : errorMessage(toggleToolset.error)}</p> : null}
+        {toggleToolset.isSuccess ? <p className="hint" style={{ marginTop: 8 }}>工具集设置已保存；重启 OpenCode 后生效。</p> : null}
         {statusQuery.isError ? (
           <div style={{ marginTop: 12 }}>
             <ServiceNotice

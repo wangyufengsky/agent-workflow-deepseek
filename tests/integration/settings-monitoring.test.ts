@@ -38,6 +38,21 @@ test('monitoring poll interval is persisted, validated and merged into bootstrap
     const modelsAfter = (await app.app.inject({ method: 'GET', url: '/api/bootstrap' })).json().data.settings.models as { id: string; enabled: boolean }[];
     assert.equal(modelsAfter.find((model) => model.id === target.id)?.enabled, false);
 
+    const toolset = await app.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: { requestKey: requestKey('tools'), patch: { opencode: { toolsets: ['git', 'workspace'] } } },
+    });
+    assert.equal(toolset.statusCode, 200, toolset.body);
+    const toolsetAfter = (await app.app.inject({ method: 'GET', url: '/api/bootstrap' })).json().data.settings.opencode.toolsets as string[];
+    assert.deepEqual(toolsetAfter, ['git', 'workspace']);
+    const emptyToolsets = await app.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: { requestKey: requestKey('toolsbad'), patch: { opencode: { toolsets: [] } } },
+    });
+    assert.equal(emptyToolsets.statusCode, 400, emptyToolsets.body);
+
     const invalid = await app.app.inject({
       method: 'PATCH',
       url: '/api/settings',

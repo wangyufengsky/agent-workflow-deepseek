@@ -266,6 +266,10 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
     issues.push({ path: 'opencode.expectedVersion', message: '当前受管运行时固定 OpenCode 1.19.0' });
   }
   if (!settings.opencode.binaryPath.trim()) issues.push({ path: 'opencode.binaryPath', message: 'OpenCode 可执行路径不能为空' });
+  const knownToolsets = ['workflow', 'git', 'database', 'workspace'];
+  if (settings.opencode.toolsets.length === 0 || settings.opencode.toolsets.some((toolset) => !knownToolsets.includes(toolset))) {
+    issues.push({ path: 'opencode.toolsets', message: '工具集需要在 workflow/git/database/workspace 中且至少启用一个' });
+  }
   if (!Number.isInteger(settings.monitoring.pollIntervalMs) || settings.monitoring.pollIntervalMs < 500 || settings.monitoring.pollIntervalMs > 30_000) {
     issues.push({ path: 'monitoring.pollIntervalMs', message: '轮询间隔需要在 500–30000ms 之间' });
   }

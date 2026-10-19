@@ -14,6 +14,8 @@ export interface McpRuntimeConfig {
   readonly maxFileBytes: number;
   readonly maxListEntries: number;
   readonly maxOutputBytes: number;
+  /** Enabled toolset prefixes (workflow / git / database / workspace). */
+  readonly toolsets: readonly string[];
 }
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
@@ -73,6 +75,7 @@ export function readMcpRuntimeConfig(env: NodeJS.ProcessEnv = process.env): McpR
     maxFileBytes: positiveInteger(env.AGENT_WORKFLOW_MCP_MAX_FILE_BYTES, DEFAULT_MAX_FILE_BYTES),
     maxListEntries: positiveInteger(env.AGENT_WORKFLOW_MCP_MAX_LIST_ENTRIES, DEFAULT_MAX_LIST_ENTRIES),
     maxOutputBytes: positiveInteger(env.AGENT_WORKFLOW_MCP_MAX_OUTPUT_BYTES, DEFAULT_MAX_OUTPUT_BYTES),
+    toolsets: parseToolsets(env.AGENT_WORKFLOW_TOOLSETS),
   };
 }
 
@@ -85,4 +88,13 @@ function positiveInteger(raw: string | undefined, fallback: number): number {
 
 function dedupe(values: readonly string[]): readonly string[] {
   return [...new Set(values)];
+}
+
+
+const KNOWN_TOOLSETS = ['workflow', 'git', 'database', 'workspace'] as const;
+
+function parseToolsets(raw: string | undefined): readonly string[] {
+  if (raw === undefined || raw.trim() === '') return KNOWN_TOOLSETS;
+  const values = raw.split(',').map((item) => item.trim()).filter((item) => (KNOWN_TOOLSETS as readonly string[]).includes(item));
+  return values.length === 0 ? KNOWN_TOOLSETS : [...new Set(values)];
 }

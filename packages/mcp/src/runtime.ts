@@ -47,6 +47,8 @@ export function buildMcpRuntime(env: NodeJS.ProcessEnv = process.env): McpRuntim
   }
 
   const registry = new ToolRegistry();
-  registry.registerAll(createAllTools({ api, workspace, exec }));
+  const enabled = new Set(config.toolsets);
+  const tools = createAllTools({ api, workspace, exec }).filter((tool) => enabled.has(tool.name.split('.')[0] ?? ''));
+  registry.registerAll(tools);
   return { config, client, api, registry, ...(workspace === undefined ? {} : { workspace }), ...(exec === undefined ? {} : { exec }) };
 }

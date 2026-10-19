@@ -160,6 +160,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
           AGENT_WORKFLOW_ALLOW_WRITE: '1',
           AGENT_WORKFLOW_DATA_DIR: dataDir,
           AGENT_WORKFLOW_ALLOWED_COMMANDS: baseSettings.git.defaultTestCommand,
+          AGENT_WORKFLOW_TOOLSETS: baseSettings.opencode.toolsets.join(','),
           NODE_OPTIONS: '',
         },
         model: planner,
