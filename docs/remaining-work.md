@@ -12,7 +12,7 @@
 | 四主题配置式、一键切换 | ✅ | `packages/shared/src/config/themes.ts`、`apps/web/src/theme/*`、多主题截图 |
 | Node.js 24 + TypeScript 后端 | ✅ | Fastify 5，Node 24 原生 TS + esbuild 生产包 |
 | SQLite + JSONL | ✅ | 迁移 v1–v7、仓库、事件/规划/执行 journal |
-| MySQL（mysql2） | ✅ | 真实 MySQL 9.2 探针/只读查询/写入拦截（`database-live.test.ts`） |
+| MySQL（mysql2）+ PostgreSQL（pg） | ✅/🟡 | MySQL 9.2 真实探针/只读/写入拦截；PostgreSQL 驱动分流由单测验证，未接真实实例 |
 | Git CLI + GitHub/GitLab REST + worktree | ✅/🟡 | 读模型/合并/fetch/推送防护；MR 创建用 GitHub/GitLab 桩验证；真实远端写未执行 |
 | 任务独立分支 + worktree + 并发 | ✅ | `concurrent-worktrees.test.ts`、delivery/fix merge CAS |
 | 内部 MCP + 受管 OpenCode 1.19.0 | ✅ | 启动注入 MCP、13 工具、错误码、真实规划/执行/审查/修复 live |

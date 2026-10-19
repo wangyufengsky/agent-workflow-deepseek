@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**311 tests / 54 suites / 301 pass / 10 skipped / 0 fail**，约 24s。
+结果（本轮）：**312 tests / 54 suites / 302 pass / 10 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 

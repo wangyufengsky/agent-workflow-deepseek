@@ -220,12 +220,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 export const DATABASE_TYPE_META: Record<
   DatabaseTypeValue,
-  { label: string; defaultPort: number; driver: 'mysql2' | 'planned'; urlExample: string }
+  { label: string; defaultPort: number; driver: 'mysql2' | 'pg' | 'planned'; urlExample: string }
 > = {
   mysql: { label: 'MySQL', defaultPort: 3306, driver: 'mysql2', urlExample: 'jdbc:mysql://127.0.0.1:3306/db?connectionTimeZone=UTC' },
   mariadb: { label: 'MariaDB', defaultPort: 3306, driver: 'mysql2', urlExample: 'jdbc:mysql://127.0.0.1:3306/db' },
   goldendb: { label: 'GoldenDB', defaultPort: 3306, driver: 'mysql2', urlExample: 'jdbc:mysql://127.0.0.1:3306/db' },
-  postgresql: { label: 'PostgreSQL', defaultPort: 5432, driver: 'planned', urlExample: 'jdbc:postgresql://127.0.0.1:5432/db' },
+  postgresql: { label: 'PostgreSQL', defaultPort: 5432, driver: 'pg', urlExample: 'jdbc:postgresql://127.0.0.1:5432/db' },
   oracle: { label: 'Oracle', defaultPort: 1521, driver: 'planned', urlExample: 'jdbc:oracle:thin:@127.0.0.1:1521/ORCL' },
   dm: { label: '达梦 DM', defaultPort: 5236, driver: 'planned', urlExample: 'jdbc:dm://127.0.0.1:5236' },
   db2: { label: 'DB2', defaultPort: 50000, driver: 'planned', urlExample: 'jdbc:db2://127.0.0.1:50000/db' },

@@ -112,10 +112,29 @@ describe('DatabaseService registration', () => {
   });
 
   it('rejects unsupported database types with CAPABILITY_UNAVAILABLE', async () => {
-    const { service } = services({ connections: [config({ type: 'postgresql' })] });
+    const { service } = services({ connections: [config({ type: 'oracle', port: 1521 })] });
     assert.equal(await codeOf(service.probe('conn-1')), ErrorCode.CAPABILITY_UNAVAILABLE);
     const result = await service.tryProbe('conn-1');
     assert.equal(result.state, DatabaseConnectionState.UNSUPPORTED);
+  });
+
+  it('routes PostgreSQL connections to the pg driver factory', async () => {
+    const secrets = new FakeSecrets();
+    secrets.values.set('db.conn-1.password', 'secret-value');
+    const { factory: mysqlFactory, state: mysqlState } = fakeFactory({});
+    const { factory: pgFactory, state: pgState } = fakeFactory({});
+    const service = new DatabaseService({
+      settings: { ...SETTINGS, connections: [config({ type: 'postgresql', port: 5432 })] },
+      secrets,
+      driverFactory: mysqlFactory,
+      postgresDriverFactory: pgFactory,
+    });
+    const probe = await service.probe('conn-1');
+    assert.equal(probe.state, DatabaseConnectionState.CONNECTED);
+    assert.equal(pgState.probeCalls, 1);
+    assert.equal(mysqlState.creations, 0);
+    const query = await service.queryReadOnly('conn-1', 'SELECT 1');
+    assert.equal(query.columns.length, 1);
   });
 
   it('rejects malformed connection definitions', () => {

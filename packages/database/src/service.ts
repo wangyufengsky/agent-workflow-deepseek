@@ -15,6 +15,7 @@ import {
 import { MAX_QUERY_LIMIT, assertQueryLimit, prepareReadOnlyQuery } from './guard.ts';
 import { mapMySqlError, redactSecrets, stateFromErrorCode } from './errors.ts';
 import { createMySqlDriverFactory } from './mysql.ts';
+import { createPostgresDriverFactory } from './postgres.ts';
 import type { MySqlDriver, MySqlDriverFactory } from './types.ts';
 
 /** Minimal secret-store seam; `SecretStore` from `@agent-workflow/storage` satisfies it. */
@@ -26,6 +27,7 @@ export interface DatabaseServiceOptions {
   readonly settings: DatabaseSettings;
   readonly secrets: SecretResolver;
   readonly driverFactory?: MySqlDriverFactory;
+  readonly postgresDriverFactory?: MySqlDriverFactory;
   readonly connectTimeoutMs?: number;
   readonly clock?: () => Date;
 }
@@ -56,6 +58,7 @@ export class DatabaseService {
   #settings: DatabaseSettings;
   readonly #secrets: SecretResolver;
   readonly #driverFactory: MySqlDriverFactory;
+  readonly #postgresDriverFactory: MySqlDriverFactory;
   readonly #connectTimeoutMs: number;
   readonly #clock: () => Date;
   readonly #connections = new Map<string, ConnectionRuntime>();
@@ -64,6 +67,7 @@ export class DatabaseService {
     this.#settings = options.settings;
     this.#secrets = options.secrets;
     this.#driverFactory = options.driverFactory ?? createMySqlDriverFactory;
+    this.#postgresDriverFactory = options.postgresDriverFactory ?? createPostgresDriverFactory;
     this.#connectTimeoutMs = Math.max(1, options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS);
     this.#clock = options.clock ?? (() => new Date());
     this.#syncConnections(options.settings.connections);
@@ -291,7 +295,7 @@ export class DatabaseService {
 
   #assertSupported(runtime: ConnectionRuntime): void {
     const meta = DATABASE_TYPE_META[runtime.config.type];
-    if (meta === undefined || meta.driver !== 'mysql2') {
+    if (meta === undefined || (meta.driver !== 'mysql2' && meta.driver !== 'pg')) {
       throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, `数据库类型 ${runtime.config.type} 暂不支持查询`, {
         details: { connectionId: runtime.config.id, type: runtime.config.type },
       });
@@ -300,7 +304,7 @@ export class DatabaseService {
 
   #stateForFailure(runtime: ConnectionRuntime, code: ErrorCodeValue): DatabaseConnectionStateValue {
     const meta = DATABASE_TYPE_META[runtime.config.type];
-    if (meta === undefined || meta.driver !== 'mysql2') return DatabaseConnectionState.UNSUPPORTED;
+    if (meta === undefined || (meta.driver !== 'mysql2' && meta.driver !== 'pg')) return DatabaseConnectionState.UNSUPPORTED;
     return stateFromErrorCode(code);
   }
 
@@ -331,7 +335,8 @@ export class DatabaseService {
     const fingerprint = fingerprintFor(runtime.config, password, this.#connectTimeoutMs);
     if (runtime.driver !== undefined && runtime.fingerprint === fingerprint) return runtime.driver;
     await this.#disposeDriver(runtime);
-    const driver = this.#driverFactory({
+    const factory = runtime.config.type === 'postgresql' ? this.#postgresDriverFactory : this.#driverFactory;
+    const driver = factory({
       connectionId: runtime.config.id,
       host: runtime.config.host,
       port: runtime.config.port,

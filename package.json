@@ -39,11 +39,13 @@
     "eventsource-parser": "3.1.1",
     "fastify": "5.6.2",
     "mysql2": "3.24.6",
+    "pg": "^8.16.3",
     "pptxgenjs": "^3.12.0",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
+    "@types/pg": "^8.15.5",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "@vitejs/plugin-react": "5.1.0",
