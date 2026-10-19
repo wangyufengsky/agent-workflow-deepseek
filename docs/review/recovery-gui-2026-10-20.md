@@ -44,3 +44,11 @@ GUI另发现TaskCanvas对verify_only空计划仍提示准备工作区，已交Le
 ## Lead 服务交接
 
 启动脚本 `/tmp/p23-gui-server.mts`，cwd为本独立worktree，命令 `node --import tsx /tmp/p23-gui-server.mts`；5401会读取本worktree `apps/web/dist`。可用环境 `AGENT_WORKFLOW_WEB_DIST`指定整合后的Web dist后重启同脚本，同一数据保留。需运行时正常写本机日志。当前服务exec session62802（PID3833）保留给Lead；SIGINT正常关闭。5402故障代理session66583已单独关闭。未提交夹具脚本／数据／凭据，不推送。
+
+正式截图另已归档入库 `docs/evidence/recovery-2026-10-20/`，不依赖临时目录存活：
+
+- [失败恢复差异](../evidence/recovery-2026-10-20/git-failed-preview.png)、[全部阶段差异](../evidence/recovery-2026-10-20/git-all-preview.png)、[只读验证差异](../evidence/recovery-2026-10-20/git-verify-preview.png)、[明确确认](../evidence/recovery-2026-10-20/git-confirm.png)。
+- [真实丢回执UNKNOWN](../evidence/recovery-2026-10-20/directory-lost-receipt.png)、[刷新后仍锁定](../evidence/recovery-2026-10-20/directory-refresh-still-locked.png)、[原key核对成功](../evidence/recovery-2026-10-20/directory-original-key-confirmed.png)。
+- [只读服务禁用](../evidence/recovery-2026-10-20/verify-readonly-disabled.png)、[派生冻结计划](../evidence/recovery-2026-10-20/derived-frozen-plan-confirmation.png)、[真实模型2/2完成](../evidence/recovery-2026-10-20/derived-real-model-completed.png)、[最终两栏结构](../evidence/recovery-2026-10-20/recovery-github-white-top.png)。
+
+截图中的父任务故障状态是注明的测试夹具；真实模型2/2完成仅对应上文独立派生执行。未提交运行DB、配置密钥、代理或夹具脚本。
