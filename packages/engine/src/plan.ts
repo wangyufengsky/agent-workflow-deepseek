@@ -1,3 +1,4 @@
+import { freezeRequirement, requirementLinks as sourceLinks, readRequirementSource } from './requirement-source.ts';
 import { executionPolicy } from './execution-policy.ts';
 import { snapshotPlanGraph } from './snapshot-review.ts';
 import type {
@@ -182,6 +183,7 @@ export class PlanService {
     }
     const settings = this.#context.settings();
     const project = this.#requireProject(task.projectId);
+    freezeRequirement(this.#store, task, plan.id);
     this.#store.plans.updateGraph(plan.id, confirmedGraph);
     this.#store.plans.setStatus(plan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
     const execution = this.#store.executions.byTask(taskId) ??
@@ -346,6 +348,7 @@ export class PlanService {
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     if (nextPlan !== undefined && input.continueExecution) {
+      freezeRequirement(this.#store, task, nextPlan.id);
       this.#store.plans.updateGraph(nextPlan.id, confirmedGraph!);
       this.#store.plans.setStatus(nextPlan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
     }
@@ -423,6 +426,10 @@ export class PlanService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
   }
 
+  readSource(taskId: string, nodeId: string, planId: string, entryId: string, revision: number, sha256: string) {
+    return readRequirementSource(this.#store, taskId, nodeId, planId, entryId, revision, sha256);
+  }
+
   nodeDetail(taskId: string, nodeId: string): NodeDetailResponse {
     const task = this.#requireTask(taskId);
     const plan = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
@@ -430,9 +437,7 @@ export class PlanService {
     const node = plan.graph.nodes.find((item) => item.id === nodeId);
     if (node === undefined) throw new AppError(ErrorCode.NOT_FOUND, '步骤不存在');
     const group = plan.graph.groups.find((item) => item.id === node.groupId);
-    const requirementLinks = node.inputs
-      .filter((input) => input.source === 'requirement')
-      .map((input) => ({ entryId: input.name, label: input.name, text: task.requirement.entries.find((entry) => entry.text.includes(input.name))?.text ?? input.name }));
+    const requirementLinks = sourceLinks(this.#store, task, plan, node);
     const dependencyReasons = plan.graph.edges
       .filter((edge) => edge.to === node.id)
       .map((edge) => ({ fromNodeId: edge.from, kind: edge.kind, reason: edge.kind === 'data' ? '数据依赖' : edge.kind === 'resource' ? '资源依赖' : '顺序依赖' }));

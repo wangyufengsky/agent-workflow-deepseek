@@ -656,6 +656,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(engine.executions.skipNode(request.params.id, request.params.nodeId, body), requestId(request));
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/cancel', async (request) => envelope(await engine.executions.cancel(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
+  app.get<{ Params: { id: string; nodeId: string; planId: string; entryId: string }; Querystring: { revision?: string; sha256?: string } }>('/api/tasks/:id/nodes/:nodeId/sources/:planId/:entryId', async (request) => envelope(engine.plans.readSource(request.params.id, request.params.nodeId, request.params.planId, request.params.entryId, Number(request.query.revision), request.query.sha256 ?? ''), requestId(request)));
+
   app.get<{ Params: { id: string; nodeId: string; attemptId: string; callId: string }; Querystring: { part?: 'input' | 'output' | 'error'; cursor?: string } }>('/api/tasks/:id/nodes/:nodeId/attempts/:attemptId/tools/:callId', async (request) => envelope(engine.executions.readTool(request.params.id, request.params.nodeId, request.params.attemptId, request.params.callId, request.query.part ?? 'output', request.query.cursor), requestId(request)));
 
   app.get<{ Params: { id: string; attemptId: string; artifactId: string }; Querystring: { revision?: string; sha256?: string; download?: string; cursor?: string } }>('/api/tasks/:id/attempts/:attemptId/artifacts/:artifactId', async (request, reply) => {

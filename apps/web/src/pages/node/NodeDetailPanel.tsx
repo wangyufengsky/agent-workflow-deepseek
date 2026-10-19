@@ -135,7 +135,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
     setPendingAction(null);
     setReader(null);
     setWide(false);
-  }, [focusAcceptance, focusAcceptanceToken, nodeId]);
+  }, [focusAcceptance, focusAcceptanceToken, taskId, nodeId]);
 
   useEffect(() => {
     if (verdict !== null) return;
@@ -202,6 +202,19 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
   const terminal = outputQuery.data?.terminal ?? detail?.output.terminal ?? false;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
+  const savedFeedPosition = useRef<{ scope: string; top: number } | undefined>(undefined);
+  const openReader = (next: NodeReaderState) => {
+    savedFeedPosition.current = { scope: `${taskId}:${nodeId}`, top: scrollerRef.current?.scrollTop ?? 0 };
+    setFollowing(false);
+    setReader(next);
+  };
+  useEffect(() => {
+    const saved = savedFeedPosition.current;
+    if (reader !== null || saved === undefined) return;
+    savedFeedPosition.current = undefined;
+    if (saved.scope !== `${taskId}:${nodeId}`) return;
+    if (scrollerRef.current !== null) scrollerRef.current.scrollTop = saved.top;
+  }, [reader, taskId, nodeId]);
 
   /**
    * W3-5a: while auto advance is off, an accepted step can release its direct
@@ -348,7 +361,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
           ) : reader.kind === 'artifact' ? (
             <ArtifactDetailView key={`${taskId}:${reader.artifact.id}:${reader.artifact.revision}`} taskId={taskId} artifact={reader.artifact} attemptLabel={reader.attemptLabel} />
           ) : (
-            <CitationSourceView link={reader.link} />
+            <CitationSourceView taskId={taskId} nodeId={nodeId} link={reader.link} />
           )}
         </div>
       </aside>
@@ -400,7 +413,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
             detail={detail}
             onOpenPlan={onOpenPlan}
             onOpenCitation={(link) => {
-              setReader({ kind: 'citation', link });
+              openReader({ kind: 'citation', link });
             }}
           />
         ) : null}
@@ -498,7 +511,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                               variant="secondary"
                               icon="eye"
                               onClick={() => {
-                                setReader({ kind: 'tool', fragment, attemptLabel, attemptId: selectedAttemptIdResolved ?? '' });
+                                openReader({ kind: 'tool', fragment, attemptLabel, attemptId: selectedAttemptIdResolved ?? '' });
                               }}
                             >
                               查看工具详情
@@ -650,7 +663,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                               variant="ghost"
                               icon="eye"
                               onClick={() => {
-                                setReader({ kind: 'artifact', artifact, attemptLabel });
+                                openReader({ kind: 'artifact', artifact, attemptLabel });
                               }}
                             >
                               查看产物

@@ -730,6 +730,19 @@ export interface SnapshotReviewModel {
   readonly partialReport: SnapshotPartialReport;
 }
 
+export interface RequirementSourceResponse {
+  readonly taskId: string;
+  readonly nodeId: string;
+  readonly planRevisionId: string;
+  readonly entryId: string;
+  readonly requirementRevision: number;
+  readonly sha256: string;
+  readonly content: string;
+  readonly scope: 'full' | 'excerpt';
+  readonly start?: number;
+  readonly end?: number;
+}
+
 export interface ToolCallReadResponse {
   readonly taskId: string;
   readonly nodeId: string;
@@ -1918,6 +1931,7 @@ export const ROUTES = {
   executionCancel: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/cancel`,
   node: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}`,
   nodeAttempts: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/attempts`,
+  nodeSource: (id: string, nodeId: string, planId: string, entryId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/sources/${encodeURIComponent(planId)}/${encodeURIComponent(entryId)}`,
   nodeTool: (id: string, nodeId: string, attemptId: string, callId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/attempts/${encodeURIComponent(attemptId)}/tools/${encodeURIComponent(callId)}`,
   nodeOutput: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/output`,
   nodeAccept: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/accept`,

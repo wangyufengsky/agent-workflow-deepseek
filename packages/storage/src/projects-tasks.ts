@@ -1,4 +1,5 @@
 import type {
+  RequirementEntry,
   Project,
   ProjectSettings,
   ProjectSummary,
@@ -326,14 +327,13 @@ function mapTask(row: Row): Task {
 
 /** Very small deterministic requirement entry derivation for the first slice. */
 export function deriveRequirementEntries(text: string): RequirementInput['entries'] {
-  const entries: { id: string; kind: 'requirement' | 'constraint' | 'acceptance'; text: string }[] = [];
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  lines.forEach((line, index) => {
+  const entries: RequirementEntry[] = [];
+  for (const match of text.matchAll(/[^\r\n]+/g)) {
+    const raw = match[0]; const line = raw.trim();
+    if (!line) continue;
+    const sourceStart = match.index + raw.indexOf(line);
     const kind = /验收|必须|不得|校验/.test(line) ? 'acceptance' : /约束|限制|权限|预算/.test(line) ? 'constraint' : 'requirement';
-    entries.push({ id: `R${index + 1}`, kind, text: line });
-  });
+    entries.push({ id: `R${entries.length + 1}`, kind, text: line, sourceStart, sourceEnd: sourceStart + line.length });
+  }
   return entries;
 }

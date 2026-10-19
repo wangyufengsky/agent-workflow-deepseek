@@ -362,6 +362,7 @@ export interface TaskSummary {
 /* ------------------------------------------------------------------ */
 
 export interface PlanNodeInputRef {
+  readonly sourceEntryId?: string;
   readonly name: string;
   readonly source: 'requirement' | 'upstream' | 'artifact' | 'manual';
   readonly sourceNodeId?: PlanNodeId;
@@ -760,7 +761,7 @@ export interface NodeDetail {
   readonly planRevisionId: PlanId;
   readonly node: PlanNode;
   readonly group?: PlanGroup;
-  readonly requirementLinks: readonly { readonly entryId: string; readonly label: string; readonly text: string; readonly start?: number; readonly end?: number }[];
+  readonly requirementLinks: readonly { readonly entryId: string; readonly label: string; readonly text: string; readonly start?: number; readonly end?: number; readonly unavailableReason?: string; readonly sourceRef?: { readonly planRevisionId: string; readonly requirementRevision: number; readonly sha256: string } }[];
   readonly dependencyReasons: readonly { readonly fromNodeId: PlanNodeId; readonly kind: PlanEdgeKind; readonly reason: string }[];
   readonly execution?: ExecutionNodeState;
   readonly currentAttempt?: Attempt;
