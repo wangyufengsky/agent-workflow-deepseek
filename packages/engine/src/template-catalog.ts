@@ -46,6 +46,27 @@ export class TemplateCatalogService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: next };
   }
 
+  update(id: string, input: { requestKey: string; template: TaskTemplate; confirmUpdate: true }): CommandResponse<readonly TaskTemplate[]> {
+    if (input?.confirmUpdate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '更新模板需要显式确认');
+    const template = validate(input.template);
+    if (template.id !== id || !id.startsWith('template.custom.')) throw new AppError(ErrorCode.VALIDATION_FAILED, '只能更新同 id 的自定义模板');
+    const existing = this.list().find((item) => item.id === id);
+    if (existing === undefined) throw new AppError(ErrorCode.NOT_FOUND, '自定义模板不存在');
+    if (template.version <= existing.version) throw new AppError(ErrorCode.VALIDATION_FAILED, '新版本号必须大于当前版本', { details: { current: existing.version, next: template.version } });
+    const { replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'catalog.template.update',
+      body: { templateId: id, version: template.version },
+      target: { ref: id },
+    });
+    if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    const next = this.list().map((item) => (item.id === id ? template : item));
+    this.#store.settings.putJson(KEY, next);
+    this.applyEffective(this.#base);
+    this.#commands.settle(input.requestKey, { templateId: id, version: template.version });
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: next };
+  }
+
   archive(id: string): readonly TaskTemplate[] {
     const next = this.list().filter((item) => item.id !== id);
     this.#store.settings.putJson(KEY, next);

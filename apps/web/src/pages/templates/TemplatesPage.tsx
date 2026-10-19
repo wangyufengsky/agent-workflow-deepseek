@@ -12,12 +12,13 @@ import {
   type TemplateDetailResponse,
   type TemplateTasksResponse,
 } from '@agent-workflow/shared';
-import { ApiClientError, apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { ApiClientError, apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { queryKeys, useBootstrap } from '../../api/hooks.ts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
+import { Modal } from '../../components/Modal.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
@@ -88,6 +89,9 @@ export function TemplatesPage() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | undefined>(undefined);
+  const [jsonEditor, setJsonEditor] = useState<{ id: string; text: string } | null>(null);
+  const [jsonError, setJsonError] = useState<string | undefined>(undefined);
+  const [jsonBusy, setJsonBusy] = useState(false);
   const templates = bootstrap.data?.catalog.templates ?? [];
   const methods = bootstrap.data?.catalog.methods ?? [];
   const projects: readonly ProjectSummary[] = bootstrap.data?.projects ?? [];
@@ -620,6 +624,19 @@ export function TemplatesPage() {
           <Button variant="secondary" size="sm" icon="upload" disabled={importBusy} onClick={() => { importInputRef.current?.click(); }}>
             {importBusy ? '导入中…' : '导入模板 JSON'}
           </Button>
+          {template !== undefined && template.id.startsWith('template.custom.') ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="edit"
+              onClick={() => {
+                setJsonError(undefined);
+                setJsonEditor({ id: template.id, text: JSON.stringify({ ...template, version: template.version + 1 }, null, 2) });
+              }}
+            >
+              编辑模板
+            </Button>
+          ) : null}
           <div className="input-wrap" style={{ width: 220 }}>
             <Icon name="search" />
             <input

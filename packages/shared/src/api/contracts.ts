@@ -344,6 +344,11 @@ export interface TaskDetailResponse {
 export const RECOVERY_MODES = ['from_failed_stage', 'all_stages', 'verify_only'] as const;
 export type RecoveryModeValue = (typeof RECOVERY_MODES)[number];
 
+export interface TemplateUpdateRequest extends CommandRequest {
+  readonly template: TaskTemplate;
+  readonly confirmUpdate: true;
+}
+
 export interface TemplateImportRequest extends CommandRequest {
   readonly template: TaskTemplate;
   readonly confirmImport: true;
@@ -1002,6 +1007,7 @@ export const ROUTES = {
   catalogRoleSave: '/api/catalog/roles',
   catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,
   catalogTemplateImport: '/api/catalog/templates/import',
+  catalogTemplateUpdate: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
   catalogTemplateArchive: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
   catalogRoleArchive: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/archive`,
   fixMerge: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/merge`,

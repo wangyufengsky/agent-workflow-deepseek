@@ -8,6 +8,7 @@ import type {
   RolePublishRequest,
   RoleArchiveRequest,
   TemplateImportRequest,
+  TemplateUpdateRequest,
   NodeSkipRequest,
   UseTemplateRequest,
   KnowledgeAskRequest,
@@ -559,6 +560,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post('/api/catalog/templates/import', async (request) => {
     const body = request.body as TemplateImportRequest;
     return envelope(engine.templates.import(body), requestId(request));
+  });
+  app.patch<{ Params: { id: string } }>('/api/catalog/templates/:id', async (request) => {
+    const body = request.body as TemplateUpdateRequest;
+    return envelope(engine.templates.update(request.params.id, body), requestId(request));
   });
   app.delete<{ Params: { id: string } }>('/api/catalog/templates/:id', async (request) => {
     const list = engine.templates.archive(request.params.id);
