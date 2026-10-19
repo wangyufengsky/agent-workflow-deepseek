@@ -866,7 +866,7 @@ export class ExecutionService {
     const role = node.roleSnapshot;
     let model: ModelProfile;
     try {
-      if (role === undefined) throw new AppError(ErrorCode.PLAN_NOT_CONFIRMED, '历史计划缺少职业修订快照，请重新确认计划后执行');
+      if (role === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '历史计划缺少职业修订快照，请重新确认计划后执行');
       model = roleModel(role, settings.models);
     } catch (error) {
       this.#finishNode(execution.id, node.id, attempt.id, NodeStatus.FAILED, undefined, { code: ErrorCode.VALIDATION_FAILED, message: error instanceof Error ? error.message : String(error) });

@@ -1,3 +1,4 @@
+import { createSessionScope } from '../session-scope.ts';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ModelProfile, RoleDefinition } from '@agent-workflow/shared';
@@ -142,6 +143,7 @@ export class OpenCodeAdapter implements OpenCodePort {
       });
     }
     this.#activeSessions += 1;
+    const scope = createSessionScope(request);
     try {
     const client = this.#manager.client;
     const session = await client.createSession({
@@ -149,7 +151,7 @@ export class OpenCodeAdapter implements OpenCodePort {
       metadata: { ...request.metadata, managedBy: 'agent-workflow' },
       agent: this.#options.defaultAgent,
       model: { id: request.model.model, providerID: request.model.provider },
-      permission: request.rolePolicy === undefined
+      permission: (request as OpenCodeRunRequest & { toolPolicy?: 'none' }).toolPolicy === 'none' ? [{ permission: '*', pattern: '*', action: 'deny' }] : request.rolePolicy === undefined
         ? request.permission === 'read_only' ? readOnlyPermission() : workspacePermission()
         : rolePermission(request.rolePolicy, this.#options.mcpServerName),
     });
@@ -160,7 +162,7 @@ export class OpenCodeAdapter implements OpenCodePort {
         text: request.prompt,
         model: { providerID: request.model.provider, modelID: request.model.model },
         agent: this.#options.defaultAgent,
-        system: request.system,
+        system: `${request.system ?? ""}\n\n会话工具授权：每次 MCP 工具调用必须携带参数 scopeToken: "${scope.token}"。此授权仅用于当前任务，不得改变 taskId、nodeId、attemptId、roundId 或 projectId。`,
         jsonSchema: request.jsonSchema,
       },
       {
@@ -175,6 +177,7 @@ export class OpenCodeAdapter implements OpenCodePort {
     );
     return { sessionId: session.id, outcome };
     } finally {
+      scope.revoke();
       this.#activeSessions = Math.max(0, this.#activeSessions - 1);
     }
   }

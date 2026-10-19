@@ -1,3 +1,5 @@
+import { createSessionScope } from '../../packages/server/src/session-scope.ts';
+import { DEFAULT_MODEL_PROFILES } from '@agent-workflow/shared';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -94,7 +96,8 @@ test('internal MCP workspace tools resolve a fix worktree root by fixRunId refer
   const app = await createApplication({ dataDir, disableOpenCode: true, disableListen: true });
   try {
     app.store.settings.putJson('fix.worktree.fix_demo_1', { path: fixRoot, branch: 'ai-fix/demo', baseSha: 'a'.repeat(40) });
-    const headers = { authorization: `Bearer ${app.internalToken}` };
+    const scope = createSessionScope({ kind: 'fix', metadata: { fixRunId: 'fix_demo_1' }, cwd: fixRoot, prompt: '', permission: 'workspace_write', model: DEFAULT_MODEL_PROFILES[0]!, sink: {}, timeoutMs: 60000 });
+    const headers = { authorization: `Bearer ${app.internalToken}`, 'x-agent-workflow-scope': scope.token };
     const read = await app.app.inject({ method: 'GET', url: '/internal/mcp/workspace/file?taskId=fix_demo_1&path=existing.txt', headers });
     assert.equal(read.statusCode, 200, read.body);
     assert.equal((read.json().data.lines as string[]).join('\n').trimEnd(), 'before');
@@ -114,7 +117,10 @@ test('internal MCP workspace tools resolve a fix worktree root by fixRunId refer
     assert.equal(escape.json().error.code, 'PATH_ESCAPE');
 
     app.store.settings.putJson('fix.worktree.fix_gone', { path: join(fixRoot, 'missing') });
-    const gone = await app.app.inject({ method: 'GET', url: '/internal/mcp/workspace/file?taskId=fix_gone&path=existing.txt', headers });
+    const goneScope = createSessionScope({ kind: 'fix', metadata: { fixRunId: 'fix_gone' }, cwd: join(fixRoot, 'missing'), prompt: '', permission: 'workspace_write', model: DEFAULT_MODEL_PROFILES[0]!, sink: {}, timeoutMs: 60000 });
+    const gone = await app.app.inject({ method: 'GET', url: '/internal/mcp/workspace/file?taskId=fix_gone&path=existing.txt', headers: { ...headers, 'x-agent-workflow-scope': goneScope.token } });
+    goneScope.revoke();
+    scope.revoke();
     assert.equal(gone.statusCode, 503, gone.body);
     assert.equal(gone.json().error.code, 'WORKSPACE_NOT_READY');
   } finally {

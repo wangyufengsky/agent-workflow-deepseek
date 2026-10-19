@@ -167,6 +167,7 @@ export class PlanService {
     if (plan.validation?.structural.state === 'failed') {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '计划仍有必须处理的问题，不能确认');
     }
+    const confirmedGraph = freezeGraphRoles(plan.graph, this.#catalog.roles);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'plan.confirm',
@@ -178,7 +179,7 @@ export class PlanService {
     }
     const settings = this.#context.settings();
     const project = this.#requireProject(task.projectId);
-    this.#store.plans.updateGraph(plan.id, freezeGraphRoles(plan.graph, this.#catalog.roles));
+    this.#store.plans.updateGraph(plan.id, confirmedGraph);
     this.#store.plans.setStatus(plan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
     const execution = this.#store.executions.byTask(taskId) ??
       this.#store.executions.create({
@@ -331,6 +332,8 @@ export class PlanService {
     const task = this.#assertWritable(taskId, '结束计划调整');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
+    const nextPlan = task.currentPlanRevisionId === undefined ? undefined : this.#store.plans.get(task.currentPlanRevisionId);
+    const confirmedGraph = nextPlan === undefined || !input.continueExecution ? undefined : freezeGraphRoles(nextPlan.graph, this.#catalog.roles);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'plan.edit.finish',
@@ -338,9 +341,8 @@ export class PlanService {
       target: { taskId },
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
-    const nextPlan = task.currentPlanRevisionId === undefined ? undefined : this.#store.plans.get(task.currentPlanRevisionId);
     if (nextPlan !== undefined && input.continueExecution) {
-      this.#store.plans.updateGraph(nextPlan.id, freezeGraphRoles(nextPlan.graph, this.#catalog.roles));
+      this.#store.plans.updateGraph(nextPlan.id, confirmedGraph!);
       this.#store.plans.setStatus(nextPlan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
     }
     // W2-15: a task that was already paused before the edit stays paused; only an

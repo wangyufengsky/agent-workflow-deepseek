@@ -1,3 +1,4 @@
+import { withScopeToken } from './scope.ts';
 import { AppError, ErrorCode } from '@agent-workflow/shared';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toolErrorResult, toolSuccessResult } from './errors.ts';
@@ -34,7 +35,11 @@ const TOOL_NAME_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/;
 /** Typed helper so tool modules stay readable while the registry stays homogeneous. */
 export function defineTool<Args extends Record<string, unknown>>(input: ToolDefinitionInput<Args>): ToolDefinition {
   assertToolDefinition(input);
-  return { ...input, handler: (args) => input.handler(args as Args) };
+  return {
+    ...input,
+    inputSchema: { ...input.inputSchema, properties: { ...input.inputSchema.properties, scopeToken: { type: 'string', description: '当前会话 system 指令中的 scopeToken；每次调用必须原样提供', minLength: 16, maxLength: 128 } } },
+    handler: (args) => withScopeToken(typeof args.scopeToken === 'string' ? args.scopeToken : undefined, () => input.handler(args as Args)),
+  };
 }
 
 export function assertToolDefinition(definition: { readonly name: string; readonly description: string; readonly inputSchema: JsonSchemaObject }): void {

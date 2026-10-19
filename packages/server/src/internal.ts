@@ -7,6 +7,7 @@ import type { AttemptResult, Task } from '@agent-workflow/shared';
 import { AppError, ErrorCode, nowIso } from '@agent-workflow/shared';
 import { roleFileAllowed, roleCommandAllowed, roleCapability, type Engine } from '@agent-workflow/engine';
 import type { Store } from '@agent-workflow/storage';
+import { requireSessionScope } from './session-scope.ts';
 import { envelope, mapError } from './http.ts';
 
 export interface InternalDependencies {
@@ -25,6 +26,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     if (header !== `Bearer ${deps.token}`) {
       throw new AppError(ErrorCode.UNAUTHORIZED, '内部 MCP 调用未授权');
     }
+    authorizeSessionRequest(request, deps);
   };
 
   const handler = <T>(fn: (request: FastifyRequest) => Promise<T> | T) => async (request: FastifyRequest, reply: { status: (code: number) => unknown }) => {
@@ -129,12 +131,13 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     if (body.connectionId === undefined || body.sql === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 connectionId / sql');
     if (body.taskId === undefined) throw new AppError(ErrorCode.FORBIDDEN, '数据库查询必须提供任务授权上下文');
     const task = requireTask(deps, body.taskId);
+    const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
     const execution = task.executionId === undefined ? undefined : deps.store.executions.get(task.executionId);
     const plan = execution === undefined ? undefined : deps.store.plans.get(execution.planRevisionId);
-    const runningNodes = execution?.nodes.filter((node) => node.status === 'running').map((node) => plan?.graph.nodes.find((item) => item.id === node.nodeId)) ?? [];
-    const roles = runningNodes.map((node) => node?.roleSnapshot);
-    if (runningNodes.some((node) => !node?.resources.read.some((resource) => resource.kind === 'database' && resource.id === body.connectionId))) throw new AppError(ErrorCode.FORBIDDEN, '当前步骤未声明此数据库连接');
-    if (roles.length === 0 || roles.some((role) => role === undefined || !roleCapability(role, 'database_read') || !role.resourcePermissions?.resources.some((resource) => resource.id === 'database_read'))) {
+    const node = plan?.graph.nodes.find((item) => item.id === dispatch.metadata.nodeId);
+    const role = dispatch.rolePolicy;
+    if (!node?.resources.read.some((resource) => resource.kind === 'database' && resource.id === body.connectionId)) throw new AppError(ErrorCode.FORBIDDEN, '当前步骤未声明此数据库连接');
+    if (role === undefined || !roleCapability(role, 'database_read') || !role.resourcePermissions?.resources.some((resource) => resource.id === 'database_read')) {
       throw new AppError(ErrorCode.FORBIDDEN, '当前职业没有此数据库连接的读取授权');
     }
     if (deps.engine.ports.database === undefined) throw new AppError(ErrorCode.DATABASE_NOT_CONFIGURED, '数据库模块未接通');
@@ -144,7 +147,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   app.get('/internal/mcp/workspace/file', handler(async (request) => {
     const query = request.query as { taskId?: string; path?: string; offset?: string; limit?: string };
     if (query.taskId === undefined || query.path === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / path');
-    assertRoleResource(deps, query.taskId, 'read', query.path ?? '.');
+    assertRoleResource(request, 'read', query.path ?? '.');
     const root = resolveReadRoot(deps, query.taskId);
     const absolute = safePath(root, query.path);
     if (!existsSync(absolute)) throw new AppError(ErrorCode.NOT_FOUND, `文件不存在：${query.path}`);
@@ -171,7 +174,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   app.get('/internal/mcp/workspace/files', handler(async (request) => {
     const query = request.query as { taskId?: string; path?: string };
     if (query.taskId === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId');
-    assertRoleResource(deps, query.taskId, 'read', query.path ?? '.');
+    assertRoleResource(request, 'read', query.path ?? '.');
     const root = resolveReadRoot(deps, query.taskId);
     const base = query.path === undefined || query.path === '' ? root : safePath(root, query.path);
     if (!existsSync(base)) throw new AppError(ErrorCode.NOT_FOUND, '目录不存在');
@@ -198,7 +201,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   app.post('/internal/mcp/workspace/file-write', handler(async (request) => {
     const body = request.body as { taskId?: string; path?: string; content?: string; expectedSha?: string };
     if (body.taskId === undefined || body.path === undefined || body.content === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / path / content');
-    assertRoleResource(deps, body.taskId, 'write', body.path);
+    assertRoleResource(request, 'write', body.path);
     const root = resolveWriteRoot(deps, body.taskId);
     const absolute = safePath(root, body.path);
     if (Buffer.byteLength(body.content, 'utf8') > MAX_FILE_BYTES) throw new AppError(ErrorCode.VALIDATION_FAILED, '写入内容超过 512KB');
@@ -215,7 +218,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   app.post('/internal/mcp/workspace/exec', handler(async (request) => {
     const body = request.body as { taskId?: string; command?: string; timeoutMs?: number };
     if (body.taskId === undefined || body.command === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / command');
-    assertRoleResource(deps, body.taskId, 'command', body.command);
+    assertRoleResource(request, 'command', body.command);
     const root = resolveWriteRoot(deps, body.taskId);
     const argv = tokenizeCommand(body.command);
     if (argv.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '命令为空');
@@ -404,19 +407,63 @@ function runCommand(argv: readonly string[], cwd: string, timeoutMs: number): Pr
 }
 
 /** Resolve authority from durable running attempts, never from model-supplied role ids. */
-function assertRoleResource(deps: InternalDependencies, taskId: string, kind: 'read' | 'write' | 'command', value: string): void {
-  const task = deps.store.tasks.get(taskId);
-  const execution = task?.executionId === undefined ? undefined : deps.store.executions.get(task.executionId);
-  if (execution === undefined) return; // Planning/fix calls retain their separate policy.
-  const plan = deps.store.plans.get(execution.planRevisionId);
-  const running = execution.nodes.filter((node) => node.status === 'running');
-  if (running.length === 0) throw new AppError(ErrorCode.FORBIDDEN, '没有运行中的步骤授权此资源操作');
-  for (const node of running) {
-    const role = plan?.graph.nodes.find((item) => item.id === node.nodeId)?.roleSnapshot;
-    if (role === undefined) throw new AppError(ErrorCode.FORBIDDEN, '历史计划缺少职业权限快照，请重新确认计划');
-    const allowed = kind === 'command'
-      ? roleCapability(role, 'native_tools') && roleCommandAllowed(role, tokenizeCommand(value))
-      : roleCapability(role, kind === 'read' ? 'document_read' : 'document_write') && roleFileAllowed(role, value, kind);
-    if (!allowed) throw new AppError(ErrorCode.FORBIDDEN, `职业 ${role.name} 未授权${kind}资源：${value}`);
+function assertRoleResource(request: FastifyRequest, kind: 'read' | 'write' | 'command', value: string): void {
+  const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
+  if (dispatch.kind !== 'execution') return; // Planning/fix use their bound directory and read-only/write policy.
+  const role = dispatch.rolePolicy;
+  if (role === undefined) throw new AppError(ErrorCode.FORBIDDEN, '历史计划缺少职业权限快照，请重新确认计划');
+  const allowed = kind === 'command'
+    ? roleCapability(role, 'native_tools') && roleCommandAllowed(role, tokenizeCommand(value))
+    : roleCapability(role, kind === 'read' ? 'document_read' : 'document_write') && roleFileAllowed(role, value, kind);
+  if (!allowed) throw new AppError(ErrorCode.FORBIDDEN, `职业 ${role.name} 未授权${kind}资源：${value}`);
+}
+
+
+const ROUTE_TO_TOOL: Readonly<Record<string, string>> = {
+  '/internal/mcp/context': 'workflow.context.get',
+  '/internal/mcp/plan-submit': 'workflow.plan.submit',
+  '/internal/mcp/question': 'workflow.question.ask',
+  '/internal/mcp/result-submit': 'workflow.result.submit',
+  '/internal/mcp/git/status': 'git.repo.status',
+  '/internal/mcp/git/log': 'git.log',
+  '/internal/mcp/git/diff-files': 'git.diff.files',
+  '/internal/mcp/git/commit-show': 'git.commit.show',
+  '/internal/mcp/database/query': 'database.query',
+  '/internal/mcp/workspace/file': 'workspace.file.read',
+  '/internal/mcp/workspace/files': 'workspace.file.list',
+  '/internal/mcp/workspace/file-write': 'workspace.file.write',
+  '/internal/mcp/workspace/exec': 'workspace.exec',
+};
+
+function authorizeSessionRequest(request: FastifyRequest, deps: InternalDependencies): void {
+  const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
+  if ((dispatch as typeof dispatch & { toolPolicy?: 'none' }).toolPolicy === 'none') throw new AppError(ErrorCode.FORBIDDEN, '此会话只能使用已提供的资料，禁止调用工具');
+  const values = { ...(request.query as Record<string, unknown> ?? {}), ...(request.body as Record<string, unknown> ?? {}) };
+  const metadata = dispatch.metadata;
+  const taskRef = metadata.taskId ?? metadata.fixRunId;
+  const task = metadata.taskId === undefined ? undefined : deps.store.tasks.get(metadata.taskId);
+  const projectId = metadata.projectId ?? task?.projectId;
+  for (const [key, expected] of Object.entries({ taskId: taskRef, projectId, nodeId: metadata.nodeId, attemptId: metadata.attemptId, roundId: metadata.roundId })) {
+    if (values[key] !== undefined && (expected === undefined || values[key] !== expected)) throw new AppError(ErrorCode.FORBIDDEN, `会话不能访问另一个 ${key}`);
+  }
+  const route = request.url.split('?')[0]!;
+  const tool = ROUTE_TO_TOOL[route];
+  if (tool === undefined) throw new AppError(ErrorCode.FORBIDDEN, '会话未授权此工具');
+  if (dispatch.kind === 'execution') {
+    if (task?.executionId === undefined || task.executionId !== metadata.executionId) throw new AppError(ErrorCode.FORBIDDEN, '执行授权已失效');
+    const execution = deps.store.executions.get(task.executionId);
+    const node = execution?.nodes.find((item) => item.nodeId === metadata.nodeId);
+    if (node?.status !== 'running' || node.currentAttemptId !== metadata.attemptId) throw new AppError(ErrorCode.FORBIDDEN, '步骤授权已失效');
+    const protocolTool = ['workflow.context.get', 'workflow.result.submit'].includes(tool);
+    const toolGranted = dispatch.rolePolicy?.resourcePermissions?.tools.some((item) => item.kind === 'mcp' && item.name === tool) === true;
+    if (!protocolTool && (!toolGranted || !roleCapability(dispatch.rolePolicy, 'external_mcp'))) throw new AppError(ErrorCode.FORBIDDEN, '职业未授权此工具');
+  } else if (route === '/internal/mcp/result-submit') {
+    throw new AppError(ErrorCode.FORBIDDEN, '非执行会话不能提交步骤结果');
+  }
+  if (['/internal/mcp/plan-submit', '/internal/mcp/question'].includes(route) && dispatch.kind !== 'planning') throw new AppError(ErrorCode.FORBIDDEN, '非规划会话不能修改规划');
+  if (dispatch.permission === 'read_only' && ['/internal/mcp/workspace/file-write', '/internal/mcp/workspace/exec'].includes(route)) throw new AppError(ErrorCode.FORBIDDEN, '只读会话不能写入或运行命令');
+  if (route.startsWith('/internal/mcp/workspace/')) {
+    if (taskRef === undefined || values.taskId !== taskRef) throw new AppError(ErrorCode.FORBIDDEN, '工作区缺少绑定的任务身份');
+    if (resolve(resolveReadRoot(deps, taskRef)) !== resolve(dispatch.cwd)) throw new AppError(ErrorCode.FORBIDDEN, '工作区与会话绑定目录不同');
   }
 }

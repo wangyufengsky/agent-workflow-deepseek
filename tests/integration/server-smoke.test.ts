@@ -125,7 +125,7 @@ test('internal MCP routes require the bearer token', async () => {
       url: '/internal/mcp/git/status?projectId=x',
       headers: { authorization: `Bearer ${app.internalToken}` },
     });
-    assert.equal(authorized.statusCode, 404);
+    assert.equal(authorized.statusCode, 403, 'service bearer alone is insufficient without a live session scope');
   } finally {
     await app.close();
   }

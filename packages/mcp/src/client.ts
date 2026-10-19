@@ -1,3 +1,4 @@
+import { currentScopeToken } from './scope.ts';
 import { AppError, ErrorCode, type ErrorCodeValue } from '@agent-workflow/shared';
 
 /**
@@ -95,6 +96,7 @@ export class InternalApiClient {
   #headers(hasBody: boolean): Record<string, string> {
     return {
       accept: 'application/json',
+      ...(currentScopeToken() === undefined ? {} : { 'x-agent-workflow-scope': currentScopeToken()! }),
       'x-agent-workflow-client': 'mcp',
       ...(hasBody ? { 'content-type': 'application/json' } : {}),
       ...(this.#token.length > 0 ? { authorization: `Bearer ${this.#token}` } : {}),
