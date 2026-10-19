@@ -1,6 +1,7 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ListTasksQuery, OpenCodeStatusResponse, TaskSummary } from '@agent-workflow/shared';
-import { isServiceUnavailable } from './client.ts';
+import { isServiceUnavailable, openEventStream } from './client.ts';
 import {
   fetchBootstrap,
   fetchOpenCodeStatus,
@@ -113,3 +114,32 @@ export function useServiceConnection(): {
 
 export type TasksQueryResult = ReturnType<typeof useTasks>;
 export type TaskList = readonly TaskSummary[];
+
+
+/** One shell subscription keeps badges consistent with live questions outside the Inbox page. */
+export function useInboxLiveSummary() {
+  const client = useQueryClient();
+  useEffect(() => {
+    let debounce: ReturnType<typeof setTimeout> | undefined;
+    let fallback: ReturnType<typeof setInterval> | undefined;
+    const refresh = () => {
+      if (debounce !== undefined) return;
+      debounce = setTimeout(() => {
+        debounce = undefined;
+        void client.invalidateQueries({ queryKey: queryKeys.bootstrap });
+        void client.invalidateQueries({ queryKey: ['interactions'] });
+        void client.invalidateQueries({ queryKey: ['runtime-interactions'] });
+      }, 200);
+    };
+    const poll = () => { if (fallback === undefined) fallback = setInterval(refresh, 5000); };
+    let stream: ReturnType<typeof openEventStream> | undefined;
+    if (typeof EventSource === 'undefined') poll();
+    else {
+      try { stream = openEventStream({ onEvent: (event) => {
+        if (fallback !== undefined) { clearInterval(fallback); fallback = undefined; }
+        if (['ready', 'inbox.changed', 'task.changed', 'planning.changed', 'execution.changed'].includes(event.type)) refresh();
+      }, onError: poll }); } catch { poll(); }
+    }
+    return () => { stream?.close(); if (debounce !== undefined) clearTimeout(debounce); if (fallback !== undefined) clearInterval(fallback); };
+  }, [client]);
+}

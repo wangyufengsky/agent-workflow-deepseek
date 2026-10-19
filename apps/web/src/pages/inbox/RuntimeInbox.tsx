@@ -17,12 +17,12 @@ export function RuntimeItem({ item }: { readonly item: RuntimeInteraction }) {
   const submit = useMutation({ mutationFn: async (action: RuntimeInteractionResolveRequest['action']) => {
     const body: RuntimeInteractionResolveRequest = { requestKey: createRequestKey(), confirmResolve: true, action, ...(action === 'answer' ? { answers: item.questions.map((question) => ({ questionId: question.id, ...drafts[question.id] })) } : {}) };
     return (await apiPost<CommandResponse<RuntimeInteraction>>(ROUTES.runtimeInteractionResolve(item.id), body)).data;
-  }, onSuccess: (response) => { setReceipt(response.receipt); client.setQueryData(['runtime-receipt'], response.receipt); if (response.receipt.status === 'succeeded') client.removeQueries({ queryKey: ['runtime-draft', item.id] }); void client.invalidateQueries({ queryKey: ['runtime-interactions'] }); } });
+  }, onSuccess: (response) => { setReceipt(response.receipt); client.setQueryData(['runtime-receipt'], response.receipt); if (response.receipt.status === 'succeeded') client.removeQueries({ queryKey: ['runtime-draft', item.id] }); void client.invalidateQueries({ queryKey: ['runtime-interactions'] }); void client.invalidateQueries({ queryKey: ['bootstrap'] }); void client.invalidateQueries({ queryKey: ['interactions'] }); void client.invalidateQueries({ queryKey: ['workflow', item.binding.taskId] }); } });
   const check = useMutation({ mutationFn: async () => {
     const key = item.requestKey ?? receipt?.requestKey ?? pendingKey;
     if (!key) throw new Error('原请求号不可用');
     return (await apiGet<{ operation: OperationReceipt }>(`/api/operations/${encodeURIComponent(key)}`)).data.operation;
-  }, onSuccess: (value) => { setReceipt(value); client.setQueryData(['runtime-receipt'], value); void client.invalidateQueries({ queryKey: ['runtime-interactions'] }); } });
+  }, onSuccess: (value) => { setReceipt(value); client.setQueryData(['runtime-receipt'], value); void client.invalidateQueries({ queryKey: ['runtime-interactions'] }); void client.invalidateQueries({ queryKey: ['bootstrap'] }); void client.invalidateQueries({ queryKey: ['interactions'] }); void client.invalidateQueries({ queryKey: ['workflow', item.binding.taskId] }); } });
   const locked = pendingKey !== null || item.resolveAllowed === false || item.state !== 'open' || submit.isPending || receipt?.status === 'unknown' || receipt?.status === 'accepted' || receipt?.status === 'succeeded';
   return <section className="card solid" style={{ padding: 18 }}>
     <h3><Icon name={item.hard ? 'lock' : item.kind === 'question' ? 'help' : 'shield'} /> {item.kind === 'question' ? '需要你回答' : item.hard ? '策略已阻止' : '需要只读授权'} · {item.state === 'unknown' ? '待核对' : item.state === 'resolved' ? '已处理' : '待处理'}</h3>

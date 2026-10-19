@@ -2,7 +2,7 @@ import { PendingCommands } from '../components/PendingCommands.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { DisplayMode, THEMES, type DisplayModeValue } from '@agent-workflow/shared';
-import { useBootstrap } from '../api/hooks.ts';
+import { useBootstrap, useInboxLiveSummary } from '../api/hooks.ts';
 import { StatusDot, type StatusDotTone } from '../components/Badge.tsx';
 import { Button } from '../components/Button.tsx';
 import { Icon } from '../components/Icon.tsx';
@@ -37,6 +37,7 @@ function runtimeState(connection: 'loading' | 'connected' | 'disconnected', open
 }
 
 export function Shell() {
+  useInboxLiveSummary();
   const location = useLocation();
   const contentRef = useRef<HTMLDivElement>(null);
   const bootstrap = useBootstrap();

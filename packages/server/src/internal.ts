@@ -3,8 +3,8 @@ import { readArtifactBytes } from '../../engine/src/artifacts.ts';
 import { reportFingerprint, retainControlledTestRun, type TestReportRequest } from './controlled-tests.ts';
 import { assertDatabaseQueryAccess } from '@agent-workflow/database';
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AttemptResult, Task } from '@agent-workflow/shared';
@@ -266,9 +266,15 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
       const current = sha256(readFileSync(absolute, 'utf8'));
       if (current !== body.expectedSha) throw new AppError(ErrorCode.STALE_TARGET, '文件已被修改，请重新读取', { details: { currentSha: current } });
     }
-    const temporary = `${absolute}.tmp-${process.pid}`;
-    writeFileSync(temporary, body.content, 'utf8');
-    renameSync(temporary, absolute);
+    // A granted file write includes creation of its missing parent directories.
+    // Re-resolve after mkdir so a changed parent cannot redirect the write out of the workspace.
+    mkdirSync(dirname(absolute), { recursive: true });
+    if (safePath(root, body.path) !== absolute) throw new AppError(ErrorCode.STALE_TARGET, '写入父目录已变化，请重新读取');
+    const temporary = `${absolute}.tmp-${randomUUID()}`;
+    try {
+      writeFileSync(temporary, body.content, { encoding: 'utf8', flag: 'wx' });
+      renameSync(temporary, absolute);
+    } finally { rmSync(temporary, { force: true }); }
     return { path: body.path, sizeBytes: Buffer.byteLength(body.content, 'utf8'), sha: sha256(body.content) };
   }));
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -19,7 +19,7 @@ async function fixture(passing = false) {
   const command = `${process.execPath} --test --test-reporter=junit test/proof.test.mjs`;
   const app = await createApplication({ dataDir: mkdtempSync(join(tmpdir(), 'aw-file-proof-data-')), disableOpenCode: true, disableListen: true });
   const baseRole = app.engine.catalog.roles.find((role) => role.id === 'role.tester')!;
-  const role: RoleDefinition = { ...baseRole, capabilityGroups: baseRole.capabilityGroups!.map((group) => ({ ...group, items: group.items.map((item) => ({ ...item, enabled: true })) })), resourcePermissions: { ...baseRole.resourcePermissions!, files: [{ kind: 'read', path: '.' }, { kind: 'write', path: '.' }], commands: [{ kind: 'argv', argv: [process.execPath, '--test', '--test-reporter=junit', 'test/proof.test.mjs'] }], tools: [{ kind: 'mcp', name: 'workspace.exec' }, { kind: 'mcp', name: 'workspace.file.read' }] } };
+  const role: RoleDefinition = { ...baseRole, capabilityGroups: baseRole.capabilityGroups!.map((group) => ({ ...group, items: group.items.map((item) => ({ ...item, enabled: true })) })), resourcePermissions: { ...baseRole.resourcePermissions!, files: [{ kind: 'read', path: '.' }, { kind: 'write', path: '.' }], commands: [{ kind: 'argv', argv: [process.execPath, '--test', '--test-reporter=junit', 'test/proof.test.mjs'] }], tools: [{ kind: 'mcp', name: 'workspace.exec' }, { kind: 'mcp', name: 'workspace.file.read' }, { kind: 'mcp', name: 'workspace.file.write' }] } };
   const project = app.store.projects.create({ name: 'Offline protocol fixture', rootPath: root, gitState: 'git', settings: { testCommand: command } });
   const template = DEFAULT_CATALOG.templates.find((item) => item.id === 'template.unit-test-development')!;
   const task = app.store.tasks.create({ projectId: project.id, title: 'Evidence fixture', requirementText: 'Scoped source evidence', methodId: 'method.unit-test-development', methodRevision: 'template-v8', fixedTemplate: { templateId: template.id, templateVersion: template.version, contract: template, locked: true, parameters: {}, scope: { sourcePaths: ['src'], sourceFiles: [{ path: 'src/a.ts', blobSha: 'a'.repeat(40), text: 'export const a = 1;' }], documents: [], frozenAt: new Date().toISOString() } } });
@@ -177,4 +177,27 @@ test('immutable artifact identity disambiguates overwritten source and only comp
     assert.equal((await readPage(0, 1, 'wrong-artifact')).statusCode, 403);
     assert.equal((await readPage(-1, 1)).statusCode, 400);
   } finally { await f.close(); }
+});
+
+
+test('granted workspace writes create missing parents and keep stale-content and symlink escape guards', async () => {
+  const f = await fixture();
+  const running = f.sessionFor(f.graph.nodes.find((node) => node.sourceEvidence?.stage === 'write')!);
+  try {
+    const write = (path: string, content: string, expectedSha?: string) => f.app.app.inject({ method: 'POST', url: '/internal/mcp/workspace/file-write', headers: running.headers, payload: { taskId: f.task.id, path, content, expectedSha } });
+    const first = await write('generated/deep/add.test.mjs', 'real nested output');
+    assert.equal(first.statusCode, 200, first.body);
+    assert.equal(readFileSync(join(f.root, 'generated/deep/add.test.mjs'), 'utf8'), 'real nested output');
+    const stale = await write('generated/deep/add.test.mjs', 'must not overwrite', hash('old'));
+    assert.equal(stale.statusCode, 409, stale.body);
+    assert.equal(readFileSync(join(f.root, 'generated/deep/add.test.mjs'), 'utf8'), 'real nested output');
+    assert.equal((await write('generated/deep/add.test.mjs', 'updated', first.json().data.sha)).statusCode, 200);
+    assert.deepEqual(readdirSync(join(f.root, 'generated/deep')), ['add.test.mjs']);
+    const outside = mkdtempSync(join(tmpdir(), 'aw-write-outside-'));
+    symlinkSync(outside, join(f.root, 'escape'));
+    const escaped = await write('escape/new/deep/test.mjs', 'must not escape');
+    assert.equal(escaped.statusCode, 400, escaped.body);
+    assert.equal(escaped.json().error.code, 'PATH_ESCAPE');
+    assert.equal(existsSync(join(outside, 'new')), false);
+  } finally { running.session.revoke(); await f.close(); }
 });
