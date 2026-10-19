@@ -69,12 +69,18 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
   MCP 工具、数据库只读守卫等（详见 `docs/verification.md`）。
 - `npx tsc -p tsconfig.json --noEmit` 0 errors；`npm run build:web`/`build:server`/`build:mcp` 成功。
 
-## 已验证（需要模型，用户已授权 opencode-go）
+## 已验证（真实环境）
 
-- `AGENT_WORKFLOW_LIVE=1` 规划端到端：受管 OpenCode + MCP 注入 → 模型调用 `workflow.plan.submit` →
+- **规划端到端**（`AGENT_WORKFLOW_LIVE=1`）：受管 OpenCode + MCP 注入 → 模型调用 `workflow.plan.submit` →
   候选校验通过 → 应用到草稿 → 确认计划 → 真实 Git worktree 准备成功。
-- `AGENT_WORKFLOW_LIVE=1` 执行端到端：确认/准备后开始执行，模型通过 MCP 文件工具修改 README.md 并
-  `workflow.result.submit` 提交结果；节点成功，worktree 变更可读。
+- **执行端到端**：确认/准备后开始执行，模型通过 MCP 文件工具修改 README.md 并 `workflow.result.submit`
+  提交结果；节点成功，worktree 变更可读。
+- **AI 审查**：真实模型对真实提交产出结构化 findings，服务端校验位置/严重度/维度后结算 completed。
+- **AI 修复**：真实模型在 `ai-fix/*` 隔离 worktree 内通过 MCP 修改代码，outcome=fixed（exact）→ 提交 → 放弃
+  并清理 worktree/本地分支。
+- **MySQL**：连接本机 `opencode_workflow_test`（MySQL 9.2.0），探针 / `SHOW TABLES` / 只读 SELECT 通过，
+  DELETE 与多语句被拒绝；密码从测试项目 `application.yml` 注入，不落库明文。
+- **GitHub**：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；响应与日志不包含令牌。
 
 > 模型说明：`opencode-go/deepseek-v4.1-flash` 在 thinking 模式下拒绝 tool_choice。本项目内置受管
 > provider 兼容网关（仅回环、随机路径 secret、日志脱敏）在 MCP 工具存在时去掉该字段，因此默认规划/开发使用

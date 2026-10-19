@@ -13,6 +13,7 @@ import { registerCors, registerErrorHandler, registerRoutes } from './http.ts';
 import { registerInternalRoutes } from './internal.ts';
 import { registerProviderGateway } from './opencode-gateway.ts';
 import { RemoteService } from './remote.ts';
+import { registerReviewRoutes } from './review-plugin.ts';
 import { mcpCommand, resolveRuntime, type RuntimePaths } from './runtime.ts';
 
 export interface CreateApplicationOptions {
@@ -114,6 +115,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   });
 
   registerInternalRoutes(app, { engine, store, token: internalToken, internalUrl: '' });
+  registerReviewRoutes(app, { engine, store });
   app.addHook('onClose', async () => {
     await adapter?.stop().catch(() => undefined);
     await databaseService.closeAll().catch(() => undefined);

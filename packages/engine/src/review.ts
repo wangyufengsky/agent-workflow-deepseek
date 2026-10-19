@@ -22,7 +22,6 @@ import {
   AppError,
   DIMENSION_ORDER,
   DEFAULT_CATALOG,
-  Dimension,
   ErrorCode,
   FindingStatus,
   ReviewRunState,
@@ -80,7 +79,7 @@ interface DiffContext {
 }
 
 interface ParsedFinding {
-  readonly finding: ReviewFinding;
+  readonly finding: Omit<ReviewFinding, 'reviewRunId' | 'ordinal'>;
   /** True when the location could not be checked (binary/truncated/unreadable diff). */
   readonly unverified: boolean;
 }
@@ -223,12 +222,6 @@ export class ReviewService {
     const commit = await this.#git.commitShow(project.rootPath, sha);
     if (commit === undefined) throw new AppError(ErrorCode.REVISION_NOT_FOUND, '提交不存在，无法审查');
     const compareBase = resolveCompareBase(commit, compareId);
-    const active = this.#activeReview(projectId, sha, compareId);
-    if (active !== undefined) {
-      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '该提交在同一对比基线下已有进行中的审查', {
-        details: { reviewRunId: active.reviewRunId, state: active.state },
-      });
-    }
 
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -248,9 +241,19 @@ export class ReviewService {
     if (replayed) {
       const existing = this.#reviewsByRequestKey(projectId, input.requestKey);
       if (existing !== undefined) return { receipt: this.#commands.toReceipt(record), resource: { review: existing } };
+      if (record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理但还没有审查记录；请按 requestKey 核对回执', {
         details: { requestKey: input.requestKey },
       });
+    }
+
+    const active = this.#activeReview(projectId, sha, compareId);
+    if (active !== undefined) {
+      const conflict = new AppError(ErrorCode.OPERATION_IN_PROGRESS, '该提交在同一对比基线下已有进行中的审查', {
+        details: { reviewRunId: active.reviewRunId, state: active.state },
+      });
+      this.#commands.fail(input.requestKey, conflict);
+      throw conflict;
     }
 
     const created = this.#store.reviews.create({
@@ -360,6 +363,10 @@ export class ReviewService {
       }
 
       const diffContext = await this.#collectDiff(project.rootPath, baseSha, headSha, files);
+      if (this.#isStopping(reviewRunId)) {
+        this.#markStopped(reviewRunId);
+        return;
+      }
       const analyzing: ReviewRun = { ...this.#store.reviews.get(reviewRunId)!, stage: 'analyzing' };
       this.#store.reviews.update(analyzing);
       this.#publish(analyzing, analyzing.state);
@@ -374,7 +381,6 @@ export class ReviewService {
         system: REVIEW_SYSTEM_PROMPT,
         model,
         permission: 'read_only',
-        jsonSchema: REVIEW_OUTPUT_SCHEMA,
         sink: this.#sink(reviewRunId),
         timeoutMs: this.#timeoutBudget(),
         onSessionId: (sessionId) => {
@@ -431,7 +437,8 @@ export class ReviewService {
   #complete(reviewRunId: string, startKey: string, findings: readonly ReviewFinding[], summaryText: string): void {
     const current = this.#store.reviews.get(reviewRunId);
     if (current === undefined) return;
-    this.#commands.settle(startKey, { reviewRunId, findings: findings.length });
+    const record = this.#commands.get(startKey);
+    if (record !== undefined && record.status === 'accepted') this.#commands.settle(startKey, { reviewRunId, findings: findings.length });
     const completed: ReviewRun = {
       ...current,
       state: ReviewRunState.COMPLETED,

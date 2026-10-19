@@ -16,7 +16,9 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**238 tests / 54 suites / 235 pass / 3 skipped / 0 fail**，约 24s（另有 2 个 live 场景单独运行并通过，见 §3）。
+结果（本轮）：**265 tests / 54 suites / 257 pass / 8 skipped / 0 fail**，约 24s。
+
+跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
 跳过项：`live:` 两个模型端到端（需 `AGENT_WORKFLOW_LIVE=1`）与真实 MySQL 探测（无凭据时 skip）。
 
@@ -56,7 +58,57 @@ AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integrati
 `workspace.file.*` 修改 `README.md`，调用 `workflow.result.submit` 提交结果；节点 succeeded、attempt 有结果；
 `GET /changes` 返回 `README.md`；随后取消执行。
 
-### 3.3 模型冒烟
+### 3.3 AI 审查（真实模型，PASS）
+
+```sh
+AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/review-fix-live.test.ts
+```
+
+结果（PASS，208s）：真实仓库提交 → 模型（flash，经兼容网关）输出严格 JSON findings → 服务端按 diff 校验
+位置/枚举后结算 completed，回执已结算；非法 findings 被丢弃并计数。
+
+### 3.4 AI 修复（真实模型，PASS）
+
+```sh
+AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/fix-live.test.ts
+```
+
+结果（PASS，25s）：构造真实 finding → 在 `ai-fix/*` 隔离 worktree 内用 MCP 文件工具修复 →
+outcome=fixed(exact)、`app.ts` 为唯一变更 → `fixes/:id/commit` 成功 → discard 清理 worktree、本地分支与
+`fix.worktree.<id>` 映射；用户工作区未被触碰（独立测试同样覆盖）。
+
+### 3.5 真实 MySQL（PASS）
+
+凭据来自 `opencode-workflow-java-test/src/main/resources/application.yml`，通过环境变量注入（不入库）：
+
+```sh
+set -a; source .tmp/mysql-env; set +a
+node --import tsx --test --test-force-exit tests/integration/database-live.test.ts
+```
+
+结果（PASS）：MySQL 9.2.0，probe connected（~50ms），`SHOW TABLES` 返回 3 张 `wf_test_*` 表，
+`SELECT COUNT(*) FROM wf_test_project` 成功；`DELETE` 与多语句注入返回 `DATABASE_QUERY_BLOCKED`；响应不含密码。
+
+### 3.6 GitHub 只读联调（PASS）
+
+```sh
+set -a; source .tmp/github-env; set +a
+node --import tsx --test --test-force-exit tests/integration/github-live.test.ts
+```
+
+结果（PASS）：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；`/api/bootstrap` 与仓库视图显示
+connected；响应中不包含令牌。未执行任何写操作（push / 创建 MR / 合并）以避免修改真实仓库。
+
+### 3.7 flash + 兼容网关（PASS）
+
+```sh
+AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/planning-gateway-live.test.ts
+```
+
+结果（PASS，30s）：flash 模型经网关 4 次请求、4 次归一化（去掉 tool_choice）→ MCP `workflow.plan.submit`
+候选通过。默认规划/开发/修复模型为 flash，审查可配置为 v4-pro。
+
+### 3.8 模型冒烟
 
 ```sh
 npm run test:model
@@ -111,9 +163,10 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 
 ## 7. 已知限制 / 未验证
 
-- 未在本机验证真实 MySQL 查询（需要 `opencode-workflow-java-test` 的本地凭据，环境未注入）；
-  只读守卫与错误映射已用 fake driver 覆盖。
-- GitHub/GitLab 远端写（fetch/push 凭据注入、MR 创建）未端到端验证；GitLab token 设置页待接线。
-- 非 Git 目录副本与三方应用预览未实现；工作区清理确认仅基础实现。
+- Git 远端写只验证了 fetch（本地远端）和 MR 读取（真实 GitHub）；真实 GitHub push / 创建 MR / 直接合并
+  未执行（避免修改真实仓库），GitLab 未联调。
+- AI 审查/修复的服务端结果已验证；模型自报的校验命令未由服务独立执行；`fix.merge` 未实现。
+- FixRun 的 start/stop requestKey 只存在内存，进程重启后的恢复仍需补（ReviewRun 可从 receipt 恢复）。
+- 非 Git 目录副本已实现；三方应用预览/逐项应用未实现。工作区清理确认仅基础实现。
 - Electron 打包分发（签名、跨平台）未验证；`desktop` 构建脚本与主进程已可启动。
 - 页面视觉与设计稿的最终对照（截图）与浏览器自动化回归待补（见 `docs/remaining-work.md`）。

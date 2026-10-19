@@ -105,6 +105,9 @@ export class AppError extends Error {
 export function defaultStatus(code: ErrorCodeValue): number {
   switch (code) {
     case ErrorCode.VALIDATION_FAILED:
+    case ErrorCode.PATH_ESCAPE:
+    case ErrorCode.COMMAND_NOT_ALLOWED:
+    case ErrorCode.DATABASE_QUERY_BLOCKED:
       return 400;
     case ErrorCode.UNAUTHORIZED:
       return 401;
@@ -126,6 +129,16 @@ export function defaultStatus(code: ErrorCodeValue): number {
     case ErrorCode.MR_ALREADY_EXISTS:
     case ErrorCode.DELIVERY_ALREADY_SETTLED:
     case ErrorCode.HOOK_REJECTED:
+    case ErrorCode.CANDIDATE_PENDING:
+    case ErrorCode.ANSWER_REQUIRED:
+    case ErrorCode.HUMAN_REVIEW_REQUIRED:
+    case ErrorCode.FIXED_TEMPLATE_LOCKED:
+    case ErrorCode.NODE_LOCKED:
+    case ErrorCode.NODE_NOT_EXECUTABLE:
+    case ErrorCode.DELIVERY_BLOCKED:
+    case ErrorCode.WORKSPACE_NAME_CONFLICT:
+    case ErrorCode.WORKSPACE_PARTIAL:
+    case ErrorCode.PLANNING_BUSY:
       return 409;
     case ErrorCode.NOT_CONFIGURED:
     case ErrorCode.PLANNING_UNAVAILABLE:
@@ -135,6 +148,8 @@ export function defaultStatus(code: ErrorCodeValue): number {
     case ErrorCode.CAPABILITY_UNAVAILABLE:
     case ErrorCode.MCP_NOT_AVAILABLE:
     case ErrorCode.OPENCODE_NOT_READY:
+    case ErrorCode.WORKSPACE_NOT_READY:
+    case ErrorCode.WORKSPACE_PREPARE_FAILED:
       return 503;
     case ErrorCode.BUDGET_EXCEEDED:
     case ErrorCode.MODEL_BUDGET_EXCEEDED:

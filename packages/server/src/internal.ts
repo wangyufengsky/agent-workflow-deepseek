@@ -304,8 +304,8 @@ function requireProject(deps: InternalDependencies, projectId: string) {
 
 function safePath(root: string, path: string): string {
   if (isAbsolute(path) || path.includes('\0')) throw new AppError(ErrorCode.PATH_ESCAPE, '路径必须是相对路径');
-  const normalized = resolve(root, path);
-  const realRoot = existsSync(root) ? realpathSync(root) : root;
+  const realRoot = existsSync(root) ? realpathSync(root) : resolve(root);
+  const normalized = resolve(realRoot, path);
   const realTarget = existsSync(normalized) ? realpathSync(normalized) : normalized;
   if (realTarget !== realRoot && !realTarget.startsWith(`${realRoot}${sep}`)) {
     throw new AppError(ErrorCode.PATH_ESCAPE, '路径越出工作区', { details: { path } });

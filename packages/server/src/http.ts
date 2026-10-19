@@ -35,6 +35,7 @@ import { AppError, ErrorCode, THEMES, THEME_ORDER, createId, mergeSettings, nowI
 import type { Store } from '@agent-workflow/storage';
 import type { DatabaseService } from '@agent-workflow/database';
 import type { RemoteService } from './remote.ts';
+import { fileIdFor } from './adapters/git-cli.ts';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
@@ -333,7 +334,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.get('/api/git/repos', async (request) => {
     const repos = [];
     for (const project of engine.projects.list()) {
-      repos.push(await buildGitRepoView(engine, project.id, remoteService));
+      repos.push(await buildGitRepoView(engine, project.id, remoteService, store));
     }
     return envelope(
       {
@@ -348,7 +349,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId', async (request) => {
-    const repo = await buildGitRepoView(engine, request.params.projectId, remoteService);
+    const repo = await buildGitRepoView(engine, request.params.projectId, remoteService, store);
     return envelope({ repo, projectId: request.params.projectId }, requestId(request));
   });
 
@@ -363,8 +364,22 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       query: request.query.q,
     });
     const status = await engine.ports.git.status(project.rootPath).catch(() => undefined);
+    const reviews = store.reviews.listByProject(request.params.projectId);
+    const commits = result.commits.map((commit) => {
+      const latest = reviews.find((review) => review.subject.commitSha === commit.sha);
+      return latest === undefined
+        ? commit
+        : {
+            ...commit,
+            review: {
+              reviewRunId: latest.reviewRunId,
+              state: latest.state,
+              openCount: latest.findings.filter((finding) => finding.status === 'open').length,
+            },
+          };
+    });
     return envelope(
-      { commits: result.commits, nextCursor: result.nextCursor, resolvedTipSha: status?.head.sha, shallowBoundaryReached: status?.shallow !== undefined },
+      { commits, nextCursor: result.nextCursor, resolvedTipSha: status?.head.sha, shallowBoundaryReached: status?.shallow !== undefined },
       requestId(request),
     );
   });
@@ -382,7 +397,20 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     if (commit === undefined) throw new AppError(ErrorCode.REVISION_NOT_FOUND, '提交不存在');
     const baseSha = resolveCompareBase(commit, request.query.compareId);
     const files = await engine.ports.git.diffFiles({ repoRoot: project.rootPath, baseSha, headSha: request.params.sha });
-    return envelope({ files, truncated: false, reviewBadges: [] as { fileId: string; findingCount: number }[] }, requestId(request));
+    const knownFiles = new Set(files.map((file) => file.fileId));
+    const badges = new Map<string, number>();
+    for (const review of store.reviews.listByCommit(request.params.projectId, request.params.sha)) {
+      for (const finding of review.findings) {
+        if (finding.location === undefined) continue;
+        const fileId = fileIdFor(finding.location.path);
+        if (!knownFiles.has(fileId)) continue;
+        badges.set(fileId, (badges.get(fileId) ?? 0) + 1);
+      }
+    }
+    return envelope(
+      { files, truncated: false, reviewBadges: [...badges.entries()].map(([fileId, findingCount]) => ({ fileId, findingCount })) },
+      requestId(request),
+    );
   });
 
   app.get<{ Params: { projectId: string }; Querystring: { path?: string; baseSha?: string; headSha?: string; ignoreWhitespace?: string } }>('/api/git/repos/:projectId/diff', async (request) => {
@@ -420,40 +448,6 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const result = await fetchImpl.call(engine.ports.git, { repoRoot: project.rootPath, remote: 'origin', prune: true });
     store.events.publish('git.repo.changed', { projectId: project.id });
     return envelope({ fetchedAt: result.fetchedAt }, requestId(request));
-  });
-
-  // AI review / fix: storage and UI contracts exist; the runner wiring lands in a later batch.
-  app.get<{ Params: { projectId: string; reviewRunId: string } }>('/api/git/repos/:projectId/reviews/:reviewRunId', async (request) => {
-    const review = store.reviews.get(request.params.reviewRunId);
-    if (review === undefined) throw new AppError(ErrorCode.NOT_FOUND, '审查记录不存在');
-    return envelope({ review }, requestId(request));
-  });
-  app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId/reviews', async (request) => {
-    requireProject(engine, request.params.projectId);
-    return envelope({ reviews: store.reviews.listByProject(request.params.projectId) }, requestId(request));
-  });
-  for (const route of ['/api/git/repos/:projectId/reviews/start', '/api/git/repos/:projectId/fixes/start']) {
-    app.post(route, async () => {
-      throw new AppError(ErrorCode.NOT_IMPLEMENTED, 'AI 审查/修复运行接线尚未完成：设计、存储与回执已就绪，执行引擎会话待下一批接通');
-    });
-  }
-  app.get<{ Params: { projectId: string; fixRunId: string } }>('/api/git/repos/:projectId/fixes/:fixRunId', async (request) => {
-    const fix = store.fixes.get(request.params.fixRunId);
-    if (fix === undefined) throw new AppError(ErrorCode.NOT_FOUND, '修复记录不存在');
-    return envelope({ fix }, requestId(request));
-  });
-  app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId/fixes', async (request) => {
-    requireProject(engine, request.params.projectId);
-    return envelope({ fixes: store.fixes.listByProject(request.params.projectId) }, requestId(request));
-  });
-  app.post('/api/git/repos/:projectId/reviews/:reviewRunId/stop', async () => {
-    throw new AppError(ErrorCode.NOT_IMPLEMENTED, 'AI 审查停止尚未接通');
-  });
-  app.post('/api/git/repos/:projectId/findings/:findingId', async () => {
-    throw new AppError(ErrorCode.NOT_IMPLEMENTED, '审查问题状态更新尚未接通');
-  });
-  app.post('/api/git/repos/:projectId/fixes/:fixRunId/*', async () => {
-    throw new AppError(ErrorCode.NOT_IMPLEMENTED, '修复提交/推送/合并等写命令尚未接通');
   });
 
   // Operations
@@ -661,8 +655,10 @@ function requireProject(engine: Engine, projectId: string) {
   return project;
 }
 
-async function buildGitRepoView(engine: Engine, projectId: string, remoteService?: RemoteService): Promise<Record<string, unknown>> {
+async function buildGitRepoView(engine: Engine, projectId: string, remoteService?: RemoteService, storeOverride?: Store): Promise<Record<string, unknown>> {
   const project = requireProject(engine, projectId);
+  const projectReviews = storeOverride?.reviews.listByProject(projectId) ?? [];
+  const pendingFindingCount = projectReviews.reduce((count, review) => count + review.findings.filter((finding) => finding.status === 'open').length, 0);
   const detection = await engine.ports.git.detect(project.rootPath).catch(() => ({ gitState: 'path_unavailable' as const, detail: '无法读取项目路径' }));
   let status: Awaited<ReturnType<Engine['ports']['git']['status']>> | undefined;
   let lastCommit;
@@ -680,7 +676,7 @@ async function buildGitRepoView(engine: Engine, projectId: string, remoteService
     remote: detection.gitState === 'git' && project.remoteDisplayUrl !== undefined ? { name: 'origin', displayUrl: project.remoteDisplayUrl } : undefined,
     gitStateDetail: 'detail' in detection ? detection.detail : undefined,
     status,
-    summary: { lastCommit, openMrCount: null, pendingFindingCount: 0 },
+    summary: { lastCommit, openMrCount: null, pendingFindingCount: pendingFindingCount },
     gitlab: remoteService === undefined ? 'not_configured' : (await remoteService.connection(projectId)).state,
   };
 }

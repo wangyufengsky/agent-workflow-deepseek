@@ -74,7 +74,12 @@ export interface StoredFixWorktree {
 
 /** Server-owned restore capability (the engine Git port has no restore method). */
 export interface FixWorkspacePort {
-  restoreFile(input: { readonly worktreePath: string; readonly path: string; readonly status: ChangeStatusValue }): Promise<void>;
+  restoreFile(input: {
+    readonly worktreePath: string;
+    readonly path: string;
+    readonly status: ChangeStatusValue;
+    readonly oldPath?: string;
+  }): Promise<void>;
 }
 
 /** Structural subset of the server RemotePort used for merge requests. */
@@ -156,6 +161,7 @@ export class FixService {
   readonly #timeoutMs: number | undefined;
   readonly #startKeys = new Map<string, string>();
   readonly #stopKeys = new Map<string, string>();
+  readonly #pendingStarts = new Set<string>();
   readonly #sessions = new Map<string, string>();
 
   constructor(options: FixServiceOptions) {
@@ -194,12 +200,6 @@ export class FixService {
         details: { expected: expectedBaseTip, actual: base.tipSha },
       });
     }
-    const active = this.#activeFix(projectId, baseBranch);
-    if (active !== undefined) {
-      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '该基线分支已有进行中的修复；请先完成或放弃它', {
-        details: { fixRunId: active.fixRunId, state: active.state },
-      });
-    }
     const commitsAfterReviewed = await this.#commitsAfterReviewed(project.rootPath, baseBranch, review.subject.commitSha, base.tipSha);
 
     const fixRunId = createId('fix');
@@ -223,10 +223,22 @@ export class FixService {
       const existingId = record.resultResource?.id;
       const existing = existingId === undefined ? undefined : this.#store.fixes.get(existingId);
       if (existing !== undefined) return { receipt: this.#commands.toReceipt(record), resource: { fix: existing } };
+      if (record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理但还没有修复记录；请按 requestKey 核对回执', {
         details: { requestKey: input.requestKey },
       });
     }
+
+    const guardKey = `${projectId}:${baseBranch}`;
+    const active = this.#activeFix(projectId, baseBranch);
+    if (active !== undefined || this.#pendingStarts.has(guardKey)) {
+      const conflict = new AppError(ErrorCode.OPERATION_IN_PROGRESS, '该基线分支已有进行中的修复；请先完成或放弃它', {
+        details: active === undefined ? { baseBranch } : { fixRunId: active.fixRunId, state: active.state },
+      });
+      this.#commands.fail(input.requestKey, conflict);
+      throw conflict;
+    }
+    this.#pendingStarts.add(guardKey);
 
     const fixBranch = this.#allocateBranch(branches, base.tipSha);
     const worktreesRoot = this.#worktreesRoot();
@@ -241,15 +253,22 @@ export class FixService {
         branch: fixBranch,
       });
     } catch (error) {
+      this.#pendingStarts.delete(guardKey);
       this.#commands.fail(input.requestKey, error as Error);
       throw error;
     }
-    this.#store.settings.putJson(`${WORKTREE_SETTING_PREFIX}${fixRunId}`, {
-      path: handle.path,
-      branch: handle.branch,
-      baseSha: base.tipSha,
-      createdAt: nowIso(),
-    } satisfies StoredFixWorktree);
+    try {
+      this.#store.settings.putJson(`${WORKTREE_SETTING_PREFIX}${fixRunId}`, {
+        path: handle.path,
+        branch: handle.branch,
+        baseSha: base.tipSha,
+        createdAt: nowIso(),
+      } satisfies StoredFixWorktree);
+    } catch (error) {
+      this.#pendingStarts.delete(guardKey);
+      this.#commands.fail(input.requestKey, error as Error);
+      throw error;
+    }
 
     const verifyCommand = resolveVerifyCommand(project, settings.git.defaultTestCommand);
     const fix: FixRun = {
@@ -270,8 +289,16 @@ export class FixService {
       fixRevision: '1',
       actions: {},
     };
+    let created: FixRun;
+    try {
+      created = this.#store.fixes.create({ ...fix, actions: fixActions(fix) });
+    } catch (error) {
+      this.#pendingStarts.delete(guardKey);
+      this.#commands.fail(input.requestKey, error as Error);
+      throw error;
+    }
+    this.#pendingStarts.delete(guardKey);
     this.#startKeys.set(fixRunId, input.requestKey);
-    const created = this.#store.fixes.create({ ...fix, actions: fixActions(fix) });
     this.#publish(created);
     void this.#run(created.fixRunId).catch((error: unknown) => {
       this.#fail(created.fixRunId, error, false);
@@ -345,6 +372,7 @@ export class FixService {
       throw new AppError(ErrorCode.STALE_TARGET, '修复内容已变化，请重新读取后确认', { details: { expected: input.expectedFixRevision, actual: fix.fixRevision } });
     }
     const file = this.#findFile(fix, requireNonEmpty(input.fileId, '文件引用'));
+    if (this.#workspace === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前服务未提供撤销文件能力');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'fix.file.revert',
@@ -352,9 +380,13 @@ export class FixService {
       target: { projectId, ref: fix.fixBranch },
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { fix: this.#requireFix(projectId, fixRunId) } };
-    if (this.#workspace === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前服务未提供撤销文件能力');
     try {
-      await this.#workspace.restoreFile({ worktreePath: await this.#worktreePath(fix), path: file.path, status: file.status });
+      await this.#workspace.restoreFile({
+        worktreePath: await this.#worktreePath(fix),
+        path: file.path,
+        status: file.status,
+        ...(file.oldPath === undefined ? {} : { oldPath: file.oldPath }),
+      });
       const changes = await this.#readChanges(fix);
       const ready = changes.files.length > 0;
       const next: FixRun = {
@@ -417,7 +449,6 @@ export class FixService {
         requestKey: input.requestKey,
         settledAt: nowIso(),
         commitSha: commit.sha,
-        items: paths.map((path) => ({ fileId: '', result: path })),
       });
       const next: FixRun = {
         ...fix,
@@ -545,6 +576,12 @@ export class FixService {
     if (IN_PROGRESS_FIX_STATES.includes(fix.state)) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '修复仍在进行，请先停止并等待停稳再放弃', { details: { state: fix.state } });
     }
+    const unresolved = fix.steps.find((step) => step.state === 'unknown' || step.state === 'in_progress');
+    if (unresolved !== undefined) {
+      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, `步骤 ${unresolved.step} 结果待核对；请先按原请求号核对回执`, {
+        details: { step: unresolved.step, requestKey: unresolved.requestKey },
+      });
+    }
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'fix.discard',
@@ -558,6 +595,9 @@ export class FixService {
       this.#deleteWorktreeSetting(fixRunId);
       const next: FixRun = { ...fix, state: FixRunState.DISCARDED, fixRevision: nextFixRevision(fix.fixRevision) };
       const updated = this.#store.fixes.update({ ...next, actions: fixActions(next) });
+      this.#startKeys.delete(fixRunId);
+      this.#stopKeys.delete(fixRunId);
+      this.#sessions.delete(fixRunId);
       this.#commands.settle(input.requestKey, { fixRunId, discarded: true, remoteBranchRetained: true });
       this.#publish(updated);
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { fix: updated } };
@@ -583,6 +623,10 @@ export class FixService {
       const selected = review.findings.filter((finding) => original.findingIds.includes(finding.findingId));
       const prompt = this.#buildPrompt(original, review, selected);
       const worktreePath = await this.#worktreePath(original);
+      if (this.#isStopping(fixRunId)) {
+        this.#markStopped(fixRunId);
+        return;
+      }
       const result = await this.#opencode.runSession({
         kind: 'fix',
         metadata: { projectId: original.projectId, fixRunId, reviewRunId: original.reviewRunId },
@@ -591,7 +635,6 @@ export class FixService {
         system: FIX_SYSTEM_PROMPT,
         model,
         permission: 'workspace_write',
-        jsonSchema: FIX_OUTPUT_SCHEMA,
         sink: this.#sink(fixRunId),
         timeoutMs: this.#timeoutBudget(),
         onSessionId: (sessionId) => {
@@ -620,7 +663,7 @@ export class FixService {
       const current = this.#store.fixes.get(fixRunId);
       if (current === undefined) return;
       const changes = await this.#readChanges(current);
-      const outcomes = parseOutcomes(parsed.outcomes, current, result.outcome.assistantText);
+      const outcomes = parseOutcomes(parsed.outcomes, current);
       const verification = parseVerification(parsed.verification, current);
       const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 2_000) : '';
       const state = changes.files.length === 0 ? FixRunState.NO_CHANGES : FixRunState.READY;
@@ -700,9 +743,7 @@ export class FixService {
   }
 
   #failCommand(requestKey: string, error: unknown): void {
-    const record = this.#commands.get(requestKey);
     this.#commands.fail(requestKey, error instanceof Error ? error : new Error('操作失败'));
-    void record;
   }
 
   #settle(requestKey: string, outcome: Record<string, unknown>): void {
@@ -844,7 +885,7 @@ ${verify}
   }
 
   #clockNow(): Date {
-    return this.#context.settings() === undefined ? new Date() : new Date();
+    return new Date();
   }
 
   async #commitsAfterReviewed(rootPath: string, baseBranch: string, reviewedSha: string, tipSha: string): Promise<number> {
@@ -959,8 +1000,8 @@ export function fixActions(fix: FixRun): Record<string, ActionAvailability> {
   };
 }
 
-function parseOutcomes(raw: readonly unknown[], fix: FixRun, assistantText: string): FixRun['outcomes'] {
-  const outcomes: FixRun['outcomes'] = [];
+function parseOutcomes(raw: readonly unknown[], fix: FixRun): FixRun['outcomes'] {
+  const outcomes: FixRun['outcomes'][number][] = [];
   let discarded = 0;
   for (const item of raw) {
     if (!isRecord(item)) {
@@ -995,7 +1036,6 @@ function parseOutcomes(raw: readonly unknown[], fix: FixRun, assistantText: stri
       reason: `模型没有报告该问题的处理结果${discarded > 0 ? '（部分输出条目被丢弃）' : ''}`,
     });
   }
-  void assistantText;
   return outcomes;
 }
 
