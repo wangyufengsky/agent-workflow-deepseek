@@ -73,7 +73,8 @@ export function CommitDetail({ projectId, sha, repo, branches, onDiffFullscreenC
 
   const compareBase = commit?.compareOptions.find((option) => option.compareId === compareId)
     ?? commit?.compareOptions[0];
-  // 根提交的 compareOptions 为空；服务用它约定的空树 SHA 作为基线。
+  // Root commits now expose an `empty_tree` compare option; keep the fallback so
+  // older read models always have a diff/review baseline.
   const diffBaseSha = compareBase?.baseSha ?? GIT_EMPTY_TREE_SHA;
 
   const filesQuery = useQuery({
