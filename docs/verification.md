@@ -251,3 +251,10 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理确认仅基础实现。
 - Electron 打包分发（签名、跨平台）未验证；`desktop` 构建脚本与主进程已可启动。
 - 页面视觉与设计稿的最终对照（截图）与浏览器自动化回归待补（见 `docs/remaining-work.md`）。
+
+### 第 64 轮打包回归（2026-10-19）
+
+- `npm run dist` 成功：`release/mac-arm64/Agent Workflow.app`（341MB，未签名）。
+- 打包产物包含 `Contents/Resources/app/node_modules/pptxgenjs`（PPTX 运行时依赖）。
+- 直接启动 `.app` 可执行文件时需确保 shell 未设置 `ELECTRON_RUN_AS_NODE=1`（本工具环境默认设置，会令 Electron 以 Node 模式运行而无法开窗）。
+- 启动后 `/api/health` 返回 200；通过打包内 server 创建 PPT 草稿并导出 `.pptx`，55,341B、标准 ZIP 头（运行时 `pptxgenjs` 在打包环境中可用）。

@@ -109,3 +109,5 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 截至第 15 轮：核心链路（Electron/主题/画布/后端/存储/MySQL/Git/MCP/受管 OpenCode/规划/执行/审查/修复/交付/恢复）
 均已真实运行；离线测试 296 条全绿，live 场景（规划、执行、网关、审查、修复、MySQL、GitHub 只读）均有证据。
 真实远端写、模板编辑、知识库/PPT、用量质量、签名打包与视觉回归仍待完成，见 `docs/remaining-work.md`。
+
+> 若从某些工具终端启动桌面应用时只见日志、不开窗，检查是否继承了 `ELECTRON_RUN_AS_NODE=1`；桌面主进程需要普通 Electron 模式（可 `unset ELECTRON_RUN_AS_NODE` 后再启动）。
