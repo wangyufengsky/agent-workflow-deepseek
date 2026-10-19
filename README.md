@@ -80,7 +80,8 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
   并清理 worktree/本地分支；修复分支可单独合并回基线分支（no-ff + CAS）。
 - **MySQL**：连接本机 `opencode_workflow_test`（MySQL 9.2.0），探针 / `SHOW TABLES` / 只读 SELECT 通过，
   DELETE 与多语句被拒绝；密码从测试项目 `application.yml` 注入，不落库明文。
-- **GitHub**：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；响应与日志不包含令牌。
+- **GitHub 读**：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；响应与日志不包含令牌。
+- **GitHub 真实写**：在 `wangyufengsky/opencode-workflow-java-test` 推送一次性分支、创建 MR #1、列表确认、关闭 MR 并删除分支（15s，已复核远端干净）。
 - **用量**：规划/执行/审查/修复 token 聚合到 Insights；知识库与 PPT 的 usage tokens 随结果展示。
 - **知识库问答**：基于项目 docs 提问，flash 返回答案、经校验引用与 conversationId；同一会话追问带上下文（live PASS 24s）。
 - **PPT 大纲/逐页**：草稿 → flash 模型生成 12 页大纲与逐页要点并落库（live PASS 32s）；可添加文本/图片附件，导出 Markdown 与四主题真实 .pptx。

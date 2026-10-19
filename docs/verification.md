@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**312 tests / 54 suites / 302 pass / 10 skipped / 0 fail**，约 24s。
+结果（本轮）：**313 tests / 54 suites / 302 pass / 11 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -77,6 +77,20 @@ flash 模型返回答案并给出 `README.md:3`、`README.md:4` 两条引用（�
 
 `AGENT_WORKFLOW_LIVE=1 tests/integration/ppt-live.test.ts`：草稿“季度汇报/交付质量计划” → flash 模型生成 12 页大纲，
 再生成逐页标题+要点（每页 2–6 条）并落库，usage tokens>0，列表读取一致，**PASS 29s**。PPTX 文件导出已验证（真实 zip，生产 server 冒烟 55KB）；逐页高级视觉仍为基础版式。
+
+
+## 3.2 真实 GitHub 远端写（PASS，2026-10-19）
+
+`AGENT_WORKFLOW_LIVE=1` + `GITHUB_TEST_WRITE_REPO=wangyufengsky/opencode-workflow-java-test` 运行
+`tests/integration/github-live-write.test.ts`（使用本机 `gh` 凭据，令牌不写入仓库/日志）：
+
+1. 克隆测试仓库 → 从 `main` 创建一次性分支 `agent-workflow/write-test-*` 并提交测试文件；
+2. `git push` 到 GitHub，`ls-remote` 确认分支存在；
+3. 通过 `RemoteService.createMergeRequest` 创建 **MR #1**，`listMergeRequests('opened')` 能读到；
+4. 清理：REST 关闭 MR（HTTP 200），删除远端分支；
+5. 复核：MR #1 状态 `closed`，`refs/heads/agent-workflow/write-test-*` 剩余 0。
+
+总耗时约 15s。注意：`.tmp/github-env` 中的 PAT 对 git 写为 403（读可用）；写验证使用本机 `gh` 凭据。
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 

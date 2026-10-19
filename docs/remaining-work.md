@@ -13,7 +13,7 @@
 | Node.js 24 + TypeScript 后端 | ✅ | Fastify 5，Node 24 原生 TS + esbuild 生产包 |
 | SQLite + JSONL | ✅ | 迁移 v1–v7、仓库、事件/规划/执行 journal |
 | MySQL（mysql2）+ PostgreSQL（pg） | ✅/🟡 | MySQL 9.2 真实探针/只读/写入拦截；PostgreSQL 驱动分流由单测验证，未接真实实例 |
-| Git CLI + GitHub/GitLab REST + worktree | ✅/🟡 | 读模型/合并/fetch/推送防护；MR 创建用 GitHub/GitLab 桩验证；真实远端写未执行 |
+| Git CLI + GitHub/GitLab REST + worktree | ✅/🟡 | GitHub 真实 push/MR/关闭/删分支已验证；GitLab 真实写与合并未执行 |
 | 任务独立分支 + worktree + 并发 | ✅ | `concurrent-worktrees.test.ts`、delivery/fix merge CAS |
 | 内部 MCP + 受管 OpenCode 1.19.0 | ✅ | 启动注入 MCP、13 工具、错误码、真实规划/执行/审查/修复 live |
 | 规划/执行/审查/修复/交付/恢复 | ✅ | 候选、worktree、MCP 写文件、AI 审查/修复、合并、重试/跳过、任务恢复 |
@@ -28,7 +28,7 @@
 
 ## 剩余缺口（按优先级）
 
-1. **真实远端写**：需一个可丢弃测试仓库跑 push → 创建 MR → 关闭/删除分支；当前 GitHub 只读 + GitHub/GitLab 桩写验证。
+1. **远端写**：GitHub 已在可丢弃测试仓库完成 push → MR → 关闭/删分支（PASS）；GitLab 真实写仍用桩验证。
 2. **模板编辑器**：已支持导入、可视化步骤增删/拖拽排序/类型/分组、JSON 编辑新版本、归档、按模板计划；缺口已关闭。
 3. **PPT 高级视觉**：四主题 PPTX、文本+图片附件、大纲/逐页生成已做；品牌模板、PDF 附件、逐页视觉检查未做。
 4. **审查快照对比**：同提交两次审查可对比新增/已解决/仍存在；并排代码快照差异视图未做。
