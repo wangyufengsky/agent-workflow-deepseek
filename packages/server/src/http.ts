@@ -583,6 +583,24 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     engine.updateSettings({ ...settings, database: { ...settings.database, connections } });
     return envelope({ connection: databaseService.get(id) }, requestId(request));
   });
+  app.delete<{ Params: { id: string } }>('/api/settings/databases/:id', async (request) => {
+    if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
+    const settings = engine.publicSettings();
+    if (!settings.database.connections.some((connection) => connection.id === request.params.id)) {
+      throw new AppError(ErrorCode.NOT_FOUND, '数据库连接不存在');
+    }
+    const next: AppSettings = {
+      ...settings,
+      database: {
+        ...settings.database,
+        connections: settings.database.connections.filter((connection) => connection.id !== request.params.id),
+      },
+    };
+    engine.updateSettings(next);
+    await databaseService.applySettings(next.database);
+    store.events.publish('task.changed', { taskId: '', projectId: '', stage: 'draft', revision: 1 });
+    return envelope({ connections: databaseService.list() }, requestId(request));
+  });
   app.post<{ Params: { id: string } }>('/api/settings/databases/:id/probe', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
     return envelope({ probe: await databaseService.tryProbe(request.params.id) }, requestId(request));

@@ -16,7 +16,7 @@ import {
   type DatabaseQueryResult,
   type DatabaseTypeValue,
 } from '@agent-workflow/shared';
-import { ApiClientError, apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { ApiClientError, apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useSettings } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
@@ -229,6 +229,18 @@ export function DatabasesPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (connectionId: string) => {
+      await request(`/api/settings/databases/${encodeURIComponent(connectionId)}`, { method: 'DELETE' });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['databases'] }),
+        queryClient.invalidateQueries({ queryKey: ['settings'] }),
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+      ]);
+    },
+  });
   const probeMutation = useMutation({
     mutationFn: async (connectionId: string) => {
       const response = await apiPost<DatabaseProbeResponse>(ROUTES.databaseProbe(connectionId), {});
@@ -422,6 +434,17 @@ export function DatabasesPage() {
                   }}
                 >
                   编辑
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon="trash"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => {
+                    if (window.confirm(`删除数据库连接「${connection.name}」？只删除本地配置，不会改动数据库。`)) deleteMutation.mutate(connection.id);
+                  }}
+                >
+                  删除
                 </Button>
                 <span className="spacer" />
                 <span className="hint mono">{connection.id}</span>
