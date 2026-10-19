@@ -219,6 +219,13 @@ export class PlanningService {
     const record = (input: Parameters<Store['planning']['appendRecord']>[1]) => {
       seq += 1;
       this.#store.planning.appendRecord(roundId, { ...input, fragmentId: input.fragmentId || `${roundId}-${seq}` });
+      this.#store.journal.append(`planning-${roundId}`, {
+        type: input.category,
+        at: input.at ?? nowIso(),
+        text: input.text,
+        blockId: input.blockId,
+        toolCall: input.toolCall,
+      });
       this.#store.events.publish('planning.output.appended', {
         taskId,
         roundId,

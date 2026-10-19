@@ -256,6 +256,12 @@ export class ExecutionService {
     const appendFragment = (category: 'model_text' | 'tool_activity', text: string, blockId: string | undefined, extra: { callId?: string; status?: string; tool?: string } = {}) => {
       outputSeq += 1;
       const fragmentId = `${attempt.id}:${outputSeq}`;
+      this.#store.journal.append(`attempt-${attempt.id}`, {
+        type: category,
+        at: nowIso(),
+        text,
+        blockId,
+      });
       this.#store.executions.appendOutput({
         attemptId: attempt.id,
         seq: outputSeq,

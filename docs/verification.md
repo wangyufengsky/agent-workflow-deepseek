@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**265 tests / 54 suites / 257 pass / 8 skipped / 0 fail**，约 24s。
+结果（本轮）：**266 tests / 54 suites / 258 pass / 8 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -34,6 +34,9 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | mcp | 工具注册、错误信封、路径逃逸、写权限、exec 白名单、fake 内部服务 |
 | server | 项目→任务→骨架→确认→真实 worktree 准备、requestKey 幂等/冲突、内部 MCP 鉴权 |
 | server/git | `/api/git/*` 读口；任务分支合并成功、STALE_TARGET、冲突中止且目标分支不变 |
+| server/concurrency | 两个任务并发准备独立 worktree，分支/目录不同；互不污染、main 不变；清理后无残留分支 |
+| server/review | review/fix 服务与 15 条 HTTP 路由、findings 校验丢弃、CAS、worktree 隔离、revert/commit/discard |
+| server/remote | GitHub token 加密/连接/MR 读取/令牌不泄漏；fetch 更新本地远端引用；非 Git 目录副本 |
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
