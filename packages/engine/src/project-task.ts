@@ -659,16 +659,13 @@ export class CharterService {
         }
         if (result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '公约生成超时');
         if (result.outcome.error) throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, result.outcome.error);
-        const content = normalizeCharterContent((result.outcome.assistantText ?? '').replace(/^```(?:markdown|md)?\s*\n|\n```\s*$/g, ''));
-        const now = nowIso(); const version = nextCharterVersion(before);
-        const draft = { version, content, source: 'model' as const, savedAt: now };
-        this.#save(projectId, { status: 'draft', draft, ...(before?.written === undefined ? {} : { written: before.written }), versions: [{ version, status: 'draft' as const, source: 'model' as const, savedAt: now }, ...(before?.versions ?? [])].slice(0, CHARTER_VERSION_LIMIT), updatedAt: now });
-        this.#commands.settle(input.requestKey, { projectId, version });
+        if (!result.outcome.idle) throw new AppError(ErrorCode.CHARTER_STATE_UNKNOWN, '公约生成尚未确认结束');
+        this.#finishGeneratedGeneration(projectId, input.requestKey, result.outcome.assistantText ?? '');
       } catch (error) {
         if (active.preventedDispatch) { this.#finishStoppedGeneration(projectId, input.requestKey); return; }
         if (this.#commands.get(input.requestKey)?.status === 'succeeded') return;
         // Timeout/abort failure may leave the provider alive: preserve original identity.
-        const uncertain = active.stopRequested || (error instanceof AppError && error.code === ErrorCode.MODEL_BUDGET_EXCEEDED);
+        const uncertain = active.stopRequested || (error instanceof AppError && (error.code === ErrorCode.MODEL_BUDGET_EXCEEDED || error.code === ErrorCode.CHARTER_STATE_UNKNOWN));
         if (!uncertain) this.#save(projectId, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
         this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('公约生成失败'), uncertain);
       } finally { if (this.#active.get(projectId) === active) this.#active.delete(projectId); }
@@ -704,10 +701,28 @@ export class CharterService {
     const projectId = operation.target.projectId;
     if (projectId === undefined) return;
     const state = this.#state(projectId);
-    if (state?.generation?.stopRequestKey === undefined || state.generation.sessionId === undefined) return;
+    if (state?.generation?.sessionId === undefined || (operation.operation === 'project.charter.generate' && state.generation.requestKey !== key) || (operation.operation === 'project.charter.stop' && state.generation.stopRequestKey !== key)) return;
     try {
-      if (await this.#opencode?.inspectSession?.(state.generation.sessionId) === 'idle') this.#finishStoppedGeneration(projectId, state.generation.requestKey);
-    } catch { /* A failed status read is not proof that generation stopped. */ }
+      if (await this.#opencode?.inspectSession?.(state.generation.sessionId) !== 'idle') return;
+      if (state.generation.stopRequestKey !== undefined) { this.#finishStoppedGeneration(projectId, state.generation.requestKey); return; }
+      const messages = await this.#opencode?.sessionMessages?.(state.generation.sessionId);
+      const assistant = messages === undefined ? undefined : [...messages].reverse().find((message) => message.info.role === 'assistant');
+      if (assistant?.info.time?.completed === undefined || assistant.info.error !== undefined) return;
+      const text = assistant.parts.filter((part) => part.type === 'text').map((part) => part.text ?? '').join('');
+      this.#finishGeneratedGeneration(projectId, state.generation.requestKey, text);
+    } catch { /* Only complete original-session evidence can settle generation. */ }
+  }
+
+  #finishGeneratedGeneration(projectId: string, key: string, text: string): void {
+    const state = this.#state(projectId);
+    const operation = this.#commands.get(key);
+    if (state?.generation?.requestKey !== key || state.generation.stopRequestKey !== undefined || operation === undefined || !['accepted', 'unknown'].includes(operation.status)) return;
+    const before = this.#store.settings.getJson<StoredCharterState>(`charter.before.${key}`);
+    const content = normalizeCharterContent(text.replace(/^```(?:markdown|md)?\s*\n|\n```\s*$/g, ''));
+    const now = nowIso(); const version = nextCharterVersion(before);
+    const draft = { version, content, source: 'model' as const, savedAt: now };
+    this.#save(projectId, { status: 'draft', draft, ...(before?.written === undefined ? {} : { written: before.written }), versions: [{ version, status: 'draft' as const, source: 'model' as const, savedAt: now }, ...(before?.versions ?? [])].slice(0, CHARTER_VERSION_LIMIT), updatedAt: now });
+    this.#commands.settle(key, { projectId, version });
   }
 
   #finishStoppedGeneration(projectId: string, key: string): void {

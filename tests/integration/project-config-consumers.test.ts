@@ -1,3 +1,4 @@
+import type { OpenCodeMessage } from '@agent-workflow/opencode';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync } from 'node:fs';
@@ -15,6 +16,8 @@ class ControlledModel implements OpenCodePort {
   aborted = 0;
   abortFails = false;
   sessionState: 'idle' | 'running' | 'unknown' = 'running';
+  messages: readonly OpenCodeMessage[] = [];
+  async sessionMessages() { return this.messages; }
   async inspectSession() { return this.sessionState; }
   status(): ReturnType<OpenCodePort['status']> { return { state: 'ready' } as ReturnType<OpenCodePort['status']>; }
   async ensureReady() {}
@@ -140,5 +143,32 @@ test('charter timeout after abort failure remains unknown, restart reconciliatio
     assert.equal(engine.commands.get(key('timeout-generate'))?.status, 'succeeded');
     assert.equal((await restarted.view(project.id)).draft?.content, '# 保留草稿');
     assert.equal(model.aborted, 1);
+  } finally { store.close(); }
+});
+
+
+test('charter original-key completion recovery requires idle and completed original session text, ignores late old output', async () => {
+  const { store, model, engine, project } = fixture();
+  try {
+    const requestKey = key('recover-complete');
+    await engine.charters.generate(project.id, { requestKey, confirmGenerate: true }); await tick();
+    const restarted = new CharterService(store, engine.commands, model, engine.context);
+    const message: OpenCodeMessage = { info: { id: 'msg-charter', sessionID: 'charter-session', role: 'assistant', time: { created: Date.now(), completed: Date.now() } }, parts: [{ id: 'text-charter', type: 'text', text: '# 恢复的原会话公约' }] };
+    model.messages = [message];
+    await restarted.reconcileOperation(requestKey);
+    assert.equal(engine.commands.get(requestKey)?.status, 'accepted', 'running cannot be settled from completed message alone');
+    model.sessionState = 'idle';
+    model.messages = [{ ...message, info: { ...message.info, time: { created: Date.now() } } }];
+    await restarted.reconcileOperation(requestKey);
+    assert.equal(engine.commands.get(requestKey)?.status, 'accepted', 'incomplete message cannot be promoted');
+    model.messages = [message];
+    await restarted.reconcileOperation(requestKey);
+    assert.equal(engine.commands.get(requestKey)?.status, 'succeeded');
+    assert.equal((await restarted.view(project.id)).draft?.content, '# 恢复的原会话公约');
+    assert.equal(model.requests.length, 1); assert.equal(model.aborted, 0);
+    await restarted.update(project.id, { requestKey: key('after-recovery'), content: '# 用户后续编辑' });
+    model.finish('# 迟到的旧正文'); await tick();
+    await restarted.reconcileOperation(requestKey);
+    assert.equal((await restarted.view(project.id)).draft?.content, '# 用户后续编辑');
   } finally { store.close(); }
 });

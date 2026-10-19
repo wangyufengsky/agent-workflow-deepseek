@@ -36,7 +36,7 @@ test('database knowledge input reads only project/schema/table authorized sample
   const app = await createApplication({ dataDir: mkdtempSync(join(tmpdir(), 'aw-kb-db-')), disableOpenCode: true, disableListen: true });
   try {
     const project = app.store.projects.create({ name: '数据库资料', rootPath: tmpdir(), gitState: 'not_git' });
-    const config: DatabaseConnectionConfig = { id: 'db_knowledge', name: '只读来源', type: 'mysql', host: 'localhost', port: 3306, database: 'allowed', user: 'reader', passwordRef: 'not-used', enabled: true, projectIds: [project.id], schemas: ['allowed'], tables: ['allowed.safe'] };
+    const config: DatabaseConnectionConfig = { id: 'db_knowledge', name: '只读来源', type: 'mysql', host: 'localhost', port: 3306, database: 'allowed', user: 'reader', passwordRef: 'not-used', readOnly: true, ssl: false, enabled: true, projectIds: [project.id], schemas: ['allowed'], tables: ['allowed.safe'] };
     app.engine.updateSettings({ ...app.engine.settings, database: { ...app.engine.settings.database, connections: [config] } });
     const queries: string[] = [];
     // Driver fixture proves authorization and SQL dispatch, not live DB connectivity.
