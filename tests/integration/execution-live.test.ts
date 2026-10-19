@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApplication } from '../../packages/server/src/index.ts';
+import { createId } from '../../packages/shared/src/index.ts';
 
 /**
  * Live execution: after a confirmed plan and prepared worktree, the managed
@@ -49,9 +50,35 @@ test('live: execution runs a node through MCP workspace tools and submits a resu
       },
     });
     const taskId = task.json().data.resource.task.id;
-    const skeleton = await app.app.inject({ method: 'POST', url: `/api/tasks/${taskId}/plan/skeleton`, payload: { requestKey: requestKey('skel'), confirmUseSkeleton: true } });
-    const planId = skeleton.json().data.resource.plan.id;
-    const revisionNumber = skeleton.json().data.resource.plan.revisionNumber;
+    // Deterministic single write node: exercises the MCP file-write + result-submit path
+    // without waiting for several model steps.
+    const nodeId = createId('pn');
+    const plan = app.store.plans.create({
+      taskId,
+      source: 'skeleton',
+      status: 'unconfirmed',
+      graph: {
+        nodes: [{
+          id: nodeId,
+          key: 'impl.append-note',
+          title: '在 README 追加使用说明',
+          kind: 'implementation',
+          groupId: 'g1',
+          summary: '在 README.md 末尾追加“使用说明”小节和一行示例命令。',
+          inputs: [{ name: 'README.md', source: 'requirement' }],
+          outputs: [{ name: 'README.md 更新', kind: 'artifact' }],
+          acceptance: ['README.md 末尾出现“使用说明”小节'],
+          resources: { read: [{ kind: 'file', label: 'README.md', basis: 'declared' }], write: [{ kind: 'file', label: 'README.md', basis: 'declared' }] },
+          roleId: 'role.developer',
+          position: { x: 80, y: 80 },
+        }],
+        edges: [],
+        groups: [{ id: 'g1', label: '实现', kind: 'implementation', refined: true, collapsible: true, collapsedByDefault: false }],
+      },
+    });
+    app.store.tasks.update(taskId, { currentPlanRevisionId: plan.id, stage: 'confirming' });
+    const planId = plan.id;
+    const revisionNumber = plan.revisionNumber;
     const confirm = await app.app.inject({
       method: 'POST',
       url: `/api/tasks/${taskId}/plan/confirm`,
@@ -90,6 +117,7 @@ test('live: execution runs a node through MCP workspace tools and submits a resu
     }
     console.log('[live-exec] execution:', JSON.stringify({ status: execution?.status, succeeded, nodes: execution?.nodes?.map((node: { status: string }) => node.status) }));
     console.log('[live-exec] changed files:', JSON.stringify(files.map((file) => file.path)));
+    console.log('[live-exec] attempt results:', JSON.stringify(execution?.nodes?.map((node: { status: string }) => node.status)));
     assert.ok(succeeded >= 1, `at least one node should succeed; execution=${JSON.stringify(execution?.nodes)}`);
     assert.ok(files.length > 0, 'worktree should contain changes written through MCP file tools');
 

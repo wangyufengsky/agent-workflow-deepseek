@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**238 tests / 54 suites / 235 pass / 3 skipped / 0 fail**，约 30s。
+结果（本轮）：**238 tests / 54 suites / 235 pass / 3 skipped / 0 fail**，约 24s（另有 2 个 live 场景单独运行并通过，见 §3）。
 
 跳过项：`live:` 两个模型端到端（需 `AGENT_WORKFLOW_LIVE=1`）与真实 MySQL 探测（无凭据时 skip）。
 
