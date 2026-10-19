@@ -340,7 +340,7 @@ export function DatabasesPage() {
         <EmptyState
           icon="db"
           title="还没有数据库连接"
-          description="添加只读连接后，任务和知识库可以按授权范围读取表结构与数据。当前优先支持 MySQL / MariaDB / GoldenDB（mysql2 驱动）；PostgreSQL、Oracle、达梦、DB2 的驱动仍在计划中，探针会返回不支持原因。"
+          description="添加只读连接后，任务和知识库可以按授权范围读取表结构与数据。支持 MySQL / MariaDB / GoldenDB（mysql2）与 PostgreSQL（pg）；Oracle、达梦、DB2 的驱动仍在计划中，探针会返回不支持原因。"
           action={
             <Button variant="primary" icon="plus" onClick={openCreate}>
               添加连接

@@ -280,4 +280,6 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 
 `npm run ui:smoke`（即 `env -u ELECTRON_RUN_AS_NODE electron scripts/capture-ui.cjs`）：以真实服务（隔离数据目录 + 演示 Git 仓库）渲染、断言并截图 10 个路由：
 `/`、`/tasks`、`/requirement/:id`、`/tasks/:id`、`/start`、`/git`、`/settings` 以及 3 个非默认主题首页。
-断言每个页面的期望文案非空且存在，并校验主题 `data-theme`；全部通过；`evidence/ui-git.png`、`ui-requirement-canvas.png`、`ui-settings.png`、`ui-task-canvas.png` 已更新为当前实现。
+断言每个页面的期望文案非空且存在，并校验主题 `data-theme`；全部通过；
+- **抽屉连续输入回归（第 82 轮）**：`Drawer` 的 focus 副作用不再依赖内联 `onClose`，父组件每输入一个字符重渲染时不会重新聚焦抽屉根节点。UI smoke 新增：数据库「添加连接」抽屉输入 `aaaaa`，断言值与 `document.activeElement` 保持 `#db-name`，PASS。
+`evidence/ui-git.png`、`ui-requirement-canvas.png`、`ui-settings.png`、`ui-task-canvas.png` 已更新为当前实现。

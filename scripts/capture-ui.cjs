@@ -132,6 +132,38 @@ async function capture(window, url, file, options = {}) {
   console.log(`[smoke] ${url} ok (${expect.join('/') || 'render'}) → evidence/${file}`);
 }
 
+async function smokeDatabaseForm(window) {
+  await window.loadURL(`${base}/databases`);
+  await sleep(2200);
+  const opened = await window.webContents.executeJavaScript(`(() => {
+    const button = [...document.querySelectorAll('button')].find((item) => item.textContent && item.textContent.includes('添加连接'));
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`);
+  if (!opened) throw new Error('UI smoke: 添加只读连接 button not found');
+  await sleep(500);
+  const focused = await window.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('#db-name');
+    if (!input) return false;
+    input.focus();
+    return document.activeElement === input;
+  })()`);
+  if (!focused) throw new Error('UI smoke: 连接名称 input not focusable');
+  for (let index = 0; index < 5; index += 1) {
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'a' });
+    window.webContents.sendInputEvent({ type: 'char', keyCode: 'a' });
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'a' });
+    await sleep(80);
+  }
+  await sleep(300);
+  const state = await window.webContents.executeJavaScript(`({ value: document.querySelector('#db-name')?.value ?? '', active: document.activeElement?.id ?? '' })`);
+  if (state.value !== 'aaaaa' || state.active !== 'db-name') {
+    throw new Error(`UI smoke: database form lost focus/input (${JSON.stringify(state)})`);
+  }
+  console.log('[smoke] /databases drawer typing ok (aaaaa, focus kept)');
+}
+
 async function main() {
   mkdirSync(evidenceDir, { recursive: true });
   let server;
@@ -178,6 +210,7 @@ async function main() {
     await capture(window, '/?theme=warm', 'ui-home-warm.png', { expect: ['工作区'], theme: 'warm' });
     await capture(window, '/?theme=spdb', 'ui-home-spdb.png', { expect: ['工作区'], theme: 'spdb' });
     await capture(window, '/?theme=github-white', 'ui-home-github-white.png', { expect: ['工作区'], theme: 'github-white' });
+    await smokeDatabaseForm(window);
     window.destroy();
   } finally {
     server?.kill('SIGTERM');

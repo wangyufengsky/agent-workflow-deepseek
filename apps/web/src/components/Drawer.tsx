@@ -18,20 +18,24 @@ export interface DrawerProps {
 export function Drawer({ open, title, side = 'right', size = 'sm', children, footer, onClose }: DrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  // `onClose` is usually an inline callback; keep it in a ref so typing in a
+  // drawer form cannot re-run this effect and steal focus from the input.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     drawerRef.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
     };
     document.addEventListener('keydown', handleKey);
     return () => {
       document.removeEventListener('keydown', handleKey);
       previousFocus.current?.focus();
     };
-  }, [onClose, open]);
+  }, [open]);
 
   if (!open) return null;
 
