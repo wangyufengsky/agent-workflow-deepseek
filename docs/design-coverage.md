@@ -22,7 +22,7 @@
 | roles.html / roles-legacy.html | `/roles` | `/api/catalog/roles` | ✅/🟡 | 草稿/发布/归档/自定义已接线；版本对比/导入未做 |
 | templates.html | `/templates` | catalog + `/api/tasks`、`/api/templates/:id/tasks` | ✅/🟡 | 固定模板创建、计划、按模板历史任务已接线；模板编辑/导入未开放 |
 | workflows.html / workflow-editor.html | `/workflows` | catalog.methods | 🟡 | 目录只读；编辑未接通 |
-| settings.html | `/settings` | `/api/settings`、opencode | ✅/🟡 | 外观/服务/模型/Git 账号与令牌/数据库已接线；OpenCode 自动检测与监控设置未接 |
+| settings.html | `/settings` | `/api/settings`、opencode | ✅/🟡 | 外观/服务/模型启停/轮询间隔/Git 账号与令牌/数据库概览已接线；监控阈值未接 |
 | tools.html | `/tools` | MCP 目录 + opencode status | 🟡 | 工具目录/状态只读；Skill 源文/开关未接通 |
 | knowledge.html / knowledge-history.html | `/knowledge` | — | ⛔ | 页面结构与禁用原因；对话/资料/引用未接通 |
 | ppt*.html | `/ppt` | — | ⛔ | 页面结构；制作/导入/作品未接通 |

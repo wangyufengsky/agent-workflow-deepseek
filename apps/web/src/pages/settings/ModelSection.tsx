@@ -1,5 +1,8 @@
-import type { CatalogSnapshot, PublicSettings } from '@agent-workflow/shared';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { createRequestKey, type CatalogSnapshot, type PublicSettings } from '@agent-workflow/shared';
+import { errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
+import { Button } from '../../components/Button.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { PendingBackendNotice } from '../../components/ServiceNotice.tsx';
@@ -24,6 +27,19 @@ function Limits({ title, rows }: { readonly title: string; readonly rows: readon
 }
 
 export function ModelSection({ settings, catalog }: { readonly settings: PublicSettings; readonly catalog: CatalogSnapshot }) {
+  const queryClient = useQueryClient();
+  const toggleModel = useMutation({
+    mutationFn: async (profileId: string) => {
+      const models = settings.models.map((profile) => (profile.id === profileId ? { ...profile, enabled: !profile.enabled } : profile));
+      await request('/api/settings', { method: 'PATCH', body: { requestKey: createRequestKey(), patch: { models } } });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+        queryClient.invalidateQueries({ queryKey: ['settings'] }),
+      ]);
+    },
+  });
   const planningRows: readonly (readonly [string, string])[] = [
     ['单轮最多草稿', String(settings.planning.maxDrafts)],
     ['每轮修订次数', String(settings.planning.maxRevisions)],
@@ -64,6 +80,15 @@ export function ModelSection({ settings, catalog }: { readonly settings: PublicS
               <Badge tone={profile.enabled ? 'ok' : 'idle'} icon={profile.enabled ? 'check' : 'stop'}>
                 {profile.enabled ? '已启用' : '已停用'}
               </Badge>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={profile.enabled ? 'stop' : 'play'}
+                disabled={toggleModel.isPending}
+                onClick={() => { toggleModel.mutate(profile.id); }}
+              >
+                {profile.enabled ? '停用' : '启用'}
+              </Button>
             </div>
           ))
         )}
@@ -74,9 +99,10 @@ export function ModelSection({ settings, catalog }: { readonly settings: PublicS
         <Limits title="执行限制" rows={executionRows} />
       </div>
 
+      {toggleModel.isError ? <p className="hint" style={{ marginTop: 10, color: 'var(--danger)' }}>{isServiceUnavailable(toggleModel.error) ? '服务未连接，设置未保存。' : errorMessage(toggleModel.error)}</p> : null}
       <PendingBackendNotice
         className="settings-note"
-        message="设置保存接口尚未接通：这里展示服务端当前值，修改在设置写入接通后开放。"
+        message="模型档案启停通过服务端设置接口保存；角色映射与默认模型仍由配置决定，停用不会结束正在运行的任务会话。"
       />
     </div>
   );

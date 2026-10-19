@@ -26,6 +26,18 @@ test('monitoring poll interval is persisted, validated and merged into bootstrap
     const after = await app.app.inject({ method: 'GET', url: '/api/bootstrap' });
     assert.equal(after.json().data.settings.monitoring.pollIntervalMs, 2500);
 
+    const models = update.json().data.settings.models as { id: string; enabled: boolean }[];
+    const target = models.find((model) => model.enabled);
+    assert.ok(target !== undefined);
+    const toggle = await app.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: { requestKey: requestKey('model'), patch: { models: models.map((model) => (model.id === target.id ? { ...model, enabled: false } : model)) } },
+    });
+    assert.equal(toggle.statusCode, 200, toggle.body);
+    const modelsAfter = (await app.app.inject({ method: 'GET', url: '/api/bootstrap' })).json().data.settings.models as { id: string; enabled: boolean }[];
+    assert.equal(modelsAfter.find((model) => model.id === target.id)?.enabled, false);
+
     const invalid = await app.app.inject({
       method: 'PATCH',
       url: '/api/settings',

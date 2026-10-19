@@ -1,12 +1,11 @@
 import { DATABASE_TYPE_META, type PublicSettings } from '@agent-workflow/shared';
 import { Badge } from '../../components/Badge.tsx';
-import { Button } from '../../components/Button.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { LinkButton } from '../../components/Button.tsx';
 import { PendingBackendNotice } from '../../components/ServiceNotice.tsx';
 import { SettingsHeading } from './shared.tsx';
 
-const BLOCKED_REASON = '数据库连接写入接口尚未接通（服务端设置写入未就绪）。';
 const PROBE_BLOCKED_REASON = '服务未连接，无法执行只读探针。';
 
 export function DatabaseSection({ settings }: { readonly settings: PublicSettings }) {
@@ -23,11 +22,11 @@ export function DatabaseSection({ settings }: { readonly settings: PublicSetting
             compact
             icon="db"
             title="还没有数据库连接"
-            description="登记连接后可以在这里测试探针并执行只读查询。当前占位页不提供新增。"
+            description="登记连接、测试探针与只读查询在「数据库」页完成；密码只保存在服务端凭据存储。"
             action={
-              <Button variant="secondary" size="sm" icon="plus" disabled disabledReason={BLOCKED_REASON}>
-                添加连接
-              </Button>
+              <LinkButton to="/databases" variant="secondary" size="sm" icon="plus">
+                去添加连接
+              </LinkButton>
             }
           />
         </div>
@@ -80,17 +79,17 @@ export function DatabaseSection({ settings }: { readonly settings: PublicSetting
       </div>
 
       <div className="row wrap" style={{ marginTop: 16, gap: 8 }}>
-        <Button variant="secondary" icon="zap" disabled disabledReason={PROBE_BLOCKED_REASON}>
-          测试连接
-        </Button>
-        <Button variant="primary" icon="check" disabled disabledReason={BLOCKED_REASON}>
-          保存数据库设置
-        </Button>
+        <LinkButton to="/databases" variant="secondary" icon="zap">
+          打开数据库管理
+        </LinkButton>
+        <LinkButton to="/databases" variant="primary" icon="check">
+          新增/测试连接
+        </LinkButton>
       </div>
 
       <PendingBackendNotice
         className="settings-note"
-        message="数据库连接列表为只读占位：新增、测试与查询在当前阶段不发送写操作，也不会展示模拟结果。"
+        message="这里只展示连接概览；新增、探针与只读查询在「数据库」页执行，密码只在服务端加密存储。"
       />
     </div>
   );

@@ -43,7 +43,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
 | server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
 | server/templates | 固定模板任务创建后可按模板查历史（只含该固定模板，普通任务不混入） |
-| server/settings | 断连轮询间隔持久化、范围校验、默认值合并进 bootstrap；任务页轮询使用该设置 |
+| server/settings | 断连轮询间隔持久化/校验、模型档案启停持久化、数据库概览跳转管理页；任务页轮询使用该设置 |
 | server/opencode-detect | PATH / ~/.opencode/versions 扫描、候选 --version 探测、当前 binary 标记；不改设置 |
 | server/node-skip | 跳过节点及全部下游 → cancelled；上游/无关节点不变；回执与操作登记 |
 | server/cleanup | 清理预览对执行中/规划中/交付中/工作区忙给出 blockers；确认拒绝 blockers 与过期预览；清理后状态 cleaned |
