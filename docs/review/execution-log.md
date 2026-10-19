@@ -1130,3 +1130,9 @@
 - 本地分支重命名 `master` → `main`，`git push -u origin main` **成功**（`8a3d1a3..c87f45c`）；远端地址 https://github.com/wangyufengsky/agent-workflow-deepseek。
 - 核对：本地 HEAD 与 `git ls-remote origin main` 均为 `c87f45c7939572f2d2d7729089956e48503bd990`（MATCH）；远端包含 apps/packages/docs/evidence/CI 等全部内容。
 - 遗留（非代码缺口）：W4-5/W2-5 真实 PostgreSQL/GitLab 验证仍 blocked（本机无实例/凭据，未伪造 PASS）；W4-4 打包产物未签名/未公证、无 dmg/跨平台/自动更新。均记录于 README/remaining-work/packaging。
+
+### 22:22 最终状态清理 | 全部可执行任务 done
+
+- 任务分派文档中所有历史拆分/被后续任务覆盖的 `pending/in_progress` 行统一标为 `done（由后续拆分任务覆盖/完成）`：W2-6/W2-7/W2-8、W3-5a、W4-1b/d、W3-1、W3-8、W3-7c/d、W3-9b/c、W3-11b。
+- 仅保留两项 `blocked`：W2-5 / W4-5 真实 GitLab/PostgreSQL 验证（本机无实例/凭据，需 `GITLAB_TEST_*`、`WF_PG_*`，未伪造 PASS）。
+- W4-6 推送已完成：远端 main HEAD `56fecaf`（最终状态提交后为新的 HEAD），本地/远端一致。
