@@ -1,5 +1,6 @@
 import './tools-policy.css';
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ROUTES, createRequestKey, type ToolPolicyResponse, type ToolPolicyUpdate, type CommandResponse } from '@agent-workflow/shared';
 import { apiGet, request, errorMessage, ApiClientError } from '../../api/client.ts';
@@ -15,11 +16,14 @@ import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 export function ToolsPolicyView() {
   const projects = useProjects();
   const client = useQueryClient();
-  const [projectId, setProjectId] = useState('');
+  const [params, setParams] = useSearchParams();
+  const projectId = params.get('projectId') ?? '';
+  const setProjectId = (value: string) => setParams((current) => { const next = new URLSearchParams(current); if (value) next.set('projectId', value); else next.delete('projectId'); return next; });
   const [pending, setPending] = useState<ToolPolicyUpdate | null>(null);
   const [unknown, setUnknown] = useState(false);
   const [message, setMessage] = useState('');
-  const [selectedSource, setSelectedSource] = useState('workflow');
+  const selectedSource = params.get('source') ?? 'workflow';
+  const setSelectedSource = (value: string) => setParams((current) => { const next = new URLSearchParams(current); next.set('source', value); return next; });
   const [sourceToDisable, setSourceToDisable] = useState<string | null>(null);
   const query = useQuery({ queryKey: ['tool-policy', projectId], queryFn: async () => (await apiGet<ToolPolicyResponse>(`${ROUTES.toolsPolicy}${projectId === '' ? '' : `?projectId=${encodeURIComponent(projectId)}`}`)).data, retry: false });
   const save = async (change: Omit<ToolPolicyUpdate, 'requestKey' | 'projectId'>) => {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ROUTES, type SkillSourceResponse, type SkillsResponse } from '@agent-workflow/shared';
 import { apiGet } from '../../api/client.ts';
@@ -10,8 +10,11 @@ import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { ReadableText } from '../node/ReadableText.tsx';
 
 export function SkillsView() {
-  const [selectedId, setSelectedId] = useState('');
-  const [search, setSearch] = useState('');
+  const [params, setParams] = useSearchParams();
+  const selectedId = params.get('skill') ?? '';
+  const search = params.get('search') ?? '';
+  const setSelectedId = (value: string) => setParams((current) => { const next = new URLSearchParams(current); next.set('skill', value); return next; });
+  const setSearch = (value: string) => setParams((current) => { const next = new URLSearchParams(current); if (value) next.set('search', value); else next.delete('search'); return next; }, { replace: true });
   const query = useQuery({ queryKey: ['skills'], queryFn: async () => (await apiGet<SkillsResponse>('/api/skills')).data, retry: false });
   const skills = query.data?.skills ?? [];
   const selected = skills.find((skill) => skill.id === selectedId) ?? skills[0];

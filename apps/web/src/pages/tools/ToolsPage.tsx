@@ -1,6 +1,7 @@
 import { SkillsView } from './SkillsView.tsx';
 import { ToolsPolicyView } from './ToolsPolicyView.tsx';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOpenCodeStatus } from '../../api/hooks.ts';
 import { MANAGED_MCP_TOOLS } from '../../api/catalog.ts';
@@ -12,7 +13,9 @@ import { formatRelativeTime } from '../../app/format.ts';
 type ToolsTab = 'tools' | 'skills';
 
 export function ToolsPage() {
-  const [tab, setTab] = useState<ToolsTab>('tools');
+  const [params, setParams] = useSearchParams();
+  const tab: ToolsTab = params.get('tab') === 'skills' ? 'skills' : 'tools';
+  const setTab = (value: ToolsTab) => setParams((current) => { const next = new URLSearchParams(current); next.set('tab', value); return next; });
   const statusQuery = useOpenCodeStatus();
   const queryClient = useQueryClient();
   const lastChecked = useMemo(() => {
