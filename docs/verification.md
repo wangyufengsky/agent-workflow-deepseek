@@ -214,7 +214,12 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - UI 证据：[roles-editor.png](evidence/roles-editor.png)（真实服务数据：内置职业草稿待发布）。
 测试：`tests/integration/roles-api.test.ts` PASS。
 
-## 9. 已知限制 / 未验证
+## 9. 质量与用量页（真实计数）
+
+- UI 证据：[insights-real-counters.png](evidence/insights-real-counters.png)（真实服务：3 个任务、规划成本 0、执行/审查/修复/交付为 0）。
+- 顶部 tokens 仍显示未知；规划成本来自 `planning_rounds.usage_json`。
+
+## 10. 已知限制 / 未验证
 
 - Git 远端写：fetch 用本地远端验证；MR 创建用 GitHub/GitLab 桩服务验证；真实 GitHub push / 创建 MR / 直接合并
   未执行（避免修改真实仓库），真实 GitLab 未连接。

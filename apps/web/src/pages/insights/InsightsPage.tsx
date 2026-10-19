@@ -242,7 +242,7 @@ export function InsightsPage() {
     <div className="page">
       <PageHeader
         title="质量与用量"
-        lede="按任务核对状态、验收与消耗。任务与计数来自 /api/bootstrap；用量、成本、验收与评审接口尚未接通，相关单元格显示未知。"
+        lede="按任务核对状态、验收与消耗。任务与计数来自 /api/bootstrap 与 /api/insights；规划成本已统计，tokens、验收与评审仍按未知显示。"
         actions={
           <button
             type="button"
