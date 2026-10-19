@@ -96,6 +96,7 @@ import { discoverSkills, readSkillSource } from './skills.ts';
 import { listDirectories } from './fs-directories.ts';
 import { listKnowledgeSources, readKnowledgeSource, searchKnowledgeSources } from './knowledge.ts';
 import type { Engine } from '@agent-workflow/engine';
+import { remoteOutcomeUnknownReason } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
 
@@ -750,6 +751,16 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
         requestId(request),
       );
     } catch (error) {
+      const unknown = remoteOutcomeUnknownReason(error);
+      if (unknown !== undefined) {
+        const reasonLabel = unknown === 'timeout' ? '请求超时' : unknown === 'network_error' ? '网络连接失败' : '远端响应无法判定';
+        const unknownError = new AppError(ErrorCode.RECEIPT_UNKNOWN, `获取远端更新结果未明（${reasonLabel}）；不会自动重发，请按 requestKey 核对后再操作。`, {
+          httpStatus: 409,
+          details: { requestKey: body.requestKey, operation: 'git.fetch', outcomeUnknown: true, reason: unknown },
+        });
+        engine.commands.fail(body.requestKey, unknownError, true);
+        throw unknownError;
+      }
       engine.commands.fail(body.requestKey, error instanceof Error ? error : new Error(String(error)));
       throw error;
     }

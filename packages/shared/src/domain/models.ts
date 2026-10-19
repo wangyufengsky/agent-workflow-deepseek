@@ -515,6 +515,12 @@ export interface EditSession {
   readonly state: 'requesting_pause' | 'editing' | 'saving' | 'saved' | 'conflict' | 'finished' | 'abandoned';
   readonly requestKey: RequestKey;
   readonly autoAdvanceBeforeEdit: boolean;
+  /**
+   * W2-15: whether the execution was already paused by the user when the edit
+   * session started. Abandon/结束调整 restores that pause state instead of
+   * resuming a task the user had paused.
+   */
+  readonly wasPausedBeforeEdit?: boolean;
   readonly lockedNodeIds: readonly PlanNodeId[];
   readonly localChanges: readonly {
     readonly nodeId: PlanNodeId;
@@ -538,6 +544,13 @@ export interface ExecutionView {
   readonly pause?: { readonly requestedAt?: IsoDateTime; readonly settledAt?: IsoDateTime; readonly requestKey?: RequestKey };
   readonly editSession?: EditSession;
   readonly notice?: { readonly kind: 'plan_changed' | 'race' | 'paused' | 'failed' | 'unknown'; readonly message: string };
+  /**
+   * Human-acceptance projection derived from the plan's declared acceptance
+   * criteria and the stored verdicts. `pending` = executed but not yet judged;
+   * `rejected` = returned for rework. Both block completion/downstream release.
+   * Absent when no executed node has acceptance criteria (legacy behaviour).
+   */
+  readonly acceptance?: { readonly pending: readonly PlanNodeId[]; readonly rejected: readonly PlanNodeId[] };
   readonly actions: Record<string, ActionAvailability>;
 }
 

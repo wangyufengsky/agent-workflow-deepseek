@@ -1,11 +1,8 @@
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createRequestKey, type BootstrapResponse } from '@agent-workflow/shared';
-import { request } from '../../api/client.ts';
-import { Button } from '../../components/Button.tsx';
+import type { BootstrapResponse } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { OpenCodeCard } from './OpenCodeCard.tsx';
+import { DraftNumberRow } from './draft.tsx';
 import { SettingsHeading, SettingsRow } from './shared.tsx';
 
 export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
@@ -13,7 +10,7 @@ export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
   return (
     <>
       <div className="sect">
-        <SettingsHeading title="服务" lede="本机服务、数据位置与受管运行时；这里展示当前生效值（只读）。" readOnly />
+        <SettingsHeading title="服务" lede="本机服务、数据位置与受管运行时；带编辑控件的字段与「模型与执行」共用底部保存条。" />
         <div className="card card-sec">
           <SettingsRow label="应用">
             <span className="row wrap" style={{ gap: 8 }}>
@@ -78,62 +75,35 @@ export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
 
 
 function PollIntervalRow({ value }: { readonly value: number }) {
-  const [draft, setDraft] = useState(String(value));
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const parsed = Number(draft);
-      if (!Number.isInteger(parsed) || parsed < 500 || parsed > 30_000) throw new Error('轮询间隔需要在 500–30000ms 之间');
-      return request<unknown>('/api/settings', {
-        method: 'PATCH',
-        body: { requestKey: createRequestKey(), patch: { monitoring: { pollIntervalMs: parsed } } },
-      });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
-    },
-  });
   return (
-    <SettingsRow label="断连轮询间隔" hint="SSE 不可用时任务页轮询间隔（500–30000ms）">
-      <span className="row wrap" style={{ gap: 8 }}>
-        <input className="input" type="number" min={500} max={30000} step={100} style={{ width: 120 }} value={draft} onChange={(event) => { setDraft(event.target.value); }} aria-label="断连轮询间隔" />
-        <span className="hint">ms</span>
-        <Button variant="secondary" size="sm" icon="check" disabled={mutation.isPending || draft === String(value)} onClick={() => { mutation.mutate(); }}>
-          {mutation.isPending ? '保存中…' : '保存'}
-        </Button>
-        {mutation.isError ? <span className="hint" style={{ color: 'var(--danger)' }}>{mutation.error instanceof Error ? mutation.error.message : '保存失败'}</span> : null}
-      </span>
-    </SettingsRow>
+    <DraftNumberRow
+      path="monitoring.pollIntervalMs"
+      label="断连轮询间隔"
+      hint="SSE 不可用时任务页轮询间隔；保存后立即用于后续断连重读。"
+      section="service"
+      baseline={value}
+      min={500}
+      max={30000}
+      step={100}
+      unit="ms"
+      effect="live"
+    />
   );
 }
 
 
 function SessionThresholdRow({ value }: { readonly value: number }) {
-  const [draft, setDraft] = useState(String(value));
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationFn: async () => {
-      const parsed = Number(draft);
-      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) throw new Error('会话告警阈值需要在 1–100 之间');
-      return request<unknown>('/api/settings', {
-        method: 'PATCH',
-        body: { requestKey: createRequestKey(), patch: { monitoring: { sessionAlertThreshold: parsed } } },
-      });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
-    },
-  });
   return (
-    <SettingsRow label="会话告警阈值" hint="活跃 OpenCode 会话达到此数量时在运行状态中告警（1–100）">
-      <span className="row wrap" style={{ gap: 8 }}>
-        <input className="input" type="number" min={1} max={100} step={1} style={{ width: 100 }} value={draft} onChange={(event) => { setDraft(event.target.value); }} aria-label="会话告警阈值" />
-        <span className="hint">个会话</span>
-        <Button variant="secondary" size="sm" icon="check" disabled={mutation.isPending || draft === String(value)} onClick={() => { mutation.mutate(); }}>
-          {mutation.isPending ? '保存中…' : '保存'}
-        </Button>
-        {mutation.isError ? <span className="hint" style={{ color: 'var(--danger)' }}>{mutation.error instanceof Error ? mutation.error.message : '保存失败'}</span> : null}
-      </span>
-    </SettingsRow>
+    <DraftNumberRow
+      path="monitoring.sessionAlertThreshold"
+      label="会话告警阈值"
+      hint="活跃 OpenCode 会话达到此数量时在运行状态中告警；保存后立即生效。"
+      section="service"
+      baseline={value}
+      min={1}
+      max={100}
+      unit="个会话"
+      effect="live"
+    />
   );
 }

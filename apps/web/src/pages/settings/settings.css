@@ -1,0 +1,47 @@
+.field-dirty .input,
+.field-dirty .select,
+.field-dirty .textarea,
+.field-dirty input[type='checkbox'] {
+  border-color: var(--warn-line);
+  box-shadow: 0 0 0 3px var(--warn-fill);
+}
+
+.field-dirty input[type='checkbox'] {
+  accent-color: var(--warn);
+}
+
+.eff.saved,
+.eff.unavailable {
+  background: var(--fill-3);
+  color: var(--sub);
+}
+
+.settings-savebar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  margin-top: 18px;
+  padding: 12px 16px;
+  border: 1px solid var(--warn-line);
+  border-radius: 14px;
+  background: var(--float);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-pop);
+}
+
+.settings-savebar.has-issue {
+  border-color: var(--danger-line);
+}
+
+.settings-nav-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  margin-left: auto;
+  flex: none;
+}

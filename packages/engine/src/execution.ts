@@ -17,9 +17,17 @@ import type {
   TaskDelivery,
   TokenUsage,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nodeMachine, nowIso } from '@agent-workflow/shared';
+import { AppError, ErrorCode, NodeManualAcceptanceState, NodeStatus, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nodeMachine, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
-import { readOnlyRecoveryError, type EngineContext } from './actions.ts';
+import {
+  clearNodeAcceptance,
+  executionAcceptanceGate,
+  nodeAcceptanceState,
+  planNodeRequiresAcceptance,
+  readOnlyRecoveryError,
+  type EngineContext,
+  type ExecutionAcceptanceGate,
+} from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { OpenCodePort } from './ports.ts';
 
@@ -30,6 +38,8 @@ interface ResultWaiter {
 interface AdvanceRelease {
   readonly ready: readonly string[];
   readonly waitingFor: readonly { readonly nodeId: string; readonly prerequisites: readonly string[] }[];
+  /** Predecessors whose human-acceptance verdict is still pending/rejected. */
+  readonly awaitingAcceptance: readonly string[];
   readonly reason: string;
 }
 
@@ -61,7 +71,17 @@ export class ExecutionService {
   get(taskId: string): ExecutionView | undefined {
     const task = this.#store.tasks.get(taskId);
     if (task === undefined) return undefined;
-    return task.executionId === undefined ? this.#store.executions.byTask(taskId) : this.#store.executions.get(task.executionId);
+    const execution = task.executionId === undefined ? this.#store.executions.byTask(taskId) : this.#store.executions.get(task.executionId);
+    if (execution === undefined) return undefined;
+    return this.#withAcceptance(execution);
+  }
+
+  /** Overlay the W0-4b acceptance gate on the durable execution view. */
+  #withAcceptance(execution: ExecutionView): ExecutionView {
+    const plan = this.#store.plans.get(execution.planRevisionId);
+    const gate = executionAcceptanceGate(this.#store, execution, plan);
+    if (gate.pending.length === 0 && gate.rejected.length === 0) return execution;
+    return { ...execution, acceptance: { pending: gate.pending, rejected: gate.rejected } };
   }
 
   start(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
@@ -220,7 +240,7 @@ export class ExecutionService {
     const release = this.#releaseAdvanceable(latest, plan, input.nodeId);
     if (release.ready.length === 0) {
       const error = new AppError(ErrorCode.VALIDATION_FAILED, release.reason, {
-        details: { nodeId: input.nodeId ?? null, waitingFor: release.waitingFor },
+        details: { nodeId: input.nodeId ?? null, waitingFor: release.waitingFor, awaitingAcceptance: release.awaitingAcceptance },
       });
       this.#commands.fail(input.requestKey, error);
       throw error;
@@ -248,22 +268,33 @@ export class ExecutionService {
     const task = this.#assertWritable(taskId, '重试执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
+    const plan = this.#store.plans.get(execution.planRevisionId);
     const failedNodes = execution.nodes.filter((node) => node.status === NodeStatus.FAILED);
-    if (failedNodes.length === 0) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有失败的步骤可以重试');
+    // W0-4b: a node the human sent back for rework (verdict rejected) can be
+    // retried even though its last execution succeeded.
+    const rejectedNodes = plan === undefined
+      ? []
+      : execution.nodes.filter((node) => node.status === NodeStatus.SUCCEEDED
+          && plan.graph.nodes.some((planNode) => planNode.id === node.nodeId && planNodeRequiresAcceptance(planNode))
+          && nodeAcceptanceState(this.#store, execution.id, node.nodeId) === NodeManualAcceptanceState.REJECTED);
+    if (failedNodes.length === 0 && rejectedNodes.length === 0) {
+      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有失败的步骤可以重试');
+    }
     // `unknown` is the startup-recovery state: interrupted nodes are persisted as
     // failed, so an explicit retry is the user-approved way out of it.
     if (!['failed', 'stopped', 'paused', 'unknown'].includes(execution.status)) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行仍在运行，先暂停/取消后再重试', { details: { status: execution.status } });
     }
+    const retriedNodeIds = [...failedNodes.map((node) => node.nodeId), ...rejectedNodes.map((node) => node.nodeId)];
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'execution.retry',
-      body: { taskId, expectedStatus: input.expectedStatus, nodeIds: failedNodes.map((node) => node.nodeId), confirm: true },
+      body: { taskId, expectedStatus: input.expectedStatus, nodeIds: retriedNodeIds, confirm: true },
       target: { taskId, executionId: execution.id },
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
-    for (const node of failedNodes) {
-      this.#store.executions.updateNode(execution.id, node.nodeId, {
+    for (const nodeId of retriedNodeIds) {
+      this.#store.executions.updateNode(execution.id, nodeId, {
         status: NodeStatus.PENDING,
         error: null,
         startedAt: null,
@@ -271,16 +302,43 @@ export class ExecutionService {
         currentAttemptId: null,
       });
     }
+    for (const node of rejectedNodes) clearNodeAcceptance(this.#store, execution.id, node.nodeId);
     this.#store.executions.update(execution.id, {
       status: 'running',
       endedAt: undefined,
-      notice: { kind: 'paused', message: `按原配置重试 ${String(failedNodes.length)} 个失败步骤` },
+      notice: { kind: 'paused', message: `按原配置重试 ${String(failedNodes.length)} 个失败步骤${rejectedNodes.length === 0 ? '' : `、${String(rejectedNodes.length)} 个被退回步骤`}` },
     });
     this.#store.tasks.update(taskId, { attention: TaskAttention.NONE });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
-    this.#commands.settle(input.requestKey, { retried: failedNodes.length });
+    this.#commands.settle(input.requestKey, { retried: retriedNodeIds.length, failedRetried: failedNodes.length, rejectedRetried: rejectedNodes.length });
     void this.#advance(execution.id);
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
+  }
+
+  /**
+   * W0-4b: a human verdict can unblock completion or downstream release. Called
+   * by the plan service after accept/reject; only acts on an acceptance-parked
+   * execution (paused without a user-pause requestKey, or waiting_confirmation).
+   */
+  reconcileAcceptance(taskId: string): void {
+    const task = this.#store.tasks.get(taskId);
+    if (task === undefined) return;
+    const execution = this.get(taskId);
+    if (execution === undefined) return;
+    if (execution.status !== 'paused' && execution.status !== 'waiting_confirmation') return;
+    // A user pause stays authoritative: only an explicit resume continues it.
+    if (execution.pause?.requestKey !== undefined) return;
+    const plan = this.#store.plans.get(execution.planRevisionId);
+    if (plan === undefined) return;
+    const gate = executionAcceptanceGate(this.#store, execution, plan);
+    if (!gate.satisfied) {
+      this.#parkForAcceptance(task, execution, gate);
+      return;
+    }
+    if (execution.status === 'paused') assertTransition(executionMachine, execution.status, 'running');
+    this.#store.executions.update(execution.id, { status: 'running', notice: { kind: 'paused', message: '验收已通过，继续执行' } });
+    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
+    void this.#advance(execution.id);
   }
 
   skipNode(taskId: string, nodeId: string, input: NodeSkipRequest): CommandResponse<ExecutionResponse> {
@@ -331,7 +389,7 @@ export class ExecutionService {
     const failed = refreshed.nodes.filter((item) => item.status === NodeStatus.FAILED).length;
     const unfinished = refreshed.nodes.filter((item) => !([NodeStatus.SUCCEEDED, NodeStatus.SKIPPED, NodeStatus.CANCELLED] as NodeStatusValue[]).includes(item.status)).length;
     if (refreshed.status === 'failed' && failed === 0 && unfinished === 0) {
-      this.#completeExecution(task, refreshed);
+      this.#completeExecution(task, refreshed, plan);
     } else {
       this.#store.tasks.update(taskId, { attention: TaskAttention.NONE });
     }
@@ -490,7 +548,7 @@ export class ExecutionService {
         const current = this.#store.executions.get(executionId)!;
         const next = current.nodes.find((node) => node.status === NodeStatus.READY);
         if (next === undefined) {
-          this.#settleIdleExecution(task, current);
+          this.#settleIdleExecution(task, current, plan);
           return;
         }
         const planNode = plan.graph.nodes.find((node) => node.id === next.nodeId);
@@ -513,17 +571,25 @@ export class ExecutionService {
    * durable "waiting for advance" state. The pause is composed from the two
    * legal edges RUNNING -> PAUSING -> PAUSED so it matches machines.ts.
    */
-  #settleIdleExecution(task: Task, execution: ExecutionView): void {
+  #settleIdleExecution(task: Task, execution: ExecutionView, plan: PlanRevision): void {
     const failed = execution.nodes.filter((node) => node.status === NodeStatus.FAILED);
-    const unfinished = execution.nodes.filter((node) => node.status !== NodeStatus.SUCCEEDED && node.status !== NodeStatus.SKIPPED && node.status !== NodeStatus.CANCELLED);
-    if (unfinished.length === 0) {
-      this.#completeExecution(task, execution);
-      return;
-    }
     if (failed.length > 0) {
       this.#store.executions.update(execution.id, { status: 'failed', endedAt: nowIso(), notice: { kind: 'failed', message: `${failed.length} 个步骤失败` } });
       this.#store.tasks.update(task.id, { attention: TaskAttention.FAILED });
       this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status: 'failed', revision: 1 });
+      return;
+    }
+    // W0-4b: executed nodes with acceptance criteria only count as done after the
+    // human verdict. Pending/rejected verdicts park the execution instead of
+    // completing it or silently claiming more work.
+    const gate = executionAcceptanceGate(this.#store, execution, plan);
+    if (!gate.satisfied) {
+      this.#parkForAcceptance(task, execution, gate);
+      return;
+    }
+    const unresolved = execution.nodes.filter((node) => node.status !== NodeStatus.SUCCEEDED && node.status !== NodeStatus.SKIPPED && node.status !== NodeStatus.CANCELLED);
+    if (unresolved.length === 0) {
+      this.#completeExecution(task, execution, plan);
       return;
     }
     if (execution.autoAdvance) return;
@@ -534,31 +600,70 @@ export class ExecutionService {
   }
 
   /**
+   * Park an execution whose executed nodes still need a human verdict. The pause
+   * is composed from the two legal RUNNING edges to PAUSED (machines.ts); the
+   * notice and the `acceptance` overlay expose which nodes need the verdict.
+   */
+  #parkForAcceptance(task: Task, execution: ExecutionView, gate: ExecutionAcceptanceGate): void {
+    const parts: string[] = [];
+    if (gate.rejected.length > 0) parts.push(`${String(gate.rejected.length)} 个步骤已被退回修改`);
+    if (gate.pending.length > 0) parts.push(`${String(gate.pending.length)} 个已执行步骤待人工验收`);
+    const message = `${parts.join('，')}；在节点面板验收通过或按原配置重试后再继续/结束执行。`;
+    const current = this.#store.executions.get(execution.id) ?? execution;
+    if (current.status === 'running') {
+      assertTransition(executionMachine, current.status, 'pausing');
+      this.#store.executions.update(execution.id, { status: 'pausing' });
+    }
+    const refreshed = this.#store.executions.get(execution.id) ?? current;
+    const status = refreshed.status === 'pausing' ? 'paused' : refreshed.status;
+    if (status === 'paused') {
+      this.#store.executions.update(execution.id, { status: 'paused', pause: { settledAt: nowIso() }, notice: { kind: 'paused', message } });
+    } else {
+      this.#store.executions.update(execution.id, { notice: { kind: 'paused', message } });
+    }
+    this.#store.tasks.update(task.id, { attention: TaskAttention.WAITING_USER });
+    this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status, revision: 1 });
+  }
+
+  /** A predecessor counts as done for releasing successors only when its human verdict (if required) is in. */
+  #predecessorDone(execution: ExecutionView, plan: PlanRevision, statuses: ReadonlyMap<string, NodeStatusValue>, sourceId: string): boolean {
+    const source = statuses.get(sourceId);
+    if (source === NodeStatus.SKIPPED) return true;
+    if (source !== NodeStatus.SUCCEEDED) return false;
+    const planNode = plan.graph.nodes.find((node) => node.id === sourceId);
+    if (planNode === undefined || !planNodeRequiresAcceptance(planNode)) return true;
+    return nodeAcceptanceState(this.#store, execution.id, sourceId) === NodeManualAcceptanceState.ACCEPTED;
+  }
+
+  /**
    * Release the nodes an `advance` call is allowed to start. A node is
    * advanceable when its own status is pending/ready and every incoming edge
-   * comes from a succeeded/skipped predecessor (parallel joins included). Nodes
-   * that already ran or are running are skipped; unmet joins are reported so
-   * the HTTP layer can explain the disabled action.
+   * comes from a succeeded/skipped predecessor whose human verdict (when the
+   * plan declares acceptance criteria) is accepted. Nodes that already ran or
+   * are running are skipped; unmet joins and acceptance-blocked predecessors are
+   * reported so the HTTP layer can explain the disabled action.
    */
   #releaseAdvanceable(execution: ExecutionView, plan: PlanRevision, nodeId?: string): AdvanceRelease {
     const statuses = new Map(execution.nodes.map((node) => [node.nodeId, node.status]));
+    const required = new Set(plan.graph.nodes.filter(planNodeRequiresAcceptance).map((node) => node.id));
     const candidateIds = nodeId === undefined
       ? plan.graph.nodes.map((node) => node.id)
       : plan.graph.edges.filter((edge) => edge.from === nodeId).map((edge) => edge.to);
     const unique = [...new Set(candidateIds)];
     const ready: string[] = [];
     const waitingFor: { nodeId: string; prerequisites: string[] }[] = [];
+    const awaitingAcceptance = new Set<string>();
     for (const id of unique) {
       const node = execution.nodes.find((item) => item.nodeId === id);
       if (node === undefined) continue;
       if (node.status !== NodeStatus.PENDING && node.status !== NodeStatus.READY) continue;
-      const unmet = plan.graph.edges
-        .filter((edge) => edge.to === id)
-        .filter((edge) => {
-          const source = statuses.get(edge.from);
-          return source !== NodeStatus.SUCCEEDED && source !== NodeStatus.SKIPPED;
-        })
-        .map((edge) => edge.from);
+      const unmet: string[] = [];
+      for (const edge of plan.graph.edges) {
+        if (edge.to !== id) continue;
+        if (this.#predecessorDone(execution, plan, statuses, edge.from)) continue;
+        unmet.push(edge.from);
+        if (required.has(edge.from) && statuses.get(edge.from) === NodeStatus.SUCCEEDED) awaitingAcceptance.add(edge.from);
+      }
       if (unmet.length > 0) {
         waitingFor.push({ nodeId: id, prerequisites: unmet });
         continue;
@@ -569,14 +674,16 @@ export class ExecutionService {
       }
       ready.push(id);
     }
-    const reason = nodeId === undefined
-      ? '没有可以推进的步骤：正在等待执行中或待验收的步骤'
-      : unique.length === 0
-        ? '该步骤没有直接后继'
-        : ready.length === 0 && waitingFor.length > 0
-          ? '直接后继仍在等待未验收的前置步骤（并行汇合）'
-          : '直接后继已开始或已完成，没有可推进的步骤';
-    return { ready, waitingFor, reason };
+    const reason = awaitingAcceptance.size > 0
+      ? `${String(awaitingAcceptance.size)} 个上游步骤待人工验收；先在节点面板验收通过再推进`
+      : nodeId === undefined
+        ? '没有可以推进的步骤：正在等待执行中或待验收的步骤'
+        : unique.length === 0
+          ? '该步骤没有直接后继'
+          : ready.length === 0 && waitingFor.length > 0
+            ? '直接后继仍在等待未验收的前置步骤（并行汇合）'
+            : '直接后继已开始或已完成，没有可推进的步骤';
+    return { ready, waitingFor, awaitingAcceptance: [...awaitingAcceptance], reason };
   }
 
   #recomputeReady(execution: ExecutionView, plan: PlanRevision): void {
@@ -584,10 +691,7 @@ export class ExecutionService {
     for (const node of execution.nodes) {
       if (node.status !== NodeStatus.PENDING) continue;
       const incoming = plan.graph.edges.filter((edge) => edge.to === node.nodeId);
-      const ready = incoming.every((edge) => {
-        const source = statuses.get(edge.from);
-        return source === NodeStatus.SUCCEEDED || source === NodeStatus.SKIPPED;
-      });
+      const ready = incoming.every((edge) => this.#predecessorDone(execution, plan, statuses, edge.from));
       // Root nodes have no incoming edges, so they are ready as soon as they are
       // pending again (e.g. after retrying an interrupted first step).
       if (ready) {
@@ -748,7 +852,14 @@ export class ExecutionService {
     }
   }
 
-  #completeExecution(task: Task, execution: ExecutionView): void {
+  #completeExecution(task: Task, execution: ExecutionView, plan: PlanRevision): void {
+    // Defensive: completion is gated by the human verdict on nodes whose plan
+    // declares acceptance criteria (callers usually settle earlier).
+    const gate = executionAcceptanceGate(this.#store, execution, plan);
+    if (!gate.satisfied) {
+      this.#parkForAcceptance(task, execution, gate);
+      return;
+    }
     const existing = task.deliveryId === undefined ? this.#store.deliveries.byTask(task.id) : this.#store.deliveries.get(task.deliveryId);
     const delivery: TaskDelivery =
       existing ??
@@ -757,7 +868,7 @@ export class ExecutionService {
         workspaceId: task.workspaceId,
         eligibility: { allowed: true },
       });
-    this.#store.executions.update(execution.id, { status: 'completed', endedAt: nowIso() });
+    this.#store.executions.update(execution.id, { status: 'completed', endedAt: nowIso(), notice: { kind: 'paused', message: '全部步骤已完成并验收通过，等待交付' } });
     this.#store.tasks.update(task.id, {
       attention: TaskAttention.WAITING_USER,
       deliveryId: delivery.id,

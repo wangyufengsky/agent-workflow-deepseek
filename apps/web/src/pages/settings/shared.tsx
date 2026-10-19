@@ -33,21 +33,56 @@ export interface SettingsRowProps {
   readonly hint?: ReactNode;
   readonly children: ReactNode;
   readonly restart?: boolean;
+  /** Field effect badge; `restart` is kept for existing call sites. */
+  readonly effect?: SettingsEffect;
+  /** Amber field outline when this row has an unsaved draft value. */
+  readonly dirty?: boolean;
+}
+
+export type SettingsEffect = 'live' | 'restart' | 'saved' | 'unavailable';
+
+function EffectBadge({ effect }: { readonly effect: SettingsEffect }) {
+  if (effect === 'restart') {
+    return (
+      <span className="eff restart">
+        <Icon name="refresh" size="sm" />
+        重启后生效
+      </span>
+    );
+  }
+  if (effect === 'saved') {
+    return (
+      <span className="eff saved">
+        <Icon name="check" size="sm" />
+        已提供 · 执行路径未读取
+      </span>
+    );
+  }
+  if (effect === 'unavailable') {
+    return (
+      <span className="eff unavailable">
+        <Icon name="lock" size="sm" />
+        当前未读取
+      </span>
+    );
+  }
+  return (
+    <span className="eff now">
+      <Icon name="check" size="sm" />
+      立即生效
+    </span>
+  );
 }
 
 /** One label/control row of the design's settings form (.frow). */
-export function SettingsRow({ label, hint, children, restart }: SettingsRowProps) {
+export function SettingsRow({ label, hint, children, restart, effect, dirty }: SettingsRowProps) {
+  const resolvedEffect = effect ?? (restart === true ? 'restart' : undefined);
   return (
-    <div className="frow">
+    <div className={dirty === true ? 'frow field-dirty' : 'frow'}>
       <div className="l">
         {label}
         {hint === undefined ? null : <span className="hint">{hint}</span>}
-        {restart === true ? (
-          <span className="eff restart">
-            <Icon name="refresh" size="sm" />
-            重启后生效
-          </span>
-        ) : null}
+        {resolvedEffect === undefined ? null : <EffectBadge effect={resolvedEffect} />}
       </div>
       <div className="v">{children}</div>
     </div>

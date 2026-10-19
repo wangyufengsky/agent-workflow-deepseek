@@ -43,6 +43,7 @@ import { allowed, denied, type EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort, OpenCodePort } from './ports.ts';
 import { extractJsonObject } from './review.ts';
+import { remoteOutcomeUnknownReason } from './delivery.ts';
 import { decodeFileId } from './workspace.ts';
 
 /**
@@ -591,6 +592,20 @@ export class FixService {
       this.#publish(updated);
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { fix: updated } };
     } catch (error) {
+      const unknown = remoteOutcomeUnknownReason(error);
+      if (unknown !== undefined) {
+        // The push may have reached the remote even though we could not read the
+        // answer: settle the command UNKNOWN and mark the step for reconciliation
+        // instead of reporting a definite failure (nothing is retried here).
+        const reasonLabel = unknown === 'timeout' ? '请求超时' : unknown === 'network_error' ? '网络连接失败' : '远端响应无法判定';
+        const unknownError = new AppError(ErrorCode.RECEIPT_UNKNOWN, `推送结果未明（${reasonLabel}），远端可能已成功；不会自动重发，请按 requestKey 核对后再操作。`, {
+          httpStatus: 409,
+          details: { requestKey: input.requestKey, operation: 'fix.push', outcomeUnknown: true, reason: unknown },
+        });
+        this.#recordStepUnknown(fix, 'push', input.requestKey, unknownError);
+        this.#commands.fail(input.requestKey, unknownError, true);
+        throw unknownError;
+      }
       this.#recordStepFailure(fix, 'push', input.requestKey, error);
       this.#failCommand(input.requestKey, error);
       throw error;
@@ -843,6 +858,20 @@ ${result.output}`.slice(0, 1_000)}`,
       state: 'failed',
       requestKey,
       error: { code: failure?.code ?? ErrorCode.INTERNAL_ERROR, message: failure?.message ?? (error instanceof Error ? error.message : '操作失败') },
+    });
+    const next: FixRun = { ...fix, steps, fixRevision: nextFixRevision(fix.fixRevision) };
+    this.#store.fixes.update({ ...next, actions: fixActions(next) });
+    this.#publish(next);
+  }
+
+  /** A remote write whose outcome is undetermined (timeout/network/killed). */
+  #recordStepUnknown(fix: FixRun, step: DeliveryStepState['step'], requestKey: string, error: AppError): void {
+    const steps = setStep(fix.steps, {
+      step,
+      state: 'unknown',
+      requestKey,
+      settledAt: nowIso(),
+      error: { code: error.code, message: error.message },
     });
     const next: FixRun = { ...fix, steps, fixRevision: nextFixRevision(fix.fixRevision) };
     this.#store.fixes.update({ ...next, actions: fixActions(next) });

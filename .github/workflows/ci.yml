@@ -1,0 +1,62 @@
+name: CI
+
+# 离线验证：不连接模型/远端，不启动 Electron。
+# live 场景（opencode-go/MySQL/GitHub/GitLab）与 ui:smoke 需要本机凭据、OpenCode 1.19.0
+# 或显示服务/GPU，不在 CI 中运行，见各步骤注释与 docs/evidence/README.md。
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Offline checks (Node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # 离线单元 + HTTP 集成测试；gated live 用例自动 skip。
+      - name: Unit and integration tests
+        run: npm test
+
+      # ROUTES <-> 服务端注册 <-> docs/api.md 契约快照。
+      - name: Route and API docs contract
+        run: npm run check:docs-routes
+
+      - name: Build web
+        run: npm run build:web
+
+      # 复用上一步构建产物：启动真实 server（临时 dataDir、禁用受管 OpenCode），
+      # 断言 health/bootstrap/SPA shell/未知 API JSON 404。无 Electron、无 GPU、无网络。
+      - name: Offline e2e smoke (built web + server)
+        run: npm run test:e2e -- --skip-build
+        env:
+          AGENT_WORKFLOW_DISABLE_OPENCODE: '1'
+
+      # 明确不在 CI 运行：
+      # - npm run test:model / tests/integration/*-live.test.ts：需要本机 OpenCode + opencode-go 凭据；
+      # - npm run ui:smoke：需要 Electron/显示服务，当前沙箱 GPU 初始化失败；
+      # - npm run dist：签名/打包未验证，需要 macOS 环境与证书。

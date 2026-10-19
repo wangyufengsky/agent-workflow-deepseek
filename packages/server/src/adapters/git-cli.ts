@@ -56,11 +56,10 @@ export class GitCliAdapter implements GitPort {
     args.push(input.remote ?? 'origin');
     const authEnv = await this.#remoteAuthEnv(input.repoRoot);
     await this.#run(args, input.repoRoot, authEnv).catch((error: unknown) => {
-      if (error instanceof AppError && /authentication|permission|403|401/i.test(error.message)) {
-        throw new AppError(ErrorCode.GITLAB_AUTH_FAILED, '获取远端失败：认证失败');
-      }
-      if (error instanceof AppError && /could not resolve host|network|timed out/i.test(error.message)) {
-        throw new AppError(ErrorCode.NETWORK_UNREACHABLE, '获取远端失败：无法连接');
+      if (error instanceof AppError) {
+        const details = error.details === undefined ? {} : { details: error.details };
+        if (error.code === ErrorCode.GITLAB_AUTH_FAILED) throw new AppError(ErrorCode.GITLAB_AUTH_FAILED, '获取远端失败：认证失败', details);
+        if (error.code === ErrorCode.NETWORK_UNREACHABLE) throw new AppError(ErrorCode.NETWORK_UNREACHABLE, '获取远端失败：无法连接', details);
       }
       throw error;
     });
@@ -235,7 +234,14 @@ export class GitCliAdapter implements GitPort {
     this.#assertSha(input.baseSha);
     const args = ['diff', '-U3', '--no-color'];
     if (input.ignoreWhitespace === true) args.push('-w');
-    args.push(input.baseSha, input.headSha ?? '', '--', input.path);
+    // With no explicit head, diff the working tree against the base (that is
+    // what `workspaces.diff` wants). Passing '' as a revision used to make git
+    // fail with `ambiguous argument ''` -> REVISION_NOT_FOUND.
+    if (input.headSha === undefined) {
+      args.push(input.baseSha, '--', input.path);
+    } else {
+      args.push(input.baseSha, input.headSha, '--', input.path);
+    }
     const out = await this.#run(args, cwd);
     if (out.stdout.trim() === '') {
       return { fileId: fileIdFor(input.path), baseSha: input.baseSha, headSha: input.headSha, ignoreWhitespace: input.ignoreWhitespace ?? false, hunks: [] };
@@ -439,7 +445,17 @@ export class GitCliAdapter implements GitPort {
       execFile('git', ['--no-optional-locks', ...args], { cwd, timeout: this.#timeoutMs, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...env } }, (error, stdout, stderr) => {
         const result = { stdout: String(stdout ?? ''), stderr: String(stderr ?? ''), code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1 };
         if (error !== null) {
-          rejectPromise(new AppError(mapGitError(result.stderr || result.stdout), result.stderr.trim() || error.message, { details: { exitCode: result.code } }));
+          // execFile kills the child on timeout; the empty/partial stderr says
+          // nothing about the remote outcome, so expose a machine-readable reason
+          // (remote writes then settle UNKNOWN instead of a false failure).
+          const meta = error as { killed?: boolean; signal?: string | null };
+          const killed = meta.killed === true || (typeof meta.signal === 'string' && meta.signal !== '');
+          const output = result.stderr.trim() || error.message;
+          if (killed) {
+            rejectPromise(new AppError(ErrorCode.NETWORK_UNREACHABLE, `git ${args[0] ?? ''} 超时或被中止`, { details: { exitCode: result.code, reason: 'timeout' } }));
+            return;
+          }
+          rejectPromise(new AppError(mapGitError(result.stderr || result.stdout), output, { details: { exitCode: result.code } }));
           return;
         }
         resolvePromise(result);
@@ -453,10 +469,10 @@ export function fileIdFor(path: string): string {
 }
 
 function mapGitError(output: string): (typeof ErrorCode)[keyof typeof ErrorCode] {
-  if (/not a git repository/i.test(output)) return ErrorCode.NOT_A_GIT_REPO;
+  if (/not a git repository|does not appear to be a git repository/i.test(output)) return ErrorCode.NOT_A_GIT_REPO;
   if (/unknown revision|bad revision|ambiguous argument/i.test(output)) return ErrorCode.REVISION_NOT_FOUND;
-  if (/authentication|permission denied|403|401/i.test(output)) return ErrorCode.GITLAB_AUTH_FAILED;
-  if (/could not resolve host|network|timed out/i.test(output)) return ErrorCode.NETWORK_UNREACHABLE;
+  if (/authentication|permission denied|403|401|could not read from remote repository|repository not found/i.test(output)) return ErrorCode.GITLAB_AUTH_FAILED;
+  if (/could not resolve host|network|timed out|failed to connect|connection refused|unable to access/i.test(output)) return ErrorCode.NETWORK_UNREACHABLE;
   if (/already exists/i.test(output)) return ErrorCode.WORKSPACE_NAME_CONFLICT;
   return ErrorCode.INTERNAL_ERROR;
 }

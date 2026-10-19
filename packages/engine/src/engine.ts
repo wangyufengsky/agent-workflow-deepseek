@@ -99,7 +99,7 @@ export class Engine {
     this.inbox = new InboxService(this.store, this.tasks);
     this.recoveries = new RecoveryService({ store: this.store, commands: this.commands });
     this.planning = new PlanningService(this.store, this.commands, this.context, this.ports.opencode, () => this.tasks);
-    this.plans = new PlanService(this.store, this.commands, this.context, this.ports.git, () => this.tasks, this.catalog);
+    this.plans = new PlanService(this.store, this.commands, this.context, this.ports.git, () => this.tasks, this.catalog, () => this.executions);
     this.workspaces = new WorkspaceService(this.store, this.commands, this.context, this.ports.git);
     this.executions = new ExecutionService(this.store, this.commands, this.context, this.ports.opencode);
     this.deliveries = new DeliveryService(this.store, this.commands, this.context, this.ports.git, this.workspaces, this.ports.remote);

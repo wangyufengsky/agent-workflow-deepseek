@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useBootstrap } from '../../api/hooks.ts';
-import { LinkButton } from '../../components/Button.tsx';
+import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Skeleton } from '../../components/EmptyState.tsx';
 import { Icon, type IconName } from '../../components/Icon.tsx';
@@ -9,11 +9,17 @@ import { IconButton } from '../../components/IconButton.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { AppearanceSection } from './AppearanceSection.tsx';
 import { DatabaseSection } from './DatabaseSection.tsx';
+import { DevSection } from './DevSection.tsx';
+import { SettingsDraftProvider, useSettingsDraft } from './draft.tsx';
 import { GitSection } from './GitSection.tsx';
+import { LimitsSection } from './LimitsSection.tsx';
 import { ModelSection } from './ModelSection.tsx';
+import { NetworkSection } from './NetworkSection.tsx';
+import { RetrySection } from './RetrySection.tsx';
 import { ServiceSection } from './ServiceSection.tsx';
+import './settings.css';
 
-type SectionKey = 'service' | 'appearance' | 'model' | 'git' | 'database';
+type SectionKey = 'service' | 'appearance' | 'model' | 'limits' | 'retry' | 'git' | 'network' | 'database' | 'dev';
 
 interface SectionItem {
   readonly key: SectionKey;
@@ -36,19 +42,29 @@ const SECTION_GROUPS: readonly SectionGroup[] = [
   },
   {
     caption: '模型与执行',
-    items: [{ key: 'model', label: '模型与执行', icon: 'sparkle' }],
+    items: [
+      { key: 'model', label: '模型服务', icon: 'sparkle' },
+      { key: 'limits', label: '执行限制', icon: 'shield' },
+      { key: 'retry', label: '重试等待', icon: 'refresh' },
+    ],
   },
   {
     caption: '账号与网络',
-    items: [{ key: 'git', label: 'Git 账号', icon: 'git' }],
+    items: [
+      { key: 'git', label: 'Git 账号', icon: 'git' },
+      { key: 'network', label: '发布网络', icon: 'link' },
+    ],
   },
   {
     caption: '其他',
-    items: [{ key: 'database', label: '数据库', icon: 'db' }],
+    items: [
+      { key: 'database', label: '数据库', icon: 'db' },
+      { key: 'dev', label: '开发辅助', icon: 'terminal' },
+    ],
   },
 ];
 
-const SECTION_KEYS: readonly SectionKey[] = ['service', 'appearance', 'model', 'git', 'database'];
+const SECTION_KEYS: readonly SectionKey[] = ['service', 'appearance', 'model', 'limits', 'retry', 'git', 'network', 'database', 'dev'];
 
 function parseSection(value: string | null): SectionKey {
   const match = SECTION_KEYS.find((key) => key === value);
@@ -71,9 +87,65 @@ function SectionSkeleton() {
 }
 
 export function SettingsPage() {
+  return (
+    <SettingsDraftProvider>
+      <SettingsPageContent />
+    </SettingsDraftProvider>
+  );
+}
+
+function SettingsSaveMessage() {
+  const draft = useSettingsDraft();
+  if (draft.saveMessage === undefined) return null;
+  const tone = draft.saveMessage.tone;
+  return (
+    <div
+      className={`banner ${tone === 'ok' ? 'ok' : tone === 'unknown' ? 'unknown' : 'danger'}`}
+      role={tone === 'ok' ? 'status' : 'alert'}
+      style={{ marginBottom: 14 }}
+    >
+      <Icon name={tone === 'ok' ? 'check' : tone === 'unknown' ? 'help' : 'alert'} />
+      <div className="grow">{draft.saveMessage.message}</div>
+    </div>
+  );
+}
+
+function SettingsSaveBar() {
+  const draft = useSettingsDraft();
+  if (draft.dirtyCount === 0) return null;
+  return (
+    <div className={draft.issueCount > 0 ? 'settings-savebar has-issue' : 'settings-savebar'} role="region" aria-label="未保存的设置">
+      <Icon name={draft.issueCount > 0 ? 'alert' : 'info'} />
+      <div className="grow">
+        <div style={{ fontSize: 13.5 }}>
+          有 {String(draft.dirtyCount)} 处未保存的修改 · {String(draft.restartCount)} 处需要重启后生效
+        </div>
+        <div className="hint" style={{ marginTop: 3 }}>
+          {draft.issueCount > 0
+            ? `有 ${String(draft.issueCount)} 处需要修正后才能保存。`
+            : '修改过的字段以琥珀描边标记；保存后写回服务端。Git 账号与模型服务中的路径/运行时/模型档案仍按各自按钮保存。'}
+        </div>
+      </div>
+      <Button variant="ghost" size="sm" disabled={draft.saving} onClick={draft.discard}>放弃</Button>
+      <Button
+        variant="primary"
+        size="sm"
+        icon="check"
+        disabled={draft.issueCount > 0 || draft.saving}
+        disabledReason={draft.issueCount > 0 ? '先修正标红的字段' : draft.saving ? '正在保存…' : undefined}
+        onClick={draft.save}
+      >
+        {draft.saving ? '保存中…' : '保存设置'}
+      </Button>
+    </div>
+  );
+}
+
+function SettingsPageContent() {
   const [params, setParams] = useSearchParams();
   const section = parseSection(params.get('section'));
   const bootstrap = useBootstrap();
+  const draft = useSettingsDraft();
 
   const selectSection = (key: SectionKey) => {
     const next = new URLSearchParams(params);
@@ -108,11 +180,23 @@ export function SettingsPage() {
       case 'model':
         content = <ModelSection data={data} />;
         break;
+      case 'limits':
+        content = <LimitsSection settings={data.settings} />;
+        break;
+      case 'retry':
+        content = <RetrySection settings={data.settings} />;
+        break;
       case 'git':
         content = <GitSection settings={data.settings} />;
         break;
+      case 'network':
+        content = <NetworkSection settings={data.settings} />;
+        break;
       case 'database':
         content = <DatabaseSection settings={data.settings} />;
+        break;
+      case 'dev':
+        content = <DevSection />;
         break;
       default:
         content = null;
@@ -125,7 +209,7 @@ export function SettingsPage() {
     <div className="page settings">
       <PageHeader
         title="设置"
-        lede="外观、本机服务、模型与 OpenCode、Git 与数据库连接；模型职责与运行时开关在这里配置。"
+        lede="外观、本机服务、模型与 OpenCode、执行限制、Git 与数据库连接；执行限制与监控字段共用底部保存条。"
         actions={
           <>
             <IconButton icon="refresh" label="刷新设置" onClick={retry} />
@@ -135,6 +219,8 @@ export function SettingsPage() {
           </>
         }
       />
+
+      <SettingsSaveMessage />
 
       <div className="settings-split">
         <nav className="snav" aria-label="设置分区">
@@ -150,6 +236,9 @@ export function SettingsPage() {
                 >
                   <Icon name={item.icon} />
                   {item.label}
+                  {draft.dirtySections.has(item.key) ? (
+                    <span className="settings-nav-dot" title="有未保存修改" aria-label="有未保存修改" />
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -157,6 +246,8 @@ export function SettingsPage() {
         </nav>
         <div>{content}</div>
       </div>
+
+      <SettingsSaveBar />
     </div>
   );
 }

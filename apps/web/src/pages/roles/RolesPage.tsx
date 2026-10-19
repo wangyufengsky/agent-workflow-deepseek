@@ -6,7 +6,7 @@ import { archiveRole, fetchRoleCatalog, publishRole, saveRoleDraft } from '../..
 import { Modal } from '../../components/Modal.tsx';
 import { useBootstrap } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
-import { Button } from '../../components/Button.tsx';
+import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
@@ -278,9 +278,14 @@ export function RolesPage() {
         title="角色管理"
         lede="职业定义职责与提示词修订；流程把它指定为规划或执行职责。草稿保存、发布与归档由服务端执行。"
         actions={
-          <Button variant="secondary" size="sm" icon="edit" onClick={() => { openEditor(); }}>
-            新建职业
-          </Button>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <LinkButton to="/roles/legacy" variant="ghost" size="sm" icon="archive">
+              历史配置
+            </LinkButton>
+            <Button variant="secondary" size="sm" icon="edit" onClick={() => { openEditor(); }}>
+              新建职业
+            </Button>
+          </div>
         }
       />
       <div className="toolbar">

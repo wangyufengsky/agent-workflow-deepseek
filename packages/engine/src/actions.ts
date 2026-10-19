@@ -3,6 +3,7 @@ import type {
   AppSettings,
   DeliveryProjectionValue,
   ExecutionView,
+  PlanNode,
   PlanRevision,
   PlanningRound,
   PlanningView,
@@ -11,7 +12,18 @@ import type {
   TaskDelivery,
   TaskWorkspace,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, Rationale, TaskAttention, TaskLifecycle, TaskStage, nowIso } from '@agent-workflow/shared';
+import {
+  AppError,
+  ErrorCode,
+  NodeManualAcceptanceState,
+  Rationale,
+  TaskAttention,
+  TaskLifecycle,
+  TaskStage,
+  nowIso,
+  type NodeManualAcceptanceStateValue,
+} from '@agent-workflow/shared';
+import type { Store } from '@agent-workflow/storage';
 
 export interface EngineContext {
   readonly store: import('@agent-workflow/storage').Store;
@@ -28,6 +40,78 @@ export function allowed(): ActionAvailability {
 
 export function denied(reasonCode: string, reason: string): ActionAvailability {
   return { allowed: false, reasonCode, reason };
+}
+
+/* ------------------------------------------------------------------ */
+/* Manual node acceptance (audit verdict stored in the settings store) */
+/* ------------------------------------------------------------------ */
+
+export const NODE_ACCEPTANCE_KEY_PREFIX = 'execution.node.acceptance.';
+
+/**
+ * Stored human verdict for one succeeded node. Acceptance is an audit fact and
+ * never rewrites the node status; `pending` is derived when no record exists.
+ */
+export interface StoredNodeAcceptance {
+  readonly nodeId: string;
+  readonly state: 'accepted' | 'rejected';
+  readonly verdictAt: string;
+  readonly note?: string;
+  readonly requestKey: string;
+}
+
+export function nodeAcceptanceKey(executionId: string, nodeId: string): string {
+  return `${NODE_ACCEPTANCE_KEY_PREFIX}${executionId}.${nodeId}`;
+}
+
+export function readNodeAcceptance(store: Store, executionId: string | undefined, nodeId: string): StoredNodeAcceptance | undefined {
+  if (executionId === undefined) return undefined;
+  return store.settings.getJson<StoredNodeAcceptance>(nodeAcceptanceKey(executionId, nodeId));
+}
+
+export function nodeAcceptanceState(store: Store, executionId: string, nodeId: string): NodeManualAcceptanceStateValue {
+  const stored = readNodeAcceptance(store, executionId, nodeId);
+  if (stored === undefined) return NodeManualAcceptanceState.PENDING;
+  return stored.state;
+}
+
+/** A plan node with declared acceptance criteria needs a human verdict before it counts as done. */
+export function planNodeRequiresAcceptance(node: PlanNode): boolean {
+  return node.acceptance.length > 0;
+}
+
+export interface ExecutionAcceptanceGate {
+  /** Executed (succeeded) nodes still waiting for the human verdict. */
+  readonly pending: readonly string[];
+  /** Executed nodes the human sent back for rework. */
+  readonly rejected: readonly string[];
+  /** Every gated node has an accepted verdict. */
+  readonly satisfied: boolean;
+}
+
+/**
+ * W0-4b completion gate: derive which executed nodes still need a human verdict.
+ * Nodes without acceptance criteria are not gated (legacy/no-acceptance plans
+ * keep completing on `succeeded` alone).
+ */
+export function executionAcceptanceGate(store: Store, execution: ExecutionView, plan: PlanRevision | undefined): ExecutionAcceptanceGate {
+  if (plan === undefined) return { pending: [], rejected: [], satisfied: true };
+  const required = new Set(plan.graph.nodes.filter(planNodeRequiresAcceptance).map((node) => node.id));
+  const pending: string[] = [];
+  const rejected: string[] = [];
+  for (const node of execution.nodes) {
+    if (node.status !== 'succeeded' || !required.has(node.nodeId)) continue;
+    const state = nodeAcceptanceState(store, execution.id, node.nodeId);
+    if (state === NodeManualAcceptanceState.ACCEPTED) continue;
+    if (state === NodeManualAcceptanceState.REJECTED) rejected.push(node.nodeId);
+    else pending.push(node.nodeId);
+  }
+  return { pending, rejected, satisfied: pending.length === 0 && rejected.length === 0 };
+}
+
+/** Reset the verdict when a rejected node is retried, so the next attempt starts fresh. */
+export function clearNodeAcceptance(store: Store, executionId: string, nodeId: string): void {
+  store.settings.removeJson(nodeAcceptanceKey(executionId, nodeId));
 }
 
 /** Thrown by services when a write command targets a read-only recovery draft. */
@@ -175,6 +259,13 @@ export function computeTaskActions(input: {
       ? allowed()
       : denied(Rationale.DELIVERY_BLOCKED, '当前没有待交付的变更');
   actions.cleanupWorkspace = workspace?.state === 'ready' ? allowed() : denied(Rationale.WORKSPACE_NOT_READY, '没有可清理的工作区');
+
+  // W0-4b: executed nodes awaiting a human verdict gate completion; expose the
+  // entry point so the UI can point the user at the node panel.
+  const acceptancePending = execution?.acceptance !== undefined && (execution.acceptance.pending.length > 0 || execution.acceptance.rejected.length > 0);
+  actions.reviewNodeAcceptance = acceptancePending
+    ? allowed()
+    : denied('NO_PENDING_ACCEPTANCE', '当前没有待人工验收的已执行步骤');
 
   // A read-only verification draft can never start writable work, even if a
   // stale plan/round/workspace record somehow existed for it.

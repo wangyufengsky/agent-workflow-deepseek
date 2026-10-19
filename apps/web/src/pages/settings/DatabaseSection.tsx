@@ -6,8 +6,6 @@ import { LinkButton } from '../../components/Button.tsx';
 import { PendingBackendNotice } from '../../components/ServiceNotice.tsx';
 import { SettingsHeading } from './shared.tsx';
 
-const PROBE_BLOCKED_REASON = '服务未连接，无法执行只读探针。';
-
 export function DatabaseSection({ settings }: { readonly settings: PublicSettings }) {
   const database = settings.database;
   const connections = database.connections;

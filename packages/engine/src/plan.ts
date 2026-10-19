@@ -22,29 +22,19 @@ import type {
   UseTemplateRequest,
 } from '@agent-workflow/shared';
 import { AppError, ErrorCode, NodeManualAcceptanceState, NodeStatus, Rationale, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso } from '@agent-workflow/shared';
-import { readOnlyRecoveryError, type EngineContext } from './actions.ts';
+import {
+  nodeAcceptanceKey,
+  readNodeAcceptance,
+  readOnlyRecoveryError,
+  type EngineContext,
+  type StoredNodeAcceptance,
+} from './actions.ts';
+import type { ExecutionService } from './execution.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
 import type { Store } from '@agent-workflow/storage';
 import { methodToGraph } from './graph.ts';
 import type { TaskService } from './project-task.ts';
-
-/**
- * Manual node acceptance is an audit verdict stored as JSON in the local
- * settings key/value store (the node row has no acceptance column and
- * `packages/storage` is outside this task's write scope). One key per
- * execution+node keeps it durable, readable by nodeDetail and independent from
- * the execution result.
- */
-const NODE_ACCEPTANCE_KEY_PREFIX = 'execution.node.acceptance.';
-
-interface StoredNodeAcceptance {
-  readonly nodeId: string;
-  readonly state: 'accepted' | 'rejected';
-  readonly verdictAt: string;
-  readonly note?: string;
-  readonly requestKey: string;
-}
 
 export class PlanService {
   readonly #store: Store;
@@ -53,14 +43,25 @@ export class PlanService {
   readonly #git: GitPort;
   readonly #tasks: () => TaskService;
   readonly #catalog: CatalogSnapshot;
+  /** Lazy execution service link: node acceptance gates completion/downstream. */
+  readonly #executions: () => ExecutionService;
 
-  constructor(store: Store, commands: CommandService, context: EngineContext, git: GitPort, tasks: () => TaskService, catalog: CatalogSnapshot) {
+  constructor(
+    store: Store,
+    commands: CommandService,
+    context: EngineContext,
+    git: GitPort,
+    tasks: () => TaskService,
+    catalog: CatalogSnapshot,
+    executions: () => ExecutionService,
+  ) {
     this.#store = store;
     this.#commands = commands;
     this.#context = context;
     this.#git = git;
     this.#tasks = tasks;
     this.#catalog = catalog;
+    this.#executions = executions;
   }
 
   view(taskId: string): PlanResponse {
@@ -215,6 +216,7 @@ export class PlanService {
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     const locked = execution.nodes.filter((node) => node.status !== 'pending' && node.status !== 'ready').map((node) => node.nodeId);
+    const wasPausedBeforeEdit = execution.status === 'paused';
     this.#store.executions.update(execution.id, {
       status: 'paused',
       editSession: {
@@ -222,10 +224,14 @@ export class PlanService {
         state: 'editing',
         requestKey: input.requestKey,
         autoAdvanceBeforeEdit: execution.autoAdvance,
+        wasPausedBeforeEdit,
         lockedNodeIds: locked,
         localChanges: [],
       },
-      notice: { kind: 'paused', message: '已暂停新增领取；运行中的步骤按原快照继续' },
+      notice: {
+        kind: 'paused',
+        message: wasPausedBeforeEdit ? '任务原为暂停；调整期间保持暂停，结束调整后仍需单独恢复任务' : '已暂停新增领取；运行中的步骤按原快照继续',
+      },
     });
     this.#commands.settle(input.requestKey, { editSessionId: `edit_${execution.id}` });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'paused', revision: 1 });
@@ -327,14 +333,19 @@ export class PlanService {
     if (nextPlan !== undefined && input.continueExecution) {
       this.#store.plans.setStatus(nextPlan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
     }
+    // W2-15: a task that was already paused before the edit stays paused; only an
+    // explicit resume (not "结束调整") may continue it.
+    const keepPaused = input.continueExecution !== true || execution.editSession.wasPausedBeforeEdit === true;
     this.#store.executions.update(execution.id, {
-      status: input.continueExecution ? 'running' : 'paused',
+      status: keepPaused ? 'paused' : 'running',
       autoAdvance: execution.editSession.autoAdvanceBeforeEdit,
       editSession: { ...execution.editSession, state: 'finished' },
-      notice: input.continueExecution ? undefined : { kind: 'paused', message: '调整已保存，执行保持暂停' },
+      notice: keepPaused
+        ? { kind: 'paused', message: execution.editSession.wasPausedBeforeEdit === true ? '调整已结束；任务保持调整前的暂停状态，恢复任务需单独操作' : '调整已保存，执行保持暂停' }
+        : undefined,
     });
-    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: input.continueExecution ? 'running' : 'paused', revision: 1 });
-    this.#commands.settle(input.requestKey, { continued: input.continueExecution });
+    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: keepPaused ? 'paused' : 'running', revision: 1 });
+    this.#commands.settle(input.requestKey, { continued: !keepPaused, ...(keepPaused ? { keptPaused: true } : {}) });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
   }
 
@@ -372,15 +383,27 @@ export class PlanService {
     if (session.state === 'saved') {
       reject('修改已保存为未确认计划；请重新确认或继续执行，不能放弃', { planRevisionId: task.currentPlanRevisionId });
     }
-    if (execution.status !== 'running') assertTransition(executionMachine, execution.status, 'running');
+    // W2-15: restore the pause state captured at editBegin. A task the user had
+    // paused stays paused (only an explicit resume continues it); a running task
+    // becomes running again with its pre-edit auto-advance setting.
+    const restorePaused = session.wasPausedBeforeEdit === true;
+    if (!restorePaused && execution.status !== 'running') assertTransition(executionMachine, execution.status, 'running');
     this.#store.executions.update(execution.id, {
-      status: 'running',
+      status: restorePaused ? 'paused' : 'running',
       autoAdvance: session.autoAdvanceBeforeEdit,
       editSession: { ...session, state: 'abandoned', localChanges: [] },
-      notice: { kind: 'paused', message: '已放弃调整；恢复调整前的自动推进设置' },
+      notice: {
+        kind: 'paused',
+        message: restorePaused ? '已放弃调整；任务保持调整前的暂停状态，恢复任务需单独操作' : '已放弃调整；恢复调整前的自动推进设置',
+      },
     });
-    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
-    this.#commands.settle(input.requestKey, { editSessionId: session.id, abandoned: true, autoAdvance: session.autoAdvanceBeforeEdit });
+    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: restorePaused ? 'paused' : 'running', revision: 1 });
+    this.#commands.settle(input.requestKey, {
+      editSessionId: session.id,
+      abandoned: true,
+      autoAdvance: session.autoAdvanceBeforeEdit,
+      restoredStatus: restorePaused ? 'paused' : 'running',
+    });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
   }
 
@@ -479,7 +502,7 @@ export class PlanService {
     if (nodeState.status !== NodeStatus.SUCCEEDED) {
       reject(ErrorCode.OPERATION_IN_PROGRESS, `步骤当前状态为 ${nodeState.status}，只有已成功的步骤可以验收或退回`, { status: nodeState.status });
     }
-    const existing = this.#readNodeAcceptance(execution.id, nodeId);
+    const existing = readNodeAcceptance(this.#store, execution.id, nodeId);
     if (existing?.state === verdict) {
       reject(
         ErrorCode.VALIDATION_FAILED,
@@ -494,25 +517,18 @@ export class PlanService {
       ...(note === '' ? {} : { note }),
       requestKey: input.requestKey,
     };
-    this.#store.settings.putJson(this.#acceptanceKey(execution.id, nodeId), stored);
+    this.#store.settings.putJson(nodeAcceptanceKey(execution.id, nodeId), stored);
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: execution.status, revision: 1 });
+    // W0-4b: a verdict can unblock completion/downstream release.
+    this.#executions().reconcileAcceptance(taskId);
     this.#commands.settle(input.requestKey, { nodeId, verdict, ...(note === '' ? {} : { note }) });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { node: this.nodeDetail(taskId, nodeId) } };
-  }
-
-  #acceptanceKey(executionId: string, nodeId: string): string {
-    return `${NODE_ACCEPTANCE_KEY_PREFIX}${executionId}.${nodeId}`;
-  }
-
-  #readNodeAcceptance(executionId: string | undefined, nodeId: string): StoredNodeAcceptance | undefined {
-    if (executionId === undefined) return undefined;
-    return this.#store.settings.getJson<StoredNodeAcceptance>(this.#acceptanceKey(executionId, nodeId));
   }
 
   /** Only a succeeded node exposes the verdict; `pending` = completed, awaiting the human verdict. */
   #acceptanceView(executionId: string | undefined, nodeId: string, status: string | undefined): NodeAcceptanceView | undefined {
     if (status !== NodeStatus.SUCCEEDED) return undefined;
-    const stored = this.#readNodeAcceptance(executionId, nodeId);
+    const stored = readNodeAcceptance(this.#store, executionId, nodeId);
     return {
       nodeId,
       state: stored?.state ?? NodeManualAcceptanceState.PENDING,

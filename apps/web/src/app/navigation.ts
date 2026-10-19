@@ -63,8 +63,11 @@ export function activeNavId(pathname: string): string {
   if (pathname === '/' || pathname.length === 0) return 'home';
   if (pathname === '/start') return 'start';
   if (pathname === '/tasks' || pathname.startsWith('/tasks/')) return 'tasks';
+  // Run content is a task sub-view (W3-7d), so the task list stays highlighted.
+  if (pathname.startsWith('/runs/')) return 'tasks';
   if (pathname === '/requirements' || pathname.startsWith('/requirement/')) return 'requirements';
   if (pathname === '/inbox' || pathname.startsWith('/inbox/')) return 'inbox';
+  if (pathname === '/roles/legacy') return 'roles';
   const item = NAV_ITEMS.find((entry) => pathname === entry.href || pathname.startsWith(`${entry.href}/`));
   return item?.id ?? '';
 }
@@ -80,8 +83,14 @@ export function breadcrumbsFor(pathname: string): readonly Crumb[] {
   if (pathname.startsWith('/tasks/')) {
     return [{ label: '任务列表', to: '/tasks' }, { label: '任务画布' }];
   }
+  if (pathname.startsWith('/runs/')) {
+    return [{ label: '任务列表', to: '/tasks' }, { label: '运行内容' }];
+  }
   if (pathname.startsWith('/requirement/')) {
     return [{ label: '需求目录', to: '/requirements' }, { label: '需求画布' }];
+  }
+  if (pathname === '/roles/legacy') {
+    return [{ label: '角色管理', to: '/roles' }, { label: '历史配置' }];
   }
   const item = NAV_ITEMS.find((entry) => pathname === entry.href || pathname.startsWith(`${entry.href}/`));
   if (item !== undefined) return [{ label: item.label }];

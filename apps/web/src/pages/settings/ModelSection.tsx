@@ -23,22 +23,6 @@ const ROLE_META = [
 
 type RoleId = (typeof ROLE_META)[number]['id'];
 
-function Limits({ title, rows }: { readonly title: string; readonly rows: readonly (readonly [string, string])[] }) {
-  return (
-    <div className="card kv-card">
-      <div className="section-title" style={{ marginBottom: 12 }}>{title}</div>
-      <dl className="kv">
-        {rows.map(([label, value]) => (
-          <div key={label} style={{ display: 'contents' }}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
 function newProfile(): ModelProfile {
   return {
     id: `custom-${Date.now().toString(36)}`,
@@ -145,27 +129,9 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
     });
   };
 
-  const planningRows: readonly (readonly [string, string])[] = [
-    ['单轮最多草稿', String(settings.planning.maxDrafts)],
-    ['每轮修订次数', String(settings.planning.maxRevisions)],
-    ['单次派发时长', `${String(settings.planning.perDispatchLimitMinutes)} 分钟`],
-    ['规划总时长', `${String(settings.planning.timeLimitMinutes)} 分钟`],
-    ['预算上限', `${String(settings.planning.budgetLimit)} ${settings.planning.currency}`],
-    ['预览有效期', `${String(settings.planning.previewTtlMinutes)} 分钟`],
-    ['记录保留', `${String(settings.planning.recordRetentionDays)} 天`],
-  ];
-  const executionRows: readonly (readonly [string, string])[] = [
-    ['默认自动推进', settings.execution.autoAdvanceByDefault ? '开启' : '关闭'],
-    ['最大并发节点', String(settings.execution.maxConcurrentNodes)],
-    ['单节点最多尝试', String(settings.execution.maxAttempts)],
-    ['节点超时', `${String(settings.execution.nodeTimeoutMinutes)} 分钟`],
-    ['验证命令超时', `${String(Math.round(settings.execution.verifyCommandTimeoutMs / 1000))} 秒`],
-    ['暂停等待上限', `${String(Math.round(settings.execution.pauseTimeoutMs / 1000))} 秒`],
-  ];
-
   return (
     <div className="sect">
-      <SettingsHeading title="模型与执行" lede="选择每个职责使用的模型、启停模型档案，并配置受管 OpenCode 可执行文件。" />
+      <SettingsHeading title="模型服务" lede="选择每个职责使用的模型、启停模型档案，并配置受管 OpenCode 可执行文件。" />
 
       <div className="card card-sec" aria-label="OpenCode 配置">
         <div className="frow">
@@ -299,11 +265,6 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
             </div>
           ))
         )}
-      </div>
-
-      <div className="grid-2" style={{ marginTop: 16 }}>
-        <Limits title="规划限制" rows={planningRows} />
-        <Limits title="执行限制" rows={executionRows} />
       </div>
 
       {saveModels.isError ? <p className="hint" style={{ marginTop: 10, color: 'var(--danger)' }}>{isServiceUnavailable(saveModels.error) ? '服务未连接，设置未保存。' : errorMessage(saveModels.error)}</p> : null}

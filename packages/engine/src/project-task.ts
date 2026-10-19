@@ -26,7 +26,7 @@ import {
   nowIso,
 } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
-import { computeTaskActions, computeTaskAttention, planningView } from './actions.ts';
+import { READ_ONLY_RECOVERY_REASON, computeTaskActions, computeTaskAttention, planningView, readOnlyRecoveryError } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
 import type { EngineContext } from './actions.ts';
@@ -269,6 +269,10 @@ export class TaskService {
   }
 
   updateDraft(taskId: string, input: UpdateDraftRequest): CommandResponse<TaskDetailResponse> {
+    // A verify_only recovery draft is read-only: refuse at the service boundary
+    // (not only in the UI projection) so every write entry point agrees.
+    const task = this.get(taskId);
+    if (task.readOnly === true) throw readOnlyRecoveryError('修改需求草稿');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'task.updateDraft',
@@ -277,7 +281,6 @@ export class TaskService {
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.detail(taskId) };
     try {
-      const task = this.get(taskId);
       if (task.stage !== TaskStage.DRAFT) throw new AppError(ErrorCode.TASK_STAGE_CONFLICT, '只有在需求草稿阶段可以修改原文');
       let requirement = task.requirement;
       if (input.requirementText !== undefined) {
@@ -313,7 +316,7 @@ export class TaskService {
     const plan = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
     const rounds = this.#store.planning.list(taskId);
     const round = task.currentPlanningRoundId === undefined ? rounds[0] : rounds.find((item) => item.id === task.currentPlanningRoundId) ?? rounds[0];
-    const planning = { ...planningView(taskId, rounds), actions: this.#planningActions(round) };
+    const planning = { ...planningView(taskId, rounds), actions: this.#planningActions(round, task.readOnly === true) };
     const execution = task.executionId === undefined ? this.#store.executions.byTask(taskId) : this.#store.executions.get(task.executionId);
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
     const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(taskId) : this.#store.deliveries.get(task.deliveryId);
@@ -340,7 +343,16 @@ export class TaskService {
     };
   }
 
-  #planningActions(round: ReturnType<Store['planning']['get']>): Record<string, import('@agent-workflow/shared').ActionAvailability> {
+  #planningActions(round: ReturnType<Store['planning']['get']>, readOnly = false): Record<string, import('@agent-workflow/shared').ActionAvailability> {
+    if (readOnly) {
+      const deniedAction = { allowed: false, reasonCode: 'RECOVERY_READ_ONLY', reason: READ_ONLY_RECOVERY_REASON };
+      return {
+        startPlanning: deniedAction,
+        stopPlanning: deniedAction,
+        reconcile: deniedAction,
+        previewNextRound: deniedAction,
+      };
+    }
     return {
       startPlanning: this.#context.opencodeReady()
         ? { allowed: true }

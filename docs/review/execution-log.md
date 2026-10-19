@@ -538,3 +538,142 @@
 - **发现缺陷**：`GET /api/tasks/:id/changes/files/:fileId/diff` 在未传 headSha 时 500（`git-cli.ts` 把空字符串当 revision）→ 新登记 W3-12。
 - **范围审计**：设计稿未改；临时 Vite 配置已清理；`git diff --check` 通过。
 - **新登记 follow-up**：W3-12（diff bug）、W3-13（fetch/fix push UNKNOWN）、W2-4c（readOnly 投影/updateDraft 守卫）、W3-7d（run/roles-legacy 面包屑）。
+
+### 21:10 分派 | Wave 3C
+
+- `be-api` → task-27：W3-12 diffPage headSha、W3-13 fetch/fix push UNKNOWN、W2-4c readOnly 投影/updateDraft 守卫。
+- `be-recovery` → task-28：W0-4b 节点验收 gating、W2-15 放弃调整恢复暂停态。
+- `design-audit` → task-29：W3-4a 知识库来源选择/引用原文 520 面板/研究员面板。
+- `fe-audit` → task-30：W3-9b 设置页执行限制编辑/脏保存条/缺失分区。
+- `fe-templates` → task-31：W3-11a 主页展示化 + W3-7d run/legacy 面包屑入口。
+- `be-audit` → task-32：W4-3a test:e2e/最小 CI/证据清单。
+- `docs-audit` → task-33：W4-1c 文档同步 Wave 3A/3B + design-coverage 更新。
+- `fe-ppt` 本波空闲，保留给 W3-6/W3-8 后续。
+
+### 21:06 任务完成 | W3-11a/W3-7d（task-31）| 主页展示化 + run/legacy 面包屑与入口
+
+- 负责人：`fe-templates`；写范围：`apps/web/src/pages/home/**`、`apps/web/src/app/navigation.ts`、`apps/web/src/pages/roles/RolesPage.tsx`。
+- 主页展示化（W3-11a）：`HomePage.tsx` 移除统计三卡、「进行中 / 需要你处理 / 最近活动」业务列表、HomeSkeleton/ServiceNotice 分支与 `useBootstrap` 读取；保留 hero、`HomeFlowDemo`、`HomeCapabilities`（能力卡/入口 + 收尾 CTA「从一个目标开始」+ 开始任务）。页面不再读取业务数据、不新增请求；服务连接状态仍由 Shell 全局连接条展示。按任务约定先按设计移除仪表盘，若产品要保留需明确标注「扩展区」并由 Lead 决策。
+- 面包屑/选中态（W3-7d）：`navigation.ts` 增加 `/runs/:taskId` → active tasks、面包屑「任务列表 / 运行内容」；`/roles/legacy` → active roles、面包屑「角色管理 / 历史配置」。
+- 入口：RolesPage 页头新增「历史配置」LinkButton → `/roles/legacy`（保留「新建职业」）。
+- 验证：`npx tsc -p tsconfig.json --noEmit` → exit 0；`--noUnusedLocals` 过滤 `pages/home|app/navigation|pages/roles/RolesPage` → 0；`node --import tsx` 直接断言 `activeNavId('/runs/task_123')=tasks`、`/roles/legacy=roles`，面包屑分别为「任务列表 / 运行内容」「角色管理 / 历史配置」；`git diff --check` 通过。
+- 未覆盖：按要求未运行 `npm run build:web`、未跑全量 `npm test`；无浏览器点击验证。原主页仪表盘相关 CSS（`styles/app.css` 的 home dashboards）不在本任务写范围，暂留未清理。
+
+### 21:09 任务完成 | W4-1c（task-33）| 文档同步 Wave 3A/3B + design-coverage 更新
+
+- 负责人：`docs-audit`；写范围：`README.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/design-coverage.md`；未改 review 报告、`docs/task-assignment.md`、产品代码、设计稿。
+- 计数统一：README / remaining-work / verification / design-coverage 均为 **360 tests / 54 suites / 349 pass / 11 skipped / 0 fail**（55.1s，`.tmp/wave3b-verify.log`）；build:web/server 与 `check:docs-routes` 通过。
+- README：实现状态改为 Wave 0–3B 完成、Wave 3C 进行中；补 Wave 3A/3B 已实现项；「未完成」清单改为 W0-4b、W2-4c/15、W3-12/13、W3-1b、W3-3~6、W3-8~11、W3-7d、真实环境、打包、视觉回归、文档/CI。
+- remaining-work：新增 Wave 3A（节点验收、项目详情四页签、PPT 作品/四步工作台、任务列表/开始页结构）与 Wave 3B（Inbox interactions、`verify_only` 硬只读 v11、远端 UNKNOWN、storage removeJson、run/roles-legacy、API 文档）已完成行；缺口重编 1–12，删除已完成/进行中的旧表述。
+- verification：计数 360/349/55.1s；§7/§10 更新 `verify_only`、远端 UNKNOWN、storage、design-coverage、api.md、W3-12 diff、节点 gating；新增 **Wave 3A（348 tests）** 与 **Wave 3B（360 tests）** 验收记录；Wave 2 段的“Wave 3A 进行中”改为“已在 Wave 3A 完成”。
+- design-coverage：25 页更新为 **✅ 3 / 🟡 21 / ⛔ 1**；`run`、`roles-legacy`、`ppt-works`、`ppt-studio` 改为已实现（🟡），`knowledge-history` 维持 🟡；唯一整页缺失 `workflow-editor`；明确标注降级（权限/策略/选项无来源、charter/docPaths/GitLab 绑定、diff bug、W3-5 等）。
+- 验证：4 文件无旧当前计数（345/348 仅出现在历史验收小节并标注「历史计数」）；无「Wave 3A/3B 进行中」「W3-2 pending」「旧缺口」；design-coverage 25 行、状态计数 ✅3/🟡21/⛔1；链接 0 broken；`check:docs-routes` exit 0；`git diff --check` 干净；未跑全量 test（Lead 已验收 360 tests）。
+- 未覆盖 / 说明：Wave 3C 代码正在并行落地（W3-12/13、W3-4a、W3-9b、W3-11a、CI 等），文档按「进行中/待验收」记录；Wave 3C 验收后需再更新一次。
+
+### 21:12 任务完成 | W4-3a（task-32）| test:e2e 修复 + 最小 CI + 证据清单
+
+- 负责人：`be-audit`；写范围：`scripts/test-e2e.mjs`（新增）、`.github/workflows/ci.yml`（新增）、`docs/evidence/README.md`；`package.json` 未改（`test:e2e` 已指向该脚本，路径修好无需改 scripts）；未改产品代码/设计稿/其他文档。
+- `scripts/test-e2e.mjs`（新增，约 220 行）：默认 `npm run build:web` → 以临时 dataDir + OS 随机回环端口启动真实 `packages/server/src/main.ts`（`AGENT_WORKFLOW_DISABLE_OPENCODE=1`）→ 断言 `/api/health`（status/version）、`/api/bootstrap`（app.name、隔离 dataDir、projects[]）、`/`（200 text/html 且引用构建 JS）、未知 `/api/*` GET（JSON 404，非 SPA 兜底）；失败打印 server tail 并非零退出；结束 SIGTERM→SIGKILL 兜底并清理临时目录。参数：`--skip-build`、`--keep-data`、`--help`；超时可用 `AGENT_WORKFLOW_E2E_TIMEOUT_MS`。
+- `.github/workflows/ci.yml`（新增）：push(main/master)/PR/workflow_dispatch；Node 24 + npm ci + `typecheck` + `npm test` + `check:docs-routes` + `build:web` + `test:e2e -- --skip-build`；`permissions: contents: read`、concurrency、30min 超时；注释明确不跑 live/`test:model`/`ui:smoke`/Electron/打包及原因。
+- `docs/evidence/README.md`（重写）：22 张 PNG 全量清单（文件/内容/轮次·提交/数据源 A–D/Wave 0–3 后是否有效），全部标注为 Wave 0 前历史证据、已过期，并给页面级过期原因；说明官方 `npm run ui:smoke` 在当前沙箱因 Electron GPU/sandbox 初始化失败未计通过；区分根 `evidence/`（ui:smoke 自动 11 张 `ui-*.png`，可复现）与 `docs/evidence/`（人工 22 张，含模型/打包场景，手工刷新）；附刷新/复验命令。
+- 根 README「界面证据」段落：未改。当前段落已正确区分两个目录并标注截图落后；且 README 正属 docs-audit W4-1c，避免跨写范围冲突；建议 Wave 3C 文档收尾时补一行指向 `docs/evidence/README.md`。
+- 验证：
+  - `node scripts/test-e2e.mjs` → PASS（build:web 2.19s；server 随机端口；health/bootstrap/SPA/404 四项断言通过；exit 0）。
+  - `node scripts/test-e2e.mjs --skip-build` → PASS；`npm run test:e2e -- --skip-build` → PASS（npm 参数透传）。
+  - workflow 用 js-yaml 解析：name=CI；triggers=push/pull_request/workflow_dispatch；runs-on=ubuntu-latest；8 steps；必需命令齐全。
+  - 清单覆盖脚本：22 张 PNG ↔ 22 行清单，缺失 0；`git diff --check` 干净。
+  - 按要求未跑全量 `npm test`/typecheck（Lead 负责）；未跑 `ui:smoke`（沙箱失败且会覆盖根 `evidence/`）。
+- 未覆盖 / 注意：
+  1. CI 未在 GitHub 实际运行，本地仅做 YAML 结构解析；首次运行需确认 Ubuntu + Node 24 + workspace lockfile 正常。
+  2. `docs/evidence/` 截图未重拍（需桌面环境 + 真实 OpenCode/模型 + 打包 .app），清单如实标注全部过期，不伪造新证据。
+  3. 根 README 证据段落未改（见上，避免与 W4-1c 冲突）。
+  4. `test:e2e` 默认构建会写 gitignored `apps/web/dist`；CI 用 `--skip-build` 复用 `build:web` 产物。
+
+### 21:09 任务完成 | W3-12/W3-13/W2-4c 后端加固（task-27）| be-api
+
+- 负责人：`be-api`；写范围：`packages/server/src/adapters/git-cli.ts`、`packages/server/src/http.ts`、`packages/engine/src/fix.ts`、`packages/engine/src/project-task.ts`、新增 `tests/integration/backend-hardening.test.ts`；`review-plugin.ts`/`actions.ts` 无需改动（fix push 分类在 `FixService`，路由已透传；readOnly 错误/策略 helper 已在 actions.ts）。未改 execution/plan/models、`apps/web/**`、docs。
+- W3-12 `diffPage`：
+  - `git-cli.ts` 在 `headSha` 未传时改为 `git diff -U3 [--no-color] baseSha -- path`（工作区相对 base 的当前改动，符合 `workspaces.diff` 语义），不再拼空 revision 导致 `ambiguous argument ''` → `REVISION_NOT_FOUND`；传 headSha 时保持 `base..head`。
+  - 同时修正 `#run` 的 killed/timeout 识别（此前 `signal: null` 被误判为 killed）、`mapGitError` 增加 `does not appear to be a git repository`/`could not read from remote repository`/`failed to connect|connection refused|unable to access` 分支，`fetch()` 重包装时保留 `details`（含 `reason:'timeout'`）。
+- W3-13 remote UNKNOWN：
+  - `POST /api/git/repos/:projectId/fetch`：捕获后用 `remoteOutcomeUnknownReason` 分类；timeout/network_error/undetermined → `commands.fail(key, RECEIPT_UNKNOWN, unknown=true)` + 抛 409 `RECEIPT_UNKNOWN`（details: requestKey/operation/outcomeUnknown/reason，可按 `/api/operations/:key` 核对）；业务失败仍 failed。
+  - `FixService.push`：同分类；不可判定时 push step 记 `unknown`（error code `RECEIPT_UNKNOWN`）、命令结算 unknown、抛 409 `RECEIPT_UNKNOWN`；auth/校验/非快进等业务失败仍记 failed 并结算 failed（新增 `#recordStepUnknown`）。
+- W2-4c readOnly（verify_only）守卫：
+  - `ProjectService.updateDraft` 服务层守卫：`task.readOnly===true` → 403 `FORBIDDEN` + details.reason `RECOVERY_READ_ONLY`，且在任何 `commands.begin` 之前（无孤儿回执）。
+  - `TaskDetail.planning.actions` 投影按 readOnly 返回 `startPlanning/stopPlanning/reconcile/previewNextRound` 全部 denied（reasonCode `RECOVERY_READ_ONLY` + 既有 READ_ONLY_RECOVERY_REASON）；与 plan/planning/execution/delivery 既有服务层守卫一致。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（并行 agent 收尾后复跑）。
+  - `node --import tsx --test --test-force-exit tests/integration/backend-hardening.test.ts` → **5 tests / 5 pass / 0 fail**：
+    - diffPage 无 headSha（含未提交改动）与有 headSha 均正常；
+    - `remoteOutcomeUnknownReason` 分类矩阵（timeout/network_error/undetermined vs auth/not-a-repo/conflict/普通错误）；
+    - fetch：连接拒绝 → 409 RECEIPT_UNKNOWN reason network_error + by-key unknown；挂起 HTTP + 400ms 超时 → killed → 409 reason timeout + by-key unknown；origin 非 Git 仓库 → 非 409、非 RECEIPT_UNKNOWN、by-key failed；
+    - fix push：4 类错误（timeout/network/killed/auth）step 状态与回执状态分别 unknown/failed，0 自动重发；
+    - readOnly：planning.actions 全 denied、PATCH 任务原文 403 RECOVERY_READ_ONLY 且 requirement 不变、无孤儿回执、普通任务照常成功。
+  - 回归：`backend-hardening + api-contract + git-api + git-push + review-fix-api + server-smoke + recovery-modes` → 18 pass / 0 fail。
+- 未覆盖 / 说明：
+  1. `review-plugin.ts` 未改：fix push 的 UNKNOWN 结算在引擎 `FixService` 内完成，HTTP route/fixEnvelope 自动透传 `{receipt,fix}`；成功/失败路径由 review-fix-api 回归覆盖。
+  2. fetch 仍属读操作，但按任务要求把 timeout/network/undetermined 统一结算 unknown（便于按 key 核对，不自动重发）；业务失败（非仓库/认证）保持 failed。
+  3. `OperationRecord.error` 只持久化 code/message，分类 reason 只出现在 HTTP 409 details 与抛出的 AppError（by-key 可看到 code=RECEIPT_UNKNOWN + 文案，看不到 reason 字段）——如需持久化 reason 需改 models/storage（本任务写范围外）。
+  4. 未跑 `build:web`/全量 `npm test`/浏览器点击（Lead 整合范围）。
+
+### 21:10 任务完成 | W0-4b/W2-15（task-28）| 节点验收 gating + 放弃调整恢复暂停态
+
+- 负责人：`be-recovery`；写范围：`packages/shared/src/domain/models.ts`、`packages/engine/src/{actions,plan,execution,engine}.ts`、`tests/integration`（新增 `node-acceptance-gating.test.ts`、`edit-session-pause-mode.test.ts`）；未改 `http.ts`、`shared/api/contracts.ts`、`fix.ts`、`git-cli`、`apps/web/**`、`machines.ts`（用现有合法迁移）、设计稿、`task-assignment.md`。
+- **W0-4b 节点验收 gating（语义选择，写入代码注释与日志）**：
+  - 「待人工验收」的判定：**计划节点声明了验收标准**（`PlanNode.acceptance.length > 0`，skeleton / AI 候选都会带）时，该节点执行成功只是 `succeeded`，人工判定（accepted）前不计为完成；没有验收标准的节点（合成计划/旧流程）保持「succeeded 即完成」的旧行为 → 兑现「不破坏现有无验收场景」。
+  - 验收状态来源复用 W0-4 的 settings 记录（`execution.node.acceptance.<executionId>.<nodeId>`），在 `actions.ts` 抽出共享助手（key/read/state/gate/clear），`plan.ts` 与 `execution.ts` 共用，避免两套判定漂移。状态：accepted 通过；pending（无记录）或 rejected 均 gate。
+  - 完成/下游 gating（`execution.ts`）：
+    - `#recomputeReady` 与 `#releaseAdvanceable` 的上游满足条件改为「succeeded +（若声明验收标准则已 accepted）或 skipped」；手动 advance 被验收阻塞时返回真实原因 + `details.awaitingAcceptance`（列出未验收上游节点）。
+    - `#settleIdleExecution`：有失败先 failed；否则若 gate 未满足 → **park**（RUNNING→PAUSING→PAUSED 合法两跳，notice「N 个已执行步骤待人工验收；验收通过或按原配置重试后再继续/结束执行」，task attention=waiting_user，不再进入 completed）；全部 gate 通过且无未完成节点才 `#completeExecution`（防御性再查一次 gate，完成 notice 写明「全部步骤已完成并验收通过，等待交付」）。
+    - `ExecutionView` 增加派生可选 `acceptance: {pending, rejected}`（`engine.executions.get` 叠加，HTTP 执行视图直接可见）；`computeTaskActions` 增加 `reviewNodeAcceptance` 可用性（有待验收/退回时为 allowed）。
+    - 验收后继续：`PlanService` 在 accept/reject 结算后调用 `ExecutionService.reconcileAcceptance(taskId)`（Engine 注入 lazy 回调，避免循环依赖）；全部通过 → 合法恢复 running 并继续 schedule/完成；仍有 pending/rejected → 保持 paused 并更新 notice；用户主动暂停（pause.requestKey 存在）不被自动恢复。
+    - 驳回后可重跑：`execution.retry` 现在同时收集「有验收标准且被 rejected 的 succeeded 节点」，允许从 paused 重试，重置节点为 pending 并清除验收记录（新 attempt 重新走验收）；节点状态本身在验收/驳回时仍不被改写（W0-4 边界保持，测试断言）。
+  - `machines.ts` 未改：全部走既有合法迁移（pausing/paused、unknown 等），无新状态。
+- **W2-15 调整前暂停模式**：
+  - `EditSession` 新增 `wasPausedBeforeEdit?: boolean`（持久化在 execution.edit_session JSON，重启可读）。
+  - `editBegin` 记录开始调整前的执行状态（running/paused）；`abandonEdit` 恢复该暂停态：原 paused → 保持 paused（notice「任务保持调整前的暂停状态，恢复任务需单独操作」，receipt outcome `restoredStatus:'paused'`，不触发自动恢复）；原 running → running + 恢复 autoAdvance。
+  - `editFinish` 一致处理：`continueExecution` 不能覆盖用户暂停（outcome `{continued:false, keptPaused:true}`）；原 running 且 continue 时恢复 running。
+  - 测试覆盖：原暂停 abandon 仍 paused / 原运行 abandon 恢复 running（HTTP 路由随后 kick 调度，autoAdvance 关闭时落到正常「等待推进」pause，非用户暂停）/ editFinish 保持暂停 / 跨进程重启后 `wasPausedBeforeEdit` 仍在且 abandon 仍恢复 paused。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0。
+  - 新增：`node --import tsx --test --test-force-exit tests/integration/node-acceptance-gating.test.ts tests/integration/edit-session-pause-mode.test.ts` → 6 pass / 0 fail。
+  - 回归：node-acceptance、execution-control（W2-1/W2-2/W2-13/W2-9）、node-skip、plan-edit-dependencies、task-acceptance、startup-recovery、recovery-readonly、server-smoke → 22 pass / 0 fail；api-contract/routes-contract/recovery-modes/workspace-cleanup-nongit/delivery-mr/delivery-fixroot/directory-apply-api/e2e/insights/review-fix-api/review-fix-recovery/ppt-works → 33 pass / 0 fail。
+- 未覆盖 / 说明：
+  1. `TaskDetail.capabilities`（`http.ts` 的 viewActions 与 `project-task.ts` detail）使用 `store.executions.get` 原始视图，没有 acceptance overlay：`reviewNodeAcceptance` 在该投影里仍为 denied；执行视图刷新后 `execution.acceptance` 与 nodeDetail `actions.accept/reject` 均可用（UI 主路径）。如需 detail capabilities 也暴露，需 `project-task.ts`/`http.ts` 用引擎视图或传 store（不在本任务写范围）。
+  2. gating 只在计划节点声明验收标准时生效（上述语义选择）；若产品要求所有 succeeded 节点都必须验收，需把规则改为默认必验（会改变现有无验收流程与 live 执行测试预期）。
+  3. `gated` 节点的用户暂停/编辑冲突边界沿用现有语义；`execution-live` 真实模型测试若启用，skeleton 计划会在待验收处 park（符合设计，但该 live 测试只断言节点成功/文件变更，不要求 completed）。
+  4. 未跑全量 `npm test`/build（Lead 整合范围），未做浏览器点击。
+
+### 22:20 任务完成 | W3-4a（task-29）| 知识库体验
+
+- 负责人：`design-audit`；写范围：`apps/web/src/pages/knowledge/**`、`knowledge-history/**`。重写 `KnowledgePage.tsx`，新增 `knowledge.css`；`knowledge-history` 未改（已有返回知识库/新对话/按引用状态降级，满足入口与真实状态要求）。未改 backend/shared/其他页面。
+- 来源选择：首屏提问区显示真实资料计数与「查看资料清单」；资料卡从 `/api/knowledge/sources` 列出项目真实文件（md/mdx/txt/rst/json/yaml），支持勾选、全选/全不选、已选 N/M 计数；全部取消时禁止发送。明确标注「勾选只影响本页展示与提示；服务端 ask 无 sources 字段，当前按项目全量资料回答」。
+- 引用原文 520 面板：宽屏从右侧进入 `kb-layout` 第二列（520px、sticky、不遮回答）；显示来源正文、`citation.line`/`snippet` 高亮（引用附近窗口，可切全文）、命中行自动滚动；上一处/下一处按 `citations` 切换并带真实禁用原因；窄屏（≤1200）回退现有 Modal，并保留前后切换。
+- 研究员检查：`Drawer` 展示真实 answer/question/citations（证据清单，可点开原文）、模型、生成时间、`conversationId`、`usage`、项目与前端已选资料来源；无研究步骤/工具轨迹/角色证据 DTO 的位置明确写「服务未提供」，不造假。主页面同时保留研究员摘要卡与降级说明。
+- 历史与状态：页头/历史卡/研究员抽屉均可跳 `/knowledge/history`（带 project）；历史点击可载入回答与 conversationId。来源加载/错误/空、问答中/错误、引用正文加载/错误、研究员空状态均有真实文案；沿用 `PageHeader/Badge/Button/Drawer/Modal/ServiceNotice` 与主题令牌，无硬编码颜色。
+- 验证：`npx tsc -p tsconfig.json --noEmit` exit 0；本范围 `--noUnusedLocals --noUnusedParameters` 0；`git diff --check` 通过；Vite dev（5173）转译 `KnowledgePage.tsx`/`knowledge.css` 均 HTTP 200。只读联调 5177：真实项目的 `/sources`、`/history`、`/source?path=README.md` 均返回真实数据，历史引用含 `path/line/snippet`（如 README.md:3）；未发起 `/ask`，避免模型调用与数据写入。未跑 build:web/全量 test，未做浏览器点击。
+- 降级/未覆盖：
+  1. 研究步骤、工具轨迹、角色证据、流式输出、命中相关度均无 DTO/接口 → 明确显示未提供，不渲染假阶段/分数。
+  2. 来源勾选是纯前端：`KnowledgeAskRequest` 没有 sources 字段，不能按勾选过滤，服务端全量回答。
+  3. `question`/answer/citations 之外没有多轮消息列表 DTO；研究员面板只显示当前回答对应问题。
+  4. 未做真实浏览器点击与 520 面板视觉回归；建议 Lead 用含多条引用的真实历史做宽/窄屏 smoke。
+
+### 21:14 任务完成 | W3-9b（task-30）| 设置页：执行限制编辑/脏保存条/缺失分区降级
+
+- 负责人：`fe-audit`；写范围：`apps/web/src/pages/settings/**`。
+- 结构：左侧分区补「执行限制」「重试等待」「发布网络」「开发辅助」；模型服务与执行限制拆开。执行限制开放 `autoAdvanceByDefault`、`nodeTimeoutMinutes`（1–1440 分钟）、`verifyCommandTimeoutMs`（1–120 分钟，display 分钟、存 ms）；监控开放 `pollIntervalMs`（500–30000ms）与 `sessionAlertThreshold`（1–100）。
+- 脏状态：新增 settings 级 `SettingsDraftProvider`，字段修改后琥珀描边、分区导航琥珀点、底部保存条显示「N 处未保存 · M 处需重启」+ 放弃/保存；无效值标红 `aria-invalid`、保存条显示需修正数并禁用保存。保存用单次 `PATCH /api/settings`（requestKey），成功后用响应 settings 更新 bootstrap 查询并清空草稿；超时显示「结果未明，刷新核对、不要重复提交」，失败保留草稿并显示真实错误，不伪造成功。
+- 真实语义降级：`verifyCommandTimeoutMs` 虽保存但当前验证路径使用 Git 命令超时，徽标写「已提供 · 执行路径未读取」；`maxConcurrentNodes/maxAttempts/pauseTimeoutMs` 执行引擎未读取，仅只读并写原因；业务超时/按类别重试等待无 shared 字段，显示「服务未提供」禁用控件；重试等待分区显示真实 `planning.transportRetries` 只读值。发布网络只读展示 Git 地址/超时并链接 Git 账号；开发辅助明确示例数据开关不可用。
+- 保持不退化：Git 账号、数据库、外观、模型服务（OpenCode 路径/运行时/模型档案）仍按各自保存按钮；执行限制与监控共用底部保存条，保存条文案明确说明这一分工。
+- 验证：`npx tsc -p tsconfig.json --noEmit` → exit 0；本批 scoped tsc → exit 0；`--noUnusedLocals --noUnusedParameters` 过滤 `pages/settings` → 0（顺带移除 DatabaseSection 未使用常量）；`git diff --check` 通过；按要求未跑 `build:web`/全量测试，未做浏览器点击。
+- 未覆盖 / 已知边界：保存条目前只覆盖执行限制 + 监控（Git/模型服务仍独立保存）；`M 处需重启` 当前为 0（这些字段均立即生效）；settings PATCH 响应无 receipt，unknown 只能由请求超时判定，没有 requestKey 对账接口；未验证真实浏览器交互。
+
+### 21:20 整合 | Wave 3C 验收通过
+
+- **验收范围**：W3-12/W3-13/W2-4c 后端缺陷修复、W0-4b 节点验收 gating、W2-15 暂停态恢复、W3-4a 知识库体验、W3-9b 设置页、W3-11a/W3-7d 主页/面包屑、W4-3a e2e/CI/证据、W4-1c 文档同步。
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **371 tests / 54 suites / 360 pass / 11 skipped / 0 fail**（58.9s）。
+- **构建/脚本**：`npm run build:web`、`build:server`、`check:docs-routes` 均通过；**`node scripts/test-e2e.mjs --skip-build` PASS**（真实 server + health/bootstrap/home/未知 API 404）。
+- **功能证据**：diffPage 有/无 headSha 正常；fetch/fix push 超时→UNKNOWN 可核对；readOnly 投影/写守卫；节点验收 gating（待验收时 paused、accept 后 completed、reject 可重试）；abandon 恢复暂停态；知识库来源选择/引用 520 面板/研究员面板（研究步骤诚实降级）；设置页执行限制编辑/脏保存条/缺失分区降级；主页展示化；run/legacy 面包屑；CI/证据清单。
+- **范围审计**：设计稿未改；无临时配置残留；`git diff --check` 通过。
+- **新登记 follow-up**：W0-4c（待验收 UI）、W3-4b（研究步骤/流式 DTO）、W3-9c（数据库/工具/模板结构）、W3-11b（品牌）、W4-1d（文档同步 Wave 3C）、W4-3b（视觉回归/截图）。
