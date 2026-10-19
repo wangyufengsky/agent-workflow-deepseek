@@ -58,6 +58,7 @@ export interface EventMap {
   'review.changed': { readonly projectId: string; readonly reviewRunId: string; readonly state: string; readonly revision: number };
   'fix.changed': { readonly projectId: string; readonly fixRunId: string; readonly state: string; readonly revision: number };
   'opencode.status.changed': { readonly status: string; readonly pid?: number; readonly port?: number; readonly message?: string };
+  'catalog.changed': { readonly kind: string; readonly roleId: string; readonly revision: number };
 }
 
 export type AppEvent = {

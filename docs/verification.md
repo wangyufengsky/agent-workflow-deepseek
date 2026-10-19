@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**290 tests / 54 suites / 282 pass / 8 skipped / 0 fail**，约 24s。
+结果（本轮）：**291 tests / 54 suites / 283 pass / 8 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -41,6 +41,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/push-mr | 本地 bare 远端 push 创建/非快进拒绝；GitHub/GitLab REST 创建 MR（stub）→ delivered/lifecycle completed |
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
+| server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
@@ -194,7 +195,16 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - `POST /api/tasks/:id/execution/retry` 已实现并登记 `execution.retry`。
 测试：`tests/integration/recovery-api.test.ts` PASS。
 
-## 8. 已知限制 / 未验证
+## 8. 角色目录编辑（PASS）
+
+`GET/POST /api/catalog/roles`、`POST /api/catalog/roles/:id/{publish,archive}`：
+- 内置职业可保存草稿（不改线上角色），发布后修订 `rN→rN+1` 并热更新引擎有效目录（审查/修复职业解析立即使用新修订）。
+- 自定义职业先以草稿存在，发布后进入目录；归档内置覆盖会还原默认，归档自定义会移除。
+- 每个写操作 requestKey + 回执、幂等重放；目录变更发 `catalog.changed` 事件。
+- UI 角色页已接线：新建/编辑草稿、发布、还原/归档、草稿徽标。
+测试：`tests/integration/roles-api.test.ts` PASS。
+
+## 9. 已知限制 / 未验证
 
 - Git 远端写：fetch 用本地远端验证；MR 创建用 GitHub/GitLab 桩服务验证；真实 GitHub push / 创建 MR / 直接合并
   未执行（避免修改真实仓库），真实 GitLab 未连接。

@@ -1,5 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import type { RoleDefinition } from '@agent-workflow/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { RoleCatalogEntry, RoleDefinition } from '@agent-workflow/shared';
+import { errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { archiveRole, fetchRoleCatalog, publishRole, saveRoleDraft } from '../../api/catalog-editor.ts';
+import { Modal } from '../../components/Modal.tsx';
 import { useBootstrap } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
@@ -8,7 +12,6 @@ import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 
-const EDIT_BLOCKED_REASON = '角色编辑接口尚未接通：服务端只提供 catalog.roles 目录读取，没有草稿 / 发布 / 权限写入接口。';
 
 function RoleAvatar({ role }: { readonly role: RoleDefinition }) {
   const initial = role.name.trim().slice(0, 1);
@@ -19,7 +22,16 @@ function RoleAvatar({ role }: { readonly role: RoleDefinition }) {
   );
 }
 
-function RoleDetail({ role, methods }: { readonly role: RoleDefinition; readonly methods: readonly { readonly id: string; readonly name: string; readonly revision: string }[] }) {
+interface RoleDetailProps {
+  readonly role: RoleDefinition & Pick<RoleCatalogEntry, 'status' | 'hasDraft' | 'baseId'>;
+  readonly methods: readonly { readonly id: string; readonly name: string; readonly revision: string }[];
+  readonly busy: boolean;
+  readonly onEdit: () => void;
+  readonly onPublish: () => void;
+  readonly onArchive: () => void;
+}
+
+function RoleDetail({ role, methods, busy, onEdit, onPublish, onArchive }: RoleDetailProps) {
   return (
     <section className="card solid" aria-label="职业详情" style={{ padding: 20 }}>
       <div className="row wrap" style={{ gap: 8 }}>
@@ -27,12 +39,10 @@ function RoleDetail({ role, methods }: { readonly role: RoleDefinition; readonly
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row wrap" style={{ gap: 6 }}>
             <h2 style={{ fontSize: 18, fontWeight: 500 }}>{role.name}</h2>
-            <Badge tone="ok" icon="check">
-              目录修订 {role.revision}
+            <Badge tone={role.hasDraft ? 'warn' : 'ok'} icon={role.hasDraft ? 'edit' : 'check'}>
+              {role.hasDraft ? '草稿待发布' : `目录修订 ${role.revision}`}
             </Badge>
-            <Badge outline icon="lock">
-              只读
-            </Badge>
+            {role.baseId === undefined && role.status === 'draft' ? <Badge tone="warn">未发布</Badge> : null}
           </div>
           <div className="hint mono" style={{ marginTop: 4 }}>
             {role.id}
@@ -95,15 +105,18 @@ function RoleDetail({ role, methods }: { readonly role: RoleDefinition; readonly
       </div>
 
       <div className="row wrap" style={{ gap: 8, marginTop: 20 }}>
-        <Button variant="secondary" icon="edit" disabled disabledReason={EDIT_BLOCKED_REASON}>
+        <Button variant="secondary" icon="edit" disabled={busy} onClick={onEdit}>
           编辑职业
         </Button>
-        <Button variant="ghost" icon="upload" disabled disabledReason={EDIT_BLOCKED_REASON}>
-          检查并发布
+        <Button variant="primary" icon="upload" disabled={!role.hasDraft || busy} disabledReason={!role.hasDraft ? '没有待发布的草稿。' : undefined} onClick={onPublish}>
+          {busy ? '处理中…' : '发布草稿'}
+        </Button>
+        <Button variant="ghost" icon="trash" disabled={busy} onClick={onArchive}>
+          {role.baseId === undefined && role.status === 'draft' ? '删除草稿' : '还原/归档'}
         </Button>
       </div>
       <p className="hint" style={{ marginTop: 8 }}>
-        角色目录来自 /api/bootstrap 的 catalog.roles；当前为只读展示，不显示示例草稿或发布记录。
+        发布后新修订立即生效；已冻结的任务仍使用创建时的职业修订。发布不会改动提示词正文以外的运行配置。
       </p>
     </section>
   );
@@ -111,10 +124,63 @@ function RoleDetail({ role, methods }: { readonly role: RoleDefinition; readonly
 
 export function RolesPage() {
   const bootstrap = useBootstrap();
-  const roles = bootstrap.data?.catalog.roles ?? [];
+  const queryClient = useQueryClient();
+  const catalogQuery = useQuery({ queryKey: ['catalog', 'roles'], queryFn: fetchRoleCatalog, retry: false });
+  const roles = (catalogQuery.data?.roles ?? bootstrap.data?.catalog.roles ?? []) as (RoleDefinition & Pick<RoleCatalogEntry, 'status' | 'hasDraft' | 'baseId'>)[];
   const methods = bootstrap.data?.catalog.methods ?? [];
   const [keyword, setKeyword] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editor, setEditor] = useState<{ roleId?: string; name: string; purpose: string; responsibilities: string } | null>(null);
+  const [failure, setFailure] = useState<string | undefined>(undefined);
+  const invalidate = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['catalog', 'roles'] }),
+      queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+    ]);
+  };
+  const saveMutation = useMutation({
+    mutationFn: async (input: { roleId?: string; name: string; purpose: string; responsibilities: string }) =>
+      saveRoleDraft({
+        ...(input.roleId === undefined ? {} : { roleId: input.roleId }),
+        name: input.name,
+        purpose: input.purpose,
+        responsibilities: input.responsibilities.split(/\n+/).map((line) => line.trim()).filter((line) => line.length > 0),
+      }),
+    onSuccess: async (next) => {
+      setFailure(undefined);
+      setEditor(null);
+      queryClient.setQueryData(['catalog', 'roles'], next);
+      await invalidate();
+    },
+    onError: (error) => setFailure(isServiceUnavailable(error) ? '服务未连接，草稿未保存。' : errorMessage(error)),
+  });
+  const publishMutation = useMutation({
+    mutationFn: (roleId: string) => publishRole(roleId),
+    onSuccess: async (next) => {
+      setFailure(undefined);
+      queryClient.setQueryData(['catalog', 'roles'], next);
+      await invalidate();
+    },
+    onError: (error) => setFailure(isServiceUnavailable(error) ? '服务未连接，未发布。' : errorMessage(error)),
+  });
+  const archiveMutation = useMutation({
+    mutationFn: (roleId: string) => archiveRole(roleId),
+    onSuccess: async (next) => {
+      setFailure(undefined);
+      queryClient.setQueryData(['catalog', 'roles'], next);
+      await invalidate();
+    },
+    onError: (error) => setFailure(isServiceUnavailable(error) ? '服务未连接，未归档。' : errorMessage(error)),
+  });
+  const busy = publishMutation.isPending || archiveMutation.isPending || saveMutation.isPending;
+  const openEditor = (role?: RoleDefinition) => {
+    setFailure(undefined);
+    setEditor(
+      role === undefined
+        ? { name: '', purpose: '', responsibilities: '' }
+        : { roleId: role.id, name: role.name, purpose: role.purpose, responsibilities: role.responsibilities.join('\n') },
+    );
+  };
 
   const filtered = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
@@ -183,11 +249,23 @@ export function RolesPage() {
               <Icon name="chevRight" size="sm" />
             </button>
           ))}
+          <div className="row" style={{ padding: '8px 12px' }}>
+            <Button variant="secondary" size="sm" icon="plus" onClick={() => { openEditor(); }}>新建职业</Button>
+          </div>
           <p className="hint" style={{ padding: '10px 12px 8px', lineHeight: 1.6 }}>
-            角色目录是只读配置。编辑、发布与权限设置需要服务端新增接口后再接通。
+            草稿保存在服务端，发布后立即生效；内置职业可定制，自定义职业可归档。
           </p>
         </aside>
-        {selected === undefined ? null : <RoleDetail role={selected} methods={planningMethods} />}
+        {selected === undefined ? null : (
+          <RoleDetail
+            role={selected}
+            methods={planningMethods}
+            busy={busy}
+            onEdit={() => { openEditor(selected); }}
+            onPublish={() => { publishMutation.mutate(selected.id); }}
+            onArchive={() => { archiveMutation.mutate(selected.id); }}
+          />
+        )}
       </div>
     );
   }
@@ -196,9 +274,9 @@ export function RolesPage() {
     <div className="page">
       <PageHeader
         title="角色管理"
-        lede="职业定义职责与提示词修订；流程把它指定为规划或执行职责。当前目录只读，编辑接口尚未接通。"
+        lede="职业定义职责与提示词修订；流程把它指定为规划或执行职责。草稿保存、发布与归档由服务端执行。"
         actions={
-          <Button variant="secondary" size="sm" icon="edit" disabled disabledReason={EDIT_BLOCKED_REASON}>
+          <Button variant="secondary" size="sm" icon="edit" onClick={() => { openEditor(); }}>
             新建职业
           </Button>
         }
@@ -220,6 +298,44 @@ export function RolesPage() {
         <span className="hint">共 {String(roles.length)} 个职业 · 来自共享契约目录</span>
       </div>
       {body}
+      {failure === undefined ? null : <p className="hint" style={{ marginTop: 12, color: 'var(--danger)' }}>{failure}</p>}
+      <Modal
+        open={editor !== null}
+        title={editor?.roleId === undefined ? '新建职业' : '编辑职业草稿'}
+        onClose={() => { setEditor(null); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setEditor(null); }}>取消</Button>
+            <span className="spacer" />
+            <Button
+              variant="primary"
+              icon="check"
+              disabled={saveMutation.isPending || (editor?.name.trim().length ?? 0) === 0 || (editor?.purpose.trim().length ?? 0) === 0}
+              onClick={() => { if (editor !== null) saveMutation.mutate(editor); }}
+            >
+              {saveMutation.isPending ? '保存中…' : '保存草稿'}
+            </Button>
+          </>
+        }
+      >
+        {editor === null ? null : (
+          <div className="stack-loose">
+            <label className="form-label">
+              名称
+              <input className="input" value={editor.name} maxLength={60} onChange={(event) => { setEditor({ ...editor, name: event.target.value }); }} />
+            </label>
+            <label className="form-label">
+              职业定位
+              <textarea className="textarea" value={editor.purpose} maxLength={1000} onChange={(event) => { setEditor({ ...editor, purpose: event.target.value }); }} />
+            </label>
+            <label className="form-label">
+              职责（每行一条，1–12 条）
+              <textarea className="textarea" value={editor.responsibilities} onChange={(event) => { setEditor({ ...editor, responsibilities: event.target.value }); }} />
+            </label>
+            <p className="hint">保存只产生草稿；发布后才会进入新会话的职业目录。已冻结任务不受影响。</p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { DEFAULT_CATALOG, DEFAULT_SETTINGS, mergeSettings } from '@agent-workflo
 import type { Store } from '@agent-workflow/storage';
 import { CommandService } from './operations.ts';
 import { RecoveryService } from './recovery.ts';
+import { RoleCatalogService } from './role-catalog.ts';
 import { ProjectService, TaskService, InboxService } from './project-task.ts';
 import { PlanningService } from './planning.ts';
 import { PlanService } from './plan.ts';
@@ -37,6 +38,7 @@ export class Engine {
   readonly tasks: TaskService;
   readonly inbox: InboxService;
   readonly recoveries: RecoveryService;
+  readonly roleCatalog: RoleCatalogService;
   readonly planning: PlanningService;
   readonly plans: PlanService;
   readonly workspaces: WorkspaceService;
@@ -50,6 +52,14 @@ export class Engine {
     this.catalog = options.catalog ?? DEFAULT_CATALOG;
     this.#settings = mergeSettings(DEFAULT_SETTINGS, options.store.settings.getSettings() ?? {}) ?? options.initialSettings ?? DEFAULT_SETTINGS;
     this.commands = new CommandService(this.store);
+    this.roleCatalog = new RoleCatalogService({
+      store: this.store,
+      commands: this.commands,
+      applyRoles: (roles) => {
+        (this.catalog as { roles: readonly import('@agent-workflow/shared').RoleDefinition[] }).roles = roles;
+      },
+    });
+    this.roleCatalog.applyEffective();
     const integration = options.integration ?? { opencodeReady: () => false, gitlabConfigured: () => false };
     this.context = {
       store: this.store,

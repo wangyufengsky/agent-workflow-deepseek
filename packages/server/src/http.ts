@@ -4,6 +4,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   ApiEnvelope,
   RecoveryCreateRequest,
+  RoleSaveRequest,
+  RolePublishRequest,
+  RoleArchiveRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
   CommandRequest,
@@ -449,6 +452,21 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const result = await fetchImpl.call(engine.ports.git, { repoRoot: project.rootPath, remote: 'origin', prune: true });
     store.events.publish('git.repo.changed', { projectId: project.id });
     return envelope({ fetchedAt: result.fetchedAt }, requestId(request));
+  });
+
+  // Role catalog drafts / publishing (global config)
+  app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));
+  app.post('/api/catalog/roles', async (request) => {
+    const body = request.body as RoleSaveRequest;
+    return envelope(await engine.roleCatalog.save(body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/catalog/roles/:id/publish', async (request) => {
+    const body = request.body as RolePublishRequest;
+    return envelope(engine.roleCatalog.publish(request.params.id, body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/catalog/roles/:id/archive', async (request) => {
+    const body = request.body as RoleArchiveRequest;
+    return envelope(engine.roleCatalog.archive(request.params.id, body), requestId(request));
   });
 
   // Task recovery (derived draft only; the parent task is never mutated)

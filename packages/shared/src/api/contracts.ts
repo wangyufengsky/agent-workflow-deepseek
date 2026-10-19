@@ -36,6 +36,7 @@ import type {
   TaskDelivery,
   TaskSummary,
   TaskTemplate,
+  RoleDefinition,
   TaskWorkspace,
   WorkspaceCleanupPreview,
 } from '../domain/models.ts';
@@ -201,6 +202,35 @@ export interface TaskDetailResponse {
 
 export const RECOVERY_MODES = ['from_failed_stage', 'all_stages', 'verify_only'] as const;
 export type RecoveryModeValue = (typeof RECOVERY_MODES)[number];
+
+export interface RoleSaveRequest extends CommandRequest {
+  readonly roleId?: string;
+  readonly baseId?: string;
+  readonly name: string;
+  readonly purpose: string;
+  readonly responsibilities: readonly string[];
+  readonly confirmSave: true;
+}
+
+export interface RolePublishRequest extends CommandRequest {
+  readonly confirmPublish: true;
+}
+
+export interface RoleArchiveRequest extends CommandRequest {
+  readonly confirmArchive: true;
+}
+
+export interface RoleCatalogEntry extends RoleDefinition {
+  readonly status: 'published' | 'draft';
+  readonly baseId?: string;
+  readonly hasDraft: boolean;
+  readonly updatedAt?: IsoDateTime;
+}
+
+export interface RoleCatalogResponse {
+  readonly roles: readonly RoleCatalogEntry[];
+  readonly actions: Record<string, ActionAvailability>;
+}
 
 export interface RecoveryCreateRequest extends CommandRequest {
   readonly mode: RecoveryModeValue;
@@ -805,6 +835,10 @@ export const ROUTES = {
   fixes: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes`,
   fix: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}`,
   fixStart: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/start`,
+  catalogRoles: '/api/catalog/roles',
+  catalogRoleSave: '/api/catalog/roles',
+  catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,
+  catalogRoleArchive: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/archive`,
   fixMerge: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/merge`,
   settings: '/api/settings',
   gitlabConnection: '/api/settings/gitlab',

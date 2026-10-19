@@ -19,7 +19,7 @@
 | delivery/* | 任务页交付 | `/delivery/*`、`/delivery/merge`、`/delivery/apply` | ✅/🟡 | 选择/提交/推送/MR/合并/非 Git 应用已接线；真实远端写待验证 |
 | node/index.html | 任务页节点面板 | `/nodes/:nodeId` | ✅/🟡 | 事实条、正文/工具、attempts、输出；历史分页/补读未做 |
 | databases.html | `/databases` | `/api/settings/databases` | ✅ | 连接管理、探针、只读查询；真实 MySQL 9.2 已验证 |
-| roles.html / roles-legacy.html | `/roles` | catalog.roles | 🟡 | 目录只读；编辑/发布/对比/导入未接通 |
+| roles.html / roles-legacy.html | `/roles` | `/api/catalog/roles` | ✅/🟡 | 草稿/发布/归档/自定义已接线；版本对比/导入未做 |
 | templates.html | `/templates` | catalog + `/api/tasks` | 🟡 | 固定模板创建/只读计划；历史档案未接通 |
 | workflows.html / workflow-editor.html | `/workflows` | catalog.methods | 🟡 | 目录只读；编辑未接通 |
 | settings.html | `/settings` | `/api/settings`、opencode | ✅/🟡 | 外观/服务/模型/Git 账号与令牌/数据库已接线；OpenCode 自动检测与监控设置未接 |
@@ -75,7 +75,7 @@
 | 项 | 状态 |
 | --- | --- |
 | B-01 恢复工作台 | ✅ 派生草稿创建/历史、执行继续与失败重试；单节点放弃未开放 |
-| B-02/B-03 职业版本/权限预估 | ⛔ 目录只读 |
+| B-02/B-03 职业版本/权限预估 | 🟡 修订发布真实可用；权限预估未做 |
 | B-04 历史角色配置 | ⛔ |
 | B-05 需求高级澄清与规划 | ✅ 合并为需求画布按阶段页签（见 PE01–PE32） |
 | B-06 历史模板档案 | ⛔ |

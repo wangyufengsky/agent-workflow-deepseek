@@ -451,6 +451,7 @@ export const EventType = {
   GIT_REPO_CHANGED: 'git.repo.changed',
   REVIEW_CHANGED: 'review.changed',
   FIX_CHANGED: 'fix.changed',
+  CATALOG_CHANGED: 'catalog.changed',
   OPENCODE_STATUS_CHANGED: 'opencode.status.changed',
 } as const;
 export type EventTypeValue = (typeof EventType)[keyof typeof EventType];
@@ -513,6 +514,9 @@ export const OperationKind = {
   OPERATION_RECONCILE: 'operations.by-key',
   TEMPLATE_TASK_CREATE: 'template.task.create',
   TASK_RECOVERY_CREATE: 'task.recovery.create',
+  CATALOG_ROLE_SAVE: 'catalog.role.save',
+  CATALOG_ROLE_PUBLISH: 'catalog.role.publish',
+  CATALOG_ROLE_ARCHIVE: 'catalog.role.archive',
 } as const;
 export type OperationKindValue = (typeof OperationKind)[keyof typeof OperationKind];
 
@@ -562,6 +566,9 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'task.delivery.merge': op('task.delivery.merge', 'task', true, '合并任务分支'),
   'task.delivery.apply': op('task.delivery.apply', 'task', true, '应用到原目录'),
   'task.recovery.create': op('task.recovery.create', 'task', true, '创建恢复草稿'),
+  'catalog.role.save': op('catalog.role.save', 'global', true, '保存职业草稿'),
+  'catalog.role.publish': op('catalog.role.publish', 'global', true, '发布职业'),
+  'catalog.role.archive': op('catalog.role.archive', 'global', true, '归档职业'),
   'git.fetch': op('git.fetch', 'git', true, '获取远端更新'),
   'review.start': op('review.start', 'git', true, '开始 AI 审查'),
   'review.stop': op('review.stop', 'git', true, '停止 AI 审查'),
