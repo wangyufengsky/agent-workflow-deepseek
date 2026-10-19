@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
+  EXECUTION_STATUS_LABEL,
   TASK_ATTENTION_LABEL,
   TaskAttention,
   createRequestKey,
@@ -132,6 +133,9 @@ export function RecoveryPage() {
   });
   const executionNode = detail.data?.execution;
   const failedNodes = executionNode?.nodes.filter((node) => node.status === 'failed') ?? [];
+  const skippableNodes = executionNode?.nodes.filter((node) => ['pending', 'ready', 'failed'].includes(node.status)) ?? [];
+  const executionStatus = executionNode?.status;
+  const unknownExecution = executionStatus === 'unknown';
   const [skipNodeId, setSkipNodeId] = useState('');
   const executionRecovery = useMutation({
     mutationFn: async (action: 'resume' | 'retry' | 'cancel' | 'skip') => {
@@ -141,8 +145,17 @@ export function RecoveryPage() {
       return cancelExecution(taskId, executionNode?.status);
     },
     onSuccess: async (response) => {
-      setFailure(undefined);
-      setNotice(`执行命令回执：${response.receipt.status}`);
+      const receipt = response.receipt;
+      if (receipt.status === 'succeeded') {
+        setFailure(undefined);
+        setNotice(`执行命令已生效：回执 ${receipt.status} · 请求号 ${receipt.requestKey}`);
+      } else if (receipt.status === 'failed') {
+        setNotice(undefined);
+        setFailure(receipt.error?.message ?? '服务返回失败回执，命令没有生效。');
+      } else {
+        setFailure(undefined);
+        setNotice(`执行命令回执 ${receipt.status}：结果待核对，不会自动重发；请按请求号 ${receipt.requestKey} 核对或重新读取执行状态。`);
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['recovery', 'detail', taskId] }),
         queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
@@ -342,16 +355,44 @@ export function RecoveryPage() {
               <div className="hint" style={{ marginTop: 2 }}>
                 {executionNode === undefined
                   ? '这个任务还没有执行记录；恢复草稿创建后重新规划即可。'
-                  : `执行状态 ${executionNode.status} · 失败步骤 ${String(failedNodes.length)} 个`}
+                  : `执行状态 ${EXECUTION_STATUS_LABEL[executionNode.status]} · 失败步骤 ${String(failedNodes.length)} 个${unknownExecution ? ' · 待核对' : ''}`}
               </div>
             </div>
-            {executionNode === undefined ? null : <Badge tone={executionNode.status === 'failed' ? 'fail' : executionNode.status === 'running' ? 'ok' : 'idle'}>{executionNode.status}</Badge>}
+            {executionNode === undefined ? null : (
+              <Badge tone={executionNode.status === 'failed' ? 'fail' : executionNode.status === 'unknown' ? 'unknown' : executionNode.status === 'running' ? 'run' : 'idle'}>
+                {EXECUTION_STATUS_LABEL[executionNode.status]}
+              </Badge>
+            )}
           </div>
           <div className="card-body">
             {executionNode === undefined ? (
               <p className="hint">没有可执行的恢复动作。</p>
             ) : (
               <>
+                {unknownExecution ? (
+                  <div className="banner unknown" role="alert" style={{ marginBottom: 12 }}>
+                    <Icon name="help" />
+                    <div className="grow">
+                      <b>执行状态待核对（unknown）</b>
+                      <br />
+                      启动恢复把进程中断时在跑的步骤标记为失败，执行进入待核对。可以按原配置重试失败步骤、跳过节点（含下游）或取消执行并保留工作区；重试会创建新的 attempt，不会改动已成功的步骤。
+                    </div>
+                    <div className="actions">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon="refresh"
+                        disabled={detail.isFetching}
+                        disabledReason="正在重新读取执行状态"
+                        onClick={() => {
+                          void detail.refetch();
+                        }}
+                      >
+                        {detail.isFetching ? '读取中…' : '重新读取'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 {failedNodes.length === 0 ? null : (
                   <ul className="hint" style={{ margin: '0 0 12px 18px', lineHeight: 1.7 }}>
                     {failedNodes.slice(0, 5).map((node) => (
@@ -361,26 +402,53 @@ export function RecoveryPage() {
                 )}
                 <div className="row wrap" style={{ gap: 8 }}>
                   {executionNode.status === 'paused' ? (
-                    <Button variant="secondary" size="sm" icon="play" disabled={executionRecovery.isPending} onClick={() => executionRecovery.mutate('resume')}>
+                    <Button variant="secondary" size="sm" icon="play" disabled={executionRecovery.isPending} disabledReason="正在提交命令，等待服务回执…" onClick={() => executionRecovery.mutate('resume')}>
                       继续执行
                     </Button>
                   ) : null}
-                  {failedNodes.length > 0 && ['failed', 'stopped', 'paused'].includes(executionNode.status) ? (
-                    <Button variant="primary" size="sm" icon="refresh" disabled={executionRecovery.isPending} onClick={() => executionRecovery.mutate('retry')}>
-                      {executionRecovery.isPending ? '正在提交…' : `按原配置重试 ${String(failedNodes.length)} 个失败步骤`}
+                  {['failed', 'stopped', 'paused', 'unknown'].includes(executionNode.status) ? (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon="refresh"
+                      disabled={executionRecovery.isPending || failedNodes.length === 0}
+                      disabledReason={
+                        executionRecovery.isPending
+                          ? '正在提交命令，等待服务回执…'
+                          : '当前没有失败步骤可按原配置重试'
+                      }
+                      onClick={() => executionRecovery.mutate('retry')}
+                    >
+                      {executionRecovery.isPending ? '正在提交…' : failedNodes.length === 0 ? '按原配置重试失败步骤' : `按原配置重试 ${String(failedNodes.length)} 个失败步骤`}
                     </Button>
                   ) : null}
-                  {['running', 'paused'].includes(executionNode.status) ? (
-                    <Button variant="secondary" size="sm" icon="stop" disabled={executionRecovery.isPending} onClick={() => executionRecovery.mutate('cancel')}>
-                      停止执行（保留工作区）
+                  {['running', 'paused', 'unknown'].includes(executionNode.status) ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon="stop"
+                      disabled={executionRecovery.isPending}
+                      disabledReason="正在提交命令，等待服务回执…"
+                      onClick={() => executionRecovery.mutate('cancel')}
+                    >
+                      取消执行（保留工作区）
                     </Button>
                   ) : null}
                 </div>
-                {['failed', 'stopped', 'paused'].includes(executionNode.status) ? (
+                {['failed', 'stopped', 'paused', 'unknown'].includes(executionNode.status) ? (
                   <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-                    <select className="select" style={{ width: 'auto', height: 30 }} value={skipNodeId} onChange={(event) => { setSkipNodeId(event.target.value); }} aria-label="选择要跳过的节点">
+                    <select
+                      className="select"
+                      style={{ width: 'auto', height: 30 }}
+                      value={skipNodeId}
+                      disabled={executionRecovery.isPending}
+                      onChange={(event) => {
+                        setSkipNodeId(event.target.value);
+                      }}
+                      aria-label="选择要跳过的节点"
+                    >
                       <option value="">选择节点…</option>
-                      {executionNode.nodes.filter((node) => ['pending', 'ready', 'failed'].includes(node.status)).map((node) => (
+                      {skippableNodes.map((node) => (
                         <option key={node.nodeId} value={node.nodeId}>{node.nodeId} · {node.status}</option>
                       ))}
                     </select>
@@ -389,6 +457,15 @@ export function RecoveryPage() {
                       size="sm"
                       icon="stop"
                       disabled={skipNodeId === '' || executionRecovery.isPending}
+                      disabledReason={
+                        executionRecovery.isPending
+                          ? '正在提交命令，等待服务回执…'
+                          : skipNodeId === ''
+                            ? skippableNodes.length === 0
+                              ? '没有可跳过的节点（已成功或已跳过的步骤不能跳过）'
+                              : '先在左侧选择要跳过的节点'
+                            : undefined
+                      }
                       onClick={() => {
                         if (window.confirm('跳过该节点及其所有下游节点？已成功的节点不受影响，此操作不可撤销。')) executionRecovery.mutate('skip');
                       }}
@@ -400,7 +477,9 @@ export function RecoveryPage() {
                 {failure === undefined ? null : <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>{failure}</p>}
                 {notice === undefined ? null : <p className="hint" style={{ marginTop: 8 }}>{notice}</p>}
                 <p className="hint" style={{ marginTop: 10 }}>
-                  重试会为失败步骤创建新的 attempt，按原计划与配置重新运行；不会改动已成功的步骤。
+                  {unknownExecution
+                    ? '执行状态待核对：命令结果以回执为准；accepted / unknown 回执不会自动重发，只会按原请求号核对，请以本页重新读取的服务状态为准。'
+                    : '重试会为失败步骤创建新的 attempt，按原计划与配置重新运行；不会改动已成功的步骤。'}
                 </p>
               </>
             )}

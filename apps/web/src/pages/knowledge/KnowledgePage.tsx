@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { createRequestKey, type KnowledgeAskResponse, type KnowledgeHistoryResponse, type KnowledgeSearchResponse, type KnowledgeSourceContentResponse, type KnowledgeSourcesResponse } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
-import { Button } from '../../components/Button.tsx';
+import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
@@ -58,6 +59,26 @@ export function KnowledgePage() {
     enabled: projectId !== '',
     retry: false,
   });
+
+  // 从「对话记录」页跳转回来时：?project= 选中项目、?source= 直接打开原文、?conversation= 延续同一对话。
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (bootstrap.data === undefined) return;
+    const projectParam = searchParams.get('project');
+    const sourceParam = searchParams.get('source');
+    const conversationParam = searchParams.get('conversation');
+    if (projectParam === null && sourceParam === null && conversationParam === null) return;
+    if (projectParam !== null && bootstrap.data.projects.some((project) => project.id === projectParam)) {
+      setSelectedProjectId(projectParam);
+    }
+    if (sourceParam !== null && sourceParam !== '') setSourcePath(sourceParam);
+    if (conversationParam !== null && conversationParam !== '') setConversationId(conversationParam);
+    const next = new URLSearchParams(searchParams);
+    next.delete('project');
+    next.delete('source');
+    next.delete('conversation');
+    setSearchParams(next, { replace: true });
+  }, [bootstrap.data, searchParams, setSearchParams]);
 
   return (
     <div className="page">
@@ -302,6 +323,14 @@ export function KnowledgePage() {
             <span className="section-title">问答历史</span>
             <div className="hint" style={{ marginTop: 2 }}>只保存在本机设置中，最多 30 条；点击可重新查看。</div>
           </div>
+          <LinkButton
+            variant="ghost"
+            size="sm"
+            iconAfter="chevRight"
+            to={`/knowledge/history${projectId === '' ? '' : `?project=${encodeURIComponent(projectId)}`}`}
+          >
+            查看全部
+          </LinkButton>
           <Badge tone="neutral">本机</Badge>
         </div>
         <div className="card-body">

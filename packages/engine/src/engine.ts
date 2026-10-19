@@ -34,6 +34,7 @@ export interface StartupRecoverySummary {
   readonly executions: number;
   readonly planningRounds: number;
   readonly workspaces: number;
+  readonly pptWorks: number;
   readonly affectedTaskIds: readonly string[];
   readonly failures: readonly { readonly scope: string; readonly message: string }[];
 }
@@ -113,7 +114,8 @@ export class Engine {
 
   /**
    * Deterministic, idempotent startup recovery for work a previous process left
-   * in flight (executions, planning rounds, workspace preparation).
+   * in flight (executions, planning rounds, workspace preparation/cleanup and
+   * PPT generation).
    *
    * It never calls a model and never deletes workspace directories; a broken
    * record is reported in `failures` instead of thrown so startup cannot be
@@ -143,6 +145,12 @@ export class Engine {
     run('workspace', () => this.workspaces.recoverOnStartup(), (value) => {
       workspaces = value;
     });
+    let pptWorks = 0;
+    try {
+      pptWorks = this.ppt.recoverOnStartup().recovered;
+    } catch (error) {
+      failures.push({ scope: 'ppt', message: error instanceof Error ? error.message : String(error) });
+    }
     for (const taskId of affected) {
       try {
         this.tasks.recomputeAttention(taskId);
@@ -150,7 +158,7 @@ export class Engine {
         failures.push({ scope: `attention:${taskId}`, message: error instanceof Error ? error.message : String(error) });
       }
     }
-    return { executions, planningRounds, workspaces, affectedTaskIds: [...affected], failures };
+    return { executions, planningRounds, workspaces, pptWorks, affectedTaskIds: [...affected], failures };
   }
 
   updateSettings(settings: AppSettings): void {

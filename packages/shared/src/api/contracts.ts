@@ -607,6 +607,20 @@ export interface EditFinishRequest extends CommandRequest {
   readonly continueExecution: boolean;
 }
 
+/**
+ * Give up an edit session without saving: the local draft is discarded, the
+ * last confirmed plan revision stays authoritative and the execution returns to
+ * its pre-edit auto-advance setting. Only sessions that have not produced an
+ * unconfirmed plan revision (requesting_pause / editing / conflict) can be
+ * abandoned.
+ */
+export interface PlanEditAbandonRequest extends CommandRequest {
+  readonly editSessionId: string;
+  readonly confirmAbandon: true;
+}
+
+export type PlanEditAbandonResponse = CommandResponse<PlanResponse>;
+
 export interface PlanResponse {
   readonly taskId: string;
   readonly plan?: PlanRevision;
@@ -660,6 +674,27 @@ export interface ExecutionCommandRequest extends CommandRequest {
   readonly nodeIds?: readonly string[];
   readonly confirm?: boolean;
 }
+
+/** Toggle the real "自动节点推进" switch (design v4 C01/C04, AD05). */
+export interface ExecutionAutoAdvanceRequest extends CommandRequest {
+  readonly autoAdvance: boolean;
+  readonly confirmChange: true;
+}
+
+export type ExecutionAutoAdvanceResponse = CommandResponse<ExecutionResponse>;
+
+/**
+ * Manual advance while auto-advance is off. Without `nodeId` every step whose
+ * predecessors are all accepted is released; with `nodeId` only that step's
+ * direct successors are released. Releasing never cascades further in the same
+ * call; parallel joins wait until all predecessors are succeeded/skipped.
+ */
+export interface ExecutionAdvanceRequest extends CommandRequest {
+  readonly nodeId?: string;
+  readonly confirmAdvance: true;
+}
+
+export type ExecutionAdvanceResponse = CommandResponse<ExecutionResponse>;
 
 export interface ExecutionResponse {
   readonly execution: ExecutionView;
@@ -1117,6 +1152,7 @@ export const ROUTES = {
   executionRetry: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/retry`,
   executionSkipNode: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/execution/nodes/${encodeURIComponent(nodeId)}/skip`,
   executionAdvance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/advance`,
+  executionAutoAdvance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/auto-advance`,
   executionCancel: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/cancel`,
   node: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}`,
   nodeAttempts: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/attempts`,

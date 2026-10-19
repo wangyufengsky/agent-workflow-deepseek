@@ -5,6 +5,7 @@ import type {
   EditFinishRequest,
   EditSaveRequest,
   NodeDetail,
+  PlanEditAbandonRequest,
   PlanResponse,
   PlanRevision,
   TaskDetailResponse,
@@ -13,7 +14,7 @@ import type {
   TaskTemplate,
   UseTemplateRequest,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, createId, nowIso } from '@agent-workflow/shared';
+import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso } from '@agent-workflow/shared';
 import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
@@ -310,6 +311,52 @@ export class PlanService {
     });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: input.continueExecution ? 'running' : 'paused', revision: 1 });
     this.#commands.settle(input.requestKey, { continued: input.continueExecution });
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
+  }
+
+  /**
+   * Give up an edit session (design v4 C04): discard the local draft and put the
+   * execution back to its pre-edit auto-advance setting. Only sessions that have
+   * not produced an unconfirmed plan revision can be abandoned — after
+   * `editSave` the draft is a stored revision that must be reconfirmed or kept
+   * paused instead, so the last confirmed plan stays authoritative here.
+   */
+  abandonEdit(taskId: string, input: PlanEditAbandonRequest): CommandResponse<PlanResponse> {
+    const task = this.#requireTask(taskId);
+    const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
+    if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
+    if (input?.confirmAbandon !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '放弃调整需要显式确认');
+    const session = execution.editSession;
+    if (input.editSessionId !== session.id) {
+      throw new AppError(ErrorCode.STALE_TARGET, '调整会话已变化，请重新读取计划', { details: { expected: session.id, actual: input.editSessionId } });
+    }
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'plan.edit.abandon',
+      body: { taskId, editSessionId: session.id, confirmAbandon: true },
+      target: { taskId, executionId: execution.id },
+    });
+    // A replay of a settled abandon returns the original receipt even though the
+    // session state has already moved on; only first-time calls fail the guard.
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    const reject = (message: string, details: Record<string, unknown> = {}): never => {
+      const error = new AppError(ErrorCode.OPERATION_IN_PROGRESS, message, { details });
+      this.#commands.fail(input.requestKey, error);
+      throw error;
+    };
+    if (session.state === 'finished' || session.state === 'abandoned') reject('这次调整已经结束', { editSessionState: session.state });
+    if (session.state === 'saved') {
+      reject('修改已保存为未确认计划；请重新确认或继续执行，不能放弃', { planRevisionId: task.currentPlanRevisionId });
+    }
+    if (execution.status !== 'running') assertTransition(executionMachine, execution.status, 'running');
+    this.#store.executions.update(execution.id, {
+      status: 'running',
+      autoAdvance: session.autoAdvanceBeforeEdit,
+      editSession: { ...session, state: 'abandoned', localChanges: [] },
+      notice: { kind: 'paused', message: '已放弃调整；恢复调整前的自动推进设置' },
+    });
+    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
+    this.#commands.settle(input.requestKey, { editSessionId: session.id, abandoned: true, autoAdvance: session.autoAdvanceBeforeEdit });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
   }
 

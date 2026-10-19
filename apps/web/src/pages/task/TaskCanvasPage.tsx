@@ -10,9 +10,11 @@ import {
 } from '@agent-workflow/shared';
 import { isApiClientError } from '../../api/client.ts';
 import {
+  advanceExecution,
   cancelExecution,
   pauseExecution,
   resumeExecution,
+  setExecutionAutoAdvance,
   startExecution,
   useTaskDetail,
   useTaskLiveUpdates,
@@ -49,6 +51,8 @@ export function TaskCanvasPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [deliveryFocusRequest, setDeliveryFocusRequest] = useState(0);
   const [pageReceipt, setPageReceipt] = useState<OperationReceipt | undefined>(undefined);
+  const [pageReceiptMessage, setPageReceiptMessage] = useState<string | undefined>(undefined);
+  const [lastCommand, setLastCommand] = useState<string | undefined>(undefined);
 
   const detail = detailQuery.data;
   const plan = detail?.plan;
@@ -119,21 +123,51 @@ export function TaskCanvasPage() {
 
   const runStart = () => {
     if (taskId === undefined) return;
+    setLastCommand('开始执行');
     void command.run(() => startExecution(taskId, execution?.status));
   };
   const runPause = () => {
     if (taskId === undefined) return;
+    setLastCommand('暂停执行');
     void command.run(() => pauseExecution(taskId, execution?.status));
   };
   const runResume = () => {
     if (taskId === undefined) return;
+    setLastCommand('继续执行');
     void command.run(() => resumeExecution(taskId, execution?.status));
   };
   const runCancel = () => {
     if (taskId === undefined) return;
+    setLastCommand('取消执行');
+    setPageReceiptMessage('取消执行 · 服务回执 succeeded');
     setCancelOpen(false);
     void command.run(() => cancelExecution(taskId, execution?.status)).then((response) => {
       if (response !== undefined) setPageReceipt(response.receipt);
+    });
+  };
+  const runToggleAutoAdvance = (autoAdvance: boolean) => {
+    if (taskId === undefined) return;
+    setLastCommand(autoAdvance ? '开启自动节点推进' : '关闭自动节点推进');
+    void command.run(() => setExecutionAutoAdvance(taskId, autoAdvance));
+  };
+  const runAdvanceAll = () => {
+    if (taskId === undefined) return;
+    setLastCommand('整体推进');
+    void command.run(() => advanceExecution(taskId)).then((response) => {
+      if (response?.receipt.status !== 'succeeded') return;
+      const released = response.receipt.outcome?.released;
+      const count = Array.isArray(released) ? released.length : 0;
+      setLastCommand(count > 0 ? `整体推进 · 已放行 ${String(count)} 步` : '整体推进');
+    });
+  };
+  const runAdvanceSuccessors = (advanceNodeId: string) => {
+    if (taskId === undefined) return;
+    setLastCommand('推进直接后继');
+    void command.run(() => advanceExecution(taskId, advanceNodeId)).then((response) => {
+      if (response?.receipt.status !== 'succeeded') return;
+      const released = response.receipt.outcome?.released;
+      const count = Array.isArray(released) ? released.length : 0;
+      setLastCommand(count > 0 ? `推进直接后继 · 已放行 ${String(count)} 步` : '推进直接后继');
     });
   };
 
@@ -308,13 +342,25 @@ export function TaskCanvasPage() {
       <div className="task-banners">
         <ConnectionBanner connection={live.connection} transport={live.transport} />
         <CommandErrorNotice error={command.state.error} />
-        <ReceiptNotice receipt={command.state.receipt} />
-        <ReceiptNotice receipt={pageReceipt} />
+        <ReceiptNotice receipt={command.state.receipt} successMessage={lastCommand === undefined ? undefined : `${lastCommand} · 服务回执 succeeded`} />
+        <ReceiptNotice receipt={pageReceipt} successMessage={pageReceiptMessage} />
         {execution?.status === 'unknown' ? (
           <div className="banner unknown">
             <Icon name="help" />
             <div className="grow">
-              <b>执行结果待核对。</b>不会自动重发；以服务回读的状态为准，可回到需求画布核对规划轮次。
+              <b>执行结果待核对。</b>不会自动重发；以服务回读的状态为准。可按原配置重试失败步骤、跳过节点或取消执行（保留工作区）。
+            </div>
+            <div className="actions">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon="refresh"
+                onClick={() => {
+                  if (taskId !== undefined) navigate(`/recovery?taskId=${encodeURIComponent(taskId)}`);
+                }}
+              >
+                到恢复页处理
+              </Button>
             </div>
           </div>
         ) : null}
@@ -394,6 +440,11 @@ export function TaskCanvasPage() {
                   await detailQuery.refetch();
                 }}
                 onOpenNode={openNode}
+                onAbandoned={(receipt) => {
+                  setPageReceipt(receipt);
+                  setPageReceiptMessage('已放弃调整：计划修订未变更，服务已恢复进入调整前的自动推进与暂停设置。');
+                  setEditMode(false);
+                }}
               />
             </div>
           </aside>
@@ -415,6 +466,9 @@ export function TaskCanvasPage() {
                 onPause={runPause}
                 onResume={runResume}
                 onCancel={() => setCancelOpen(true)}
+                onToggleAutoAdvance={runToggleAutoAdvance}
+                onAdvanceAll={runAdvanceAll}
+                onAdvanceSuccessors={runAdvanceSuccessors}
                 onOpenNode={openNode}
                 onOpenEdit={() => setEditMode(true)}
                 onOpenRequirement={openRequirement}

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   ActionAvailability,
@@ -36,6 +36,9 @@ import type {
   EditBeginRequest,
   EditSaveRequest,
   EditFinishRequest,
+  PlanEditAbandonRequest,
+  ExecutionAdvanceRequest,
+  ExecutionAutoAdvanceRequest,
   PlanningStartRequest,
   PlanningStopRequest,
   PlanningApplyRequest,
@@ -149,6 +152,18 @@ function apiNotFoundBody(method: string, url: string, requestIdValue: string) {
 }
 
 /**
+ * True when `candidate` resolves inside `root` (or equals it). A plain
+ * `startsWith` check is not enough: `/srv/dist-evil/x` starts with `/srv/dist`
+ * but escapes the served directory. Both sides are resolved to absolute paths
+ * first so `..` segments are honored.
+ */
+export function isPathInside(root: string, candidate: string): boolean {
+  const resolvedRoot = resolve(root);
+  const resolvedCandidate = resolve(candidate);
+  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${sep}`);
+}
+
+/**
  * Route signatures (`METHOD <fastify pattern>`) whose JSON body is a
  * `CommandRequest`. These are validated before the handler runs so a missing
  * `requestKey` returns 400 VALIDATION_FAILED instead of reaching
@@ -171,12 +186,15 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/tasks/:id/plan/edit/begin',
   'POST /api/tasks/:id/plan/edit/save',
   'POST /api/tasks/:id/plan/edit/finish',
+  'POST /api/tasks/:id/plan/edit/abandon',
   'POST /api/tasks/:id/workspace/prepare',
   'POST /api/tasks/:id/workspace/cleanup/confirm',
   'POST /api/tasks/:id/execution/start',
   'POST /api/tasks/:id/execution/pause',
   'POST /api/tasks/:id/execution/resume',
   'POST /api/tasks/:id/execution/retry',
+  'POST /api/tasks/:id/execution/auto-advance',
+  'POST /api/tasks/:id/execution/advance',
   'POST /api/tasks/:id/execution/cancel',
   'POST /api/tasks/:id/execution/nodes/:nodeId/skip',
   'POST /api/tasks/:id/delivery/select',
@@ -441,7 +459,20 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/confirm', async (request) => envelope(engine.plans.confirm(request.params.id, request.body as ConfirmPlanRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/begin', async (request) => envelope(engine.plans.editBegin(request.params.id, request.body as EditBeginRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/save', async (request) => envelope(engine.plans.editSave(request.params.id, request.body as EditSaveRequest), requestId(request)));
-  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/finish', async (request) => envelope(engine.plans.editFinish(request.params.id, request.body as EditFinishRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/finish', async (request) => {
+    const result = engine.plans.editFinish(request.params.id, request.body as EditFinishRequest);
+    // "继续执行" returns the execution to running; nudge the scheduler so the
+    // next eligible steps are actually claimed (same semantics as resume).
+    if ((request.body as EditFinishRequest).continueExecution === true) engine.executions.kick(request.params.id);
+    return envelope(result, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/abandon', async (request) => {
+    const result = engine.plans.abandonEdit(request.params.id, request.body as PlanEditAbandonRequest);
+    // The execution is back to running with its pre-edit auto-advance setting;
+    // release the next batch when auto-advance is on (off = wait for advance).
+    engine.executions.kick(request.params.id);
+    return envelope(result, requestId(request));
+  });
   app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/plan/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId), requestId(request)));
   app.get<{ Params: { id: string; revisionId: string } }>('/api/tasks/:id/plan/revisions/:revisionId', async (request) => {
     const plan = store.plans.get(request.params.revisionId);
@@ -473,6 +504,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/pause', async (request) => envelope(engine.executions.pause(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/resume', async (request) => envelope(engine.executions.resume(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/retry', async (request) => envelope(engine.executions.retry(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/auto-advance', async (request) =>
+    envelope(engine.executions.setAutoAdvance(request.params.id, request.body as ExecutionAutoAdvanceRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/advance', async (request) =>
+    envelope(engine.executions.advance(request.params.id, request.body as ExecutionAdvanceRequest), requestId(request)));
   app.post<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/execution/nodes/:nodeId/skip', async (request) => {
     const body = request.body as NodeSkipRequest;
     return envelope(engine.executions.skipNode(request.params.id, request.params.nodeId, body), requestId(request));
@@ -1190,16 +1225,22 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   const indexHtml = join(webDist, 'index.html');
   if (existsSync(indexHtml)) {
     const serveFile = (filePath: string, reply: FastifyReply) => {
-      const safe = normalize(filePath);
-      if (!safe.startsWith(webDist)) {
+      if (!isPathInside(webDist, filePath)) {
         reply.status(403).send({ error: { code: 'FORBIDDEN', message: '非法路径' } });
         return;
       }
+      const safe = resolve(filePath);
       const type = MIME[extname(safe)] ?? 'application/octet-stream';
       reply.header('content-type', type).status(200).send(readFileSync(safe));
     };
     app.get('/assets/*', async (request, reply) => {
       const wildcard = (request.params as { '*': string })['*'];
+      // Explicit traversal guard in addition to the resolved-root boundary check
+      // in serveFile: `/assets/..%2f..%2fpackage.json` must never be served.
+      if (wildcard.includes('..')) {
+        reply.status(403).send({ error: { code: 'FORBIDDEN', message: '非法路径' } });
+        return;
+      }
       serveFile(join(webDist, 'assets', wildcard), reply);
     });
     app.get('/*', async (request, reply) => {

@@ -1,3 +1,5 @@
+import { rmSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
 import type { CommandResponse, PrepareWorkspaceRequest, TaskChanges, TaskWorkspace, WorkspaceCleanupPreview } from '@agent-workflow/shared';
 import { AppError, ErrorCode, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
@@ -6,6 +8,9 @@ import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
 
 const FILE_ID_PREFIX = 'file_';
+const BASELINE_KEY_PREFIX = 'directory.baseline.';
+const COPY_ROOT_SEGMENT = 'workspaces';
+const BASELINE_ROOT_SEGMENT = 'baselines';
 
 export function encodeFileId(path: string): string {
   return `${FILE_ID_PREFIX}${Buffer.from(path, 'utf8').toString('base64url')}`;
@@ -34,12 +39,14 @@ export class WorkspaceService {
   }
 
   /**
-   * Startup recovery for workspace preparation a previous process left in flight.
+   * Startup recovery for workspace preparation/cleanup a previous process left
+   * in flight.
    *
-   * The workspace becomes `unknown`, running preparation steps become failed and
-   * every step carries the verification hint. Nothing on disk is deleted or
-   * modified here: an operator must verify the directory/branch before preparing
-   * again or cleaning up. Accepted preparation receipts are settled to unknown so
+   * `preparing` becomes `unknown`, `cleaning` becomes `partial`; running
+   * preparation steps become failed and every step carries the verification
+   * hint. Nothing on disk is deleted or modified here: an operator must verify
+   * the directory/branch before preparing again or retrying cleanup. Accepted
+   * preparation/cleanup receipts are settled to unknown so
    * `GET /api/operations/:key` shows the interruption.
    *
    * Returns the affected task ids so the composition root can recompute attention.
@@ -48,7 +55,21 @@ export class WorkspaceService {
     const affected: string[] = [];
     for (const task of this.#store.tasks.list()) {
       const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(task.id) : this.#store.workspaces.get(task.workspaceId);
-      if (workspace === undefined || workspace.state !== 'preparing') continue;
+      if (workspace === undefined) continue;
+      if (workspace.state === 'cleaning') {
+        const message = '进程重启，工作区清理中断；请核对工作区目录后再重试清理（不会自动删除或修改目录）。';
+        const updated = this.#store.workspaces.update(workspace.id, { state: 'partial', retention: 'partial', lastCheckedAt: nowIso() });
+        this.#store.events.publish('task.workspace.updated', {
+          taskId: task.id,
+          workspaceId: workspace.id,
+          revision: updated?.revision ?? workspace.revision,
+          state: 'partial',
+        });
+        this.#settleAcceptedReceipts(task.id, 'task.workspace.cleanup.confirm', new AppError(ErrorCode.INTERNAL_ERROR, message));
+        affected.push(task.id);
+        continue;
+      }
+      if (workspace.state !== 'preparing') continue;
       const message = '进程重启，工作区准备中断；请核对工作区目录与分支后再重新准备或清理（不会自动删除或修改目录）。';
       const nextStep = workspace.steps.findIndex((step) => step.state === 'not_started');
       const steps = workspace.steps.map((step, index) => {
@@ -63,19 +84,19 @@ export class WorkspaceService {
         revision: updated?.revision ?? workspace.revision,
         state: 'unknown',
       });
-      this.#settlePrepareReceipts(task.id, new AppError(ErrorCode.INTERNAL_ERROR, message));
+      this.#settleAcceptedReceipts(task.id, 'task.workspace.prepare', new AppError(ErrorCode.INTERNAL_ERROR, message));
       affected.push(task.id);
     }
     return affected;
   }
 
-  #settlePrepareReceipts(taskId: string, failure: AppError): void {
-    for (const operation of this.#store.operations.listPending()) {
-      if (operation.operation !== 'task.workspace.prepare') continue;
-      if (operation.target.taskId !== taskId) continue;
-      const record = this.#commands.get(operation.requestKey);
+  #settleAcceptedReceipts(taskId: string, operation: string, failure: AppError): void {
+    for (const pending of this.#store.operations.listPending()) {
+      if (pending.operation !== operation) continue;
+      if (pending.target.taskId !== taskId) continue;
+      const record = this.#commands.get(pending.requestKey);
       if (record === undefined || record.status !== 'accepted') continue;
-      this.#commands.fail(operation.requestKey, failure, true);
+      this.#commands.fail(pending.requestKey, failure, true);
     }
   }
 
@@ -252,12 +273,17 @@ export class WorkspaceService {
     const workspace = this.get(taskId);
     if (workspace === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务没有工作区');
     const task = this.#requireTask(taskId);
+    const project = this.#requireProject(task.projectId);
     const execution = task.executionId === undefined ? this.#store.executions.byTask(taskId) : this.#store.executions.get(task.executionId);
     const planning = task.currentPlanningRoundId === undefined ? this.#store.planning.latest(taskId) : this.#store.planning.get(task.currentPlanningRoundId);
     const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(taskId) : this.#store.deliveries.get(task.deliveryId);
     const blockers: { kind: string; label: string; ref?: string }[] = [];
     if (workspace.state === 'preparing' || workspace.state === 'cleaning') {
       blockers.push({ kind: 'workspace_busy', label: `工作区正在${workspace.state === 'preparing' ? '准备' : '清理'}，不能重复清理` });
+    }
+    if (workspace.kind === 'directory_copy') {
+      const issue = this.#directoryCopyPathIssue(taskId, project, workspace);
+      if (issue !== undefined) blockers.push({ kind: 'workspace_unmanaged', label: issue });
     }
     if (execution !== undefined && ['running', 'starting', 'pausing', 'stopping'].includes(execution.status)) {
       blockers.push({ kind: 'execution_active', label: '执行仍在进行，先停止执行再清理工作区', ref: execution.id });
@@ -273,17 +299,24 @@ export class WorkspaceService {
     const undelivered = delivery !== undefined && delivery.projection !== 'delivered'
       ? { count: 1, reason: '任务变更还没有完成交付；清理会删除工作区与本地分支' }
       : { count: 0, reason: '没有未交付的任务变更' };
+    const deleteObjects: WorkspaceCleanupPreview['deleteObjects'] = workspace.kind === 'directory_copy'
+      ? [
+          { kind: 'copy_directory', label: this.#expectedCopyRoot(taskId) },
+          { kind: 'internal_cache', label: this.#expectedBaselineRoot(workspace.id) },
+        ]
+      : [
+          ...(workspace.branch === undefined ? [] : [{ kind: 'local_branch' as const, label: workspace.branch }]),
+          ...(workspace.displayRoot === undefined ? [] : [{ kind: 'worktree_directory' as const, label: workspace.displayRoot }]),
+        ];
     return {
       previewRef: `cleanup_${workspace.id}_${workspace.revision}`,
       workspaceId: workspace.id,
       workspaceRevision: workspace.revision,
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-      deleteObjects: [
-        ...(workspace.branch === undefined ? [] : [{ kind: 'local_branch' as const, label: workspace.branch }]),
-        ...(workspace.displayRoot === undefined ? [] : [{ kind: 'worktree_directory' as const, label: workspace.displayRoot }]),
-      ],
+      deleteObjects,
       retainObjects: [
         { kind: 'remote_branch', label: '远端分支（永不自动删除）' },
+        { kind: 'original_directory', label: `项目原目录（永不自动删除）：${project.rootPath}` },
         { kind: 'audit', label: '回执与审计记录' },
       ],
       undelivered,
@@ -312,19 +345,128 @@ export class WorkspaceService {
       target: { taskId },
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { workspace: this.get(taskId) } };
+    const previousState = workspace.state;
+    let cleaningStarted = false;
     try {
-      if (workspace.displayRoot !== undefined && workspace.branch !== undefined) {
+      // Validate the managed paths before any state change or deletion.
+      if (workspace.kind === 'directory_copy') this.#assertDirectoryCopyRemovable(taskId, project, workspace);
+      this.#store.workspaces.update(workspace.id, { state: 'cleaning', retention: 'cleaning' });
+      cleaningStarted = true;
+      this.#store.events.publish('task.workspace.updated', { taskId, workspaceId: workspace.id, revision: workspace.revision, state: 'cleaning' });
+      let removed: readonly string[] = [];
+      if (workspace.kind === 'directory_copy') {
+        removed = this.#removeDirectoryCopy(taskId, project, workspace);
+      } else if (workspace.displayRoot !== undefined && workspace.branch !== undefined) {
         await this.#git.removeWorktree({ repoRoot: project.rootPath, worktreePath: workspace.displayRoot, branch: workspace.branch, deleteBranch: true });
       }
       const updated = this.#store.workspaces.update(workspace.id, { state: 'cleaned', retention: 'cleaned' });
-      this.#store.events.publish('task.workspace.updated', { taskId, workspaceId: workspace.id, revision: updated!.revision, state: 'cleaned' });
-      this.#commands.settle(input.requestKey, { workspaceId: workspace.id });
+      this.#store.events.publish('task.workspace.updated', { taskId, workspaceId: workspace.id, revision: updated?.revision ?? workspace.revision, state: 'cleaned' });
+      this.#commands.settle(input.requestKey, { workspaceId: workspace.id, kind: workspace.kind, removed });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { workspace: updated } };
     } catch (error) {
+      // Keep an honest, retryable state: nothing is reported as cleaned unless the
+      // managed directories are actually gone.
+      if (cleaningStarted) {
+        const restored = this.#store.workspaces.update(workspace.id, {
+          state: previousState === 'cleaned' ? 'cleaned' : previousState,
+          retention: 'partial',
+        });
+        this.#store.events.publish('task.workspace.updated', { taskId, workspaceId: workspace.id, revision: restored?.revision ?? workspace.revision, state: restored?.state ?? previousState });
+      }
       this.#commands.fail(input.requestKey, error as Error);
       throw error;
     }
   }
+
+  /* -------------------------------------------------------------- */
+  /* Non-Git workspace cleanup (managed paths only)                  */
+  /* -------------------------------------------------------------- */
+
+  #expectedCopyRoot(taskId: string): string {
+    return resolve(this.#store.dataDir, COPY_ROOT_SEGMENT, taskId);
+  }
+
+  #expectedBaselineRoot(workspaceId: string): string {
+    return resolve(this.#store.dataDir, BASELINE_ROOT_SEGMENT, workspaceId);
+  }
+
+  /**
+   * Deletion is restricted to `dataDir/workspaces/<taskId>` and
+   * `dataDir/baselines/<workspaceId>`; anything else must never be touched.
+   */
+  #assertManagedRoot(candidate: string, segment: string): string {
+    const root = resolve(this.#store.dataDir, segment);
+    const resolved = resolve(candidate);
+    if (!resolved.startsWith(`${root}${sep}`)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, `拒绝清理受管目录之外的路径：${candidate}`, {
+        details: { managedRoot: root },
+      });
+    }
+    return resolved;
+  }
+
+  #assertOutsideProject(candidate: string, projectRoot: string): void {
+    const project = resolve(projectRoot);
+    if (candidate === project || candidate.startsWith(`${project}${sep}`) || project.startsWith(`${candidate}${sep}`)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, `拒绝清理项目原目录或包含项目原目录的路径：${candidate}`, {
+        details: { projectRoot: project },
+      });
+    }
+  }
+
+  #baselineRecord(workspaceId: string): string | undefined {
+    const record = this.#store.settings.getJson<{ baselineRoot?: unknown } | null>(`${BASELINE_KEY_PREFIX}${workspaceId}`);
+    return record !== null && record !== undefined && typeof record.baselineRoot === 'string' ? record.baselineRoot : undefined;
+  }
+
+  /** Returns the reason this directory-copy workspace cannot be cleaned automatically. */
+  #directoryCopyPathIssue(taskId: string, project: { readonly rootPath: string }, workspace: TaskWorkspace): string | undefined {
+    try {
+      this.#assertOutsideProject(this.#assertManagedRoot(this.#expectedCopyRoot(taskId), COPY_ROOT_SEGMENT), project.rootPath);
+      if (workspace.displayRoot !== undefined) {
+        this.#assertOutsideProject(this.#assertManagedRoot(workspace.displayRoot, COPY_ROOT_SEGMENT), project.rootPath);
+      }
+      const baselineRoot = this.#baselineRecord(workspace.id);
+      if (baselineRoot !== undefined) this.#assertManagedRoot(baselineRoot, BASELINE_ROOT_SEGMENT);
+      this.#assertManagedRoot(this.#expectedBaselineRoot(workspace.id), BASELINE_ROOT_SEGMENT);
+      return undefined;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  #assertDirectoryCopyRemovable(taskId: string, project: { readonly rootPath: string }, workspace: TaskWorkspace): void {
+    this.#assertOutsideProject(this.#assertManagedRoot(this.#expectedCopyRoot(taskId), COPY_ROOT_SEGMENT), project.rootPath);
+    if (workspace.displayRoot !== undefined) {
+      this.#assertOutsideProject(this.#assertManagedRoot(workspace.displayRoot, COPY_ROOT_SEGMENT), project.rootPath);
+    }
+    const baselineRoot = this.#baselineRecord(workspace.id);
+    if (baselineRoot !== undefined) this.#assertManagedRoot(baselineRoot, BASELINE_ROOT_SEGMENT);
+    this.#assertManagedRoot(this.#expectedBaselineRoot(workspace.id), BASELINE_ROOT_SEGMENT);
+  }
+
+  /** Deletes the independent copy + baseline snapshot of a non-Git task, never the source. */
+  #removeDirectoryCopy(taskId: string, project: { readonly rootPath: string }, workspace: TaskWorkspace): readonly string[] {
+    this.#assertDirectoryCopyRemovable(taskId, project, workspace);
+    const targets = new Set<string>();
+    targets.add(this.#assertManagedRoot(this.#expectedCopyRoot(taskId), COPY_ROOT_SEGMENT));
+    if (workspace.displayRoot !== undefined) targets.add(this.#assertManagedRoot(workspace.displayRoot, COPY_ROOT_SEGMENT));
+    const baselineRoot = this.#baselineRecord(workspace.id);
+    if (baselineRoot !== undefined) targets.add(this.#assertManagedRoot(baselineRoot, BASELINE_ROOT_SEGMENT));
+    targets.add(this.#assertManagedRoot(this.#expectedBaselineRoot(workspace.id), BASELINE_ROOT_SEGMENT));
+    const removed: string[] = [];
+    for (const target of targets) {
+      this.#assertOutsideProject(target, project.rootPath);
+      rmSync(target, { recursive: true, force: true });
+      removed.push(target);
+    }
+    // SettingsRepository has no remove API and `packages/storage` is outside this
+    // task's write scope; delete the baseline index row directly so no stale
+    // baseline record survives the cleanup.
+    this.#store.db.prepare('DELETE FROM settings WHERE key = ?').run(`${BASELINE_KEY_PREFIX}${workspace.id}`);
+    return removed;
+  }
+
 
   #requireTask(taskId: string) {
     const task = this.#store.tasks.get(taskId);

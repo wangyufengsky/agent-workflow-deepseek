@@ -172,3 +172,128 @@
 - **UI 冒烟**：`npm run ui:smoke` 在当前沙箱环境因 Electron GPU/sandbox 初始化失败（`GPU process isn't usable`）未执行成功，**未计为通过**；前端构建与类型检查通过，UI 验证留到 Wave 4（或用户在桌面环境执行）。
 - **范围审计**：`git status` 无设计稿目录改动；无凭据写入；`git diff --check` 通过；改动 27 文件 + 5 新增文件（PPT 3、模板编辑器 1、测试 3、文档）。
 - **遗留/新登记**：W0-4（节点验收）、W2-10（恢复页 unknown UI）、W2-11（PPT generating 恢复）、W2-12（远端超时/UNKNOWN）、W2-13（viewActions 回归）；Wave 2-4 见任务分派文档。
+
+### 20:35 分派 | Wave 2
+
+- 复用现有 5 个 agent（不新增成员）：
+  - `be-api` → task-11：W2-1 自动推进开关 / W2-2 放弃调整 / W2-9 健壮性 / W2-13 viewActions 回归。
+  - `be-recovery` → task-12：W2-3 非 Git 清理、W2-4 恢复模式真实化、W2-11 PPT generating 恢复。
+  - `fe-templates` → task-13：W2-1/W2-2/W2-10 前端 UI（自动推进/推进一步/放弃调整/unknown 恢复）。
+  - `fe-ppt` → task-14：W3-7a 知识对话记录页（设计缺失页）。
+  - `docs-audit` → task-15：W4-1a 文档同步（README/remaining-work/verification/architecture）。
+- 契约由 be-api 与 fe-templates 共用：`/execution/auto-advance`、`/execution/advance`、`/plan/edit/abandon`；冲突先由 Lead 裁决。
+- 验收仍是：typecheck + 全量测试 + build，每波结束记录；设计稿只读。
+
+### 20:38 任务完成 | W4-1a（task-15）| README / remaining-work / verification / architecture 同步 Wave 0/1
+
+- 负责人：`docs-audit`；写范围：`README.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/architecture.md`；未改 `docs/review/**`（仅本日志）、`docs/task-assignment.md`、`docs/design-coverage.md`、产品代码、设计稿。
+- README：实现状态改为 Wave 0/1 完成后（330 tests / 54 suites / 319 pass / 11 skipped / 0 fail，约 44s，`.tmp/final-verify.log`）；重写「未完成 / 下一步」为真实剩余（W0-4、Wave 2 进行中、W3 设计缺失页、真实外部环境、打包、视觉回归、文档体系）；修正「GitHub 真实写 PASS」与「真实远端写未执行」的矛盾，GitLab 单独标注仅桩验证；数据库行补 PostgreSQL，MCP 行改「默认 13 工具、按启用工具集计数」；界面证据标注 `docs/evidence/` 早于 Wave 0/1、UI smoke 沙箱失败。
+- remaining-work：迁移改为 v1–v10；模板编辑器从「缺口」移入「已实现」（可视化 + JSON + 归档，W1-2）；Skill 源文 / 并发会话 / 角色历史移入已实现；缺口重排 1–10，补 W0-4、W2-1~13（明确「进行中」）、W3 设计缺失页（knowledge-history / ppt-works / ppt-studio / run / roles-legacy）、Inbox、角色四页签、项目详情、PE37、工作流编辑器、快照评审、运行内容、真实 GitLab/PostgreSQL、打包、视觉回归、文档体系、PPT 高级视觉、恢复深度；删除重复「10.」与「缺口已关闭」。
+- verification：计数改为 330/54/319/11/0（约 44s）并注明「以最近一次 `npm test` 日志为准」；11 项 skip 合并为「10 live + 1 凭据」；原 §3.2 GitHub 块移到 §3.10，新增 §11 轮次日志标题；重写 §10 的 GitHub / fix.merge / FixRun / 清理 / 打包 / 视觉 / 节点验收条目；追加 Wave 0/1 验收记录（404、400、restart/fetch 回执、契约快照、启动恢复、build）。
+- architecture：补 PostgreSQL 驱动、非 Git 目录副本已实现、未知 `/api/*` JSON 404、启动恢复、restart/fetch/数据库等命令返回 `CommandResponse`、MCP 按工具集计数。
+- 验证：4 个文件不再命中 `313 / 302 pass / 296 条 / 第 15 轮 / 缺口已关闭 / v1–v7`；引用目标均存在；`git status` 无设计稿目录改动；未跑全量 test（仅文档改动，Lead 已完成 330 tests 验收）。
+- 未覆盖：`docs/design-coverage.md` 重写（W4-1）与 `docs/api.md` 重生成（W4-2）；Wave 2 进行中条目待完成后再迁入「已实现」。
+
+### 20:35 任务完成 | W2-3/W2-4/W2-11（task-12）| 非 Git 清理、恢复模式真实化、PPT 生成恢复
+
+- 负责人：`be-recovery`；写范围：`packages/engine/src/workspace.ts`、`recovery.ts`、`ppt.ts`、`engine.ts`；新增 `tests/integration/workspace-cleanup-nongit.test.ts`、`recovery-modes.test.ts`、`ppt-startup-recovery.test.ts`，并更新上轮自建 `startup-recovery.test.ts`（summary 增加 `pptWorks`）。未改 `http.ts`、`shared`、`execution.ts`、`plan.ts`、`apps/web/**`、设计稿、`task-assignment.md`。
+- **W2-3 非 Git 工作区清理（真实删除）**：
+  - `cleanupConfirm` 对 `kind=directory_copy`：置 `cleaning`（retention cleaning）→ 真正 `rmSync` 删除 `dataDir/workspaces/<taskId>` 与 `dataDir/baselines/<workspaceId>`（含 settings 记录中的 baselineRoot）→ `DELETE FROM settings WHERE key='directory.baseline.<workspaceId>'` → 置 `cleaned`；receipt outcome 带 `removed` 列表、`kind`。Git worktree 路径保持原 `removeWorktree`，但同样先置 `cleaning`。
+  - 路径安全：只允许 `dataDir/workspaces/*`、`dataDir/baselines/*`（`resolve+sep` 前缀校验）；拒绝等于/包含项目原目录或位于项目原目录内的路径；不安全路径在 preview 中给 `workspace_unmanaged` blocker、confirm 返回 `DELIVERY_BLOCKED`，项目原目录永不删除；其他任务的 baseline 不受影响（有测试）。
+  - 失败可重试：清理开始后失败 → 恢复原状态并置 `retention='partial'`、结算回执 failed（不伪造 cleaned）；失败后可重新 preview/confirm。**删除了上轮「假清理」**（旧实现非 Git 只置 cleaned 不删目录）。
+  - 补充清理中断恢复：启动扫描 `cleaning` 工作区 → `partial`（合法 `workspace.cleanup.partial`）+ `retention=partial` + 核对建议，accepted 的 `cleanup.confirm` 回执结算 unknown；不自动删目录。
+  - 说明：`SettingsRepository` 无删除 API 且 `packages/storage` 不在本任务写范围，settings 键用 `store.db.prepare('DELETE ...')` 直接删除（已在代码注释标注，建议后续在 storage 补 `removeJson`）。
+- **W2-4 恢复三种模式真实语义**（派生草稿字段差异，非只改标题；不复制/创建 plan、workspace、execution）：
+  - 共同：复制项目/需求原文/方法（`methodId`+冻结 `methodRevision`）与 `fixedTemplate`；派生任务 `stage=draft`（需求阶段）；两任务互不影响，父任务与执行证据只读不变。
+  - `from_failed_stage`：复制父任务已有 requirement supplements（既有答复/判断）与 entries，revision=父修订+1，并追加 `恢复上下文（从失败阶段恢复）` 补充，写明失败/未知步骤与 error code/message、执行状态与进度、失败规划轮次、交付投影、人工验收；下一次规划的 prompt（planning 会带 supplements）能读到失败阶段上下文 → 「保留既有上下文」真实生效；attention=none。
+  - `all_stages`：只复制需求原文+方法/模板，不继承任何 supplements/答复/执行证据，revision=1 → 从需求阶段完整重来；attention=none。
+  - `verify_only`：只读验证草稿。前置条件：父任务必须有已结算的执行 attempt，否则 400 VALIDATION_FAILED（没有可核对产物不能做只读验证）。复制需求原文+既有 supplements/entries，追加 `只读验证范围` 补充：声明不创建计划/工作区/执行、不修改文件，并枚举父任务的尝试/验证结论/失败节点/交付与验收事实，供人工核对；attention=`waiting_user`；服务不创建任何 plan/workspace/execution（测试断言三者均无）。**已知缺口（未伪造）**：把「只读」做成强制约束需要 `Task` 增加只读/恢复模式字段并在 `actions.ts`、`plan.ts`、`planning.ts`、`execution.ts` 里校验，这些文件均不在本任务写范围且 shared 归 be-api 并行；本次只落实可表达且可辩护的部分（只读范围写入需求、等待人工处理、无任何可执行记录），建议 Lead 转 W2-4b 由 be-api 补契约。
+  - 记录：settings `task.recovery.<id>` 额外写 `writableSession`、`copiedScope`、`parentStage`、`parentAttention`（审计用，HTTP 契约仍只暴露 `RecoveryRecord`）。
+- **W2-11 PPT generating 启动恢复**：新增 `PptService.recoverOnStartup()`，由 `Engine.recoverOnStartup()` 调用（`summary.pptWorks`）。扫描 `status=generating` → `failed`（PPT 四态中的合法终态，UI 可重新生成），保留已生成 outline/slides 供重试；`PptWork` 契约无 notice/error 字段，故中断信息写入 `ppt.recovery.<workId>` 审计键 + 结算 accepted 的 `ppt.work.generate`/`ppt.work.slides` 回执为 unknown（by-key 可核对）；不调用模型、不重新生成。幂等：二次启动无 generating。
+- **幂等/异常**：`Engine.recoverOnStartup()` 对每个恢复域独立 try/catch，失败进 `failures` 不抛出、不阻塞启动；`createApplication` 已在注册路由前调用。新增场景均验证「第二次启动/第二次调用无变化、不抛错」。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（0 error，含并行 agent 改动）。
+  - `node --import tsx --test --test-force-exit tests/integration/workspace-cleanup-nongit.test.ts` → 5 pass / 0 fail（真实删除+settings 键+幂等、越界拒绝+重试、清理中断恢复、其他 baseline 保留、文件系统失败回执 failed+状态可重试）。
+  - `node --import tsx --test --test-force-exit tests/integration/recovery-modes.test.ts tests/integration/ppt-startup-recovery.test.ts` → 5 pass / 0 fail（三模式字段/attention/actions 差异、verify_only 前置、requestKey 幂等、进行中父任务拒绝、PPT 中断恢复+回执+重试入口+幂等）。
+  - 回归：`node --import tsx --test --test-force-exit tests/integration/{recovery-api,workspace-cleanup-blockers,startup-recovery,directory-apply-api,directory-apply-e2e,ppt-works}.test.ts` → 13 pass / 0 fail。
+- 未覆盖 / 说明：
+  1. verify_only 的硬性只读强制（见上）需 shared `Task` 契约 + actions/plan/planning/execution 协作；本次未越权修改。
+  2. 恢复不复制执行上下文/阶段图（文档承认缺口），本任务按「需求上下文 + 失败证据 + 派生草稿字段」实现真实差异。
+  3. 文件系统失败场景用只读父目录构造（非 root）；root 环境会 skip 该测试。
+  4. 未跑全量 `npm test`/build（Lead 整合），未做浏览器点击。
+
+### 20:36 任务完成 | W3-7a（task-14）| 知识对话记录页（设计缺失页）
+
+- 负责人：`fe-ppt`；写范围：新增 `apps/web/src/pages/knowledge-history/**`、`apps/web/src/app/App.tsx`、`apps/web/src/pages/knowledge/KnowledgePage.tsx`；未改后端/shared/其他页面/导航配置/设计稿。
+- 新增文件：`apps/web/src/pages/knowledge-history/KnowledgeHistoryPage.tsx`、`apps/web/src/pages/knowledge-history/knowledge-history.css`；路由 `/knowledge/history`（`App.tsx` 仅加 1 条 import 与 1 条 Route，未动其他路由）。
+- 页面结构：PageHeader（eyebrow 链接回知识库 + 返回/新建对话）→ 降级说明 banner → 工具条（搜索问题/回答、项目下拉含「全部项目」、引用分段、条数、刷新）→ 今天/昨天/更早时间分组列表 → 行内展开；复用 Badge/Button/LinkButton/PageHeader/EmptyState/Skeleton/Icon/SegmentedControl/ServiceNotice，样式只用设计令牌（新增 CSS 无硬编码颜色，`grep -E "#[0-9a-f]{3,6}|rgba?\("` 为空）。
+- 数据与降级口径：使用 `GET /api/knowledge/history?projectId=`（每个项目独立请求后按项目合并，全部项目并行读取；失败项目单独展示 ServiceNotice，不用缓存/示例补齐）。服务端只返回已生成的问答、**没有会话状态字段**，因此设计中的「需要回答/进行中/已完成」不做实现：分段降级为 **全部 / 有引用 / 无引用**，并在页面 banner 明确写出「没有『需要回答 / 进行中 / 已完成』的会话状态字段」及「有引用/无引用」的定义；不显示任何虚构的待回答/进行中状态。
+- 交互事实：搜索按 question/answer 文本过滤并高亮首处匹配；时间分组按 generatedAt（今天/昨天/更早）；行内展开显示完整问题、回答、模型、生成时间（绝对+相对）、usage tokens、conversationId 与引用列表；引用点击回跳 `/knowledge?project=<id>&source=<path>`；「继续追问」回跳 `/knowledge?project=<id>&conversation=<conversationId>`（服务 ask 接口支持该 conversationId，KnowledgePage 据此延续上下文）。页面底部说明记录接口、30 条上限与「无重命名/归档/删除接口，故不显示这些操作」。
+- KnowledgePage 改动（保持最小）：历史卡头新增「查看全部」按钮（携带当前 projectId 跳 `/knowledge/history?project=`）；新增一个 effect 读取并消费 `?project=` / `?source=` / `?conversation=` 三个查询参数（选中项目、打开来源原文、延续对话），消费后 `replace` 清空 URL 参数；未改问答/搜索/来源逻辑。
+- 状态：bootstrap loading（骨架）、无项目（EmptyState + 去登记项目）、历史读取中（骨架）、项目级读取失败（ServiceNotice + 重试）、空记录（EmptyState + 去提问）、筛选无结果（EmptyState + 清除筛选）、服务不可用（ServiceNotice「服务未连接」且不展示记录）；真实浏览器冒烟确认服务停止后无伪造数据。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（0 error）。
+  - `npx tsc -p tsconfig.json --noEmit --noUnusedLocals` 过滤 `knowledge-history`/`pages/knowledge/KnowledgePage`/`app/App` → 0 条。
+  - 隔离端到端 UI 冒烟（临时 dataDir 写入 3 个项目 / 5 条记录夹具 + 真实服务进程 5199 + 临时 Vite 5280 代理；Electron offscreen）：33 项断言全 PASS —— 5 条记录、时间分组 3/1/1、分段计数 全部5/有引用3/无引用2、搜索过滤+高亮+计数同步、无引用分段空态与清除筛选、展开详情/引用链接/继续追问链接、项目筛选与空项目空态、知识库「查看全部」→按项目筛选、`?project=` 预设并清空 URL、引用回跳知识库打开原文弹窗并选中项目、停服后显示真实错误态且 0 条记录。临时 Vite 配置在使用后已删除，仓库无残留。
+  - 真实运行服务（Vite 5173 + 服务 5177）路由冒烟：页面渲染真实 3 条历史记录（真实问题/回答/12·4·8 处引用/模型），知识库历史卡「查看全部」存在；5 项断言 PASS，未写入任何数据。
+  - 按约束未运行 `npm run build:web`、未跑全量 `npm test`。
+- 未覆盖 / 已知限制：
+  1. 会话状态（需要回答/进行中/已完成/停止/中断）无 DTO，本页按任务要求降级并显式标注；需要后端补知识会话模型后才能实现设计稿状态分段与「去回答」。
+  2. 无对话重命名/归档/删除接口，本页不提供这些操作（design 行菜单未实现）。
+  3. 「继续追问」只恢复 conversationId，不还原当时的问题/回答上下文界面；服务端会取该对话最近 3 条记录作为模型上下文，但页面不回显旧消息。
+  4. 全项目视图按项目并行读取（项目数 × 1 请求）；项目很多时首屏请求数线性增长，未做分页/懒加载。
+  5. 顶部 Shell 面包屑仍显示「知识库」（`app/navigation.ts` 不在本任务写范围），页面内已用 eyebrow 链接回知识库；如需面包屑「知识库 / 对话记录」需另开任务改 navigation。
+
+### 20:37 任务完成 | W2-1/W2-2/W2-10（task-13）| 执行控制前端 UI
+
+- 负责人：`fe-templates`；写范围：`apps/web/src/pages/task/**`、`apps/web/src/pages/recovery/**`、`apps/web/src/api/workflow.ts`。
+- 改动文件：`api/workflow.ts`、`pages/task/TaskCanvasPage.tsx`、`pages/task/ExecutionPanel.tsx`、`pages/task/PlanEditPanel.tsx`、`pages/task/task.css`、`pages/recovery/RecoveryPage.tsx`。
+- 自动推进（W2-1）：ExecutionPanel 的只读 switch 改为真实开关，调用 `POST /api/tasks/:id/execution/auto-advance`（shared `ExecutionAutoAdvanceRequest`，`requestKey + autoAdvance + confirmChange:true`），读 `CommandResponse<ExecutionResponse>` 回执；允许状态按后端契约 running/pausing/paused/waiting_confirmation/unknown/failed，调整会话活跃时禁用并写原因；关闭文案明确“只影响后续领取，运行中步骤继续跑完”。
+- 手动推进（W2-1）：自动推进关闭后显示「整体推进 · 将启动 N 步」（无 nodeId）与节点行内「推进直接后继 · N 步」（带 nodeId），调用 `POST /api/tasks/:id/execution/advance`；可推进集合按 `plan.graph.edges + execution.nodes`（pending/ready 且全部前置 succeeded/skipped）本地推导用于禁用原因（并行汇合、无后继、用户暂停需先继续、unknown 需先核对等）；成功后用 `receipt.outcome.released` 显示“已放行 N 步”，失败/unknown 走现有 CommandErrorNotice/ReceiptNotice（unknown 只按原请求号核对）。
+- 放弃调整（W2-2）：PlanEditPanel 增加「放弃调整」二次确认 Modal，调用 `POST /api/tasks/:id/plan/edit/abandon`（shared `PlanEditAbandonRequest`）；文案写明丢弃本地草稿、计划修订不变、恢复进入调整前的自动推进与暂停设置；仅 editing/conflict 可放弃，`saved`（已生成未确认修订）按后端契约禁用并写原因；成功后刷新任务详情/计划、退出调整面板并在页面显示回执。
+- 恢复页 unknown（W2-10）：RecoveryPage 在 execution.status=unknown 时显示「按原配置重试失败步骤」「跳过节点及下游」「取消执行（保留工作区）」+「重新读取」；调用现有 retry/skip/cancel API；回执 succeeded/failed/accepted-unknown 分别显示，unknown 明示“结果待核对、不自动重发、按原请求号核对”。
+- 越界说明：设计中的「推进直接后继」节点详情入口位于 `pages/node/NodeDetailPanel.tsx`（不在本任务写范围，Lead 已确认留给 W3-5）；本波入口放在 ExecutionPanel 节点行，带 nodeId 与禁用原因。
+- 验证：`npx tsc -p tsconfig.json --noEmit` → exit 0；`--noUnusedLocals` 过滤 `pages/task|pages/recovery|api/workflow` → 0；`node --import tsx --test tests/integration/routes-contract.test.ts` → 2 pass；隔离服务 inject 探针确认三条新路由已注册（未知任务 404 `任务不存在`，缺 requestKey 400 `VALIDATION_FAILED`）。be-api 的 `tests/integration/execution-control.test.ts` 仍有红（同一 key 不同 body 期望 409 实际 400 等后端契约细节），属 be-api/task-11 范围，不影响前端类型与接线。
+- 未覆盖：按要求未运行 `npm run build:web`、未跑全量 `npm test`；无浏览器点击验证（本环境 UI smoke 不可用），前端行为以类型检查 + 后端契约代码/探针核对。
+
+### 20:38 任务完成 | W2-1/W2-2/W2-9/W2-13（task-11）| be-api
+
+- 负责人：`be-api`；写范围：`packages/shared/src/api/contracts.ts`、`packages/shared/src/domain/enums.ts`、`packages/engine/src/execution.ts`、`packages/engine/src/plan.ts`、`packages/server/src/http.ts`、新增 `tests/integration/execution-control.test.ts`，并更新 `tests/integration/routes-contract.test.ts`；未改 `apps/web/**`、engine/workspace|ppt|recovery、application.ts、设计稿、`task-assignment.md`。
+- 统一契约（已同步 fe-templates，task-13 前端按此实现）：
+  - `POST /api/tasks/:id/execution/auto-advance`，body `{requestKey, autoAdvance:boolean, confirmChange:true}`，`ROUTES.executionAutoAdvance`，operation `execution.autoAdvance`（新增于 enums/OPERATIONS），返回 `CommandResponse<ExecutionResponse>`；允许状态 running/pausing/paused/waiting_confirmation/unknown/failed；调整会话活跃 → 409。
+  - `POST /api/tasks/:id/execution/advance`，body `{requestKey, nodeId?:string, confirmAdvance:true}`，`ROUTES.executionAdvance`，operation `execution.advance`，返回 `CommandResponse<ExecutionResponse>`；要求 `autoAdvance===false`，status running 或“自动关闭等待推进”的 paused（用户暂停有 `pause.requestKey` → 409，先 resume）；成功 `receipt.outcome={released,waitingFor}`；无可推进 → 400 `VALIDATION_FAILED` + `details.waitingFor`（并行汇合原因）；同次不级联。
+  - `POST /api/tasks/:id/plan/edit/abandon`，body `{requestKey, editSessionId, confirmAbandon:true}`，`ROUTES.planEditAbandon`，operation `plan.edit.abandon`，返回 `CommandResponse<PlanResponse>`；仅 requesting_pause/editing/conflict 可放弃（saved → 409，需重新确认/继续）；editSessionId 不匹配 → 409 `STALE_TARGET`；成功后 `editSession.state='abandoned'`、localChanges 清空、计划修订不变、execution 回 running 且 `autoAdvance=autoAdvanceBeforeEdit`，`receipt.outcome` 带 autoAdvance。
+  - 三条路由加入 `COMMAND_ROUTE_SIGNATURES`（缺 requestKey 统一 400）；重放返回原回执，同 key 不同 body → 409 `REQUEST_KEY_REUSED`（与既有 CommandService 语义一致）。
+- 引擎实现：
+  - `ExecutionService.setAutoAdvance`：requestKey+bodyHash+回执、事件、幂等（重放先于状态 guard，已结算请求不因执行后续变化变成报错）；关闭只影响后续领取。
+  - `ExecutionService.advance` + `#releaseAdvanceable`：无 nodeId 放行全部“前置均 succeeded/skipped 且自身 pending/ready”的节点；有 nodeId 只放行直接后继；`assertTransition(nodeMachine, pending→ready)`；无可推进时把回执结算 failed 并给 `waitingFor`。
+  - `#advance` 调度器：auto 开启时才自动 `#recomputeReady`；关闭时只运行已显式放行的批次，批次跑完用合法边 `RUNNING→PAUSING→PAUSED` 进入“等待推进”（pause 无 requestKey，区别于用户暂停）。
+  - `PlanService.abandonEdit`：校验会话/契约标志/状态，丢弃草稿，恢复 autoAdvance，`assertTransition(executionMachine, paused→running)`；http 层在 `edit/finish(continue)` 与 `edit/abandon` 后调用 `engine.executions.kick()`，让恢复后的执行真正被调度。
+- W2-9：静态资源根边界从 `normalize+startsWith` 改为 `resolve` + 目录分隔符判定（导出 `isPathInside` 供测试），`/assets/*` 增加 `..` 显式 403；`DELETE /api/settings/databases/:id` 无 body 的兼容策略保留并注明（服务端生成 req key + 回执），新增测试覆盖；三条新命令路由缺 requestKey 400 覆盖。
+- W2-13：新增回归测试——未知任务的 execution/workspace/delivery 视图均 404 JSON；正常任务（confirm+prepare 后）三视图 actions 含全部 18 个能力键且 `allowed` 为布尔。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（含并行 agent 改动）。
+  - `node --import tsx --test --test-force-exit tests/integration/execution-control.test.ts` → **5 pass / 0 fail**（auto-advance 幂等/冲突/状态限制；advance 放行/直接后继/并行汇合/无候选/用户暂停/404；abandon 丢弃草稿/恢复开关/计划不变/幂等/saved 拒绝；W2-13、W2-9）。
+  - `... tests/integration/execution-control.test.ts tests/integration/routes-contract.test.ts tests/integration/api-contract.test.ts` → 14 pass / 0 fail（routes 快照已移除 planEditAbandon/executionAdvance 两条例外并断言 executionAutoAdvance）。
+  - 回归：`startup-recovery,node-skip,workspace-cleanup-blockers,plan-edit-dependencies,server-smoke,concurrent-worktrees,delivery-fixroot,recovery-api,task-acceptance` → 16 pass / 0 fail。
+- 关于 fe-templates 报告的“execution-control 仍有红”：其 20:37 记录对应本文件并行编辑中的旧快照；当前工作区（含 task-13 前端改动）重跑为 **5 pass / 0 fail**，其中同 key 不同 body 的三条命令均按 CommandService 返回 409（REQUEST_KEY_REUSED / STALE_TARGET），缺 confirm 或非法状态按 400/409 既定错误码。
+- 未覆盖 / 说明：
+  1. 未跑真实模型执行路径（autoAdvance 关闭下放行批次“逐个跑完再等待”只验证了 release/回执与调度状态，模型执行需 live `test:model`/Lead 全量）。
+  2. 放弃调整无法恢复“调整前已暂停”的暂停态：`EditSession` 模型只持久化 `autoAdvanceBeforeEdit`（models.ts 不在本任务写范围）；当前按“回到运行中”实现并在契约注释写明，若需区分需 Lead 批准改 `packages/shared/src/domain/models.ts`。
+  3. `saved` 会话禁止放弃（与设计 editing/conflict 才出现“放弃调整”一致）；W2-2 的 continue 路径未改动。
+  4. 未运行 `build:web`/全量 `npm test`/浏览器点击（Lead 整合范围）。
+
+### 20:45 整合 | Wave 2 验收通过
+
+- **验收范围**：W2-1、W2-2、W2-3、W2-4、W2-9、W2-10、W2-11、W2-13（8 个工作包）；W3-7a 知识历史页、W4-1a 文档同步也已完成。
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **345 tests / 54 suites / 334 pass / 11 skipped / 0 fail**（46.6s）。
+- **构建**：`npm run build:web` → exit 0（1.83s）；`npm run build:server` → exit 0。
+- **运行态验收（5177 真实服务）**：
+  - 新路由 `/execution/auto-advance`、`/execution/advance`、`/plan/edit/abandon` 已注册；未知任务返回 404 JSON，缺 requestKey 返回 400 VALIDATION_FAILED。
+  - 执行控制契约：自动推进开关（新 operation `execution.autoAdvance`）、整体推进/推进直接后继（`execution.advance`，release 不级联/并行汇合等待）、放弃调整（`plan.edit.abandon`，恢复 autoAdvanceBeforeEdit）均有引擎实现、回执与集成测试（execution-control 5 pass）。
+  - 非 Git 清理真实删除受管副本+baseline+settings 键，越界路径拒绝；恢复三模式产生字段差异；PPT generating 启动恢复。
+  - 知识历史页 `/knowledge/history` 路由可用，服务端无会话状态字段处按降级口径标注，未造假。
+- **UI**：自动推进真实开关/整体推进/推进直接后继入口、放弃调整 Modal、RecoveryPage unknown 三入口、知识历史页接线完成；UI 冒烟仍受当前 Electron sandbox 限制，未计通过。
+- **范围审计**：设计稿目录未改；无凭据；`git diff --check` 通过。
+- **新登记 follow-up**：W2-4b（verify_only 硬只读）、W2-14（storage removeJson）、W2-15（abandon 恢复暂停态）、W3-5a（NodeDetailPanel 推进入口）、W4-1b（文档同步 Wave 2 + design-coverage 重写）。

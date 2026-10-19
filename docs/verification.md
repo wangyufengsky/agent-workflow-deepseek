@@ -16,11 +16,9 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**313 tests / 54 suites / 302 pass / 11 skipped / 0 fail**，约 24s。
+结果（最近一次完整验证：2026-10-19 20:28，日志 `.tmp/final-verify.log`）：**330 tests / 54 suites / 319 pass / 11 skipped / 0 fail**，约 44s。数字以最近一次 `npm test` 日志为准，不在本文档固定历史计数。
 
-跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
-
-跳过项：`live:` 两个模型端到端（需 `AGENT_WORKFLOW_LIVE=1`）与真实 MySQL 探测（无凭据时 skip）。
+跳过项（共 11）：10 个 `live:` gate（planning / execution / AI review / AI fix / GitHub 写入 / GitHub 只读 / knowledge / provider gateway / PPT / MySQL，需 `AGENT_WORKFLOW_LIVE=1` 或真实凭据）＋ 1 个 MySQL 探测（无可达实例或未提供账号时 skip）。其余测试全部执行。
 
 覆盖模块（摘要）：
 
@@ -71,26 +69,13 @@ flash 模型经兼容网关返回文本 `OK`。验证发生在工具集过滤、
 
 `AGENT_WORKFLOW_LIVE=1 tests/integration/knowledge-ask-live.test.ts`：基于项目 README/docs 提问“交付流程/清理前要做什么”，
 flash 模型返回答案并给出 `README.md:3`、`README.md:4` 两条引用（服务端校验路径与行号），**PASS 31s**。
-问答结果含 usage tokens 与会话 id 写入本机历史；同一会话后续问题带最近 3 条问答作上下文。live PASS 24s：首问 + 追问同一 conversationId、历史 2 条、usage>0。
+问答结果含 usage tokens 与会话 id 写入本机历史；同一会话后续问题带最近 3 条问答作上下文。live PASS 约 24 秒：首问 + 追问同一 conversationId、历史 2 条、usage>0。
 
 ## 2.7 PPT 大纲生成（真实模型，PASS）
 
 `AGENT_WORKFLOW_LIVE=1 tests/integration/ppt-live.test.ts`：草稿“季度汇报/交付质量计划” → flash 模型生成 12 页大纲，
 再生成逐页标题+要点（每页 2–6 条）并落库，usage tokens>0，列表读取一致，**PASS 29s**。PPTX 文件导出已验证（真实 zip，生产 server 冒烟 55KB）；逐页高级视觉仍为基础版式。
 
-
-## 3.2 真实 GitHub 远端写（PASS，2026-10-19）
-
-`AGENT_WORKFLOW_LIVE=1` + `GITHUB_TEST_WRITE_REPO=wangyufengsky/opencode-workflow-java-test` 运行
-`tests/integration/github-live-write.test.ts`（使用本机 `gh` 凭据，令牌不写入仓库/日志）：
-
-1. 克隆测试仓库 → 从 `main` 创建一次性分支 `agent-workflow/write-test-*` 并提交测试文件；
-2. `git push` 到 GitHub，`ls-remote` 确认分支存在；
-3. 通过 `RemoteService.createMergeRequest` 创建 **MR #1**，`listMergeRequests('opened')` 能读到；
-4. 清理：REST 关闭 MR（HTTP 200），删除远端分支；
-5. 复核：MR #1 状态 `closed`，`refs/heads/agent-workflow/write-test-*` 剩余 0。
-
-总耗时约 15s。注意：`.tmp/github-env` 中的 PAT 对 git 写为 403（读可用）；写验证使用本机 `gh` 凭据。
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
@@ -188,6 +173,19 @@ npm run test:model
 
 结果（PASS）：受管服务 ready，MCP connected，模型返回非空文本。
 
+### 3.10 真实 GitHub 远端写（PASS，2026-10-19）
+
+`AGENT_WORKFLOW_LIVE=1` + `GITHUB_TEST_WRITE_REPO=wangyufengsky/opencode-workflow-java-test` 运行
+`tests/integration/github-live-write.test.ts`（使用本机 `gh` 凭据，令牌不写入仓库/日志）：
+
+1. 克隆测试仓库 → 从 `main` 创建一次性分支 `agent-workflow/write-test-*` 并提交测试文件；
+2. `git push` 到 GitHub，`ls-remote` 确认分支存在；
+3. 通过 `RemoteService.createMergeRequest` 创建 **MR #1**，`listMergeRequests('opened')` 能读到；
+4. 清理：REST 关闭 MR（HTTP 200），删除远端分支；
+5. 复核：MR #1 状态 `closed`，`refs/heads/agent-workflow/write-test-*` 剩余 0。
+
+总耗时约 15s。注意：`.tmp/github-env` 中的 PAT 对 git 写为 403（读可用）；写验证使用本机 `gh` 凭据。
+
 ## 4. 构建
 
 ```sh
@@ -197,7 +195,7 @@ npm run build:web       # apps/web/dist（Vite）
 node scripts/build-desktop.mjs  # .build/desktop/{main,preload}.mjs
 ```
 
-结果：均成功。MCP 产物通过 SDK stdio 冒烟：13 个工具、stdout 仅 JSON-RPC、错误返回结构化 code。
+结果：均成功。MCP 产物通过 SDK stdio 冒烟：默认工具集 13 个工具（workflow 4 / git 4 / database 1 / workspace 4，可按设置缩减）、stdout 仅 JSON-RPC、错误返回结构化 code。
 
 ## 5. 界面证据（docs/evidence/）
 
@@ -242,6 +240,7 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - UI 恢复工作台已接线：真实任务摘要、方式选择、创建后跳转需求画布、派生草稿历史；失败执行可直接
   「按原配置重试失败步骤」（新 attempt，保留成功步骤）/「继续执行」/「停止执行（保留工作区）」。
 - `POST /api/tasks/:id/execution/retry` 已实现并登记 `execution.retry`。
+- 启动恢复（Wave 0）：进程重启后 execution running→unknown、planning running→unknown（可 reconcile）、workspace preparing→unknown，并结算 accepted 回执；`tests/integration/startup-recovery.test.ts` PASS。
 测试：`tests/integration/recovery-api.test.ts` PASS。
 
 ## 8. 角色目录编辑（PASS）
@@ -261,13 +260,15 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 
 ## 10. 已知限制 / 未验证
 
-- Git 远端写：fetch 用本地远端验证；MR 创建用 GitHub/GitLab 桩服务验证；真实 GitHub push / 创建 MR / 直接合并
-  未执行（避免修改真实仓库），真实 GitLab 未连接。
-- AI 审查/修复的服务端结果已验证；模型自报的校验命令未由服务独立执行；`fix.merge` 未实现。
-- FixRun 的 start/stop requestKey 只存在内存，进程重启后的恢复仍需补（ReviewRun 可从 receipt 恢复）。
-- 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理确认仅基础实现。
-- Electron 打包分发（签名、跨平台）未验证；`desktop` 构建脚本与主进程已可启动。
-- 页面视觉与设计稿的最终对照（截图）与浏览器自动化回归待补（见 `docs/remaining-work.md`）。
+- Git 远端写：GitHub 真实 push → 创建 MR → 关闭/删分支已在可丢弃测试仓库 PASS（§3.10）；fetch 用本地 bare 远端验证。GitLab 真实实例未连接，MR 列表/创建仍为桩验证。
+- AI 审查/修复的服务端结果已验证；模型自报的校验命令未由服务独立执行；`fix.merge` 已实现并由 live 修复流程验证（§3.4）。
+- FixRun/ReviewRun 的启动恢复已实现：进程重启后 running/editing 进入 unknown 并结算持久化 requestKey（`tests/integration/review-fix-recovery.test.ts`）。
+- 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理 UI 已接线；**非 Git 清理当前只更新状态，不真实删除目录副本/baseline（W2-3 进行中）**。
+- Electron 打包：第 64 轮 `npm run dist` 的未签名 .app 可启动；签名/公证、Windows/Linux 目标、自动更新未验证，且 Wave 0/1 后未重新打包。
+- 视觉与设计稿：有 `npm run ui:smoke` 的文案/主题断言与截图，无像素级视觉回归；Wave 0/1 后沙箱 Electron GPU 初始化失败，UI smoke 未计为通过，需桌面环境复跑。
+- 节点验收（`node.accept` / `node.reject`）尚未实现（W0-4 pending）；`docs/design-coverage.md` 仍为验证记录旧副本（W4-1 重写中），`docs/api.md` 未按最新 ROUTES/服务端注册重生成（W4-2 pending）。
+
+## 11. 轮次日志（历史）
 
 ### 第 64 轮打包回归（2026-10-19）
 
@@ -333,3 +334,17 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 原因：Web API 客户端默认超时 12s；知识库问答是同步模型调用（常见 15–90s），浏览器先超时并显示「本地服务响应超时」。
 - 修复：知识库问答请求超时 130s；PPT 大纲 120s、PPT 逐页 150s；问答中提示“模型正在阅读文档，通常 15–90 秒”。
 - 实测（运行中的服务）：知识库问答 **11s** 返回答案、4 条校验引用、usage 24119 tokens；OpenCode ready、MCP 13 工具。
+
+### Wave 0 + Wave 1 验收（2026-10-19，330 tests）
+
+依据 [`docs/review/execution-log.md`](review/execution-log.md) 20:32 整合记录；验收范围 W0-1、W0-2、W0-3、W0-5、W1-1~W1-12（15 个工作包），W0-4 节点验收仍 pending。
+
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **330 tests / 54 suites / 319 pass / 11 skipped / 0 fail**（43.8s；日志 `.tmp/final-verify.log`）。新增 `tests/integration/api-contract.test.ts`、`routes-contract.test.ts`、`startup-recovery.test.ts`。
+- **构建**：`npm run build:web` exit 0；`npm run build:server` exit 0。
+- **API/回执**：未知 `GET /api/not-a-real-route` 与 3 条未实现 ROUTES 返回 JSON 404；缺 `requestKey` 的 `POST /api/tasks` → 400 `VALIDATION_FAILED`；`POST /api/opencode/restart`（`confirmRestart=true`）→ 200 + `succeeded` 回执，`GET /api/operations/:key` 可核对；`GET /api/bootstrap` 的 `database.connected` 来自真实探测；`GET /api/git/repos/:id/fetch` 签发 accepted 回执（真实 GitHub 网络超时场景按 by-key 显示 accepted/stillUnknown；本地 bare remote 成功路径由集成测试覆盖）。
+- **契约快照**：`ROUTES` ↔ 服务端注册路径对比通过；显式例外仅 3 条——`plan/edit/abandon`（W2-2）、`execution/advance`（W2-1）、单个 MR 详情（待定）；OpenCode 内部网关 `/api/opencode/gateway/:secret/v1/*` 为服务端独有、不进 ROUTES。
+- **启动恢复**：running execution / running planning / preparing workspace 在重启后进入 unknown 并结算回执；安静启动为 no-op；`startup-recovery.test.ts` 5 条用例 PASS。
+- **前端**：PPT 页完整闭环（作品/附件/生成/编辑/导出/删除）、模板可视化 + JSON 编辑器与归档、工作区清理 UI、陈旧文案清理、`/start` 深链、ErrorBoundary；`npm run build:web` 通过。
+- **未计为通过**：`npm run ui:smoke` 在当前沙箱因 Electron GPU/sandbox 初始化失败（`GPU process isn't usable`）未执行成功，UI 验证顺延到桌面环境/Wave 4；`docs/evidence/` 截图早于 Wave 0/1。
+- **顺延缺口**：W0-4（节点验收）、W2-10（恢复页 unknown UI）、W2-11（PPT generating 恢复）、W2-12（远端超时 UNKNOWN）、W2-13（`viewActions` 回归）。

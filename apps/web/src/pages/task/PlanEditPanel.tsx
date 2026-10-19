@@ -4,6 +4,7 @@ import {
   PLAN_REVISION_STATUS_LABEL,
   type ActionAvailability,
   type ExecutionView,
+  type OperationReceipt,
   type PlanNode,
   type PlanRevision,
   type TaskDetailResponse,
@@ -11,7 +12,8 @@ import {
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
-import { confirmPlan, beginPlanEdit, finishPlanEdit, savePlanEdit, useWorkflowCommand } from '../../api/workflow.ts';
+import { Modal } from '../../components/Modal.tsx';
+import { abandonPlanEdit, confirmPlan, beginPlanEdit, finishPlanEdit, savePlanEdit, useWorkflowCommand } from '../../api/workflow.ts';
 import { ActionReasonLine, CommandErrorNotice, ReceiptNotice, ServiceActionButton } from '../../flow/workflow-ui.tsx';
 import { PanelEmpty, Section } from '../requirement/requirement-ui.tsx';
 
@@ -29,19 +31,23 @@ export interface PlanEditPanelProps {
   readonly actions: Record<string, ActionAvailability>;
   readonly onRefresh: () => Promise<void>;
   readonly onOpenNode: (nodeId: string) => void;
+  /** Called after a successful abandon so the canvas can leave the edit side panel and show the receipt. */
+  readonly onAbandoned?: (receipt: OperationReceipt) => void;
 }
 
 /**
  * 执行中调整待执行计划：先暂停新增领取 → 只改未领取步骤 → 保存 → 重新确认 → 继续。
  * 领取竞态时保留本地草稿并显示服务真实错误。
  */
-export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onOpenNode }: PlanEditPanelProps) {
+export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onOpenNode, onAbandoned }: PlanEditPanelProps) {
   const command = useWorkflowCommand(taskId);
   const rawSession = execution?.editSession;
   const editSession = rawSession !== undefined && (rawSession.state === 'editing' || rawSession.state === 'conflict' || rawSession.state === 'saved') ? rawSession : undefined;
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(undefined);
   const [localChanges, setLocalChanges] = useState<Record<string, LocalChange>>({});
   const [confirming, setConfirming] = useState(false);
+  const [abandonOpen, setAbandonOpen] = useState(false);
+  const [receiptSuccess, setReceiptSuccess] = useState<string | undefined>(undefined);
 
   const locked = useMemo(() => new Set(editSession?.lockedNodeIds ?? []), [editSession?.lockedNodeIds]);
   const nodes = plan?.graph.nodes ?? [];
@@ -81,6 +87,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
 
   const begin = () => {
     if (plan === undefined) return;
+    setReceiptSuccess('调整已开始：执行已暂停新增领取，运行中的步骤按原快照继续。');
     void command.run(() => beginPlanEdit(taskId, plan.id));
   };
 
@@ -96,6 +103,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
       };
     });
     if (changes.length === 0) return;
+    setReceiptSuccess('修改已保存为未确认的计划修订；重新确认后才能继续执行。');
     void command
       .run(() =>
         savePlanEdit(taskId, {
@@ -116,6 +124,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
   const reconfirm = () => {
     if (plan === undefined) return;
     setConfirming(true);
+    setReceiptSuccess('计划已重新确认；确认后才会出现继续执行。');
     void command
       .run(() => confirmPlan(taskId, plan.id, plan.revisionNumber))
       .then((response) => {
@@ -126,11 +135,28 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
 
   const finish = (continueExecution: boolean) => {
     if (editSession === undefined) return;
+    setReceiptSuccess('调整已结束；服务按调整前的自动推进与暂停设置恢复。');
     void command
       .run(() => finishPlanEdit(taskId, { editSessionId: editSession.id, continueExecution }))
       .then((response) => {
         if (response?.receipt.status === 'succeeded') void onRefresh();
       });
+  };
+
+  const abandon = () => {
+    if (editSession === undefined) return;
+    setReceiptSuccess('已放弃本次调整：计划修订未变更、本地草稿丢弃，服务已恢复进入调整前的自动推进与暂停设置。');
+    void command.run(() => abandonPlanEdit(taskId, editSession.id)).then((response) => {
+      setAbandonOpen(false);
+      if (response?.receipt.status === 'succeeded') {
+        setLocalChanges({});
+        setSelectedNodeId(undefined);
+        const receipt = response.receipt;
+        void onRefresh().then(() => {
+          onAbandoned?.(receipt);
+        });
+      }
+    });
   };
 
   if (editSession === undefined) {
@@ -152,7 +178,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
             <ActionReasonLine action={adjustAction} />
           </div>
           <CommandErrorNotice error={command.state.error} />
-          <ReceiptNotice receipt={command.state.receipt} />
+          <ReceiptNotice receipt={command.state.receipt} successMessage={receiptSuccess} />
         </Section>
         <Section title="当前执行快照" aside={<span className="hint">只读</span>}>
           <EditSnapshot execution={execution} plan={plan} onOpenNode={onOpenNode} />
@@ -202,6 +228,30 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
           </div>
         </div>
       ) : null}
+
+      <div className="row wrap" style={{ gap: 8, margin: '12px 0' }}>
+        <span className="hint grow">
+          {editSession.state === 'saved'
+            ? '修改已保存为未确认计划修订：需重新确认或继续执行，不能再放弃这次调整。'
+            : `调整前模式（服务记录）：自动推进 ${editSession.autoAdvanceBeforeEdit ? '开启' : '关闭'}；放弃调整会丢弃本地草稿并恢复该设置与调整前的暂停状态。`}
+        </span>
+        <Button
+          variant="danger"
+          size="sm"
+          icon="x"
+          disabled={command.state.busy || editSession.state === 'saved'}
+          disabledReason={
+            editSession.state === 'saved'
+              ? '修改已保存为未确认计划修订；需重新确认或继续，不能放弃调整。'
+              : '正在提交操作，等待服务回执…'
+          }
+          onClick={() => {
+            setAbandonOpen(true);
+          }}
+        >
+          放弃调整
+        </Button>
+      </div>
 
       <Section
         title="编辑待执行区"
@@ -348,7 +398,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
           </div>
         </div>
         <CommandErrorNotice error={command.state.error} title="保存未完成" />
-        <ReceiptNotice receipt={command.state.receipt} />
+        <ReceiptNotice receipt={command.state.receipt} successMessage={receiptSuccess} />
       </Section>
 
       {editSession.state === 'saved' ? (
@@ -392,6 +442,32 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
           <div className="grow">领取竞态尚未处理完：重新读取并比对后才能保存剩余修改。本地草稿保留。</div>
         </div>
       ) : null}
+
+      <Modal
+        open={abandonOpen}
+        title="放弃这次调整？"
+        onClose={() => {
+          if (!command.state.busy) setAbandonOpen(false);
+        }}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setAbandonOpen(false)} disabled={command.state.busy} disabledReason="正在提交操作，等待服务回执…">
+              继续调整
+            </Button>
+            <Button variant="danger" size="sm" icon="x" disabled={command.state.busy} disabledReason="正在提交操作，等待服务回执…" onClick={abandon}>
+              {command.state.busy ? '正在放弃…' : '放弃调整'}
+            </Button>
+          </>
+        }
+      >
+        <p>
+          本地草稿会丢弃，计划保持修订 {plan?.revisionNumber ?? '—'}；结束暂停新增领取后，服务恢复调整前的设置：自动推进{' '}
+          <b>{editSession.autoAdvanceBeforeEdit ? '开启' : '关闭'}</b>，并恢复调整前的暂停 / 执行状态。
+        </p>
+        <p className="hint" style={{ marginTop: 8 }}>
+          放弃后计划修订不变；若回执未知，只按原 requestKey 核对，不会自动重发。
+        </p>
+      </Modal>
     </div>
   );
 }

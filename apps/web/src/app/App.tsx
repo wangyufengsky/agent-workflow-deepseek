@@ -9,6 +9,7 @@ import { RolesPage } from '../pages/roles/RolesPage.tsx';
 import { DatabasesPage } from '../pages/databases/DatabasesPage.tsx';
 import { ToolsPage } from '../pages/tools/ToolsPage.tsx';
 import { KnowledgePage } from '../pages/knowledge/KnowledgePage.tsx';
+import { KnowledgeHistoryPage } from '../pages/knowledge-history/KnowledgeHistoryPage.tsx';
 import { PptPage } from '../pages/ppt/PptPage.tsx';
 import { ProjectsPage } from '../pages/projects/ProjectsPage.tsx';
 import { RecoveryPage } from '../pages/recovery/RecoveryPage.tsx';
@@ -43,6 +44,7 @@ export function App() {
         <Route path="git/:projectId" element={<GitPage />} />
         <Route path="workflows" element={<WorkflowsPage />} />
         <Route path="knowledge" element={<KnowledgePage />} />
+        <Route path="knowledge/history" element={<KnowledgeHistoryPage />} />
         <Route path="ppt" element={<PptPage />} />
         <Route path="insights" element={<InsightsPage />} />
         <Route path="templates" element={<TemplatesPage />} />

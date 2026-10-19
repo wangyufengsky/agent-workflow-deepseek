@@ -63,20 +63,26 @@
 
 | ID | 任务 | 负责人 | 说明 | 状态 |
 | --- | --- | --- | --- | --- |
-| W2-1 | 自动推进切换 + 整体推进 + 推进直接后继（服务端路由/引擎/回执/UI） | be-exec + fe | 兑现 `executionAdvance`、设计 v4 §C | pending |
-| W2-2 | 放弃调整 `plan/edit/abandon`（恢复原自动推进/暂停模式） | be-exec + fe | 兑现 `planEditAbandon` | pending |
-| W2-3 | 非 Git 工作区清理真正删除副本/baseline + 测试 | be-workspace | 修「假清理」 | pending |
-| W2-4 | 恢复三种模式真实语义（from_failed_stage/all_stages/verify_only） | be-workspace | 不只改标题 | pending |
+| W2-1 | 自动推进切换 + 整体推进 + 推进直接后继（服务端路由/引擎/回执/UI） | be-exec + fe | 兑现 `executionAdvance`、设计 v4 §C | done |
+| W2-2 | 放弃调整 `plan/edit/abandon`（恢复原自动推进/暂停模式） | be-exec + fe | 兑现 `planEditAbandon` | done |
+| W2-3 | 非 Git 工作区清理真正删除副本/baseline + 测试 | be-workspace | 修「假清理」 | done |
+| W2-4 | 恢复三种模式真实语义（from_failed_stage/all_stages/verify_only） | be-workspace | 不只改标题 | done |
 | W2-5 | GitLab host/API base 推导 + `gitlabConfigured` 真实检测 + 真实 smoke | be-workspace | 需要真实 GitLab 凭据（可由用户提供） | pending |
 | W2-6 | 节点验收（若 W0-4 未做） | be-exec | 路由+引擎+UI | pending |
 | W2-7 | 硬编码状态/契约快照剩余项：view actions、tools 计数、database.connected | be-api | — | pending |
 | W2-8 | 远端写失败 UNKNOWN 语义；GitHub 关闭/合并/删分支产品边界确认与文档 | be-workspace | 远端可能已成功 | pending |
-| W2-9 | 静态路径前缀校验、缺 requestKey 400 等健壮性收口 | be-api | — | pending |
+| W2-9 | 静态路径前缀校验、缺 requestKey 400 等健壮性收口 | be-api | — | done |
 
-| W2-10 | 恢复页支持 unknown：把 retry/cancel/skip 入口加入 execution unknown 状态（服务端已支持） | fe | 来自 W0-3 验收 | `apps/web/src/pages/recovery/**`、`apps/web/src/pages/task/**` | unknown 执行可从 UI 重试/跳过；有原因与回执 | pending |
-| W2-11 | PPT generating 启动恢复：进程重启后不永久「生成中」 | be | 来自 W1-1 验收 | `packages/engine/src/ppt.ts`、启动恢复 | 重启后 generating → unknown/failed 可重试 | pending |
+| W2-10 | 恢复页支持 unknown：把 retry/cancel/skip 入口加入 execution unknown 状态（服务端已支持） | fe | 来自 W0-3 验收 | `apps/web/src/pages/recovery/**`、`apps/web/src/pages/task/**` | unknown 执行可从 UI 重试/跳过；有原因与回执 | done |
+| W2-11 | PPT generating 启动恢复：进程重启后不永久「生成中」 | be | 来自 W1-1 验收 | `packages/engine/src/ppt.ts`、启动恢复 | 重启后 generating → unknown/failed 可重试 | done |
 | W2-12 | 远端 fetch/写操作超时语义：前端客户端超时、服务端 UNKNOWN、可核对 | be | 来自 live fetch 探针 | `packages/git`、`packages/engine/src/delivery.ts`、`apps/web/src/api/**` | 超时不静默失败；可按 requestKey 核对；有测试 | pending |
-| W2-13 | `viewActions` 变更回归：确认未知任务视图 404 对前端无破坏，补测试 | be-api | 来自 W0-5 验收 | `packages/server/src/http.ts`、`tests/**` | 未知任务返回 404 JSON；正常任务 actions 完整 | pending |
+| W2-13 | `viewActions` 变更回归：确认未知任务视图 404 对前端无破坏，补测试 | be-api | 来自 W0-5 验收 | `packages/server/src/http.ts`、`tests/**` | 未知任务返回 404 JSON；正常任务 actions 完整 | done |
+
+| W2-4b | verify_only 硬只读：Task 增加只读/恢复模式字段，actions/plan/planning/execution 全部校验 | be | 来自 W2-4 验收 | `shared/domain/models.ts`、`engine/{actions,plan,planning,execution}.ts` | verify_only 任务无法被规划/执行；测试覆盖 | pending |
+| W2-14 | storage 补 `removeJson`，替换清理里直接 SQL DELETE settings | be | 来自 W2-3 验收 | `packages/storage/**`、`engine/workspace.ts` | 不再绕过仓库封装；测试通过 | pending |
+| W2-15 | abandon 恢复「调整前已暂停」：EditSession 持久化 pause 模式 | be | 来自 W2-2 验收 | `shared/domain/models.ts`、`engine/plan.ts`、`engine/execution.ts` | 原暂停任务放弃调整后仍暂停；测试覆盖 | pending |
+| W3-5a | NodeDetailPanel 增加「推进直接后继」入口 | fe | 来自 W2-1 验收 | `apps/web/src/pages/node/**` | 节点面板可推进直接后继并显示回执 | pending |
+| W4-1b | 文档同步 Wave 2（345 tests）并重写 design-coverage 为真实覆盖矩阵 | docs | 来自 W4-1a | `README.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/design-coverage.md` | 计数/状态一致；design-coverage 不再是 verification 副本 | pending |
 
 ### Wave 3 · 设计缺失页与整块能力
 
@@ -88,7 +94,7 @@
 | W3-4 | 知识库体验：研究步骤、来源选择、流式/轮询回答、引用原文面板、研究员面板 | design-pages | 设计 REVIEW §14/B-08 | pending |
 | W3-5 | 任务画布：恢复/冻结计划/审计记录/运行内容入口、快照评审面板（B-07） | design-pages | 设计 task.html | pending |
 | W3-6 | PE37 大需求分组逐步细化：refineScope preview/start、未细化确认拦截 | design-pages | v5 已批准 | pending |
-| W3-7 | 缺失页：knowledge-history、ppt-works、ppt-studio、run、roles-legacy | design-pages | 先只读/空/加载/错误/未知 | pending |
+| W3-7 | 缺失页：knowledge-history、ppt-works、ppt-studio、run、roles-legacy | design-pages | 先只读/空/加载/错误/未知 | in_progress |
 | W3-8 | 工作流编辑器：method CRUD/复制/归档/校验 + 前端画布编辑 | design-pages | 设计 REVIEW §6-7 | pending |
 | W3-9 | 结构缺口批次：任务列表步骤条/行菜单、开始任务三段卡/回执、模板分支/时间/文档、数据库授权项目/类型/三态、设置分区/脏保存、工具范围、需求目录抽屉 | design-pages | 设计细节 | pending |
 | W3-10 | 节点详情子视图：工具详情/产物阅读/引用原文/宽阅读区/补读 | design-pages | 设计 node COVERAGE | pending |
@@ -98,7 +104,7 @@
 
 | ID | 任务 | 负责人 | 说明 | 状态 |
 | --- | --- | --- | --- | --- |
-| W4-1 | 重写 `docs/design-coverage.md`（真实覆盖矩阵），修正 README/remaining-work/verification 矛盾与计数 | docs-keeper | 不得复制 verification | pending |
+| W4-1 | 重写 `docs/design-coverage.md`（真实覆盖矩阵），修正 README/remaining-work/verification 矛盾与计数 | docs-keeper | 不得复制 verification | in_progress |
 | W4-2 | `docs/api.md` 按 ROUTES+服务端注册重新生成；加契约快照脚本进 verify | docs-keeper | 与 W1-10 配合 | pending |
 | W4-3 | 证据体系：live 日志摘要、`docs/evidence/README.md` 清单、截图更新、`test:e2e` 修复、最小 CI | docs-keeper | — | pending |
 | W4-4 | 打包：重新 dist、签名/公证、Windows/Linux 目标评估 | docs-keeper + Lead | 需要环境/凭据 | pending |

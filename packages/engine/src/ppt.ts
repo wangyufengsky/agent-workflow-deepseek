@@ -25,6 +25,44 @@ export class PptService {
     this.#opencode = opencode;
   }
 
+  /**
+   * Startup recovery for PPT works a previous process left `generating`.
+   *
+   * A generation call cannot survive a restart, so the work is marked `failed`
+   * (the legal terminal state of the four-value PPT status, and the state the UI
+   * already offers "regenerate" from). `PptWork` has no notice/error field in the
+   * shared contract, so the interruption is recorded in the `ppt.recovery.<id>`
+   * audit entry and in the settled operation receipt (`GET /api/operations/:key`).
+   * Accepted `ppt.work.generate` / `ppt.work.slides` receipts for that work are
+   * settled to unknown; nothing is redispatched and no model is called.
+   */
+  recoverOnStartup(): { readonly recovered: number; readonly workIds: readonly string[] } {
+    const workIds: string[] = [];
+    const message = '进程重启，PPT 生成中断，结果未保存；可重新生成大纲或逐页内容。';
+    const failure = new AppError(ErrorCode.INTERNAL_ERROR, message);
+    for (const work of this.#store.pptWorks.list()) {
+      if (work.status !== 'generating') continue;
+      this.#store.pptWorks.update({ ...work, status: 'failed' });
+      this.#store.settings.putJson(`ppt.recovery.${work.id}`, {
+        kind: 'startup_recovery',
+        message,
+        at: nowIso(),
+        previousStatus: 'generating',
+        outlineSlides: work.outline.length,
+        slides: work.slides.length,
+      });
+      for (const pending of this.#store.operations.listPending()) {
+        if (pending.operation !== 'ppt.work.generate' && pending.operation !== 'ppt.work.slides') continue;
+        if (pending.target.ref !== work.id) continue;
+        const record = this.#commands.get(pending.requestKey);
+        if (record === undefined || record.status !== 'accepted') continue;
+        this.#commands.fail(pending.requestKey, failure, true);
+      }
+      workIds.push(work.id);
+    }
+    return { recovered: workIds.length, workIds };
+  }
+
   list(): PptWorksResponse {
     return { works: this.#store.pptWorks.list() };
   }

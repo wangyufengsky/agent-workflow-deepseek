@@ -18,8 +18,6 @@ import { createApplication } from '../../packages/server/src/index.ts';
 
 /** ROUTES entries kept intentionally ahead of their server route (dead routes must not multiply). */
 const ROUTES_ONLY_EXCEPTIONS: Readonly<Record<string, string>> = {
-  '/api/tasks/*/plan/edit/abandon': 'W2-2: 放弃计划调整尚未实现；实现后从例外表移除',
-  '/api/tasks/*/execution/advance': 'W2-1: 推进一步/自动推进切换尚未实现；实现后从例外表移除',
   '/api/git/repos/*/merge-requests/*': '远端单个 MR 详情待定（列表已实现）；实现或删除 ROUTES 条目后更新',
 };
 
@@ -101,6 +99,9 @@ test('W1-10: shared ROUTES matches the registered /api surface except the docume
 
     // 4. Newly added ROUTES keys resolve to the expected concrete paths.
     assert.equal(ROUTES.settingsGit, '/api/settings/git');
+    assert.equal(ROUTES.executionAutoAdvance('task_1'), '/api/tasks/task_1/execution/auto-advance');
+    assert.equal(ROUTES.executionAdvance('task_1'), '/api/tasks/task_1/execution/advance');
+    assert.equal(ROUTES.planEditAbandon('task_1'), '/api/tasks/task_1/plan/edit/abandon');
     assert.equal(ROUTES.databaseConnection('db_1'), '/api/settings/databases/db_1');
     assert.equal(ROUTES.pptWorkPptx('ppt_1'), '/api/ppt/works/ppt_1/pptx');
     assert.equal(ROUTES.fixDiff('project_1', 'fix_1'), '/api/git/repos/project_1/fixes/fix_1/diff');

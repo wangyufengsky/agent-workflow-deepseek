@@ -327,6 +327,7 @@ test('startup recovery is a quiet no-op when nothing was in flight', async () =>
       executions: 0,
       planningRounds: 0,
       workspaces: 0,
+      pptWorks: 0,
       affectedTaskIds: [],
       failures: [],
     });

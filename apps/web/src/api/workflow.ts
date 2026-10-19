@@ -14,6 +14,8 @@ import {
   type EditBeginRequest,
   type EditFinishRequest,
   type EditSaveRequest,
+  type ExecutionAdvanceRequest,
+  type ExecutionAutoAdvanceRequest,
   type ExecutionCommandRequest,
   type ExecutionResponse,
   type NodeDetail,
@@ -21,6 +23,7 @@ import {
   type OperationsByKeyResponse,
   type OperationReceipt,
   type OutputFragment,
+  type PlanEditAbandonRequest,
   type PlanResponse,
   type PlanRevision,
   type PlanningApplyRequest,
@@ -306,6 +309,35 @@ export async function prepareWorkspace(
 export async function startExecution(taskId: string, expectedStatus?: string): Promise<CommandResponse<ExecutionResponse>> {
   const body: ExecutionCommandRequest = { requestKey: createRequestKey(), expectedStatus, confirm: true };
   const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionStart(taskId), body);
+  return response.data;
+}
+
+/* ------------------------------------------------------------------ */
+/* W2-1 / W2-2 execution control                                       */
+/* ------------------------------------------------------------------ */
+
+/** Turn automatic node advancement on/off. Closing only affects future claims. */
+export async function setExecutionAutoAdvance(taskId: string, autoAdvance: boolean): Promise<CommandResponse<ExecutionResponse>> {
+  const body: ExecutionAutoAdvanceRequest = { requestKey: createRequestKey(), autoAdvance, confirmChange: true };
+  const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionAutoAdvance(taskId), body);
+  return response.data;
+}
+
+/** Release eligible successors now: all currently satisfied ones, or only one node's direct successors. */
+export async function advanceExecution(taskId: string, nodeId?: string): Promise<CommandResponse<ExecutionResponse>> {
+  const body: ExecutionAdvanceRequest = {
+    requestKey: createRequestKey(),
+    ...(nodeId === undefined ? {} : { nodeId }),
+    confirmAdvance: true,
+  };
+  const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionAdvance(taskId), body);
+  return response.data;
+}
+
+/** Discard the in-progress plan edit and restore the pre-edit auto-advance / pause mode. */
+export async function abandonPlanEdit(taskId: string, editSessionId: string): Promise<CommandResponse<PlanResponse>> {
+  const body: PlanEditAbandonRequest = { requestKey: createRequestKey(), editSessionId, confirmAbandon: true };
+  const response = await apiPost<CommandResponse<PlanResponse>>(ROUTES.planEditAbandon(taskId), body);
   return response.data;
 }
 

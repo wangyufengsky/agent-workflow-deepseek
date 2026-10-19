@@ -1,8 +1,12 @@
 import type {
   AttemptResult,
   CommandResponse,
+  ExecutionAdvanceRequest,
+  ExecutionAutoAdvanceRequest,
   ExecutionCommandRequest,
   ExecutionResponse,
+  ExecutionStatusValue,
+  ErrorCodeValue,
   ExecutionView,
   NodeSkipRequest,
   ModelProfile,
@@ -13,7 +17,7 @@ import type {
   TaskDelivery,
   TokenUsage,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, createId, nowIso } from '@agent-workflow/shared';
+import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nodeMachine, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
@@ -21,6 +25,12 @@ import type { OpenCodePort } from './ports.ts';
 
 interface ResultWaiter {
   resolve(result: AttemptResult): void;
+}
+
+interface AdvanceRelease {
+  readonly ready: readonly string[];
+  readonly waitingFor: readonly { readonly nodeId: string; readonly prerequisites: readonly string[] }[];
+  readonly reason: string;
 }
 
 export interface SubmitNodeResultInput {
@@ -118,6 +128,118 @@ export class ExecutionService {
     this.#commands.settle(input.requestKey, { resumed: true });
     void this.#advance(execution.id);
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
+  }
+
+  /**
+   * Real "自动节点推进" switch (design v4 C01/C04 / AD05).
+   *
+   * Turning it off changes only future claiming: a step that is already running
+   * finishes under its snapshot, then the scheduler parks the execution in
+   * `paused` ("自动推进已关闭，等待推进") where `advance` is the way forward.
+   * Turning it on stores the setting; it does not silently resume a paused
+   * task — the explicit `resume`/`advance` action stays the user's decision.
+   */
+  setAutoAdvance(taskId: string, input: ExecutionAutoAdvanceRequest): CommandResponse<ExecutionResponse> {
+    this.#requireTask(taskId);
+    const execution = this.get(taskId);
+    if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
+    if (input?.confirmChange !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '切换自动推进需要显式确认');
+    if (typeof input.autoAdvance !== 'boolean') throw new AppError(ErrorCode.VALIDATION_FAILED, 'autoAdvance 必须是布尔值');
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'execution.autoAdvance',
+      body: { taskId, autoAdvance: input.autoAdvance, confirmChange: true },
+      target: { taskId, executionId: execution.id },
+    });
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    const allowed: readonly ExecutionStatusValue[] = ['running', 'pausing', 'paused', 'waiting_confirmation', 'unknown', 'failed'];
+    const reject = (message: string, details: Record<string, unknown>): never => {
+      const error = new AppError(ErrorCode.OPERATION_IN_PROGRESS, message, { details });
+      this.#commands.fail(input.requestKey, error);
+      throw error;
+    };
+    if (!allowed.includes(execution.status)) reject(`当前执行状态（${execution.status}）不能切换自动推进`, { status: execution.status, allowed });
+    if (execution.editSession !== undefined && !['finished', 'abandoned'].includes(execution.editSession.state)) {
+      reject('调整待执行计划期间新增领取已暂停；结束或放弃调整后再切换自动推进', { editSessionState: execution.editSession.state });
+    }
+    const updated = this.#store.executions.update(execution.id, { autoAdvance: input.autoAdvance });
+    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: updated?.status ?? execution.status, revision: 1 });
+    this.#commands.settle(input.requestKey, { autoAdvance: input.autoAdvance });
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
+  }
+
+  /**
+   * Manual advance while auto-advance is off (design v4 C01/U5): without a
+   * node id every step whose predecessors are all accepted is released; with a
+   * node id only that step's direct successors are. Releasing does not cascade
+   * in the same call and parallel joins wait for every predecessor to succeed
+   * or be skipped. The released batch then runs; the next advance is needed
+   * only after that batch finished.
+   */
+  advance(taskId: string, input: ExecutionAdvanceRequest): CommandResponse<ExecutionResponse> {
+    this.#requireTask(taskId);
+    const execution = this.get(taskId);
+    if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
+    if (input?.confirmAdvance !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '推进步骤需要显式确认');
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'execution.advance',
+      body: { taskId, nodeId: input.nodeId ?? null, confirmAdvance: true },
+      target: { taskId, executionId: execution.id, ...(input.nodeId === undefined ? {} : { ref: input.nodeId }) },
+    });
+    // A settled replay answers from the stored receipt before any state guard:
+    // the execution may have moved on since the first call.
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    const reject = (code: ErrorCodeValue, message: string, details: Record<string, unknown> = {}): never => {
+      const error = new AppError(code, message, { details });
+      this.#commands.fail(input.requestKey, error);
+      throw error;
+    };
+    if (execution.autoAdvance) reject(ErrorCode.OPERATION_IN_PROGRESS, '自动节点推进已开启，不需要手动推进', { autoAdvance: true });
+    if (execution.editSession !== undefined && !['finished', 'abandoned'].includes(execution.editSession.state)) {
+      reject(ErrorCode.OPERATION_IN_PROGRESS, '调整待执行计划期间新增领取已暂停；先结束或放弃调整', { editSessionState: execution.editSession.state });
+    }
+    if (execution.status !== 'running' && execution.status !== 'paused') {
+      reject(ErrorCode.OPERATION_IN_PROGRESS, `当前执行状态（${execution.status}）不能推进`, { status: execution.status });
+    }
+    if (execution.status === 'paused' && execution.pause?.requestKey !== undefined) {
+      reject(ErrorCode.OPERATION_IN_PROGRESS, '任务已由用户暂停，请先恢复任务再推进', { pausedByUser: true });
+    }
+    const plan = this.#store.plans.get(execution.planRevisionId);
+    if (plan === undefined) {
+      const error = new AppError(ErrorCode.NOT_FOUND, '执行计划不存在', { details: { planRevisionId: execution.planRevisionId } });
+      this.#commands.fail(input.requestKey, error);
+      throw error;
+    }
+    if (input.nodeId !== undefined && !plan.graph.nodes.some((node) => node.id === input.nodeId)) {
+      reject(ErrorCode.NOT_FOUND, '步骤不存在', { nodeId: input.nodeId });
+    }
+    const latest = this.#store.executions.get(execution.id) ?? execution;
+    const release = this.#releaseAdvanceable(latest, plan, input.nodeId);
+    if (release.ready.length === 0) {
+      const error = new AppError(ErrorCode.VALIDATION_FAILED, release.reason, {
+        details: { nodeId: input.nodeId ?? null, waitingFor: release.waitingFor },
+      });
+      this.#commands.fail(input.requestKey, error);
+      throw error;
+    }
+    if (latest.status === 'paused') {
+      // PAUSED -> RUNNING is a legal edge; only the auto-off wait state reaches
+      // here (a user pause was rejected above).
+      assertTransition(executionMachine, latest.status, 'running');
+      this.#store.executions.update(execution.id, { status: 'running', notice: { kind: 'paused', message: '已按手动推进放行步骤；该批完成后再等待推进' } });
+      this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
+    }
+    this.#commands.settle(input.requestKey, { released: release.ready, waitingFor: release.waitingFor });
+    void this.#advance(execution.id);
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
+  }
+
+  /** Resume scheduling after a plan-edit action put an execution back to `running`. */
+  kick(taskId: string): void {
+    const execution = this.get(taskId);
+    if (execution === undefined || execution.status !== 'running') return;
+    void this.#advance(execution.id);
   }
 
   retry(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
@@ -358,19 +480,14 @@ export class ExecutionService {
           this.#store.executions.update(executionId, { status: 'failed', notice: { kind: 'failed', message: '计划不存在' } });
           return;
         }
-        this.#recomputeReady(execution, plan);
+        // Auto-advance releases eligible successors on its own. With the switch
+        // off only an explicit `advance` call releases nodes; the batch already
+        // released still runs here one node at a time.
+        if (execution.autoAdvance) this.#recomputeReady(execution, plan);
         const current = this.#store.executions.get(executionId)!;
         const next = current.nodes.find((node) => node.status === NodeStatus.READY);
         if (next === undefined) {
-          const failed = current.nodes.filter((node) => node.status === NodeStatus.FAILED);
-          const unfinished = current.nodes.filter((node) => node.status !== NodeStatus.SUCCEEDED && node.status !== NodeStatus.SKIPPED && node.status !== NodeStatus.CANCELLED);
-          if (unfinished.length === 0) {
-            this.#completeExecution(task, current);
-          } else if (failed.length > 0) {
-            this.#store.executions.update(executionId, { status: 'failed', endedAt: nowIso(), notice: { kind: 'failed', message: `${failed.length} 个步骤失败` } });
-            this.#store.tasks.update(task.id, { attention: TaskAttention.FAILED });
-            this.#store.events.publish('execution.changed', { taskId: task.id, executionId, status: 'failed', revision: 1 });
-          }
+          this.#settleIdleExecution(task, current);
           return;
         }
         const planNode = plan.graph.nodes.find((node) => node.id === next.nodeId);
@@ -380,17 +497,83 @@ export class ExecutionService {
         }
         await this.#runNode(task, execution, plan, planNode);
         const after = this.#store.executions.get(executionId);
-        if (after === undefined || after.status !== 'running' || !after.autoAdvance) {
-          if (after !== undefined && after.autoAdvance === false && after.status === 'running') {
-            this.#store.executions.update(executionId, { status: 'paused', pause: { settledAt: nowIso() }, notice: { kind: 'paused', message: '自动推进已关闭，等待继续' } });
-            this.#store.events.publish('execution.changed', { taskId: task.id, executionId, status: 'paused', revision: 1 });
-          }
-          return;
-        }
+        if (after === undefined || after.status !== 'running') return;
       }
     } finally {
       this.#loops.delete(executionId);
     }
+  }
+
+  /**
+   * No READY node is left. Complete when every node is terminal, fail when a
+   * node failed, otherwise (manual advance mode) park the execution in the
+   * durable "waiting for advance" state. The pause is composed from the two
+   * legal edges RUNNING -> PAUSING -> PAUSED so it matches machines.ts.
+   */
+  #settleIdleExecution(task: Task, execution: ExecutionView): void {
+    const failed = execution.nodes.filter((node) => node.status === NodeStatus.FAILED);
+    const unfinished = execution.nodes.filter((node) => node.status !== NodeStatus.SUCCEEDED && node.status !== NodeStatus.SKIPPED && node.status !== NodeStatus.CANCELLED);
+    if (unfinished.length === 0) {
+      this.#completeExecution(task, execution);
+      return;
+    }
+    if (failed.length > 0) {
+      this.#store.executions.update(execution.id, { status: 'failed', endedAt: nowIso(), notice: { kind: 'failed', message: `${failed.length} 个步骤失败` } });
+      this.#store.tasks.update(task.id, { attention: TaskAttention.FAILED });
+      this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status: 'failed', revision: 1 });
+      return;
+    }
+    if (execution.autoAdvance) return;
+    assertTransition(executionMachine, execution.status, 'pausing');
+    this.#store.executions.update(execution.id, { status: 'pausing' });
+    this.#store.executions.update(execution.id, { status: 'paused', pause: { settledAt: nowIso() }, notice: { kind: 'paused', message: '自动推进已关闭，等待推进' } });
+    this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status: 'paused', revision: 1 });
+  }
+
+  /**
+   * Release the nodes an `advance` call is allowed to start. A node is
+   * advanceable when its own status is pending/ready and every incoming edge
+   * comes from a succeeded/skipped predecessor (parallel joins included). Nodes
+   * that already ran or are running are skipped; unmet joins are reported so
+   * the HTTP layer can explain the disabled action.
+   */
+  #releaseAdvanceable(execution: ExecutionView, plan: PlanRevision, nodeId?: string): AdvanceRelease {
+    const statuses = new Map(execution.nodes.map((node) => [node.nodeId, node.status]));
+    const candidateIds = nodeId === undefined
+      ? plan.graph.nodes.map((node) => node.id)
+      : plan.graph.edges.filter((edge) => edge.from === nodeId).map((edge) => edge.to);
+    const unique = [...new Set(candidateIds)];
+    const ready: string[] = [];
+    const waitingFor: { nodeId: string; prerequisites: string[] }[] = [];
+    for (const id of unique) {
+      const node = execution.nodes.find((item) => item.nodeId === id);
+      if (node === undefined) continue;
+      if (node.status !== NodeStatus.PENDING && node.status !== NodeStatus.READY) continue;
+      const unmet = plan.graph.edges
+        .filter((edge) => edge.to === id)
+        .filter((edge) => {
+          const source = statuses.get(edge.from);
+          return source !== NodeStatus.SUCCEEDED && source !== NodeStatus.SKIPPED;
+        })
+        .map((edge) => edge.from);
+      if (unmet.length > 0) {
+        waitingFor.push({ nodeId: id, prerequisites: unmet });
+        continue;
+      }
+      if (node.status === NodeStatus.PENDING) {
+        assertTransition(nodeMachine, node.status, NodeStatus.READY);
+        this.#store.executions.updateNode(execution.id, id, { status: NodeStatus.READY });
+      }
+      ready.push(id);
+    }
+    const reason = nodeId === undefined
+      ? '没有可以推进的步骤：正在等待执行中或待验收的步骤'
+      : unique.length === 0
+        ? '该步骤没有直接后继'
+        : ready.length === 0 && waitingFor.length > 0
+          ? '直接后继仍在等待未验收的前置步骤（并行汇合）'
+          : '直接后继已开始或已完成，没有可推进的步骤';
+    return { ready, waitingFor, reason };
   }
 
   #recomputeReady(execution: ExecutionView, plan: PlanRevision): void {

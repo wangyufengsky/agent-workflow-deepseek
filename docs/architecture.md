@@ -7,6 +7,7 @@ Electron 主进程
   ├─ BrowserWindow（renderer = apps/web）
   └─ 子进程：packages/server（Node 24，Electron RUN_AS_NODE 或系统 node）
         ├─ SQLite + JSONL（.data/）
+        ├─ MySQL（mysql2）/ PostgreSQL（pg）只读查询
         ├─ 受管 OpenCode 1.19.0（opencode serve，回环 + Basic 密码）
         │     └─ MCP stdio 子进程（.build/mcp/server.mjs）
         └─ 本机 Git CLI（worktree）
@@ -15,6 +16,7 @@ Electron 主进程
 - renderer 只有 HTTP/SSE：`/api/*`。Electron preload 只暴露最小宿主能力（打开外链、在文件管理器显示、
   选择目录），不做业务代理。
 - 服务端是唯一状态机权威与会话签发者；URL/参数里的 id 只用于选择资源，不授予权限。
+- 未知 `/api/*` 请求返回 JSON 404；SPA 兜底只接管非 API 路由，不会把未知 API 当成页面返回 HTML。
 - OpenCode 与产品之间只有 MCP + 回环内部端点；OpenCode 内置文件/命令工具在权限规则中被禁用，文件写入必须
   走 MCP `workspace.file.*`，服务端按 taskId 解析真实工作区并做根约束。
 
@@ -26,8 +28,8 @@ Electron 主进程
 | storage | SQLite 迁移与仓库、JSONL、密钥 | `migrations.ts`、`store.ts`、`jsonl.ts`、`secrets.ts` |
 | engine | 领域服务（project/task/planning/plan/workspace/execution/delivery） | `engine.ts`、`planning.ts`、`execution.ts` |
 | git | Git CLI 读模型、worktree、远端 REST | `packages/git/src/*` |
-| database | mysql2 只读查询 | `packages/database/src/service.ts` |
-| mcp | 13 个内部工具 + 错误信封 | `packages/mcp/src/tools/*` |
+| database | MySQL（mysql2）与 PostgreSQL（pg）只读查询、探针 | `packages/database/src/service.ts`、`mysql.ts`、`postgres.ts` |
+| mcp | 内部工具 + 错误信封（默认 13 个，按启用工具集计数） | `packages/mcp/src/tools/*` |
 | opencode | 进程管理、配置注入、SSE 事件桥 | `packages/opencode/src/{manager,runner,client}.ts` |
 | server | HTTP/SSE、内部 MCP 端点、Opencode/Git/DB 适配 | `packages/server/src/{http,internal,application}.ts` |
 | web | 壳/画布/页面/主题 | `apps/web/src/*` |
@@ -45,6 +47,8 @@ Electron 主进程
 - 节点：`pending → ready → running → succeeded/failed/cancelled/unknown`；失败可按原配置重试。
 - 工作区：`not_started → preparing → ready / partial / blocked / unknown → cleaning → cleaned`。
 - 回执：`accepted → succeeded / failed / unknown`，unknown 仅可被服务核对结算。
+- 启动恢复：进程启动时 execution running→unknown、planning running→unknown（可 reconcile）、workspace preparing→unknown，
+  并结算持久化的 start/stop 回执（`Engine.recoverOnStartup`），避免重启后永久 running。
 
 `packages/shared/src/domain/machines.test.ts` 覆盖非法迁移与关键路径。
 
@@ -53,6 +57,8 @@ Electron 主进程
 - 写命令必须带 `requestKey`（前端 `createRequestKey()` 在用户确认时生成一次）。
 - 服务端对 body 做稳定序列化哈希；同 key 同 hash 返回原回执，同 key 不同 hash → `REQUEST_KEY_REUSED`。
 - 结果落库 `operations`，并可经 `GET /api/operations/:key` 读回；UNKNOWN 不自动重发、不换 key。
+- `restart`、`git fetch`、数据库登记/删除、GitLab 验证等写/验证命令同样返回合法 `CommandResponse`（含 receipt），
+  前端按回执而不是按裸资源读取结果。
 - 长操作（规划）先返回 accepted，异步推进，最终 `operation.settled` 事件 + 读口权威。
 
 ## 5. 规划流程（已验证真实模型）
@@ -64,7 +70,8 @@ Electron 主进程
 4. 会话结束后 round→completed、stage→awaiting_review（有必须答复问题则为 needs_answer）。
 5. `apply`：要求结构化检查通过、必答问题已答、需人工判断项逐项 accepted；生成未确认计划修订。
 6. `confirm`：计划修订→confirmed，创建 execution + workspace（not_started），任务阶段→preparing。
-7. `workspace/prepare`：Git 项目创建任务分支 + worktree；非 Git 项目走独立目录副本（适配待接线）。
+7. `workspace/prepare`：Git 项目创建任务分支 + worktree；非 Git 项目生成独立目录副本与 baseline 快照，
+   后续交付走「预览 → 冻结 → 逐项应用」（已实现并有集成测试）。
 
 失败/停止/未知：停止请求只标记 stopping，进程停稳且用量结账后才 stopped；结果不明进入 unknown，
 `POST /planning/reconcile` 只按原轮次会话核对，不重发。模型输出超长/未提交时明确失败或从正文解析候选并
