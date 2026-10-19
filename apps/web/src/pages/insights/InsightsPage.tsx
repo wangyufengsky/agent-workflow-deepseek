@@ -1,14 +1,14 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { TaskLifecycle, type TaskLifecycleValue, type TaskSummary } from '@agent-workflow/shared';
-import { useQuery } from '@tanstack/react-query';
+import { ROUTES, TaskLifecycle, createRequestKey, type TaskAcceptanceResponse, type TaskLifecycleValue, type TaskSummary } from '@agent-workflow/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBootstrap } from '../../api/hooks.ts';
-import { apiGet } from '../../api/client.ts';
+import { apiGet, apiPost, errorMessage } from '../../api/client.ts';
 import type { InsightsResponse, InsightsTaskAcceptanceResponse, InsightsTaskQualityResponse, InsightsTaskUsageResponse } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatCount, formatRelativeTime } from '../../app/format.ts';
 import { deriveTaskStatus, sortByUpdatedDesc, taskHref, taskProgressText } from '../../app/taskStatus.ts';
 import { Badge } from '../../components/Badge.tsx';
-import { LinkButton } from '../../components/Button.tsx';
+import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
@@ -33,6 +33,27 @@ function UnknownValue({ reason }: { readonly reason: string }) {
 
 function TaskDetail({ task }: { readonly task: TaskSummary }) {
   const status = deriveTaskStatus(task);
+  const queryClient = useQueryClient();
+  const [note, setNote] = useState('');
+  const acceptanceQuery = useQuery({
+    queryKey: ['task-acceptance', task.id],
+    queryFn: async () => (await apiGet<TaskAcceptanceResponse>(ROUTES.taskAcceptance(task.id))).data,
+    retry: false,
+  });
+  const decide = useMutation({
+    mutationFn: async (verdict: 'accepted' | 'rejected') => {
+      await apiPost(ROUTES.taskAcceptance(task.id), { requestKey: createRequestKey(), verdict, ...(note.trim() === '' ? {} : { note: note.trim() }), confirmDecide: true });
+    },
+    onSuccess: async () => {
+      setNote('');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['task-acceptance', task.id] }),
+        queryClient.invalidateQueries({ queryKey: ['insights', 'task-acceptance'] }),
+      ]);
+    },
+  });
+  const acceptance = acceptanceQuery.data?.acceptance;
+  const canDecide = task.lifecycle === 'completed';
   return (
     <aside className="card solid" aria-label="任务明细" style={{ padding: 20, position: 'sticky', top: 24 }}>
       <div className="row wrap" style={{ gap: 8 }}>
@@ -60,12 +81,30 @@ function TaskDetail({ task }: { readonly task: TaskSummary }) {
         <div className="eyebrow" style={{ marginBottom: 8 }}>
           验收与评审
         </div>
-        <div className="banner unknown">
-          <Icon name="help" />
-          <div className="grow">
-            验收 / 评审结果接口尚未接通；本页不显示通过率、评审结论或人工认定。
+        {acceptanceQuery.data === undefined ? <p className="hint">正在读取人工验收…</p> : acceptance === undefined ? (
+          <div className="col" style={{ gap: 8 }}>
+            <p className="hint">尚未人工验收。{canDecide ? '可以记录验收结论；结论只保存在本机。' : '任务完成后才能记录验收结论。'}</p>
+            <textarea className="textarea" placeholder="验收备注（可选）" value={note} onChange={(event) => { setNote(event.target.value); }} />
+            <div className="row" style={{ gap: 8 }}>
+              <Button variant="primary" size="sm" icon="check" disabled={!canDecide || decide.isPending} disabledReason={canDecide ? undefined : '任务完成后才可验收'} onClick={() => { decide.mutate('accepted'); }}>验收通过</Button>
+              <Button variant="ghost" size="sm" icon="x" disabled={!canDecide || decide.isPending} disabledReason={canDecide ? undefined : '任务完成后才可验收'} onClick={() => { decide.mutate('rejected'); }}>驳回</Button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="col" style={{ gap: 6 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <Badge tone={acceptance.verdict === 'accepted' ? 'ok' : 'wait'} icon={acceptance.verdict === 'accepted' ? 'check' : 'x'}>
+                {acceptance.verdict === 'accepted' ? '人工验收通过' : '人工验收驳回'}
+              </Badge>
+              <span className="hint">{new Date(acceptance.decidedAt).toLocaleString('zh-CN')}</span>
+            </div>
+            {acceptance.note === undefined ? null : <p className="hint">{acceptance.note}</p>}
+            <div className="row" style={{ gap: 8 }}>
+              <Button variant="ghost" size="sm" icon="refresh" disabled={!canDecide || decide.isPending} onClick={() => { decide.mutate(acceptance.verdict === 'accepted' ? 'rejected' : 'accepted'); }}>改为{acceptance.verdict === 'accepted' ? '驳回' : '通过'}</Button>
+            </div>
+          </div>
+        )}
+        {decide.isError ? <p className="hint" style={{ color: 'var(--danger)', marginTop: 6 }}>记录失败：{errorMessage(decide.error)}</p> : null}
       </div>
 
       <div className="section">
@@ -227,6 +266,7 @@ export function InsightsPage() {
                                 {acceptance === undefined || acceptance.total === 0
                                   ? '未执行'
                                   : `${String(acceptance.passed)}/${String(acceptance.total)} 节点通过${acceptance.failed > 0 ? ` · ${String(acceptance.failed)} 失败/未知` : ''}`}
+                                {acceptance?.verdict === undefined ? '' : acceptance.verdict === 'accepted' ? ' · 人工通过' : ' · 人工驳回'}
                               </div>
                               <div className="hint num">
                                 {quality === undefined ? '未审查' : `${String(quality.reviews)} 次审查${quality.openFindings > 0 ? ` · ${String(quality.openFindings)} 待处理` : ' · 无待处理'}`}

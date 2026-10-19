@@ -16,6 +16,7 @@ import type {
   PptWorkGenerateRequest,
   PptWorkGenerateContentRequest,
   PptAttachmentRequest,
+  TaskAcceptanceRequest,
   PptWorkUpdateRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
@@ -597,6 +598,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(engine.knowledge.history(projectId), requestId(request));
   });
   app.get('/api/skills', async (request) => envelope({ skills: discoverSkills() }, requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/acceptance', async (request) => envelope(engine.acceptances.get(request.params.id), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/acceptance', async (request) => {
+    const body = request.body as TaskAcceptanceRequest;
+    return envelope(engine.acceptances.decide(request.params.id, body), requestId(request));
+  });
   app.get('/api/insights/task-acceptance', async (request) => envelope({ items: engine.insights.taskAcceptance() }, requestId(request)));
   app.get('/api/insights/task-quality', async (request) => envelope({ items: engine.insights.taskQuality() }, requestId(request)));
   app.get('/api/insights/task-usage', async (request) => envelope({ usage: engine.insights.taskUsage() }, requestId(request)));

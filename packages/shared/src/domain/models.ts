@@ -988,6 +988,13 @@ export interface PptAttachment {
   readonly addedAt: IsoDateTime;
 }
 
+export interface TaskAcceptance {
+  readonly taskId: TaskId;
+  readonly verdict: 'accepted' | 'rejected';
+  readonly note?: string;
+  readonly decidedAt: IsoDateTime;
+}
+
 export interface PptWork {
   readonly id: string;
   readonly projectId?: ProjectId;

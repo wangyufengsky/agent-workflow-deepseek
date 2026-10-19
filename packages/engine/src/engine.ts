@@ -7,6 +7,7 @@ import { RoleCatalogService } from './role-catalog.ts';
 import { InsightsService } from './insights.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { PptService } from './ppt.ts';
+import { AcceptanceService } from './acceptance.ts';
 import { TemplateCatalogService } from './template-catalog.ts';
 import { ProjectService, TaskService, InboxService } from './project-task.ts';
 import { PlanningService } from './planning.ts';
@@ -46,6 +47,7 @@ export class Engine {
   readonly insights: InsightsService;
   readonly knowledge: KnowledgeService;
   readonly ppt: PptService;
+  readonly acceptances: AcceptanceService;
   readonly templates: TemplateCatalogService;
   readonly planning: PlanningService;
   readonly plans: PlanService;
@@ -93,6 +95,7 @@ export class Engine {
     this.deliveries = new DeliveryService(this.store, this.commands, this.context, this.ports.git, this.workspaces, this.ports.remote);
     this.knowledge = new KnowledgeService({ store: this.store, commands: this.commands, context: this.context, opencode: this.ports.opencode });
     this.ppt = new PptService(this.store, this.commands, this.context, this.ports.opencode);
+    this.acceptances = new AcceptanceService(this.store, this.commands);
   }
 
   get settings(): AppSettings {

@@ -371,4 +371,16 @@ ALTER TABLE ppt_works ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE ppt_works ADD COLUMN theme TEXT NOT NULL DEFAULT 'deepseek';
 `,
   },
+  {
+    version: 10,
+    name: 'task_acceptance',
+    sql: `
+CREATE TABLE IF NOT EXISTS task_acceptance (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+  verdict TEXT NOT NULL,
+  note TEXT,
+  decided_at TEXT NOT NULL
+);
+`,
+  },
 ];

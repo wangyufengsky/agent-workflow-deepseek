@@ -27,6 +27,7 @@ import type {
   PlanNode,
   PlanRevision,
   TokenUsage,
+  TaskAcceptance,
   PlanningPreview,
   PptWork,
   PlanningView,
@@ -290,8 +291,18 @@ export interface InsightsResponse {
   readonly deliveries: { readonly delivered: number; readonly blocked: number; readonly inProgress: number };
 }
 
+export interface TaskAcceptanceRequest extends CommandRequest {
+  readonly verdict: 'accepted' | 'rejected';
+  readonly note?: string;
+  readonly confirmDecide: true;
+}
+
+export interface TaskAcceptanceResponse {
+  readonly acceptance?: TaskAcceptance;
+}
+
 export interface InsightsTaskAcceptanceResponse {
-  readonly items: readonly { readonly taskId: string; readonly passed: number; readonly failed: number; readonly total: number }[];
+  readonly items: readonly { readonly taskId: string; readonly passed: number; readonly failed: number; readonly total: number; readonly verdict?: 'accepted' | 'rejected' }[];
 }
 
 export interface InsightsTaskQualityResponse {
@@ -980,6 +991,7 @@ export const ROUTES = {
   pptWorkAttachment: (id: string, name: string) => `/api/ppt/works/${encodeURIComponent(id)}/attachments/${encodeURIComponent(name)}`,
   pptWorkUpdate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
   pptWorkGenerate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate`,
+  taskAcceptance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/acceptance`,
   taskPlanFromTemplate: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/from-template`,
   taskRecovery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery`,
   taskRecoveries: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recoveries`,

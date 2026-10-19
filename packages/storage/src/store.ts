@@ -12,6 +12,7 @@ import { OperationRepository } from './operations.ts';
 import { DatabaseConnectionRepository, SettingsRepository } from './settings.ts';
 import { FixRepository, RepoRepository, ReviewRepository } from './git.ts';
 import { PptWorkRepository } from './ppt.ts';
+import { TaskAcceptanceRepository } from './acceptance.ts';
 
 export interface StoreOptions {
   readonly dataDir: string;
@@ -42,6 +43,7 @@ export class Store {
   readonly reviews: ReviewRepository;
   readonly fixes: FixRepository;
   readonly pptWorks: PptWorkRepository;
+  readonly acceptances: TaskAcceptanceRepository;
 
   constructor(options: StoreOptions) {
     this.dataDir = options.dataDir;
@@ -67,6 +69,7 @@ export class Store {
     this.reviews = new ReviewRepository(this.db);
     this.fixes = new FixRepository(this.db);
     this.pptWorks = new PptWorkRepository(this.db);
+    this.acceptances = new TaskAcceptanceRepository(this.db);
   }
 
   transaction<T>(fn: () => T): T {

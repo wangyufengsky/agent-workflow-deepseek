@@ -117,6 +117,7 @@ export class InsightsService {
           ORDER BY e.task_id`,
       )
       .all() as unknown as { taskId: string; passed: number; failed: number; total: number }[];
-    return rows.map((row) => ({ taskId: row.taskId, passed: Number(row.passed), failed: Number(row.failed), total: Number(row.total) }));
+    const verdicts = new Map(this.#store.acceptances.list().map((item) => [item.taskId, item.verdict]));
+    return rows.map((row) => ({ taskId: row.taskId, passed: Number(row.passed), failed: Number(row.failed), total: Number(row.total), ...(verdicts.get(row.taskId) === undefined ? {} : { verdict: verdicts.get(row.taskId) }) }));
   }
 }
