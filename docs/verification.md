@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**303 tests / 54 suites / 295 pass / 8 skipped / 0 fail**，约 24s。
+结果（本轮）：**304 tests / 54 suites / 296 pass / 8 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -49,6 +49,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/insights | 真实 SQLite 聚合：任务/规划/执行/尝试/审查/待处理 finding/修复/交付计数；规划成本从 usage_json 累计，未知预算轮次单独计数 |
 | server/skills | 只读扫描 ~/.claude/skills 与 ~/.agents/skills 的 SKILL.md 元数据；可配置扫描目录；不安装/不执行 |
 | server/projects | 名称/说明/项目级设置编辑；同目录重复登记幂等；重新检测路径/Git 状态并落库；归档/恢复 |
+| server/plan-edit | 执行中调整计划：标题/验收/前置依赖（order 边）；自依赖、缺失节点、已领取依赖与环路被拒绝 |
 | server/knowledge | 只读扫描来源、字面量搜索（path:line）、单来源正文读取（≤512KB、路径逃逸拒绝）；不生成模型结论 |
 | server/logs | 受管 OpenCode 日志尾部读取（≤500 行/2KB 行截断）并对 PAT/Bearer/密码形态脱敏 |
 | server/opencode-detect | PATH / ~/.opencode/versions 扫描、候选 --version 探测、当前 binary 标记；不改设置 |

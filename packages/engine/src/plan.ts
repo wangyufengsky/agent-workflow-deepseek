@@ -10,7 +10,7 @@ import type {
   TaskDetailResponse,
   UseSkeletonRequest,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, nowIso } from '@agent-workflow/shared';
+import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, createId, nowIso } from '@agent-workflow/shared';
 import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
@@ -187,8 +187,33 @@ export class PlanService {
       });
       throw new AppError(ErrorCode.STALE_TARGET, '有步骤已被领取，修改被移出；本地草稿保留', { details: { lockedNodeIds: [...locked] } });
     }
+    const nodeIds = new Set(plan.graph.nodes.map((node) => node.id));
+    const prerequisitesChanged = new Set(changes.filter((change) => change.prerequisites !== undefined).map((change) => change.nodeId));
+    const nextEdges = plan.graph.edges.filter((edge) => !prerequisitesChanged.has(edge.to));
+    for (const change of changes) {
+      if (change.prerequisites === undefined) continue;
+      const seen = new Set<string>();
+      for (const prerequisite of change.prerequisites) {
+        if (!nodeIds.has(prerequisite)) {
+          throw new AppError(ErrorCode.VALIDATION_FAILED, '前置步骤不存在', { details: { nodeId: change.nodeId, prerequisite } });
+        }
+        if (prerequisite === change.nodeId) {
+          throw new AppError(ErrorCode.VALIDATION_FAILED, '步骤不能依赖自身', { details: { nodeId: change.nodeId } });
+        }
+        if (locked.has(prerequisite)) {
+          throw new AppError(ErrorCode.STALE_TARGET, '前置步骤已被领取，不能调整依赖', { details: { nodeId: change.nodeId, prerequisite } });
+        }
+        if (seen.has(prerequisite)) continue;
+        seen.add(prerequisite);
+        nextEdges.push({ id: createId('edge'), from: prerequisite, to: change.nodeId, kind: 'order' });
+      }
+    }
+    if (hasCycle(plan.graph.nodes.map((node) => node.id), nextEdges)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '依赖调整会形成环，未保存');
+    }
     const graph = {
       ...plan.graph,
+      edges: nextEdges,
       nodes: plan.graph.nodes.map((node) => {
         const change = changes.find((item) => item.nodeId === node.id);
         if (change === undefined) return node;
@@ -310,4 +335,24 @@ export class PlanService {
 import * as sharedCatalog from '@agent-workflow/shared';
 function requireCatalog(): typeof sharedCatalog {
   return sharedCatalog;
+}
+
+
+function hasCycle(nodeIds: readonly string[], edges: readonly { readonly from: string; readonly to: string }[]): boolean {
+  const adjacency = new Map<string, string[]>();
+  for (const id of nodeIds) adjacency.set(id, []);
+  for (const edge of edges) adjacency.get(edge.from)?.push(edge.to);
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    for (const next of adjacency.get(id) ?? []) if (visit(next)) return true;
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  };
+  for (const id of nodeIds) if (visit(id)) return true;
+  return false;
 }

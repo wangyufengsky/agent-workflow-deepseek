@@ -18,6 +18,7 @@ import { PanelEmpty, Section } from '../requirement/requirement-ui.tsx';
 interface LocalChange {
   readonly title?: string;
   readonly acceptance?: readonly string[];
+  readonly prerequisites?: readonly string[];
 }
 
 export interface PlanEditPanelProps {
@@ -50,11 +51,14 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
   const lockedNodes = nodes.filter((node) => locked.has(node.id));
   const adjustAction = actions.adjustExecutionPlan;
 
+  const currentPrerequisites = (node: PlanNode): readonly string[] =>
+    (plan?.graph.edges ?? []).filter((edge) => edge.to === node.id).map((edge) => edge.from);
   const changeFor = (node: PlanNode): LocalChange => {
     const local = localChanges[node.id] ?? {};
     return {
       title: local.title ?? node.title,
       acceptance: local.acceptance ?? node.acceptance,
+      prerequisites: local.prerequisites ?? currentPrerequisites(node),
     };
   };
 
@@ -67,6 +71,11 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
     if (node === undefined) return false;
     if (change.title !== undefined && change.title !== node.title) return true;
     if (change.acceptance !== undefined && change.acceptance.join('\n') !== node.acceptance.join('\n')) return true;
+    if (change.prerequisites !== undefined) {
+      const current = currentPrerequisites(node).slice().sort().join('|');
+      const next = change.prerequisites.slice().sort().join('|');
+      if (current !== next) return true;
+    }
     return false;
   });
 
@@ -83,6 +92,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
         nodeId,
         ...(node === undefined || change.title === undefined || change.title === node.title ? {} : { title: change.title }),
         ...(node === undefined || change.acceptance === undefined ? {} : { acceptance: change.acceptance }),
+        ...(node === undefined || change.prerequisites === undefined ? {} : { prerequisites: change.prerequisites }),
       };
     });
     if (changes.length === 0) return;
@@ -302,22 +312,30 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
                 <div className="sec-t" style={{ marginTop: 12 }}>
                   前置步骤（表单式依赖，替代拖拽连线）
                 </div>
-                <div className="chip-line">
-                  {plan?.graph.edges
-                    .filter((edge) => edge.to === selectedNode.id)
-                    .map((edge) => {
-                      const from = nodes.find((node) => node.id === edge.from);
-                      return (
-                        <span key={edge.id} className="chip">
-                          <Icon name="lock" size="sm" />
-                          {from?.title ?? edge.from} · {edge.kind}
-                        </span>
-                      );
-                    })}
-                  {plan?.graph.edges.some((edge) => edge.to === selectedNode.id) === true ? null : <span className="hint">无前置步骤</span>}
+                <div className="col" style={{ gap: 6, marginTop: 8 }}>
+                  {nodes.filter((node) => node.id !== selectedNode.id && !locked.has(node.id)).map((node) => {
+                    const checked = (changeFor(selectedNode).prerequisites ?? []).includes(node.id);
+                    return (
+                      <label key={node.id} className="row" style={{ gap: 8, fontSize: 13 }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            const current = changeFor(selectedNode).prerequisites ?? [];
+                            updateLocal(selectedNode, {
+                              prerequisites: checked ? current.filter((id) => id !== node.id) : [...current, node.id],
+                            });
+                          }}
+                        />
+                        <span className="grow">{node.title}</span>
+                        <span className="hint mono">{node.id}</span>
+                      </label>
+                    );
+                  })}
+                  {lockedNodes.length === 0 ? null : <span className="hint">已领取步骤不能作为新依赖。</span>}
                 </div>
                 <p className="hint" style={{ marginTop: 6 }}>
-                  依赖调整未接通：当前服务保存只应用名称与验收，不改动前置步骤；这里只读显示。保存后仍需重新确认计划。
+                  依赖会写成 order 边；保存前服务端校验自依赖、缺失节点与环路。保存后仍需重新确认计划。
                 </p>
                 <div className="plan-edit-actions">
                   <Button variant="primary" size="sm" icon="check" disabled={command.state.busy || dirtyChanges.length === 0} disabledReason={dirtyChanges.length === 0 ? '没有修改可保存' : undefined} onClick={save}>
