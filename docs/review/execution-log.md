@@ -822,3 +822,107 @@
 - **功能证据**：角色保存/发布/历史含新字段（5 个集成测试）、四页签 UI；待验收情况条/去验收/重试；节点详情工具/产物/引用子视图；数据库/工具/模板诚实降级；PE37 引擎全链路（3 个测试）；打包产 346MB .app、未签名/未公证且已记录；PG/GitLab 本机无环境，未伪造 PASS。
 - **范围审计**：设计稿未改；临时配置已清理；`git diff --check` 通过。
 - **状态**：W4-5（真实 PG/GitLab）标记 blocked（需用户提供环境/凭据）；W3-6 引擎完成但 HTTP/UI 未接（W3-6b）；新增 W3-8a/W3-8b 工作流编辑器拆分。
+
+### 21:32 分派 | Wave 3E
+
+- `be-api` → task-41：W3-6b PE37 HTTP/contracts 接线 + W3-1b 项目公约/docPaths/GitLab 后端。
+- `design-audit` → task-42：W3-6b PE37 UI（总览 4 态/选区预览/组候选/确认拦截）。
+- `be-recovery` → task-43：W3-8a 工作流编辑器后端核心（method-catalog.ts + 测试；不接 http/engine/contracts）。
+- `fe-audit` → task-44：W4-3b ui:smoke 兼容 flags + 截图刷新/证据。
+- `docs-audit` → task-45：W4-1e 文档同步 Wave 3D + 打包/blocked 状态。
+- 剩余：W3-4b 研究步骤/流式、W3-5 任务画布扩展/快照评审、W3-8b 工作流编辑器 UI、W4-5/W2-5 真实环境（blocked）、W4-3b。
+
+### 21:36 任务完成 | W3-8a（task-43）| 工作流编辑器后端核心：method catalog CRUD/校验/版本/合并视图
+
+- 负责人：`be-recovery`；写范围（收敛）：新增 `packages/engine/src/method-catalog.ts`、新增 `tests/integration/method-catalog.test.ts`；**未改** `engine.ts`、`http.ts`、`shared/api/contracts.ts`、`shared/domain/*`、`packages/storage/src`、`apps/web/**`。服务类可独立 `new`（测试直接实例化，无 Engine/HTTP 依赖）。
+- **持久化**：自定义流程以 JSON 存在 `store.settings` 的 `catalog.methods.custom`（数组，元素 `{method, version, archived, copiedFrom?, createdAt, updatedAt}`）；请求幂等记录在 `catalog.method.requests`（requestKey→{bodyHash,result}，最多 200 条）。无迁移、无 storage 改动。
+- **引擎 API（`MethodCatalogService`，下一波 be-api 接线）**：
+  - `list(query?: {includeArchived?, source?: 'builtin'|'custom'|'all', q?}): MethodCatalogEntry[]` — **合并视图**：内置 5 条（只读、source=builtin、version 由 revision 尾数解析，如 r12→12）+ 自定义（source=custom、version/archived/updatedAt/copiedFrom）；默认隐藏归档；支持搜索与来源筛选。
+  - `get(id): MethodCatalogDetail` — 内置/自定义同构详情；404 未知；归档仍可读（历史）。
+  - `validate({draft, id?}): {ok, problems[], checks[]}` — 编辑器「检查」+ 保存前复用；`id` 传入时按「正在编辑的基线」校验交付步骤保留。
+  - `create({requestKey, draft, confirmCreate})` / `save(id,{requestKey, method, expectedVersion, confirmSave})` / `copy(id,{requestKey, name?, confirmCopy})` / `archive(id,{requestKey, confirmArchive})` → `{requestKey, replayed, method}`：service 层 requestKey 幂等（同 key 同 body 重放、不同 body → REQUEST_KEY_REUSED），显式 confirm 缺失 400；下一波再包 `CommandService`/回执与 OPERATIONS 注册。
+  - `instantiate(id): {method: WorkflowMethod, source, customVersion?, frozen: true}` — 深拷贝版本快照（已开始的冻结语义）；归档不可用（CONFLICT）、未知 404。
+  - `resolve(id): WorkflowMethod | undefined` — 合并解析（custom 优先，当前无同 id 覆盖）。
+- **默认值**：create 时 `support` 默认 `ai_planning`、`description` 默认空串、`refinableGroups` 默认 `[]`、`planningStrategy` 可选；id 自动生成 `method.custom.<slug>-<8位>`；version 从 1 开始，`revision=r<version>`；copy 默认名「源名称 副本」，版本从 1 开始并记录 `copiedFrom{id,version}`；archive 为版本化状态变更（version+1，含 archivedAt 语义字段 updatedAt），不删除定义/历史。
+- **校验规则（problems code，全部硬失败）**：`NAME_INVALID/DESCRIPTION_TOO_LONG/SUPPORT_INVALID`；`STEPS_EMPTY/STEPS_TOO_MANY(>50)`；`STEP_KEY_INVALID(小写模式)/STEP_KEY_DUPLICATE`；`STEP_TITLE_INVALID/STEP_GROUP_INVALID/STEP_KIND_INVALID`；**交付/验收保留**：必须至少一个 delivery 或 verify 步骤（`DELIVERY_ACCEPTANCE_MISSING`），save 时不能删除基线中的 delivery 步骤 key（`DELIVERY_STEP_REMOVED`）；**职业存在**：`planningStrategy.roleId` 与可选 step `roleId` 必须在有效角色目录（`PLANNING_ROLE_UNKNOWN/STEP_ROLE_UNKNOWN`，默认取实时 `DEFAULT_CATALOG.roles`）；**环路**：前向兼容的可选 step `requires[]` 依赖未知（`STEP_DEPENDENCY_UNKNOWN`）或成环（`METHOD_CYCLE`）；`REFINABLE_GROUP_UNKNOWN/GROUPS_TOO_MANY(>20)`。`checks` 提供 M1–M8 状态供编辑器浮层展示。
+- **版本/冲突**：`save` 必须带 `expectedVersion`；不等于当前版本 → `CONFLICT` + `details.currentVersion`（编辑器「已被更新为版本 N / 查看版本 N / 导出我的修改」）；成功 version+1、revision `rN`。内置流程 save/archive → `VALIDATION_FAILED`（“内置流程只读：请先复制后修改”）。
+- **旧数据兼容**：读取时归一化 raw `WorkflowMethod` 数组、`{methods:[...]}` 整包、以及元素级 `{method,...}` 包装；缺失 `version/archived/description/support/timestamps` 时用 revision 尾数/默认值兜底；坏条目（非 method.custom.*、null）跳过不崩；旧记录可继续 save（版本冲突语义相同）。
+- 测试（`tests/integration/method-catalog.test.ts`，直接 new 服务 + 临时 Store）7 个场景全过：合并视图/内置只读；create/幂等重放/深拷贝 instantiate；save 版本递增+陈旧冲突+校验拒绝；copy 内置/自定义+默认名+名称超长；archive 隐藏/可读/禁止使用/内置拒绝；校验矩阵（空步骤、重复/非法 key、字段缺失、交付移除、未知职业、环路/未知依赖、未知细化组、超 50 步、合法带 step roleId）；旧数据（raw、元素包装、整包包装、坏数据跳过、旧记录继续编辑到 r4）。
+- 验证：`npx tsc -p tsconfig.json --noEmit` → exit 0；`node --import tsx --test --test-force-exit tests/integration/method-catalog.test.ts` → 7 pass / 0 fail；未跑全量 npm test/build（Lead 范围）。
+- **下一波接线清单（be-api/fe）**：
+  1. `packages/engine/src/index.ts` 增加 `export * from './method-catalog.ts'`；Engine 构造/持有 `MethodCatalogService`（可像 RoleCatalog 一样接 `engine.methods`）。
+  2. shared：`OPERATIONS` 加 `catalog.method.create/copy/save/archive`（requestKey 强制），contracts 增 `MethodCatalogEntry/Detail/Draft/Validation/Mutation/Copy/Archive` DTO 与 ROUTES：`GET /api/workflows`（也可用 `/api/catalog/methods`）、`GET /api/workflows/:id`、`POST /api/workflows`、`POST /api/workflows/:id/copy`、`PATCH /api/workflows/:id`（带 expectedVersion）、`DELETE /api/workflows/:id`（archive）、`POST /api/workflows/validate`、`POST /api/workflows/:id/instantiate`（开始任务时选流程版本）。
+  3. HTTP 把 service 的 `{requestKey,replayed,method}` 包成 `CommandResponse`（begin/settle/fail + by-key 核对），把 `VALIDATION_FAILED.details.problems` 原样透传；`CONFLICT.details.currentVersion` 驱动编辑器版本冲突横幅。
+  4. contracts 若要把「谁来做/依赖」正式化，建议 `MethodStepDefinition` 增加可选 `roleId/requires`（当前 method-catalog 已按扩展字段持久化/校验，加字段不破坏旧数据）；「已用于 N 个任务」仍无数据源（设计标 PROPOSED，先隐藏）。
+  5. 前端 W3-8b：目录合并视图（内置/我的）、详情步骤链、复制/归档 Modal、画布保存用 expectedVersion（冲突时不覆盖）、检查浮层用 validate.checks/problems。
+
+### 21:38 任务完成 | W4-1e（task-45）| 文档同步 Wave 3D + 打包/blocked 状态
+
+- 负责人：`docs-audit`；写范围：`README.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/design-coverage.md`；未改 review 报告、`docs/task-assignment.md`、`docs/api.md`、产品代码、设计稿。
+- 计数统一：4 个文档均为 **379 tests / 54 suites / 368 pass / 11 skipped / 0 fail**（62.4s，`.tmp/wave3d-test.log`）；Wave 3D 验收的 build:web/server、`check:docs-routes`（148 路由）、`test:e2e --skip-build` 通过。
+- README：实现状态改为 Wave 0–3D 完成、Wave 3E 进行中；补 Wave 3D 已实现项（角色四页签、W0-4c、W3-10、W3-9c、PE37 引擎、W4-4 打包、W4-5 评估）；「未完成」改为 Wave 3E 进行中（W3-1b/W3-6b/W3-8a/W4-3b）、W3-4b、W3-5、W3-8a/8b、**W4-5/W2-5 blocked（环境变量/补测见 `docs/packaging.md` §7）**、打包残留（346MB 未签名、无 dmg/zip、arm64、默认图标、asar 关闭、GUI sandbox/flags、跨平台/自动更新）、W4-3b、深度项。
+- remaining-work：新增 Wave 3D 完成行（角色四页签、待验收情况条、节点详情子视图、数据库/工具/模板、PE37 引擎、打包/真实环境）；缺口重编 1–9；W4-5/W2-5 blocked 与 W4-4 残留引用 `docs/packaging.md`；不再把 W3-3/W3-9c/W3-10/W3-6 写成进行中。
+- verification：计数 379/368/62.4s；§10 更新角色 B-02/B-03、W0-4c/W3-10、W3-9c 后端、PE37 引擎（HTTP/UI W3-6b）、打包 346MB、W4-5 blocked、design-coverage（148 路由）；新增 **Wave 3D 验收（379 tests）**（角色 5 pass、节点/待验收、W3-9c 33 断言、PE37 3 pass、打包评估、W4-5 blocked）；历史小节标注历史计数。
+- design-coverage：25 页维持 **✅ 3 / 🟡 21 / ⛔ 1**（唯一缺失 `workflow-editor`）；更新 roles（四页签，B-02/B-03 仍缺）、task（W0-4c 完成、W3-5 缺）、node（W3-10 子视图，平移/产物正文降级）、databases/tools/templates（W3-9c 前端降级、后端缺口）、ppt（Wave 3D 未改，仍 W3-7b）；section 3 加 Wave 3D 已闭合 + W4-4 残留/W4-5 blocked。
+- 验证：无旧当前计数（371/360/58.9 仅历史验收小节并标注历史计数）；无「Wave 3D 进行中」旧表述；链接 0 broken；`git diff --check` 干净；**当前 `check:docs-routes` 因 Wave 3E 并行落地的 `planningProposal`/`planningRefinePreview` 契约尚无服务端实现而暂时失败**，按要求未改 `docs/api.md`，待 W3-6b 落地后由 Lead 重新 `npm run docs:api`；未跑全量 test（Lead 已验收 379 tests）。
+- 未覆盖 / 说明：Wave 3E 代码正在并行落地（W3-1b/W3-6b/W3-8a/W4-3b），文档按「进行中/待验收」记录；打包与真实环境 blocked 需用户提供环境/凭据。
+
+### 21:40 任务完成 | W3-6b PE37 HTTP 接线 + W3-1b 项目公约后端（task-41）| be-api
+
+- 负责人：`be-api`；写范围：`packages/shared/src/{api/contracts,errors,domain/models,domain/enums}.ts`、`packages/engine/src/{project-task,engine}.ts`、`packages/server/src/http.ts`、新增 `tests/integration/{pe37-http,charter}.test.ts`。`engine/planning.ts` 未改（proposal/refinePreview/start(scope)/apply/confirm 已具备）；storage 未改（charter 用 settings JSON）。未改 `apps/web/**`、其他服务、docs。契约已同步 Lead 与 design-audit。
+- A) PE37 接线：
+  - `GET /api/tasks/:id/planning/proposal`（只读）→ `{proposal: PlanningProposal}`；`POST /api/tasks/:id/planning/refine-preview`（只读，body `{groupRef}`，无 requestKey/无回执）→ `{preview: RefineScopePreview, taskId}`。
+  - `PlanningStartRequest` 增加可选 `scope:{groupRef}`；`/planning/start` 原样透传（scope 与 refine 预览不一致 409 STALE_TARGET details.previewGroupRef；refine 预览缺 scope 400 details.groupRef，均由引擎既有校验保证）。
+  - `TaskDetail.planning.actions.continuePlanning` 新增：按固定模板/无计划/计划已确认/规划进行中/候选待应用/分组全部细化/只读恢复 分别给出 `FIXED_TEMPLATE_LOCKED`/`PLAN_NOT_READY`/`PLAN_ALREADY_CONFIRMED`/`OPERATION_IN_PROGRESS`/`OPERATION_IN_PROGRESS`/`PLAN_FULLY_REFINED`/`RECOVERY_READ_ONLY`，可继续时 allowed=true 且 reason 带剩余组数；不改 PlanningView（models.ts 契约未动）。
+  - SCOPE 错误保持结构化 details（未新增 ErrorCode）：提前 confirm → 409 `PLAN_REVISION_CONFLICT` + `details={code:'SCOPE_UNREFINED',groups,unresolvedScopes}`；越界候选 apply → 400 `VALIDATION_FAILED` + `details.problems[].code='SCOPE_VIOLATION'`。
+- B) 项目公约（charter）：
+  - `GET /api/projects/:id/charter` → `{charter: ProjectCharterView}`：status none/draft/generating/written/unknown、draft{version,content,source,savedAt}、written{version,path,writtenAt}、current{path:'AGENTS.md',exists,content?,readError?}、versions[]、needsReconcile、capabilities{generate/edit/confirmWrite}。
+  - `PATCH /api/projects/:id/charter`（requestKey，`{content,expectedVersion?}`）保存草稿，版本递增（最多保留 10 版），内容 1–64000 字符，expectedVersion 过期 409 STALE_TARGET；`POST …/charter/confirm`（requestKey，`{confirmWrite:true,expectedVersion?}`）原子写入项目根 `AGENTS.md`（同目录临时文件 + rename；写入前先持久化 `writing` 状态，进程中断后 GET 显示 status='unknown'+needsReconcile=true，不自动重试；EACCES/EPERM/EROFS → 403 FORBIDDEN 且草稿保留）。写成功后 written 记录、draft 清空；同 requestKey 重放返回原回执不重写。
+  - `POST …/charter/generate`（requestKey）诚实返回 **501** `CHARTER_GENERATION_UNAVAILABLE`（模型生成未接线，details.capability/fallback；命令回执 failed）；capabilities.generate.allowed 恒 false，UI 走手动编辑闭环。
+  - `ProjectSettings` 新增 `docPaths?: string[]`（项目根相对路径、0–20 条、拒绝绝对路径/`..`/重复）与 `gitlab?: {inheritGlobal, baseUrl?, projectPath?, enabled?}`（项目级覆盖，仅非敏感配置；inheritGlobal=false 时必须给 http(s) 地址与 group/repo 路径）。复用 `PATCH /api/projects/:id` 的 settings 写入并在项目详情读回。
+  - 新增 OperationKind：`project.charter.generate/update/confirm`（回执审计需要，属共享契约最小补充）。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（前端 agent 收尾后复跑）。
+  - 新增 `node --import tsx --test --test-force-exit tests/integration/pe37-http.test.ts tests/integration/charter.test.ts` → **5 tests / 5 pass / 0 fail**：proposal/refine-preview/continuePlanning/scoped start 的缺 scope+scope 不匹配/SCOPE_UNREFINED confirm 门/计划确认后 action 翻转；越界候选 SCOPE_VIOLATION；charter 全链路（含 501 生成、403 写失败保留草稿、expectedVersion、重放幂等、写后新草稿 current 不变、unknown 恢复）；docPaths/GitLab 覆盖校验与读回。
+  - 回归：`routes-contract + api-contract + pe37-scope-planning + pe37-http + charter + project-archive + project-recheck + server-smoke + node-acceptance + backend-hardening` → 30 pass / 0 fail；`roles-api + role-catalog-extended + charter + pe37-http` → 11 pass / 0 fail。
+  - 运行中 5177 探针：`GET /api/projects/:id/charter` 正确读取真实 AGENTS.md（status none + current.exists/content）；`GET /api/tasks/:id/planning/proposal` 返回 groups/state/placeholder；当前数据无未细化任务，refine-preview 只读路径由集成测试覆盖。
+- 未覆盖 / 说明：
+  1. 公约“模型生成”未接线（本轮按任务允许的最小闭环：读取/手动保存/审阅当前文件/确认写入；generate 为明确 501，不伪造内容）。
+  2. 项目级 GitLab 仅契约+读回，运行时时仍用全局 GitLab 配置（无 token 落入项目设置）；接线远端适配不在本任务范围。
+  3. 写入目标固定为项目根 `AGENTS.md`；docPaths 只保存契约，不参与公约写入。
+  4. 未跑 `build:web`/全量 `npm test`/浏览器点击（Lead 整合范围）。
+
+### 21:43 任务完成 | W4-3b（task-44）| UI 视觉回归兼容 flags + 截图刷新
+
+- 负责人：`fe-audit`；写范围：`scripts/capture-ui.cjs`、`evidence/`、`docs/evidence/README.md`。
+- 脚本：显式 `CAPTURE_UI_NO_SANDBOX=1` 或 `--compat-flags` 才追加 `--no-sandbox --disable-gpu --disable-dev-shm-usage`，默认行为不变；新增可选 `CAPTURE_UI_PORT`、`CAPTURE_UI_TMP_DIR`（默认仍 5288 / `.tmp`）用于隔离并发；失败改为 `app.exit(1)`（此前端口冲突仍以 0 退出）；新增 `CAPTURE_UI_EXTRA=1` 额外截取 roles/ppt（默认不变）。
+- 运行：`CAPTURE_UI_NO_SANDBOX=1 CAPTURE_UI_PORT=5292 CAPTURE_UI_TMP_DIR=.tmp/ui-task44 CAPTURE_UI_EXTRA=1 npm run ui:smoke` → **exit 0**；13 个截图目标全部成功（11 默认 + roles/ppt），数据库抽屉与项目选择器 2 个交互 smoke 通过；GPU 缓存 `Gpu Cache Creation failed` / `SharedImageManager` 为非致命环境噪音，截图 1440×900 写入正常。
+- 证据：根 `evidence/` 11 张 `ui-*.png` 已覆盖为 21:39 产物，并新增 `ui-roles.png`、`ui-ppt.png`；`docs/evidence/` 新增 8 张 `*-2026-10-19.png`（home/tasks/requirement/task/git/settings/roles/ppt），历史 22 张保留；README 重写为 30 张清单/有效性/命令/提交 `449b3ac` 口径。
+- 发现（不在本任务写范围，未修）：设置页左侧分区导航组标题 `.snav .cap` 命中全局首页 `.cap` 样式，计算值 `min-height:300px; display:flex`，导致导航组之间约 300px 大间距；`settings-2026-10-19.png` 与 `evidence/ui-settings.png` 如实显示该问题。需另开设置页样式修复并重新截图。
+- 限制：截图由 21:31 的 `apps/web/dist` + `.build/server/main.mjs` 渲染，HEAD `449b3ac`；若工作树后续还有未提交前端改动，Lead 整合后需 `build:web` + 本 smoke 再刷新。未跑 `build:web`（写范围外）与全量测试；未修改产品代码/设计稿。
+
+### 21:44 任务完成 | W3-6b（task-42）| PE37 分组细化 UI
+
+- 负责人：`design-audit`；写范围：`apps/web/src/pages/requirement/**`、`apps/web/src/pages/tasks/**`。新增 `pe37.ts`、`Pe37Overview.tsx`、`RefineScopeDialog.tsx`、`pe37.css`；改 `RequirementCanvasPage.tsx`、`PlanReviewPanel.tsx`、`dialogs.tsx`；`tasks` 无需要改动。未改 backend/shared/其他页面。
+- 契约匹配（task-41 最终 shared）：独立 `GET /api/tasks/:id/planning/proposal`（`{proposal}`，使用 `PlanningProposal`）、`POST …/planning/refine-preview`（`{groupRef}` → `{preview,taskId}`，`RefineScopePreview`）、`planning/start` 增加 `scope:{groupRef}` 且仍带 `previewId/sourceInputRevision/confirmModelDispatch:true`；`planning.actions.continuePlanning` 的 allowed/reason 直接驱动按钮；`SCOPE_UNREFINED`/`SCOPE_VIOLATION` 从结构化 `details` 解析，不自造 ErrorCode。
+- 总览：PE37 计划存在且未确认时读取 proposal；四态 refined/unrefined/planning/candidate 徽标、每组分覆盖/叶子数/第 N 轮、coverage 总数、unresolvedScopes、limits 全展示；未细化组提供「继续规划选区」，规划中提供「停止本轮」，候选提供「审阅候选」。全部细化前确认禁用并显示缺组原因；proposal 读取中/失败时确认也禁用并写原因。
+- 画布占位：按 `proposal.groups[].state`/`placeholderNodeIds` 为没有真实叶子的未细化/规划中/候选组叠加只读虚线占位（`NodeStatus.UNKNOWN` + lock +「未细化 · 不可执行」），不创建边、不伪造执行状态；点击占位不打开节点详情。分组框 tone 改为 unrefined/scope，图例注明「未细化占位」。已确认计划后隐藏 PE37 总览，不干扰原有执行画布。
+- 继续规划选区：选组后弹 `RefineScopeDialog`，显示第 N 轮、只细化该组、当前计划修订/节点/分组、派发/修订配额、预算/币种、总时限/单次、节点/分组/深度上限、预览有效期、blockers、服务 instructions；过期/阻塞/预览未加载时确认禁用。确认调用 scoped start（新 requestKey + scope），unknown/accepted 锁定显示回执，不自动重发；停止仍复用原 StopPlanningDialog（只停本轮）。
+- 组候选：复用现有 apply/reject/对照图层；新增组候选横幅显示候选组、组内实际差异、组外差异（服务若返回组外改动则警告会被 SCOPE_VIOLATION 拒绝）、跨组依赖条数、应用后本组节点数；应用只写未确认草稿，其他组不变，全部细化后才能确认。确认计划 Modal 逐项展示服务 checks + 前端 full-draft 差异，未细化时本地禁用并说明冻结任务不受影响。
+- 验证：`npx tsc -p tsconfig.json --noEmit` exit 0；本范围 `--noUnusedLocals --noUnusedParameters` 0；`git diff --check` 通过；Vite 5173 对 7 个改动文件转译 HTTP 200；真实 5177 只读 `GET …/planning/proposal`（草稿任务 groups=[]、已确认任务返回 6 个 refined 组）与 `planning.actions.continuePlanning`（PLAN_NOT_READY / PLAN_ALREADY_CONFIRMED）成功；未创建计划/未开始 scoped round/未写数据，未跑 build:web/全量 test，未做浏览器点击。
+- 未覆盖/降级：
+  1. 当前真实数据没有“未细化组”的计划，无法在 5177 走一遍 refine-preview→start→group candidate→apply→confirm 的完整 UI；建议 Lead 用 PE37 测试数据做浏览器 smoke。
+  2. proposal 读取失败时保留计划面板并禁用确认；不把“读取失败”当作全部已细化。
+  3. 组候选跨组依赖数来自服务候选图，不能替代应用时的 SCOPE_VIOLATION 校验；服务错误仍优先。
+  4. `tasks` 页面没有改动：任务列表 DTO 不包含 proposal/未细化组数，不能伪造入口计数。
+
+### 21:45 整合 | Wave 3E 验收通过
+
+- **验收范围**：W3-6b PE37 HTTP+UI、W3-1b 项目公约/docPaths/GitLab 后端、W3-8a method catalog 后端核心、W4-3b 视觉回归/截图、W4-1e 文档同步。
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **391 tests / 54 suites / 380 pass / 11 skipped / 0 fail**（65.0s）。
+- **构建/脚本**：`docs:api` 重生成（153 路由）、`check:docs-routes` OK、`build:web`、`build:server`、`test-e2e --skip-build` 通过。
+- **功能证据**：PE37 proposal/refine-preview/scoped start/确认拦截/组候选 UI；项目公约 GET/PATCH/generate(501)/confirm（写入 AGENTS.md、unknown 恢复）、docPaths/GitLab 项目级覆盖；method catalog CRUD/校验/版本/合并（7 测试）；ui:smoke 兼容 flags 13 截图 + 2 交互 smoke 通过，证据刷新到 HEAD 口径。
+- **范围审计**：设计稿未改；临时配置已清理；`git diff --check` 通过。
+- **新登记 follow-up**：W3-1c（项目详情接 charter UI）、W3-8c（method catalog HTTP/Engine 接线）、W3-8b（流程编辑器 UI）、W3-5（任务画布扩展/快照评审）、W4-3c（设置页导航样式修复+重拍）。
+- **阻塞**：W4-5/W2-5（真实 PG/GitLab）无本机实例/凭据，保持 blocked。

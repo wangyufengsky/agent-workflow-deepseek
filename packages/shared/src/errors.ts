@@ -12,6 +12,10 @@ export const ErrorCode = {
   UNAUTHORIZED: 'UNAUTHORIZED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   CAPABILITY_UNAVAILABLE: 'CAPABILITY_UNAVAILABLE',
+  /** Charter generation needs model dispatch that is not wired yet. */
+  CHARTER_GENERATION_UNAVAILABLE: 'CHARTER_GENERATION_UNAVAILABLE',
+  /** A previous charter write was interrupted; state must be reconciled manually. */
+  CHARTER_STATE_UNKNOWN: 'CHARTER_STATE_UNKNOWN',
   NOT_CONFIGURED: 'NOT_CONFIGURED',
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
   UNKNOWN: 'UNKNOWN',
@@ -140,6 +144,7 @@ export function defaultStatus(code: ErrorCodeValue): number {
     case ErrorCode.WORKSPACE_NAME_CONFLICT:
     case ErrorCode.WORKSPACE_PARTIAL:
     case ErrorCode.PLANNING_BUSY:
+    case ErrorCode.CHARTER_STATE_UNKNOWN:
       return 409;
     case ErrorCode.NOT_CONFIGURED:
     case ErrorCode.PLANNING_UNAVAILABLE:
@@ -157,6 +162,8 @@ export function defaultStatus(code: ErrorCodeValue): number {
     case ErrorCode.BUDGET_EXCEEDED:
     case ErrorCode.MODEL_BUDGET_EXCEEDED:
       return 429;
+    case ErrorCode.CHARTER_GENERATION_UNAVAILABLE:
+      return 501;
     default:
       return 500;
   }

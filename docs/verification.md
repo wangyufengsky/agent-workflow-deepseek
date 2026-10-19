@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（最近一次完整验证：2026-10-19，日志 `.tmp/wave3c-verify.log`）：**371 tests / 54 suites / 360 pass / 11 skipped / 0 fail**，约 58.9s。数字以最近一次 `npm test` 日志为准，不在本文档固定历史计数。
+结果（最近一次完整验证：2026-10-19，日志 `.tmp/wave3d-test.log`）：**379 tests / 54 suites / 368 pass / 11 skipped / 0 fail**，约 62.4s。数字以最近一次 `npm test` 日志为准，不在本文档固定历史计数。
 
 跳过项（共 11）：10 个 `live:` gate（planning / execution / AI review / AI fix / GitHub 写入 / GitHub 只读 / knowledge / provider gateway / PPT / MySQL，需 `AGENT_WORKFLOW_LIVE=1` 或真实凭据）＋ 1 个 MySQL 探测（无可达实例或未提供账号时 skip）。其余测试全部执行。
 
@@ -267,12 +267,16 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理 UI 已接线，非 Git 清理真实删除受管副本/baseline/settings 键；storage `removeJson` 已落地（W2-14）。
 - 恢复三模式真实差异 + `verify_only` 硬只读 + readOnly 投影/`updateDraft` 守卫 + abandon 恢复暂停态均已完成；恢复不复制执行上下文/阶段图。
 - W3-12 已修复：`GET /api/tasks/:id/changes/files/:fileId/diff` 无 headSha 时改用 `git diff base -- path`，有 headSha 时保持 `base..head`；W3-13 把 `fetch` 与 fix push 接入远端 UNKNOWN 结算。
-- 节点验收 gating 已实现（有验收标准的节点 succeeded 后 park 到 paused；accept 后完成、reject 可重试）；W0-4c「待验收情况条」UI 仍在 Wave 3D 进行中。
-- Electron 打包：第 64 轮 `npm run dist` 的未签名 .app 可启动；签名/公证、Windows/Linux 目标、自动更新未验证，且 Wave 0–3C 后未重新打包。
+- 节点验收 gating 已实现（有验收标准的节点 succeeded 后 park 到 paused；accept 后完成、reject 可重试）；W0-4c 待验收情况条/去验收/驳回重试已在 Wave 3D 完成；W3-10 节点详情工具/产物/引用/宽阅读子视图已完成（服务无产物正文/工具增量接口处如实降级，平移到节点未实现）。
+- Electron 打包（W4-4）：Wave 3D 已用当前代码 `npm run dist:dir` 重建 **346MB** 未签名 `.app`（arm64，无 dmg/zip/安装包，默认图标，asar 关闭）；打包内 server/Web smoke PASS；默认 GUI 在本沙箱因 Chromium sandbox/GPU 失败，兼容 flags 离屏捕获 PASS；签名/公证、桌面默认参数验收、Windows/Linux、自动更新、CI 打包未做。完整证据见 `docs/packaging.md` §1/§5/§6/§8/§9。
 - 视觉与证据：W4-3a 已新增 `test:e2e`、最小 CI 与 `docs/evidence/README.md` 清单；但 22 张截图仍是 Wave 0 前历史证据，无像素级视觉回归（W4-3b），`npm run ui:smoke` 在当前沙箱仍失败。
-- 设计覆盖：`docs/design-coverage.md` 已更新到 Wave 3C：25 页中 ✅ 3 / 🟡 21 / ⛔ 1（唯一整页缺失 `workflow-editor`）。`docs/api.md` 由 ROUTES + 服务端注册生成，`check:docs-routes` 接入 `verify`。
+- 设计覆盖：`docs/design-coverage.md` 已更新到 Wave 3D：25 页中 ✅ 3 / 🟡 21 / ⛔ 1（唯一整页缺失 `workflow-editor`）。`docs/api.md` 由 ROUTES + 服务端注册生成（148 路由），`check:docs-routes` 接入 `verify`；Wave 3D 首次因 validate/内部 MCP 未文档化失败，运行 `npm run docs:api` 后通过。
 - 品牌：产品名继续 `agent-workflow` / `Agent Workflow`；设计稿 `opencode-workflow` 仅作来源名，不做全局改名（README「品牌与命名」）。
-- 其他未完成：W3-1b（charter/docPaths/GitLab 绑定）、W3-3（角色四页签，Wave 3D）、W3-4b（研究步骤/流式）、W3-5（任务画布扩展/快照评审）、W3-6（PE37，Wave 3D）、W3-8（工作流编辑器）、W3-9c（数据库/工具/模板结构，Wave 3D）、W3-10（节点详情，Wave 3D）、W4-3b 视觉回归、W4-4 打包、W4-5 真实环境。
+- 角色管理（W3-3，Wave 3D）：四页签/能力/资源权限/形象/发布核对/历史已实现（`role-catalog-extended.test.ts` 5 pass + 前端四页签）；B-02 已发布版本回执核对、B-03 权限预估、形象目录与步骤级使用统计仍无接口/未实现。
+- 数据库/工具/模板（W3-9c，Wave 3D）：前端按真实字段降级（33 项 UI 断言）；后端仍缺数据库授权项目/多 schema/会话只读、工具项目级配置/单工具策略/来源级停用、模板分类/时间范围/源码范围/需求文档/分支与 B-06 归档/自动化档案。
+- PE37（W3-6，Wave 3D）：引擎 API/作用域合并/confirm 前置/SCOPE_VIOLATION 已完成（`pe37-scope-planning.test.ts` 3 pass）；HTTP 契约与 UI 待 W3-6b。
+- W4-5 真实 PG/GitLab 与 W2-5 **blocked**：本机无实例/凭据、仓库无 PG/GitLab live 测试，未伪造 PASS；所需环境变量与补测步骤见 `docs/packaging.md` §7。
+- 其他未完成：W3-1b（charter/docPaths/GitLab 绑定，进行中）、W3-4b（研究步骤/流式）、W3-5（任务画布扩展/快照评审）、W3-8a/W3-8b（工作流编辑器，W3-8a 进行中）、W4-3b 视觉回归、W4-4 残留（签名/公证/安装包/跨平台/自动更新）。
 ## 11. 轮次日志（历史）
 
 ### 第 64 轮打包回归（2026-10-19）
@@ -340,7 +344,7 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 修复：知识库问答请求超时 130s；PPT 大纲 120s、PPT 逐页 150s；问答中提示“模型正在阅读文档，通常 15–90 秒”。
 - 实测（运行中的服务）：知识库问答 **11s** 返回答案、4 条校验引用、usage 24119 tokens；OpenCode ready、MCP 13 工具。
 
-### Wave 0 + Wave 1 验收（2026-10-19；历史计数 330 tests，当前 360 见下）
+### Wave 0 + Wave 1 验收（2026-10-19；历史计数 330 tests，当前 379 见下）
 
 依据 [`docs/review/execution-log.md`](review/execution-log.md) 20:32 整合记录；验收范围 W0-1、W0-2、W0-3、W0-5、W1-1~W1-12（15 个工作包），W0-4 节点验收仍 pending。
 
@@ -381,7 +385,7 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - **UI**：页面验收使用一次性 Electron 冒烟（未进入 `npm test`/CI）；`docs/evidence/` 未更新。
 - **新登记 follow-up**：W0-4b（验收 gating）、W3-1b（charter/docPaths/GitLab 项目绑定）、W3-7c（run/roles-legacy）、W3-9b（结构缺口）、W3-11（主页/品牌）。
 
-### Wave 3B 验收（2026-10-19，360 tests）
+### Wave 3B 验收（2026-10-19；历史计数 360 tests）
 
 依据 [`docs/review/execution-log.md`](review/execution-log.md) 21:06 整合记录；验收范围：W3-2 Inbox interactions 后端 + 前端、W3-7c run/roles-legacy、W2-4b/W2-12/W2-14 后端加固、W4-2 API 文档与路由校验。
 
@@ -394,7 +398,7 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - **UI**：一次性 Electron 冒烟（W3-7c 47 项等）未进入 `npm test`/CI；`npm run ui:smoke` 在当前沙箱仍失败。
 - **新登记 follow-up**：W2-4c（readOnly 投影/updateDraft）、W2-15（abandon 恢复暂停态）、W3-12（diff bug）、W3-13（fetch/fix push UNKNOWN）、W3-7d（run/legacy 面包屑）。
 
-### Wave 3C 验收（2026-10-19，371 tests）
+### Wave 3C 验收（2026-10-19；历史计数 371 tests）
 
 依据 [`docs/review/execution-log.md`](review/execution-log.md) 21:20 整合记录；验收范围：W3-12/W3-13/W2-4c 后端缺陷、W0-4b 节点验收 gating、W2-15 暂停态、W3-4a 知识库体验、W3-9b 设置页、W3-11a/W3-7d 主页/面包屑、W4-3a e2e/CI/证据、W4-1c 文档同步。
 
@@ -404,3 +408,15 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - **功能证据**：diffPage 有/无 headSha 正常；fetch/fix push 超时 → UNKNOWN 可核对；readOnly 投影/写守卫；节点验收 gating（待验收 paused、accept 后 completed、reject 可重试）；abandon 恢复暂停态；知识库来源选择/引用原文 520 面板/研究员面板（研究步骤如实降级）；设置页执行限制/脏保存条/缺失分区降级；主页展示化；run/legacy 面包屑；CI/证据清单。
 - **UI/CI**：页面验收使用一次性 Electron 冒烟（未进入 `npm test`）；CI 尚未在 GitHub 实际运行（本地 YAML 校验）；`docs/evidence/` 22 张仍为历史证据。
 - **新登记 follow-up**：W0-4c（待验收 UI）、W3-4b（研究步骤/流式 DTO）、W3-9c（数据库/工具/模板结构）、W3-11b（品牌，本次决策已记录）、W4-1d（文档同步）、W4-3b（视觉回归/截图）。
+
+### Wave 3D 验收（2026-10-19，379 tests）
+
+依据 [`docs/review/execution-log.md`](review/execution-log.md) 21:30 整合记录；验收范围：W3-3 角色四页签（后端 + 前端）、W0-4c 待验收情况条 + W3-10 节点详情、W3-9c 数据库/工具/模板、W3-6 PE37 引擎、W3-11b 品牌决策、W4-4/W4-5 打包与环境评估、W4-1d 文档同步。
+
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **379 tests / 54 suites / 368 pass / 11 skipped / 0 fail**（62.4s；日志 `.tmp/wave3d-test.log`）。
+- **构建/脚本**：`build:web`、`build:server`、`test:e2e --skip-build` 通过；`check:docs-routes` 首次因 validate/内部 MCP 未文档化失败，运行 `npm run docs:api` 重新生成 `docs/api.md` 后 **exit 0**（148 路由，唯一 warning 为单个 MR 契约预留）。
+- **功能证据**：角色保存/发布/历史含新字段（`role-catalog-extended.test.ts` 5 pass）+ 四页签/资源权限/形象/发布检查；待验收情况条/去验收/驳回重试；节点详情工具/产物/引用/宽阅读子视图；数据库/工具/模板 33 项 UI 断言（诚实降级）；PE37 引擎全链路（`pe37-scope-planning.test.ts` 3 pass）。
+- **打包（W4-4）**：`npm run dist:dir` exit 0 → **346MB 未签名 `.app`**（arm64，无 dmg/zip，默认图标，asar 关闭）；打包内 server/Web smoke PASS；默认 GUI 在本沙箱因 Chromium sandbox/GPU 失败，兼容 flags 离屏捕获 2880×1758 PASS；签名/公证/跨平台/自动更新未做（`docs/packaging.md`）。
+- **真实环境（W4-5）**：本机无 PostgreSQL/GitLab 实例或凭据，仓库无 PG/GitLab live 测试；**标记 blocked，未写任何 live PASS**。所需环境变量/补测步骤见 `docs/packaging.md` §7。
+- **状态/后续**：W4-5 blocked；W3-6 引擎完成但 HTTP/UI 待 W3-6b；W3-8 拆为 W3-8a/W3-8b；W3-1b、W3-4b、W3-5、W4-3b 继续。

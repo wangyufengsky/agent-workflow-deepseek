@@ -9,7 +9,7 @@ import { KnowledgeService } from './knowledge.ts';
 import { PptService } from './ppt.ts';
 import { AcceptanceService } from './acceptance.ts';
 import { TemplateCatalogService } from './template-catalog.ts';
-import { ProjectService, TaskService, InboxService } from './project-task.ts';
+import { CharterService, ProjectService, TaskService, InboxService } from './project-task.ts';
 import { PlanningService } from './planning.ts';
 import { PlanService } from './plan.ts';
 import { WorkspaceService } from './workspace.ts';
@@ -51,6 +51,7 @@ export class Engine {
   readonly context: EngineContext;
   readonly projects: ProjectService;
   readonly tasks: TaskService;
+  readonly charters: CharterService;
   readonly inbox: InboxService;
   readonly recoveries: RecoveryService;
   readonly roleCatalog: RoleCatalogService;
@@ -96,6 +97,7 @@ export class Engine {
     };
     this.projects = new ProjectService(this.store, this.ports.git, this.commands, this.context);
     this.tasks = new TaskService(this.store, this.commands, this.context, this.projects, this.catalog);
+    this.charters = new CharterService(this.store, this.commands);
     this.inbox = new InboxService(this.store, this.tasks);
     this.recoveries = new RecoveryService({ store: this.store, commands: this.commands });
     this.planning = new PlanningService(this.store, this.commands, this.context, this.ports.opencode, () => this.tasks);

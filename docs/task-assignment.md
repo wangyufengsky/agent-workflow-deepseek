@@ -93,15 +93,15 @@
 | W3-3 | 角色管理四页签 + 能力/资源权限/形象/发布检查/权限预估（扩展 RoleDefinition） | design-pages | 设计 REVIEW §23 | done |
 | W3-4 | 知识库体验：研究步骤、来源选择、流式/轮询回答、引用原文面板、研究员面板 | design-pages | 设计 REVIEW §14/B-08 | in_progress |
 | W3-5 | 任务画布：恢复/冻结计划/审计记录/运行内容入口、快照评审面板（B-07） | design-pages | 设计 task.html | in_progress |
-| W3-6 | PE37 大需求分组逐步细化：refineScope preview/start、未细化确认拦截 | design-pages | v5 已批准 | in_progress |
+| W3-6 | PE37 大需求分组逐步细化：refineScope preview/start、未细化确认拦截 | design-pages | v5 已批准 | done |
 | W3-7 | 缺失页：knowledge-history、ppt-works、ppt-studio、run、roles-legacy | design-pages | 先只读/空/加载/错误/未知 | done |
-| W3-8 | 工作流编辑器：method CRUD/复制/归档/校验 + 前端画布编辑 | design-pages | 设计 REVIEW §6-7 | pending |
+| W3-8 | 工作流编辑器：method CRUD/复制/归档/校验 + 前端画布编辑 | design-pages | 设计 REVIEW §6-7 | in_progress |
 | W3-9 | 结构缺口批次：任务列表步骤条/行菜单、开始任务三段卡/回执、模板分支/时间/文档、数据库授权项目/类型/三态、设置分区/脏保存、工具范围、需求目录抽屉 | design-pages | 设计细节 | done |
 | W3-10 | 节点详情子视图：工具详情/产物阅读/引用原文/宽阅读区/补读 | design-pages | 设计 node COVERAGE | done |
 | W3-11 | 主页与品牌：按设计调整主页区块；产品名是否改 `opencode-workflow` 需产品确认 | design-pages | 设计 REVIEW §3 | done |
 
 | W0-4b | 节点验收 gating：验收通过才结束执行/自动推进下游；驳回可触发重跑 | be | 来自 W0-4 验收 | `engine/execution.ts`、`shared/domain/**`、`tests/**` | 设计要求的待验收语义成立；测试覆盖 | done |
-| W3-1b | 项目公约后端：charter 生成/读取/写入；ProjectSettings.docPaths/GitLab 项目绑定契约 | be | 来自 W3-1a | `engine/project-task.ts`、`packages/storage/**`、`server/http.ts`、`shared/**` | 项目详情四页签均有真实数据；测试 | pending |
+| W3-1b | 项目公约后端：charter 生成/读取/写入；ProjectSettings.docPaths/GitLab 项目绑定契约 | be | 来自 W3-1a | `engine/project-task.ts`、`packages/storage/**`、`server/http.ts`、`shared/**` | 项目详情四页签均有真实数据；测试 | done |
 | W3-7c | 剩余设计页：运行内容 run、历史角色配置 roles-legacy | design | 来自 W3-7 | 新增页面/路由 | 两页有真实数据/明确降级；无 mock | pending |
 | W3-9b | 结构缺口批次：模板分支/时间/文档、数据库授权项目/类型/三态、设置脏保存/分区、工具范围、需求目录抽屉 | design | 来自 W3-9a | 对应页面 + 必要后端 | 设计清单逐项验收 | pending |
 | W3-11 | 主页按设计对齐（产品窗口/能力卡/收尾）；品牌名 agent-workflow vs opencode-workflow 由产品确认 | design | 设计 REVIEW §3 | `apps/web/src/pages/home/**`、可能的品牌文案 | 设计结构一致或书面 de-scope | done |
@@ -116,11 +116,17 @@
 | W3-9c | 结构缺口：数据库授权项目/类型/三态、工具范围、模板分支/时间/文档、需求目录抽屉 | design | 来自 W3-9b | 对应页面 + 必要后端 | 设计清单逐项验收 | pending |
 | W3-11b | 品牌名决策：agent-workflow vs opencode-workflow；页头主题入口口径 | design | 来自 W3-11a | 品牌文案/Shell | 产品确认并统一 | pending |
 | W4-1d | 文档同步 Wave 3C（371 tests、gating、设置、知识、CI） | docs | 来自 W4-3a | README/remaining-work/verification/design-coverage | 计数与状态一致 | pending |
-| W4-3b | UI 视觉回归：在可用桌面环境跑 ui:smoke 并重拍关键截图；接入 CI（可选） | docs | 来自 W4-3a | scripts/证据/CI | 截图代表当前 UI；smoke 通过 | pending |
+| W4-3b | UI 视觉回归：在可用桌面环境跑 ui:smoke 并重拍关键截图；接入 CI（可选） | docs | 来自 W4-3a | scripts/证据/CI | 截图代表当前 UI；smoke 通过 | done |
 
-| W3-6b | PE37 HTTP/UI 接线：proposal / refine-preview / scoped start / 组候选/确认禁用原因/总览 4 态 | be+fe | 来自 W3-6 引擎 | `shared/api/contracts.ts`、`server/http.ts`、`engine/project-task.ts`、页面 | 设计 v5 PE37 路径可走通 | pending |
-| W3-8a | 工作流编辑器后端：method 目录 CRUD/复制/归档/校验 + 存储 + 回执 | be | 设计 REVIEW §6-7 | `shared/**`、`engine/**`、`storage/**`、`server/http.ts` | 流程可创建/编辑/复制/归档；测试 | pending |
+| W3-6b | PE37 HTTP/UI 接线：proposal / refine-preview / scoped start / 组候选/确认禁用原因/总览 4 态 | be+fe | 来自 W3-6 引擎 | `shared/api/contracts.ts`、`server/http.ts`、`engine/project-task.ts`、页面 | 设计 v5 PE37 路径可走通 | done |
+| W3-8a | 工作流编辑器后端：method 目录 CRUD/复制/归档/校验 + 存储 + 回执 | be | 设计 REVIEW §6-7 | `shared/**`、`engine/**`、`storage/**`、`server/http.ts` | 流程可创建/编辑/复制/归档；测试 | done |
 | W3-8b | 工作流编辑器前端：画布编辑/添加/插入/删除/撤销/检查/保存/冲突 | fe | 依赖 W3-8a | `apps/web/src/pages/workflows/**`、`App.tsx` | 设计 7 项状态可验收 | pending |
+
+| W3-1c | 项目详情 UI 接入 charter/docPaths/项目级 GitLab：公约页签生成(501)/编辑/确认写入、文档路径保存、GitLab 覆盖读回 | fe | 来自 W3-1b | `apps/web/src/pages/projects/**` | 四页签均有真实数据或明确 501/降级 | pending |
+| W3-8c | method catalog HTTP/Engine 接线：engine.methods、contracts/ROUTES、Engine/http 路由、回执、校验/冲突透传 | be | 来自 W3-8a | `engine/index.ts`、`engine.ts`、`shared/**`、`server/http.ts` | 流程 CRUD 路由可用；测试 | pending |
+| W3-8b | 工作流编辑器前端：目录（内置/我的）、详情步骤链、复制/归档、画布编辑/检查/保存/冲突 | fe | 依赖 W3-8c | `apps/web/src/pages/workflows/**`、`App.tsx` | 设计 7 项状态可验收 | pending |
+| W3-5 | 任务画布扩展：恢复/冻结计划/审计记录/运行内容入口、快照评审 B-07（后端+UI） | be+fe | 设计 task.html/B-07 | `engine/**`、`server/http.ts`、`apps/web/src/pages/task/**` | 入口与面板可用；无 mock | pending |
+| W4-3c | 修设置页 `.snav .cap` 命中首页 `.cap` 导致 300px 间距；重拍设置/相关截图 | fe | 来自 W4-3b | `apps/web/src/pages/settings/settings.css`、`scripts/capture-ui.cjs`、证据 | 设置导航正常；截图更新 | pending |
 
 ### Wave 4 · 文档与验证体系
 

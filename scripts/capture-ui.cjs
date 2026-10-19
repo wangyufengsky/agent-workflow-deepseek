@@ -7,11 +7,24 @@ const { join, resolve } = require('node:path');
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('force-device-scale-factor', '1');
 
+// Opt-in compatibility flags for sandboxed/headless CI hosts. Default behaviour
+// is unchanged: no extra switches are applied unless explicitly requested.
+const compatFlags = process.env.CAPTURE_UI_NO_SANDBOX === '1' || process.argv.includes('--compat-flags');
+if (compatFlags) {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-dev-shm-usage');
+  console.log('[capture] compatibility flags enabled: --no-sandbox --disable-gpu --disable-dev-shm-usage');
+}
+
 const root = resolve(__dirname, '..');
-const dataDir = join(root, '.tmp', 'ui-data');
-const demoProject = join(root, '.tmp', 'demo-project');
+const tmpRoot = process.env.CAPTURE_UI_TMP_DIR === undefined
+  ? join(root, '.tmp')
+  : resolve(root, process.env.CAPTURE_UI_TMP_DIR);
+const dataDir = join(tmpRoot, 'ui-data');
+const demoProject = join(tmpRoot, 'demo-project');
 const evidenceDir = join(root, 'evidence');
-const port = 5288;
+const port = Number(process.env.CAPTURE_UI_PORT ?? 5288);
 const base = `http://127.0.0.1:${port}`;
 
 const sleep = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
@@ -255,6 +268,10 @@ async function main() {
     await capture(window, '/?theme=warm', 'ui-home-warm.png', { expect: ['工作区'], theme: 'warm' });
     await capture(window, '/?theme=spdb', 'ui-home-spdb.png', { expect: ['工作区'], theme: 'spdb' });
     await capture(window, '/?theme=github-white', 'ui-home-github-white.png', { expect: ['工作区'], theme: 'github-white' });
+    if (process.env.CAPTURE_UI_EXTRA === '1') {
+      await capture(window, '/roles', 'ui-roles.png', { expect: ['角色'] });
+      await capture(window, '/ppt', 'ui-ppt.png', { expect: ['PPT'] });
+    }
     await smokeDatabaseForm(window);
     await smokeProjectPicker(window);
     window.destroy();
@@ -269,7 +286,6 @@ async function main() {
 app.whenReady().then(() => {
   main().catch((error) => {
     console.error('[capture] failed', error);
-    process.exitCode = 1;
-    app.quit();
+    app.exit(1);
   });
 });

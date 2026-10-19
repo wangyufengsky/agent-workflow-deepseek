@@ -1,0 +1,152 @@
+/* PE37：分组总览；所有颜色走主题令牌。 */
+.pe37-overview {
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--fill-1);
+}
+
+.pe37-head {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pe37-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+  color: var(--sub);
+  font-size: 12px;
+}
+
+.pe37-stats b {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.pe37-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.pe37-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.pe37-group.state-unrefined,
+.pe37-group.state-planning {
+  border-style: dashed;
+}
+
+.pe37-group.state-candidate {
+  border-color: var(--wait-line);
+  background: var(--wait-fill);
+}
+
+.pe37-group-icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--fill-3);
+  color: var(--sub);
+}
+
+.pe37-group-icon.state-refined {
+  color: var(--ok);
+  background: var(--ok-fill);
+}
+
+.pe37-group-icon.state-planning {
+  color: var(--run);
+  background: var(--run-fill);
+}
+
+.pe37-group-icon.state-candidate {
+  color: var(--wait);
+  background: var(--wait-fill);
+}
+
+.pe37-group-icon.state-unrefined {
+  color: var(--unknown);
+  background: var(--fill-2);
+}
+
+.pe37-group-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.pe37-group-meta {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.pe37-group-meta .sep {
+  margin: 0 5px;
+}
+
+.pe37-group > .btn,
+.pe37-done {
+  margin-left: 36px;
+}
+
+.pe37-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.pe37-limits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 10px;
+  padding-top: 8px;
+  box-shadow: inset 0 1px 0 var(--line);
+  color: var(--sub);
+  font-size: 11.5px;
+}
+
+.pe37-limits b {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.pe37-foot {
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .pe37-group {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+.pe37-overview > .banner {
+  margin-top: 10px;
+}

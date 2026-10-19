@@ -80,11 +80,24 @@ export interface Binding {
 /* Project                                                             */
 /* ------------------------------------------------------------------ */
 
+export interface ProjectGitlabSettings {
+  /** When true the global GitLab integration is used; project fields are ignored. */
+  readonly inheritGlobal: boolean;
+  readonly baseUrl?: string;
+  /** Namespace/project path, e.g. `group/repo` (never a token). */
+  readonly projectPath?: string;
+  readonly enabled?: boolean;
+}
+
 export interface ProjectSettings {
   readonly testCommand?: string;
   readonly gitProvider?: GitProviderValue;
   readonly defaultModelProfileId?: string;
   readonly defaultMethodId?: string;
+  /** Project docs the agent should read, relative to the project root. */
+  readonly docPaths?: readonly string[];
+  /** Project-level GitLab override (non-secret; tokens stay in global settings). */
+  readonly gitlab?: ProjectGitlabSettings;
 }
 
 export interface Project {

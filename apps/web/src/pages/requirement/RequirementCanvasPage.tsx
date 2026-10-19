@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   PLANNING_STAGE_LABEL,
@@ -44,6 +45,9 @@ import { DraftPanel } from './DraftPanel.tsx';
 import { PlanningRecordPanel } from './PlanningRecordPanel.tsx';
 import { PlanningStrip } from './PlanningStrip.tsx';
 import { PlanReviewPanel } from './PlanReviewPanel.tsx';
+import { Pe37Overview, Pe37ScopeNotice } from './Pe37Overview.tsx';
+import { RefineScopeDialog } from './RefineScopeDialog.tsx';
+import { fetchPlanningProposal, pe37ScopeFromError, withPe37Placeholders } from './pe37.ts';
 import { RequirementPanel } from './RequirementPanel.tsx';
 import { TrackingPanel } from './TrackingPanel.tsx';
 import { WorkspacePanel } from './WorkspacePanel.tsx';
@@ -138,6 +142,23 @@ export function RequirementCanvasPage() {
   const rounds = detail?.planning?.rounds ?? [];
   const round = selectRound(rounds, searchParams.get('round'), detail?.planning?.currentRoundId);
   const currentRoundId = detail?.planning?.currentRoundId;
+  const proposalQuery = useQuery({
+    queryKey: ['planning', 'proposal', taskId ?? ''],
+    queryFn: () => fetchPlanningProposal(taskId!),
+    enabled: taskId !== undefined && detail !== undefined && detail.plan !== undefined && detail.plan.status !== 'confirmed'
+      && (detail.planning?.actions.continuePlanning !== undefined || detail.plan.graph.groups.some((group) => !group.refined)),
+    refetchInterval: live.refetchInterval,
+    staleTime: 1_000,
+  });
+  const proposal = proposalQuery.data;
+  const pe37PlanReady = detail?.plan !== undefined && detail.plan.status !== 'confirmed';
+  const pe37Relevant = pe37PlanReady && (
+    (proposal !== undefined && proposal.groups.length > 0)
+    || detail.planning?.actions.continuePlanning !== undefined
+    || detail.plan.graph.groups.some((group) => !group.refined)
+    || proposalQuery.isLoading
+    || proposalQuery.isError
+  );
   const historical = round !== undefined && currentRoundId !== undefined && round.id !== currentRoundId;
   const plan = detail?.plan;
   const candidate = round?.candidate;
@@ -148,6 +169,7 @@ export function RequirementCanvasPage() {
   const checkpointRevision = checkpointRevisionQuery.data;
 
   const [dialog, setDialog] = useState<DialogKind>(null);
+  const [refineGroup, setRefineGroup] = useState<{ readonly groupRef: string; readonly title: string } | null>(null);
   const [pageReceipt, setPageReceipt] = useState<OperationReceipt | undefined>(undefined);
   const [acceptedDecisions, setAcceptedDecisions] = useState<Record<string, boolean>>({});
   const [reconciling, setReconciling] = useState(false);
@@ -156,6 +178,9 @@ export function RequirementCanvasPage() {
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<readonly string[]>([]);
   const [lastPreview, setLastPreview] = useState<PlanningPreviewResponse | undefined>(undefined);
+  const scopeIssue = pe37ScopeFromError(command.state.error);
+  const reconcileScopeIssue = pe37ScopeFromError(reconcileError);
+  const scopeGroupLabels = Object.fromEntries((proposal?.groups ?? []).map((group) => [group.groupRef, group.title]));
 
   useEffect(() => {
     setAcceptedDecisions({});
@@ -254,13 +279,31 @@ export function RequirementCanvasPage() {
     return EMPTY_FLOW_GRAPH;
   }, [candidate?.diff, candidate?.checkpoint?.missingGroups, candidateRevision, checkpointRevision, detail, fixedReason, historical, isFixed, layer, plan, round?.ordinal]);
 
+  const displayedGraph = useMemo(() => {
+    const applies = layer === 'current'
+      || ((layer === 'candidate' || layer === 'compare') && candidateRevision !== undefined);
+    return applies ? withPe37Placeholders(graph, proposal) : graph;
+  }, [candidateRevision, graph, layer, proposal]);
+
+  const selectNode = (nodeId: string | undefined) => {
+    if (nodeId !== undefined && (nodeId.startsWith('placeholder:') || nodeId.startsWith('placeholder.'))) {
+      patchParams({ sel: undefined, tab: 'plan' });
+      return;
+    }
+    patchParams({ sel: nodeId, tab: 'plan' });
+  };
+
   const legend = useMemo<FlowLegendItem[]>(() => {
+    const placeholderLegend: FlowLegendItem[] = proposal?.groups.some((group) => group.state !== 'refined')
+      ? [{ label: '未细化占位', swatch: 'unknown' }]
+      : [];
     if (layer === 'compare') {
       return [
         { label: '新增', swatch: 'added' },
         { label: '修改', swatch: 'modified' },
         { label: '细化替换', swatch: 'replaced' },
         { label: '未变', swatch: 'node' },
+        ...placeholderLegend,
       ];
     }
     if (detail?.execution !== undefined) {
@@ -269,10 +312,11 @@ export function RequirementCanvasPage() {
         { label: '已完成', swatch: 'done' },
         { label: '失败', swatch: 'fail' },
         { label: '未知', swatch: 'unknown' },
+        ...placeholderLegend,
       ];
     }
-    return [];
-  }, [detail?.execution, layer]);
+    return placeholderLegend;
+  }, [detail?.execution, layer, proposal]);
 
   const saveAnswerAction = capabilities.saveAnswer;
   const acceptedIds = (candidate?.validation.humanReview.items ?? []).filter((item) => item.accepted || acceptedDecisions[item.id] === true).map((item) => item.id);
@@ -399,6 +443,10 @@ export function RequirementCanvasPage() {
         ? '该流程尚未配置 AI 规划；可使用骨架并手动调整'
         : undefined;
   const generateAction: ActionAvailability | undefined = methodBlockReason === undefined ? capabilities.generatePlan : { allowed: false, reason: methodBlockReason };
+  const pe37WholePlanBlocked = proposal !== undefined && proposal.unresolvedScopes.length > 0;
+  const pe37WholePlanReason = pe37WholePlanBlocked
+    ? '这是 PE37 分组规划：请对未细化组使用“继续规划选区”，全部细化后再确认计划，不能绕过分组总览做整份细化。'
+    : undefined;
   const skeletonAction = capabilities.useSkeleton;
   const stopAction = capabilities.stopPlanning;
   const reconcileAction = capabilities.reconcile;
@@ -482,8 +530,8 @@ export function RequirementCanvasPage() {
                   variant="secondary"
                   size="sm"
                   icon="sparkle"
-                  disabled={generateAction?.allowed !== true || command.state.busy}
-                  disabledReason={generateAction?.reason}
+                  disabled={generateAction?.allowed !== true || command.state.busy || pe37WholePlanBlocked}
+                  disabledReason={pe37WholePlanReason ?? generateAction?.reason}
                   onClick={() => setDialog('preview')}
                 >
                   {plan === undefined ? '生成计划' : 'AI 细化计划'}
@@ -537,7 +585,9 @@ export function RequirementCanvasPage() {
       <div className="req-banners" aria-live="polite">
         <ConnectionBanner connection={live.connection} transport={live.transport} />
         <CommandErrorNotice error={command.state.error} title="操作未完成" />
+        {scopeIssue === undefined ? null : <Pe37ScopeNotice issue={scopeIssue} labels={scopeGroupLabels} />}
         <CommandErrorNotice error={reconcileError} title="核对未完成" />
+        {reconcileScopeIssue === undefined ? null : <Pe37ScopeNotice issue={reconcileScopeIssue} labels={scopeGroupLabels} />}
         <ReceiptNotice receipt={command.state.receipt} />
         <ReceiptNotice receipt={pageReceipt} />
         {reconcileMessage === undefined ? null : (
@@ -696,13 +746,13 @@ export function RequirementCanvasPage() {
 
       <div className="canvas-body req-body">
         <FlowCanvas
-          graph={graph}
+          graph={displayedGraph}
           ariaLabel="计划画布（方向键不移动节点；Tab 进入节点，Enter 查看；点节点打开详情）"
           layers={layerOptions.length > 0 && (plan !== undefined || candidate !== undefined) ? layerOptions : undefined}
           layer={layer}
           onLayerChange={(next) => patchParams({ layer: next })}
           selectedNodeId={selectedNodeId}
-          onSelectNode={(nodeId) => patchParams({ sel: nodeId, tab: 'plan' })}
+          onSelectNode={selectNode}
           collapsedGroups={collapsedGroups}
           onToggleGroup={(groupId) => {
             setCollapsedGroups((previous) => (previous.includes(groupId) ? previous.filter((id) => id !== groupId) : [...previous, groupId]));
@@ -883,28 +933,48 @@ export function RequirementCanvasPage() {
                 />
               ) : null}
               {tab === 'plan' ? (
-                <PlanReviewPanel
-                  detail={detail}
-                  plan={plan}
-                  candidateRevision={candidateRevision}
-                  round={round}
-                  selectedNodeId={selectedNodeId}
-                  accepted={acceptedDecisions}
-                  onToggleAccepted={(decisionId) => {
-                    setAcceptedDecisions((previous) => ({ ...previous, [decisionId]: !previous[decisionId] }));
-                  }}
-                  onLocateNode={(nodeId) => patchParams({ layer: 'compare', sel: nodeId })}
-                  onApply={() => setDialog('apply')}
-                  onReject={() => setDialog('reject')}
-                  onConfirm={() => setDialog('confirm')}
-                  onOpenWorkspace={() => patchParams({ tab: 'workspace' })}
-                  onOpenRecords={() => patchParams({ tab: 'records' })}
-                  actions={capabilities}
-                  busy={command.state.busy}
-                  historical={historical}
-                  candidateUnsettled={candidateUnsettled}
-                  staleInput={staleInput}
-                />
+                <>
+                  {pe37Relevant ? (
+                    <Pe37Overview
+                      proposal={proposal}
+                      loading={proposalQuery.isLoading}
+                      error={proposalQuery.error}
+                      historical={historical}
+                      busy={command.state.busy}
+                      continueAction={detail.planning?.actions.continuePlanning}
+                      stopAction={capabilities.stopPlanning}
+                      onRetry={() => { void proposalQuery.refetch(); }}
+                      onContinue={(groupRef, title) => { setRefineGroup({ groupRef, title }); }}
+                      onReviewCandidate={() => { patchParams({ tab: 'plan', layer: 'compare', sel: undefined }); }}
+                      onStop={() => { if (!historical) setDialog('stop'); }}
+                    />
+                  ) : null}
+                  <PlanReviewPanel
+                    detail={detail}
+                    plan={plan}
+                    candidateRevision={candidateRevision}
+                    round={round}
+                    proposal={proposal}
+                    proposalPending={pe37PlanReady && proposalQuery.isLoading}
+                    proposalError={pe37PlanReady && proposalQuery.isError}
+                    selectedNodeId={selectedNodeId}
+                    accepted={acceptedDecisions}
+                    onToggleAccepted={(decisionId) => {
+                      setAcceptedDecisions((previous) => ({ ...previous, [decisionId]: !previous[decisionId] }));
+                    }}
+                    onLocateNode={(nodeId) => patchParams({ layer: 'compare', sel: nodeId })}
+                    onApply={() => setDialog('apply')}
+                    onReject={() => setDialog('reject')}
+                    onConfirm={() => setDialog('confirm')}
+                    onOpenWorkspace={() => patchParams({ tab: 'workspace' })}
+                    onOpenRecords={() => patchParams({ tab: 'records' })}
+                    actions={capabilities}
+                    busy={command.state.busy}
+                    historical={historical}
+                    candidateUnsettled={candidateUnsettled}
+                    staleInput={staleInput}
+                  />
+                </>
               ) : null}
               {tab === 'workspace' ? (
                 <WorkspacePanel
@@ -942,6 +1012,7 @@ export function RequirementCanvasPage() {
         onStarted={(receipt) => {
           setPageReceipt(receipt);
           void refresh();
+          void proposalQuery.refetch();
           patchParams({ tab: 'records' });
         }}
       />
@@ -956,6 +1027,7 @@ export function RequirementCanvasPage() {
           setPageReceipt(receipt);
           setAcceptedDecisions({});
           void refresh();
+          void proposalQuery.refetch();
           patchParams({ tab: 'plan', layer: 'current' });
         }}
       />
@@ -967,6 +1039,7 @@ export function RequirementCanvasPage() {
         onRejected={(receipt) => {
           setPageReceipt(receipt);
           void refresh();
+          void proposalQuery.refetch();
         }}
       />
       <StopPlanningDialog
@@ -977,6 +1050,7 @@ export function RequirementCanvasPage() {
         onStopped={(receipt) => {
           setPageReceipt(receipt);
           void refresh();
+          void proposalQuery.refetch();
         }}
       />
       <ConfirmPlanDialog
@@ -984,11 +1058,28 @@ export function RequirementCanvasPage() {
         taskId={taskId}
         detail={detail}
         plan={plan}
+        unresolvedScopes={proposal?.unresolvedScopes}
         onClose={() => setDialog(null)}
         onConfirmed={(receipt) => {
           setPageReceipt(receipt);
           void refresh();
+          void proposalQuery.refetch();
           patchParams({ tab: 'workspace' });
+        }}
+      />
+      <RefineScopeDialog
+        open={refineGroup !== null}
+        taskId={taskId}
+        groupRef={refineGroup?.groupRef ?? null}
+        groupTitle={refineGroup?.title ?? null}
+        sourceInputRevision={task.requirement.revision}
+        onClose={() => { setRefineGroup(null); }}
+        onStarted={(receipt) => {
+          setPageReceipt(receipt);
+          setRefineGroup(null);
+          void refresh();
+          void proposalQuery.refetch();
+          patchParams({ tab: 'records', layer: 'current' });
         }}
       />
     </div>

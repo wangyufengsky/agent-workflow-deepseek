@@ -19,6 +19,8 @@ import {
   stopPlanning,
 } from '../../api/workflow.ts';
 import { CommandErrorNotice, ReceiptNotice } from '../../flow/workflow-ui.tsx';
+import { Pe37ScopeNotice } from './Pe37Overview.tsx';
+import { pe37ScopeFromError } from './pe37.ts';
 import { formatDateTime } from '../../app/format.ts';
 
 interface DialogCommandState {
@@ -156,6 +158,7 @@ export function PlanningPreviewDialog({ open, taskId, nextOrdinal, onClose, onPr
       {loading ? <p className="hint">正在向服务读取规划预览（只读，不调用模型）…</p> : null}
       <CommandErrorNotice error={loadError} title="规划预览读取失败" />
       <CommandErrorNotice error={command.error} />
+      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
       <ReceiptNotice receipt={command.receipt} />
       {data === undefined ? null : (
         <>
@@ -281,6 +284,7 @@ export function ApplyCandidateDialog({ open, taskId, round, candidateRevision, a
       }
     >
       <CommandErrorNotice error={command.error} />
+      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
       <ReceiptNotice receipt={command.receipt} />
       <p>
         应用会把第 {round?.ordinal ?? '—'} 轮候选写入<b>未确认草稿</b>（计划修订 {candidateRevision?.revisionNumber ?? '—'}），
@@ -365,6 +369,7 @@ export function RejectCandidateDialog({ open, taskId, round, onClose, onRejected
       }
     >
       <CommandErrorNotice error={command.error} />
+      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
       <ReceiptNotice receipt={command.receipt} />
       <p>不采用只保留记录，不是删除；已应用的草稿不受影响。当前草稿不变。</p>
       <label className="label" htmlFor="reject-reason" style={{ marginTop: 12 }}>
@@ -433,6 +438,7 @@ export function StopPlanningDialog({ open, taskId, round, onClose, onStopped }: 
       }
     >
       <CommandErrorNotice error={command.error} />
+      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
       <ReceiptNotice receipt={command.receipt} />
       <p>只停止这一轮规划，不影响任何执行中的业务步骤；已有记录、草稿与用量都保留；停止完成前不能开始新一轮。</p>
       <p className="hint" style={{ marginTop: 8 }}>
@@ -451,11 +457,12 @@ export interface ConfirmPlanDialogProps {
   readonly taskId: string;
   readonly detail: TaskDetailResponse | undefined;
   readonly plan: PlanRevision | undefined;
+  readonly unresolvedScopes?: readonly { readonly groupRef: string; readonly title: string }[];
   readonly onClose: () => void;
   readonly onConfirmed: (receipt: OperationReceipt) => void;
 }
 
-export function ConfirmPlanDialog({ open, taskId, detail, plan, onClose, onConfirmed }: ConfirmPlanDialogProps) {
+export function ConfirmPlanDialog({ open, taskId, detail, plan, unresolvedScopes, onClose, onConfirmed }: ConfirmPlanDialogProps) {
   const command = useDialogCommand();
 
   useEffect(() => {
@@ -467,6 +474,10 @@ export function ConfirmPlanDialog({ open, taskId, detail, plan, onClose, onConfi
   const acceptedDecisions = plan?.validation?.humanReview.items.filter((item) => item.accepted).length ?? 0;
   const readResources = nodes.reduce((total, node) => total + node.resources.read.length, 0);
   const writeResources = nodes.reduce((total, node) => total + node.resources.write.length, 0);
+  const unresolved = unresolvedScopes ?? [];
+  const unresolvedReason = unresolved.length === 0
+    ? undefined
+    : `还有 ${String(unresolved.length)} 个组未细化：${unresolved.map((scope) => scope.title).join('、')}；全部细化后才能确认计划。`;
 
   return (
     <Modal
@@ -483,8 +494,8 @@ export function ConfirmPlanDialog({ open, taskId, detail, plan, onClose, onConfi
             variant="primary"
             size="sm"
             icon="check"
-            disabled={command.busy || plan === undefined || plan.status !== 'unconfirmed'}
-            disabledReason={plan === undefined ? '当前没有未确认的计划' : plan.status !== 'unconfirmed' ? `计划当前状态：${PLAN_REVISION_STATUS_LABEL[plan.status]}` : undefined}
+            disabled={command.busy || plan === undefined || plan.status !== 'unconfirmed' || unresolvedReason !== undefined}
+            disabledReason={unresolvedReason ?? (plan === undefined ? '当前没有未确认的计划' : plan.status !== 'unconfirmed' ? `计划当前状态：${PLAN_REVISION_STATUS_LABEL[plan.status]}` : undefined)}
             onClick={() => {
               if (plan === undefined || detail === undefined) return;
               void command.run(
@@ -502,10 +513,21 @@ export function ConfirmPlanDialog({ open, taskId, detail, plan, onClose, onConfi
       }
     >
       <CommandErrorNotice error={command.error} />
+      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
       <ReceiptNotice receipt={command.receipt} />
       <p>
         确认<b>不调用模型，也不会立即执行</b>；确认后下一步才准备工作区，准备成功后单独开始执行。
       </p>
+      {unresolved.length === 0 ? null : (
+        <div className="banner warn" style={{ marginTop: 10 }}>
+          <Icon name="alert" />
+          <div className="grow">
+            <b>还有 {String(unresolved.length)} 个组未细化，确认会被服务拒绝。</b>
+            <br />
+            {unresolved.map((scope) => `“${scope.title}”`).join('、')} 尚未细化；已细化组不会先执行，全部细化后才能确认整份计划。
+          </div>
+        </div>
+      )}
       <dl className="kv-list" style={{ marginTop: 12 }}>
         <dt>计划修订</dt>
         <dd>

@@ -241,3 +241,13 @@
 | 方法 | 路径 | 用途 | 回执 / 语义 |
 | --- | --- | --- | --- |
 | ALL | `/api/opencode/gateway/:secret/v1/*` | OpenCode 内部网关：每次启动随机 secret，仅受管进程使用，不进入共享客户端契约 | 仅受管 OpenCode 使用；随机 secret；不进入共享客户端契约 |
+
+## 其他 / 未分类
+
+| 方法 | 路径 | 用途 | 回执 / 语义 |
+| --- | --- | --- | --- |
+| GET / PATCH | `/api/projects/:id/charter` | （待补说明：projectCharter） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/projects/:id/charter/confirm` | （待补说明：projectCharterConfirm） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/projects/:id/charter/generate` | （待补说明：projectCharterGenerate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/tasks/:id/planning/proposal` | （待补说明：planningProposal） | 读口；无写回执 |
+| POST | `/api/tasks/:id/planning/refine-preview` | （待补说明：planningRefinePreview） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |

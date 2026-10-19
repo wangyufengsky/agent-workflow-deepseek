@@ -1,3 +1,5 @@
+import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { resolve, sep } from 'node:path';
 import type {
   ApiEnvelope,
   CatalogSnapshot,
@@ -5,7 +7,14 @@ import type {
   CreateTaskRequest,
   InboxItem,
   ListTasksQuery,
+  ProjectCharterConfirmRequest,
+  ProjectCharterGenerateRequest,
+  ProjectCharterResponse,
+  ProjectCharterUpdateRequest,
+  ProjectCharterVersion,
+  ProjectCharterView,
   ProjectDetailResponse,
+  ProjectSettings,
   ProjectSummary,
   Task,
   TaskDetailResponse,
@@ -18,12 +27,14 @@ import {
   AppError,
   DEFAULT_CATALOG,
   ErrorCode,
+  PLANNING_ROUND_SCOPE_KEY,
   TaskAttention,
   TaskLifecycle,
   TaskStage,
   createId,
   findMethod,
   nowIso,
+  unresolvedPlanScopes,
 } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import { READ_ONLY_RECOVERY_REASON, computeTaskActions, computeTaskAttention, planningView, readOnlyRecoveryError } from './actions.ts';
@@ -106,11 +117,14 @@ export class ProjectService {
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
     try {
+      const currentSettings = this.#store.projects.get(projectId)?.settings;
       const updated = this.#store.projects.update(projectId, {
         name: input.name,
         description: input.description,
         ...(input.archived === undefined ? {} : { archived: input.archived }),
-        settings: input.settings === undefined ? undefined : { ...this.#store.projects.get(projectId)?.settings, ...input.settings },
+        settings: input.settings === undefined
+          ? undefined
+          : { ...currentSettings, ...normalizeProjectSettingsPatch(input.settings) },
       });
       if (updated === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
       this.#commands.settle(input.requestKey, { projectId });
@@ -316,7 +330,7 @@ export class TaskService {
     const plan = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
     const rounds = this.#store.planning.list(taskId);
     const round = task.currentPlanningRoundId === undefined ? rounds[0] : rounds.find((item) => item.id === task.currentPlanningRoundId) ?? rounds[0];
-    const planning = { ...planningView(taskId, rounds), actions: this.#planningActions(round, task.readOnly === true) };
+    const planning = { ...planningView(taskId, rounds), actions: this.#planningActions(task, plan, round) };
     const execution = task.executionId === undefined ? this.#store.executions.byTask(taskId) : this.#store.executions.get(task.executionId);
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
     const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(taskId) : this.#store.deliveries.get(task.deliveryId);
@@ -343,12 +357,17 @@ export class TaskService {
     };
   }
 
-  #planningActions(round: ReturnType<Store['planning']['get']>, readOnly = false): Record<string, import('@agent-workflow/shared').ActionAvailability> {
-    if (readOnly) {
+  #planningActions(
+    task: Task,
+    plan: ReturnType<Store['plans']['get']>,
+    round: ReturnType<Store['planning']['get']>,
+  ): Record<string, import('@agent-workflow/shared').ActionAvailability> {
+    if (task.readOnly === true) {
       const deniedAction = { allowed: false, reasonCode: 'RECOVERY_READ_ONLY', reason: READ_ONLY_RECOVERY_REASON };
       return {
         startPlanning: deniedAction,
         stopPlanning: deniedAction,
+        continuePlanning: deniedAction,
         reconcile: deniedAction,
         previewNextRound: deniedAction,
       };
@@ -360,6 +379,42 @@ export class TaskService {
       stopPlanning: round !== undefined && ['queued', 'running', 'stopping'].includes(round.status)
         ? { allowed: true }
         : { allowed: false, reasonCode: 'OPERATION_IN_PROGRESS', reason: '当前没有进行中的规划' },
+      continuePlanning: this.#continuePlanningAvailability(task, plan, round),
+    };
+  }
+
+  /**
+   * PE37 S1/S2 entry point: "继续规划选区" is only meaningful while an overview
+   * draft has unrefined groups and no scoped candidate is waiting for apply.
+   */
+  #continuePlanningAvailability(
+    task: Task,
+    plan: ReturnType<Store['plans']['get']>,
+    round: ReturnType<Store['planning']['get']>,
+  ): import('@agent-workflow/shared').ActionAvailability {
+    if (task.fixedTemplate !== undefined) {
+      return { allowed: false, reasonCode: 'FIXED_TEMPLATE_LOCKED', reason: '固定模板任务不能使用分组细化' };
+    }
+    if (plan === undefined) {
+      return { allowed: false, reasonCode: 'PLAN_NOT_READY', reason: '还没有总览草稿，请先生成计划骨架' };
+    }
+    if (plan.status === 'confirmed') {
+      return { allowed: false, reasonCode: 'PLAN_ALREADY_CONFIRMED', reason: '计划已确认，不能继续细化分组' };
+    }
+    if (round !== undefined && ['queued', 'running', 'stopping'].includes(round.status)) {
+      return { allowed: false, reasonCode: 'OPERATION_IN_PROGRESS', reason: '本轮规划仍在进行，请先等待或停止' };
+    }
+    if (round !== undefined && round.status === 'completed' && round.applyStatus === 'not_applied' && round.candidate !== undefined) {
+      return { allowed: false, reasonCode: 'OPERATION_IN_PROGRESS', reason: '候选计划待应用或不采用，处理后再继续分组细化' };
+    }
+    const unresolved = unresolvedPlanScopes(plan.graph);
+    if (unresolved.length === 0) {
+      return { allowed: false, reasonCode: 'PLAN_FULLY_REFINED', reason: '所有分组已细化，可以确认计划' };
+    }
+    const titles = unresolved.slice(0, 3).map((item) => item.title);
+    return {
+      allowed: true,
+      reason: `还有 ${String(unresolved.length)} 个组未细化${titles.length === 0 ? '' : `：${titles.join('、')}`}`,
     };
   }
 
@@ -448,6 +503,293 @@ export class InboxService {
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
       .slice(0, limit);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Project charter (AGENTS.md)                                         */
+/* ------------------------------------------------------------------ */
+
+const CHARTER_KEY_PREFIX = 'project.charter.';
+const CHARTER_FILE = 'AGENTS.md';
+const CHARTER_MAX_CONTENT = 64_000;
+const CHARTER_VERSION_LIMIT = 10;
+
+interface StoredCharterState {
+  readonly status: 'draft' | 'writing' | 'written' | 'generating';
+  readonly draft?: { readonly version: number; readonly content: string; readonly source: 'manual' | 'model' | 'existing_file'; readonly savedAt: string };
+  readonly written?: { readonly version: number; readonly path: string; readonly writtenAt: string };
+  readonly versions: readonly ProjectCharterVersion[];
+  readonly updatedAt: string;
+}
+
+/**
+ * W3-1b project charter: read/save/confirm-write of AGENTS.md. Model generation
+ * is NOT wired (no safe model dispatch budget for a project-level document yet),
+ * so `generate` reports CHARTER_GENERATION_UNAVAILABLE and the UI offers manual
+ * editing. Writes are atomic (temp + rename) and a crash between the persisted
+ * `writing` state and completion surfaces as `status=unknown` on read instead of
+ * being silently retried.
+ */
+export class CharterService {
+  readonly #store: Store;
+  readonly #commands: CommandService;
+
+  constructor(store: Store, commands: CommandService) {
+    this.#store = store;
+    this.#commands = commands;
+  }
+
+  async view(projectId: string): Promise<ProjectCharterView> {
+    const project = this.#requireProject(projectId);
+    const state = this.#state(projectId);
+    const current = await readCharterFile(project.rootPath);
+    const needsReconcile = state?.status === 'writing';
+    const status: ProjectCharterView['status'] = state === undefined
+      ? 'none'
+      : state.status === 'writing'
+        ? 'unknown'
+        : state.status;
+    const generateReason = {
+      allowed: false,
+      reasonCode: 'CHARTER_GENERATION_UNAVAILABLE',
+      reason: '项目公约的模型生成尚未接线；可手动编辑草稿后确认写入',
+    };
+    return {
+      projectId,
+      status,
+      ...(state?.draft === undefined ? {} : { draft: state.draft }),
+      ...(state?.written === undefined ? {} : { written: { version: state.written.version, path: state.written.path, writtenAt: state.written.writtenAt } }),
+      current: { path: CHARTER_FILE, ...current },
+      versions: state?.versions ?? [],
+      needsReconcile,
+      capabilities: {
+        generate: generateReason,
+        edit: { allowed: true },
+        confirmWrite: needsReconcile
+          ? { allowed: false, reasonCode: 'CHARTER_STATE_UNKNOWN', reason: '上次写入状态未明；请先核对 AGENTS.md 或重新编辑草稿' }
+          : state?.draft === undefined
+            ? { allowed: false, reasonCode: 'NO_CHARTER_DRAFT', reason: '还没有可写入的公约草稿' }
+            : { allowed: true },
+      },
+    };
+  }
+
+  async generate(projectId: string, input: ProjectCharterGenerateRequest): Promise<CommandResponse<ProjectCharterResponse>> {
+    this.#requireProject(projectId);
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'project.charter.generate',
+      body: { projectId },
+      target: { projectId },
+    });
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
+    const error = new AppError(ErrorCode.CHARTER_GENERATION_UNAVAILABLE, '项目公约的模型生成尚未接线；可手动编辑草稿后确认写入', {
+      details: { capability: 'generate', fallback: 'PATCH /api/projects/:id/charter' },
+    });
+    this.#commands.fail(input.requestKey, error);
+    throw error;
+  }
+
+  async update(projectId: string, input: ProjectCharterUpdateRequest): Promise<CommandResponse<ProjectCharterResponse>> {
+    const project = this.#requireProject(projectId);
+    const content = normalizeCharterContent(input.content);
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'project.charter.update',
+      body: { projectId, content, expectedVersion: input.expectedVersion },
+      target: { projectId },
+    });
+    if (replayed && record.status !== 'accepted') {
+      return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
+    }
+    try {
+      const state = this.#state(projectId);
+      const latestVersion = state?.draft?.version ?? state?.written?.version ?? 0;
+      if (input.expectedVersion !== undefined && input.expectedVersion !== latestVersion) {
+        throw new AppError(ErrorCode.STALE_TARGET, '公约草稿已变化，请重新读取后再编辑', {
+          details: { expected: input.expectedVersion, actual: latestVersion },
+        });
+      }
+      const now = nowIso();
+      const version = nextCharterVersion(state);
+      const draft = { version, content, source: 'manual' as const, savedAt: now };
+      const versions = [
+        { version, status: 'draft' as const, source: 'manual' as const, savedAt: now },
+        ...(state?.versions ?? []).filter((item) => item.version !== version),
+      ].slice(0, CHARTER_VERSION_LIMIT);
+      this.#save(projectId, { status: 'draft', draft, ...(state?.written === undefined ? {} : { written: state.written }), versions, updatedAt: now });
+      this.#commands.settle(input.requestKey, { projectId, version });
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { charter: await this.view(project.id) } };
+    } catch (error) {
+      this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('保存公约草稿失败'));
+      throw error;
+    }
+  }
+
+  async confirm(projectId: string, input: ProjectCharterConfirmRequest): Promise<CommandResponse<ProjectCharterResponse>> {
+    const project = this.#requireProject(projectId);
+    if (input.confirmWrite !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '写入公约需要显式确认');
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'project.charter.confirm',
+      body: { projectId, expectedVersion: input.expectedVersion },
+      target: { projectId },
+    });
+    if (replayed && record.status !== 'accepted') {
+      return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
+    }
+    const state = this.#state(projectId);
+    try {
+      if (state?.status === 'writing') {
+        throw new AppError(ErrorCode.CHARTER_STATE_UNKNOWN, '上次写入状态未明，请先核对 AGENTS.md 或重新编辑草稿', {
+          details: { path: CHARTER_FILE, fallback: 'PATCH /api/projects/:id/charter' },
+        });
+      }
+      if (state?.draft === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '没有可写入的公约草稿');
+      if (input.expectedVersion !== undefined && input.expectedVersion !== state.draft.version) {
+        throw new AppError(ErrorCode.STALE_TARGET, '公约草稿已变化，请重新读取后再写入', {
+          details: { expected: input.expectedVersion, actual: state.draft.version },
+        });
+      }
+      const rootStat = await stat(project.rootPath).catch(() => undefined);
+      if (rootStat === undefined || !rootStat.isDirectory()) {
+        throw new AppError(ErrorCode.NOT_FOUND, '项目目录不存在或不可访问', { details: { rootPath: project.rootPath } });
+      }
+      const target = resolve(project.rootPath, CHARTER_FILE);
+      if (!target.startsWith(project.rootPath.endsWith(sep) ? project.rootPath : `${project.rootPath}${sep}`)) {
+        throw new AppError(ErrorCode.PATH_ESCAPE, '写入路径越出项目目录');
+      }
+      // Persist the intent first: if the process dies during the write, the
+      // next read reports status=unknown instead of pretending success/failure.
+      this.#save(projectId, { ...state, status: 'writing', updatedAt: nowIso() });
+      const temp = resolve(project.rootPath, `.AGENTS.md.tmp-${String(process.pid)}-${String(Date.now())}`);
+      try {
+        await writeFile(temp, state.draft.content, { encoding: 'utf8', flag: 'wx' });
+        await rename(temp, target);
+      } catch (error) {
+        await rm(temp, { force: true }).catch(() => undefined);
+        this.#save(projectId, { ...state, status: 'draft', updatedAt: nowIso() });
+        throw mapCharterWriteError(error);
+      }
+      const now = nowIso();
+      const written = { version: state.draft.version, path: CHARTER_FILE, writtenAt: now };
+      const versions = state.versions.map((item) => (item.version === state.draft!.version ? { ...item, status: 'written' as const, writtenAt: now, path: CHARTER_FILE } : item));
+      this.#save(projectId, { status: 'written', written, versions, updatedAt: now });
+      this.#commands.settle(input.requestKey, { projectId, version: written.version, path: CHARTER_FILE });
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { charter: await this.view(projectId) } };
+    } catch (error) {
+      this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('写入公约失败'));
+      throw error;
+    }
+  }
+
+  #requireProject(projectId: string) {
+    const project = this.#store.projects.get(projectId);
+    if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
+    return project;
+  }
+
+  #state(projectId: string): StoredCharterState | undefined {
+    return this.#store.settings.getJson<StoredCharterState>(CHARTER_KEY_PREFIX + projectId);
+  }
+
+  #save(projectId: string, state: StoredCharterState): void {
+    this.#store.settings.putJson(CHARTER_KEY_PREFIX + projectId, state);
+  }
+}
+
+function nextCharterVersion(state: StoredCharterState | undefined): number {
+  const known = Math.max(
+    0,
+    state?.draft?.version ?? 0,
+    state?.written?.version ?? 0,
+    ...(state?.versions ?? []).map((item) => item.version),
+  );
+  return known + 1;
+}
+
+function normalizeCharterContent(value: unknown): string {
+  if (typeof value !== 'string') throw new AppError(ErrorCode.VALIDATION_FAILED, '公约内容必须是字符串');
+  if (value.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '公约内容不能为空');
+  if (value.length > CHARTER_MAX_CONTENT) throw new AppError(ErrorCode.VALIDATION_FAILED, `公约内容不能超过 ${String(CHARTER_MAX_CONTENT)} 字符`);
+  return value;
+}
+
+async function readCharterFile(rootPath: string): Promise<{ exists: boolean; content?: string; readError?: string }> {
+  try {
+    return { exists: true, content: await readFile(resolve(rootPath, CHARTER_FILE), 'utf8') };
+  } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT') return { exists: false };
+    return { exists: true, readError: error instanceof Error ? error.message : '读取项目公约失败' };
+  }
+}
+
+function mapCharterWriteError(error: unknown): AppError {
+  if (error instanceof AppError) return error;
+  const code = (error as { code?: string }).code;
+  if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
+    return new AppError(ErrorCode.FORBIDDEN, '没有写入项目文件的权限', { details: { path: CHARTER_FILE } });
+  }
+  if (code === 'ENOSPC') return new AppError(ErrorCode.INTERNAL_ERROR, '写入公约失败：磁盘空间不足');
+  return new AppError(ErrorCode.INTERNAL_ERROR, `写入公约失败：${error instanceof Error ? error.message : '未知错误'}`, {
+    details: { path: CHARTER_FILE },
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Project settings validation                                         */
+/* ------------------------------------------------------------------ */
+
+type MutableProjectSettings = { -readonly [K in keyof ProjectSettings]?: ProjectSettings[K] };
+
+function normalizeProjectSettingsPatch(settings: NonNullable<UpdateProjectRequest['settings']>): MutableProjectSettings {
+  const patch: MutableProjectSettings = { ...settings };
+  if (settings.docPaths !== undefined) patch.docPaths = normalizeDocPaths(settings.docPaths);
+  if (settings.gitlab !== undefined) patch.gitlab = normalizeProjectGitlab(settings.gitlab);
+  return patch;
+}
+
+function normalizeDocPaths(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) throw new AppError(ErrorCode.VALIDATION_FAILED, '文档路径必须是数组', { details: { field: 'docPaths' } });
+  if (value.length > 20) throw new AppError(ErrorCode.VALIDATION_FAILED, '文档路径最多 20 条', { details: { field: 'docPaths' } });
+  const seen = new Set<string>();
+  return value.map((item, index) => {
+    if (typeof item !== 'string') throw new AppError(ErrorCode.VALIDATION_FAILED, `文档路径 ${index + 1} 必须是字符串`);
+    const path = item.trim();
+    if (path === '' || path.length > 500) throw new AppError(ErrorCode.VALIDATION_FAILED, `文档路径 ${index + 1} 长度不合法`);
+    if (path.startsWith('/') || path.includes('\\') || /(^|\/)\.\.(\/|$)/.test(path) || /[\u0000-\u001f\u007f]/.test(path)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, `文档路径 ${index + 1} 必须是项目内相对路径`, { details: { path } });
+    }
+    if (seen.has(path)) throw new AppError(ErrorCode.VALIDATION_FAILED, '文档路径重复', { details: { path } });
+    seen.add(path);
+    return path;
+  });
+}
+
+function normalizeProjectGitlab(value: NonNullable<NonNullable<UpdateProjectRequest['settings']>['gitlab']>): ProjectSettings['gitlab'] {
+  if (value === null || typeof value !== 'object' || typeof value.inheritGlobal !== 'boolean') {
+    throw new AppError(ErrorCode.VALIDATION_FAILED, '项目 GitLab 设置必须包含 inheritGlobal 布尔值', { details: { field: 'settings.gitlab' } });
+  }
+  const baseUrl = value.baseUrl === undefined ? undefined : value.baseUrl.trim();
+  if (baseUrl !== undefined && !/^https?:\/\/[^\s]+$/i.test(baseUrl)) {
+    throw new AppError(ErrorCode.VALIDATION_FAILED, '项目 GitLab 地址必须是 http(s) URL', { details: { field: 'settings.gitlab.baseUrl' } });
+  }
+  const projectPath = value.projectPath === undefined ? undefined : value.projectPath.trim();
+  if (projectPath !== undefined && !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+$/.test(projectPath)) {
+    throw new AppError(ErrorCode.VALIDATION_FAILED, '项目 GitLab 路径需要是 group/repo 形式', { details: { field: 'settings.gitlab.projectPath' } });
+  }
+  if (value.inheritGlobal === false && (baseUrl === undefined || projectPath === undefined)) {
+    throw new AppError(ErrorCode.VALIDATION_FAILED, '不继承全局 GitLab 时需要提供地址与项目路径', { details: { field: 'settings.gitlab' } });
+  }
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
+    throw new AppError(ErrorCode.VALIDATION_FAILED, 'settings.gitlab.enabled 必须是布尔值');
+  }
+  return {
+    inheritGlobal: value.inheritGlobal,
+    ...(baseUrl === undefined ? {} : { baseUrl }),
+    ...(projectPath === undefined ? {} : { projectPath }),
+    ...(value.enabled === undefined ? {} : { enabled: value.enabled }),
+  };
 }
 
 export function computeStageFrom(task: Task): Task['stage'] {

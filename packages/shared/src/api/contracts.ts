@@ -12,6 +12,7 @@ import type {
   ThemeIdValue,
 } from '../domain/enums.ts';
 import type { AppEventEnvelope } from '../domain/events.ts';
+import type { PlanningProposal, RefineScopePreview } from '../domain/planning.ts';
 import type {
   ActionAvailability,
   CatalogSnapshot,
@@ -280,9 +281,69 @@ export interface UpdateProjectRequest {
     readonly testCommand?: string;
     readonly gitProvider?: 'github' | 'gitlab';
     readonly defaultMethodId?: string;
+    readonly docPaths?: readonly string[];
+    readonly gitlab?: {
+      readonly inheritGlobal: boolean;
+      readonly baseUrl?: string;
+      readonly projectPath?: string;
+      readonly enabled?: boolean;
+    };
   };
   readonly archived?: boolean;
   readonly expected?: { readonly updatedAt?: string };
+}
+
+export const PROJECT_CHARTER_STATUSES = ['none', 'draft', 'generating', 'written', 'unknown'] as const;
+export type ProjectCharterStatusValue = (typeof PROJECT_CHARTER_STATUSES)[number];
+
+export interface ProjectCharterDraft {
+  readonly version: number;
+  readonly content: string;
+  readonly source: 'manual' | 'model' | 'existing_file';
+  readonly savedAt: IsoDateTime;
+}
+
+export interface ProjectCharterVersion {
+  readonly version: number;
+  readonly status: 'draft' | 'written';
+  readonly source: 'manual' | 'model' | 'existing_file';
+  readonly savedAt: IsoDateTime;
+  readonly writtenAt?: IsoDateTime;
+  readonly path?: string;
+}
+
+export interface ProjectCharterView {
+  readonly projectId: string;
+  readonly status: ProjectCharterStatusValue;
+  readonly draft?: ProjectCharterDraft;
+  readonly written?: { readonly version: number; readonly path: string; readonly writtenAt: IsoDateTime };
+  readonly current: { readonly path: 'AGENTS.md'; readonly exists: boolean; readonly content?: string; readonly readError?: string };
+  readonly versions: readonly ProjectCharterVersion[];
+  /** A previous write was interrupted; re-read the file, never auto-retry. */
+  readonly needsReconcile: boolean;
+  readonly capabilities: {
+    readonly generate: ActionAvailability;
+    readonly edit: ActionAvailability;
+    readonly confirmWrite: ActionAvailability;
+  };
+}
+
+export interface ProjectCharterResponse {
+  readonly charter: ProjectCharterView;
+}
+
+export interface ProjectCharterGenerateRequest extends CommandRequest {
+  readonly confirmGenerate: true;
+}
+
+export interface ProjectCharterUpdateRequest extends CommandRequest {
+  readonly content: string;
+  readonly expectedVersion?: number;
+}
+
+export interface ProjectCharterConfirmRequest extends CommandRequest {
+  readonly confirmWrite: true;
+  readonly expectedVersion?: number;
 }
 
 export interface ProjectDetailResponse {
@@ -684,6 +745,22 @@ export interface PlanningStartRequest extends CommandRequest {
   readonly previewId: string;
   readonly confirmModelDispatch: true;
   readonly sourceInputRevision: number;
+  /** PE37 S2: required when the preview came from refine-preview. */
+  readonly scope?: { readonly groupRef: string };
+}
+
+/** PE37 S2 read-only refine preview request (no requestKey: nothing changes). */
+export interface PlanningRefinePreviewRequest {
+  readonly groupRef: string;
+}
+
+export interface PlanningProposalResponse {
+  readonly proposal: PlanningProposal;
+}
+
+export interface PlanningRefinePreviewResponse {
+  readonly preview: RefineScopePreview;
+  readonly taskId: string;
 }
 
 export interface PlanningStopRequest extends CommandRequest {
@@ -1334,6 +1411,8 @@ export const ROUTES = {
   requirement: (id: string) => `/api/tasks/${encodeURIComponent(id)}/requirement`,
   planning: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning`,
   planningPreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning/preview`,
+  planningProposal: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning/proposal`,
+  planningRefinePreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning/refine-preview`,
   planningStart: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning/start`,
   planningStop: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning/stop`,
   planningReconcile: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning/reconcile`,
@@ -1408,6 +1487,9 @@ export const ROUTES = {
   fixFileRevert: (projectId: string, fixRunId: string, fileId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/files/${encodeURIComponent(fileId)}/revert`,
   catalogRoles: '/api/catalog/roles',
   projectRecheck: (id: string) => `/api/projects/${encodeURIComponent(id)}/recheck`,
+  projectCharter: (id: string) => `/api/projects/${encodeURIComponent(id)}/charter`,
+  projectCharterGenerate: (id: string) => `/api/projects/${encodeURIComponent(id)}/charter/generate`,
+  projectCharterConfirm: (id: string) => `/api/projects/${encodeURIComponent(id)}/charter/confirm`,
   templateDetail: (id: string) => `/api/templates/${encodeURIComponent(id)}`,
   templateTasks: (id: string) => `/api/templates/${encodeURIComponent(id)}/tasks`,
   catalogRoleSave: '/api/catalog/roles',

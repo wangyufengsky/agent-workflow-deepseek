@@ -22,6 +22,7 @@ import type {
   PptWorkUpdateRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
+  PlanningRefinePreviewRequest,
   CommandRequest,
   CreateProjectRequest,
   CreateTaskRequest,
@@ -29,6 +30,9 @@ import type {
   ListTasksQuery,
   PrepareWorkspaceRequest,
   UpdateDraftRequest,
+  ProjectCharterConfirmRequest,
+  ProjectCharterGenerateRequest,
+  ProjectCharterUpdateRequest,
   UpdateProjectRequest,
   UpdateSettingsRequest,
   UseSkeletonRequest,
@@ -191,6 +195,9 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/projects',
   'PATCH /api/projects/:id',
   'POST /api/projects/:id/recheck',
+  'PATCH /api/projects/:id/charter',
+  'POST /api/projects/:id/charter/generate',
+  'POST /api/projects/:id/charter/confirm',
   'POST /api/tasks',
   'PATCH /api/tasks/:id',
   'POST /api/tasks/:id/planning/start',
@@ -407,6 +414,23 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(engine.projects.update(request.params.id, body), requestId(request));
   });
 
+  // Project charter (AGENTS.md): read is free, writes carry requestKey receipts.
+  app.get<{ Params: { id: string } }>('/api/projects/:id/charter', async (request) => {
+    return envelope({ charter: await engine.charters.view(request.params.id) }, requestId(request));
+  });
+  app.patch<{ Params: { id: string } }>('/api/projects/:id/charter', async (request) => {
+    const body = request.body as ProjectCharterUpdateRequest;
+    return envelope(await engine.charters.update(request.params.id, body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/projects/:id/charter/generate', async (request) => {
+    const body = request.body as ProjectCharterGenerateRequest;
+    return envelope(await engine.charters.generate(request.params.id, body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/projects/:id/charter/confirm', async (request) => {
+    const body = request.body as ProjectCharterConfirmRequest;
+    return envelope(await engine.charters.confirm(request.params.id, body), requestId(request));
+  });
+
   // Tasks
   app.get('/api/tasks', async (request) => {
     const query = request.query as ListTasksQuery;
@@ -443,6 +467,18 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = (request.body ?? {}) as PlanningPreviewRequest;
     const preview = engine.planning.preview(request.params.id, body);
     return envelope({ preview, taskId: request.params.id, blockers: preview.blockers }, requestId(request));
+  });
+  // PE37 S1/S2 read models: the proposal is read-only, refine-preview never
+  // dispatches the model (it only returns a previewRef for the scoped start).
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/planning/proposal', async (request) => {
+    return envelope({ proposal: engine.planning.proposal(request.params.id) }, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/refine-preview', async (request) => {
+    const body = (request.body ?? {}) as Partial<PlanningRefinePreviewRequest>;
+    const groupRef = typeof body.groupRef === 'string' ? body.groupRef.trim() : '';
+    if (groupRef === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '需要 groupRef', { details: { field: 'groupRef' } });
+    const preview = engine.planning.refinePreview(request.params.id, groupRef);
+    return envelope({ preview, taskId: request.params.id }, requestId(request));
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/start', async (request) => {
     const body = request.body as PlanningStartRequest;

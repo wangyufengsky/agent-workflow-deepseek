@@ -1,10 +1,12 @@
 import {
   PLAN_REVISION_STATUS_LABEL,
+  PlanningGroupState,
   type ActionAvailability,
   type HumanDecision,
   type NodeDiffKind,
   type PlanNode,
   type PlanRevision,
+  type PlanningProposal,
   type PlanningRound,
   type TaskDetailResponse,
 } from '@agent-workflow/shared';
@@ -23,6 +25,9 @@ export interface PlanReviewPanelProps {
   readonly plan?: PlanRevision;
   readonly candidateRevision?: PlanRevision;
   readonly round?: PlanningRound;
+  readonly proposal?: PlanningProposal;
+  readonly proposalPending?: boolean;
+  readonly proposalError?: boolean;
   readonly selectedNodeId?: string;
   readonly accepted: Readonly<Record<string, boolean>>;
   readonly onToggleAccepted: (decisionId: string) => void;
@@ -60,6 +65,26 @@ export function PlanReviewPanel(props: PlanReviewPanelProps) {
   const missingAccepted = decisions.filter((decision) => !decisionAccepted(decision, accepted)).length;
   const selectedNode = findNode(revision, selectedNodeId);
   const selectedGroup = revision?.graph.groups.find((group) => group.id === selectedNode?.groupId);
+  const candidateGroup = props.proposal?.groups.find((group) => group.state === PlanningGroupState.CANDIDATE);
+  const unresolvedScopes = props.proposal?.unresolvedScopes ?? [];
+  const proposalConfirmReason = unresolvedScopes.length > 0
+    ? `还有 ${String(unresolvedScopes.length)} 个组未细化：${unresolvedScopes.map((scope) => scope.title).join('、')}；全部细化后才能确认计划。`
+    : props.proposalPending === true
+      ? '正在读取分组总览；确认前必须确认所有组已细化。'
+      : props.proposalError === true
+        ? '分组总览读取失败，无法确认是否还有未细化组；请先重试读取。'
+        : undefined;
+  const candidateGroupNodeIds = new Set((candidateRevision?.graph.nodes ?? []).filter((node) => candidateGroup === undefined || node.groupId === candidateGroup.groupRef).map((node) => node.id));
+  const meaningfulDiff = diff.filter((item) => item.kind !== 'unchanged');
+  const candidateGroupDiff = meaningfulDiff.filter((item) => candidateGroupNodeIds.has(item.nodeId));
+  const candidateOutsideDiff = meaningfulDiff.length - candidateGroupDiff.length;
+  const candidateCrossGroupEdges = candidateRevision === undefined
+    ? 0
+    : candidateRevision.graph.edges.filter((edge) => {
+        const from = candidateRevision.graph.nodes.find((node) => node.id === edge.from)?.groupId;
+        const to = candidateRevision.graph.nodes.find((node) => node.id === edge.to)?.groupId;
+        return from !== undefined && to !== undefined && from !== to;
+      }).length;
 
   const applyAction = actions.applyCandidate;
   const rejectAction = actions.rejectCandidate;
@@ -99,9 +124,12 @@ export function PlanReviewPanel(props: PlanReviewPanelProps) {
         <div className="banner info" style={{ marginBottom: 12 }}>
           <Icon name="eye" />
           <div className="grow">
-            <b>候选第 {round?.ordinal} 轮 · 未应用（只读）</b>
+            <b>{candidateGroup === undefined ? `候选第 ${String(round?.ordinal ?? '?')} 轮` : `分组“${candidateGroup.title}”候选 · 第 ${String(round?.ordinal ?? '?')} 轮`} · 未应用（只读）</b>
             <br />
-            候选只在候选层显示；当前草稿没有改变。应用只写入未确认草稿，不会执行；应用后仍需确认计划。
+            {candidateGroup === undefined
+              ? '候选只在候选层显示；当前草稿没有改变。应用只写入未确认草稿，不会执行。'
+              : `本组差异 ${String(candidateGroupDiff.length)} 项 · 组外差异 ${String(candidateOutsideDiff)} 项 · 跨组依赖 ${String(candidateCrossGroupEdges)} 条（按总览保留） · 应用后本组 ${String(candidateGroupNodeIds.size)} 个节点。应用只替换本组占位，其他组不变；不会执行。`}
+            {candidateOutsideDiff > 0 ? <div className="banner warn" style={{ marginTop: 8 }}><Icon name="alert" /><span>服务返回的差异包含组外改动；应用会按 SCOPE_VIOLATION 被拒绝，不能把组外改动当作本组候选。</span></div> : null}
           </div>
         </div>
       ) : null}
@@ -267,11 +295,17 @@ export function PlanReviewPanel(props: PlanReviewPanelProps) {
                   查看规划记录
                 </Button>
                 <span className="grow" />
-                <Button variant="primary" icon="check" disabled={props.busy || confirmAction?.allowed !== true} disabledReason={confirmAction?.reason} onClick={props.onConfirm}>
+                <Button
+                  variant="primary"
+                  icon="check"
+                  disabled={props.busy || confirmAction?.allowed !== true || proposalConfirmReason !== undefined}
+                  disabledReason={proposalConfirmReason ?? confirmAction?.reason}
+                  onClick={props.onConfirm}
+                >
                   确认计划
                 </Button>
               </div>
-              <ActionReasonLine action={confirmAction} block />
+              <ActionReasonLine action={proposalConfirmReason === undefined ? confirmAction : { allowed: false, reason: proposalConfirmReason }} block />
               <span className="hint">确认不调用模型，也不会立即执行；确认后仍需准备工作区。</span>
             </>
           ) : (
