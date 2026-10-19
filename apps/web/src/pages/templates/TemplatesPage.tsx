@@ -94,6 +94,7 @@ export function TemplatesPage() {
   const [jsonBusy, setJsonBusy] = useState(false);
   const [visualEditor, setVisualEditor] = useState<{ id: string; name: string; steps: { key: string; title: string; kind: 'implementation' | 'test' | 'delivery'; group: string }[] } | null>(null);
   const [visualError, setVisualError] = useState<string | undefined>(undefined);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const templates = bootstrap.data?.catalog.templates ?? [];
   const methods = bootstrap.data?.catalog.methods ?? [];
   const projects: readonly ProjectSummary[] = bootstrap.data?.projects ?? [];
