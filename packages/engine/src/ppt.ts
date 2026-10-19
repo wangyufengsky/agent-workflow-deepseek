@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { AppError, ErrorCode, nowIso, type CommandResponse, type PptWork, type PptWorkCreateRequest, type PptWorkGenerateRequest, type PptWorksResponse } from '@agent-workflow/shared';
+import { AppError, ErrorCode, nowIso, type CommandResponse, type PptWork, type PptWorkCreateRequest, type PptWorkGenerateRequest,
+  type PptWorkUpdateRequest, type PptWorksResponse } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { CommandService } from './operations.ts';
 import type { EngineContext } from './actions.ts';
@@ -41,6 +42,27 @@ export class PptService {
     const work = this.#store.pptWorks.create({ ...(input.projectId === undefined ? {} : { projectId: input.projectId }), title, topic });
     this.#commands.settle(input.requestKey, { workId: work.id });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.list().works };
+  }
+
+  update(id: string, input: PptWorkUpdateRequest): CommandResponse<PptWork> {
+    if (input?.confirmUpdate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '编辑 PPT 需要显式确认');
+    const work = this.#store.pptWorks.get(id);
+    if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    const title = input.title === undefined ? work.title : input.title.trim();
+    if (title === '' || title.length > 120) throw new AppError(ErrorCode.VALIDATION_FAILED, 'PPT 标题长度需要在 1–120 之间');
+    const topic = input.topic === undefined ? work.topic : input.topic.trim();
+    if (topic.length > 2_000) throw new AppError(ErrorCode.VALIDATION_FAILED, 'PPT 主题过长');
+    const outline = input.outline === undefined ? work.outline : input.outline.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 40);
+    const { replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'ppt.work.update',
+      body: { workId: id, title, topic, outline },
+      target: { ref: id },
+    });
+    if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline });
+    this.#commands.settle(input.requestKey, { workId: id, slides: outline.length });
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
   }
 
   async generate(id: string, input: PptWorkGenerateRequest): Promise<CommandResponse<PptWork>> {

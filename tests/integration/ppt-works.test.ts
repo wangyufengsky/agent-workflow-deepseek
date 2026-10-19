@@ -25,6 +25,17 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     assert.equal(works.length, 1);
     assert.equal(works[0]!.status, 'draft');
     const id = works[0]!.id;
+    const updated = await app.app.inject({
+      method: 'PATCH',
+      url: `/api/ppt/works/${id}`,
+      payload: { requestKey: requestKey('pptupd'), title: '季度汇报（改）', outline: ['开场', '交付', '风险'], confirmUpdate: true },
+    });
+    assert.equal(updated.statusCode, 200, updated.body);
+    assert.equal(updated.json().data.resource.title, '季度汇报（改）');
+    assert.deepEqual(updated.json().data.resource.outline, ['开场', '交付', '风险']);
+    const badUpdate = await app.app.inject({ method: 'PATCH', url: `/api/ppt/works/${id}`, payload: { requestKey: requestKey('pptbad'), title: '', confirmUpdate: true } });
+    assert.equal(badUpdate.statusCode, 400, badUpdate.body);
+
     const generate = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/generate`, payload: { requestKey: requestKey('gen'), confirmGenerate: true } });
     assert.equal(generate.statusCode, 503, generate.body);
     assert.equal(generate.json().error.code, 'OPENCODE_NOT_READY');

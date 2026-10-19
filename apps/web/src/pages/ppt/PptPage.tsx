@@ -9,6 +9,7 @@ import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { PendingBackendNotice, ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { Modal } from '../../components/Modal.tsx';
 
 const CREATE_BLOCKED_REASON = 'PPT 内容生成尚未接通：当前只能创建/删除作品草稿，不会生成页面或调用模型。';
 const UPLOAD_BLOCKED_REASON = '附件上传接口尚未接通：当前不能添加资料文件。';
@@ -36,6 +37,23 @@ export function PptPage() {
     },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
   });
+  const updateDraft = useMutation({
+    mutationFn: async (input: { id: string; title: string; outlineText: string }) => {
+      await request(ROUTES.pptWorkUpdate(input.id), {
+        method: 'PATCH',
+        body: {
+          requestKey: createRequestKey(),
+          title: input.title.trim(),
+          outline: input.outlineText.split(/\n+/).map((line) => line.trim()).filter((line) => line.length > 0),
+          confirmUpdate: true,
+        },
+      });
+    },
+    onSuccess: async () => {
+      setEditing(null);
+      await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] });
+    },
+  });
   const deleteDraft = useMutation({
     mutationFn: async (id: string) => { await request(`/api/ppt/works/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
@@ -44,6 +62,7 @@ export function PptPage() {
   const projects = projectsQuery.data ?? [];
   const [projectId, setProjectId] = useState('');
   const [text, setText] = useState('');
+  const [editing, setEditing] = useState<{ id: string; title: string; outlineText: string } | null>(null);
 
   const project = useMemo(() => projects.find((item) => item.id === projectId), [projectId, projects]);
   const valid = project !== undefined && text.trim().length >= 6;
