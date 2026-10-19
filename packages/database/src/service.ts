@@ -12,6 +12,7 @@ import {
   type DatabaseSettings,
   type ErrorCodeValue,
 } from '@agent-workflow/shared';
+import { assertDatabaseQueryAccess } from './access.ts';
 import { MAX_QUERY_LIMIT, assertQueryLimit, prepareReadOnlyQuery } from './guard.ts';
 import { mapMySqlError, redactSecrets, stateFromErrorCode } from './errors.ts';
 import { createMySqlDriverFactory } from './mysql.ts';
@@ -33,6 +34,7 @@ export interface DatabaseServiceOptions {
 }
 
 export interface QueryReadOnlyOptions {
+  readonly config?: DatabaseConnectionConfig;
   readonly limit?: number;
   readonly timeoutMs?: number;
 }
@@ -44,6 +46,7 @@ interface ConnectionRuntime {
   lastCheckedAt: string | undefined;
   driver: MySqlDriver | undefined;
   fingerprint: string | undefined;
+  sessionReadOnly?: boolean;
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000;
@@ -132,6 +135,7 @@ export class DatabaseService {
       runtime.state = DatabaseConnectionState.CONNECTED;
       runtime.message = undefined;
       runtime.lastCheckedAt = checkedAt;
+      runtime.sessionReadOnly = measurement.sessionReadOnly === true;
       const capabilities = capabilitiesForVersion(measurement.serverVersion);
       return {
         connectionId,
@@ -140,6 +144,8 @@ export class DatabaseService {
         serverVersion: measurement.serverVersion,
         latencyMs: measurement.latencyMs,
         capabilities,
+        sessionReadOnly: measurement.sessionReadOnly,
+        readOnlyEnforced: measurement.sessionReadOnly,
       };
     } catch (error) {
       const appError = mapMySqlError(error, {
@@ -178,6 +184,11 @@ export class DatabaseService {
    * connection is acquired; the caller never sees a password in errors.
    */
   async queryReadOnly(connectionId: string, sql: unknown, options: QueryReadOnlyOptions = {}): Promise<DatabaseQueryResult> {
+    if (options.config !== undefined) {
+      if (options.config.id !== connectionId) throw new AppError(ErrorCode.FORBIDDEN, '连接身份与会话冻结配置不一致');
+      const scoped = new DatabaseService({ settings: { ...this.#settings, connections: [options.config] }, secrets: this.#secrets, driverFactory: this.#driverFactory, postgresDriverFactory: this.#postgresDriverFactory, connectTimeoutMs: this.#connectTimeoutMs });
+      try { return await scoped.queryReadOnly(connectionId, sql, { limit: options.limit, timeoutMs: options.timeoutMs }); } finally { await scoped.closeAll(); }
+    }
     const requestedLimit = options.limit === undefined ? this.#settings.rowLimit : options.limit;
     const prepared = prepareReadOnlyQuery(sql, {
       limit: requestedLimit,
@@ -187,12 +198,15 @@ export class DatabaseService {
     const timeoutMs = normalizeTimeout(options.timeoutMs, this.#settings.queryTimeoutMs);
 
     const runtime = this.#runtime(connectionId);
+    if (runtime.config.enabled === false) throw new AppError(ErrorCode.FORBIDDEN, '数据库连接已停用');
+    if (runtime.config.schemas !== undefined) assertDatabaseQueryAccess(String(sql), { connectionId, projectIds: runtime.config.projectIds ?? [], schemas: runtime.config.schemas, tables: runtime.config.tables ?? [], defaultSchema: runtime.config.type === 'postgresql' ? 'public' : runtime.config.database });
     this.#assertSupported(runtime);
     const password = this.#resolvePassword(runtime);
     const driver = await this.#getDriver(runtime, password);
     const startedAt = performance.now();
     try {
       const raw = await driver.query(prepared.sql, { timeoutMs });
+      runtime.sessionReadOnly = raw.sessionReadOnly === true;
       const rows = raw.rows.map(normalizeRow);
       const truncated = rows.length > limit;
       const visible = truncated ? rows.slice(0, limit) : rows;
@@ -335,7 +349,7 @@ export class DatabaseService {
     const fingerprint = fingerprintFor(runtime.config, password, this.#connectTimeoutMs);
     if (runtime.driver !== undefined && runtime.fingerprint === fingerprint) return runtime.driver;
     await this.#disposeDriver(runtime);
-    const factory = runtime.config.type === 'postgresql' ? this.#postgresDriverFactory : this.#driverFactory;
+    const factory = DATABASE_TYPE_META[runtime.config.type]?.driver === 'pg' ? this.#postgresDriverFactory : this.#driverFactory;
     const driver = factory({
       connectionId: runtime.config.id,
       host: runtime.config.host,
@@ -389,6 +403,12 @@ function assertConnectionConfig(config: DatabaseConnectionConfig): void {
 function toConnectionModel(runtime: ConnectionRuntime): DatabaseConnection {
   return {
     id: runtime.config.id,
+    enabled: runtime.config.enabled ?? true,
+    projectIds: runtime.config.projectIds ?? [],
+    schemas: runtime.config.schemas ?? [],
+    tables: runtime.config.tables ?? [],
+    ssl: runtime.config.ssl,
+    sessionReadOnly: runtime.sessionReadOnly === true ? 'enforced' : 'unverified',
     name: runtime.config.name,
     type: runtime.config.type,
     host: runtime.config.host,

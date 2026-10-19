@@ -3,7 +3,7 @@ import { DEFAULT_MODEL_PROFILES } from '@agent-workflow/shared';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApplication } from '../../packages/server/src/index.ts';
@@ -115,6 +115,11 @@ test('internal MCP workspace tools resolve a fix worktree root by fixRunId refer
     const escape = await app.app.inject({ method: 'GET', url: '/internal/mcp/workspace/file?taskId=fix_demo_1&path=../escape.txt', headers });
     assert.equal(escape.statusCode, 400, escape.body);
     assert.equal(escape.json().error.code, 'PATH_ESCAPE');
+    const outside = mkdtempSync(join(tmpdir(), 'aw-fix-outside-'));
+    symlinkSync(outside, join(fixRoot, 'linked'));
+    const linkedWrite = await app.app.inject({ method: 'POST', url: '/internal/mcp/workspace/file-write', headers, payload: { taskId: 'fix_demo_1', path: 'linked/new.txt', content: 'must not escape' } });
+    assert.equal(linkedWrite.statusCode, 400, linkedWrite.body);
+    assert.equal(existsSync(join(outside, 'new.txt')), false);
 
     app.store.settings.putJson('fix.worktree.fix_gone', { path: join(fixRoot, 'missing') });
     const goneScope = createSessionScope({ kind: 'fix', metadata: { fixRunId: 'fix_gone' }, cwd: join(fixRoot, 'missing'), prompt: '', permission: 'workspace_write', model: DEFAULT_MODEL_PROFILES[0]!, sink: {}, timeoutMs: 60000 });

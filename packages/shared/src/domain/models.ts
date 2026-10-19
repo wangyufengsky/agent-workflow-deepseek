@@ -1191,6 +1191,12 @@ export interface PptWork {
 /* ------------------------------------------------------------------ */
 
 export interface DatabaseConnection {
+  readonly enabled?: boolean;
+  readonly projectIds?: readonly string[];
+  readonly schemas?: readonly string[];
+  readonly tables?: readonly string[];
+  readonly ssl?: boolean;
+  readonly sessionReadOnly?: 'enforced' | 'unverified';
   readonly id: DatabaseConnectionId;
   readonly name: string;
   readonly type: DatabaseTypeValue;
@@ -1205,6 +1211,8 @@ export interface DatabaseConnection {
 }
 
 export interface DatabaseProbeResult {
+  readonly sessionReadOnly?: boolean;
+  readonly readOnlyEnforced?: boolean;
   readonly connectionId: DatabaseConnectionId;
   readonly state: DatabaseConnectionStateValue;
   readonly checkedAt: IsoDateTime;

@@ -1,7 +1,9 @@
+import { assertDatabaseQueryAccess } from '@agent-workflow/database';
+import { toolPolicyView } from './tool-policy.ts';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AttemptResult, Task } from '@agent-workflow/shared';
 import { AppError, ErrorCode, nowIso } from '@agent-workflow/shared';
@@ -140,8 +142,13 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     if (role === undefined || !roleCapability(role, 'database_read') || !role.resourcePermissions?.resources.some((resource) => resource.id === 'database_read')) {
       throw new AppError(ErrorCode.FORBIDDEN, '当前职业没有此数据库连接的读取授权');
     }
+    const grant = dispatch.databaseAccess?.find((item) => item.connectionId === body.connectionId);
+    const current = deps.engine.settings.database.connections.find((item) => item.id === body.connectionId);
+    if (grant === undefined || current === undefined || current.enabled === false || !current.projectIds?.includes(task.projectId)) throw new AppError(ErrorCode.FORBIDDEN, '数据库连接未授权此项目，或授权已撤销');
+    assertDatabaseQueryAccess(body.sql, grant);
+    assertDatabaseQueryAccess(body.sql, { connectionId: current.id, projectIds: current.projectIds ?? [], schemas: current.schemas ?? [], tables: current.tables ?? [], defaultSchema: current.type === 'postgresql' ? 'public' : current.database });
     if (deps.engine.ports.database === undefined) throw new AppError(ErrorCode.DATABASE_NOT_CONFIGURED, '数据库模块未接通');
-    return deps.engine.ports.database.query(body.connectionId, body.sql, body.limit);
+    return deps.engine.ports.database.query(body.connectionId, body.sql, body.limit, grant.connectionConfig);
   }));
 
   app.get('/internal/mcp/workspace/file', handler(async (request) => {
@@ -328,11 +335,13 @@ function safePath(root: string, path: string): string {
   if (isAbsolute(path) || path.includes('\0')) throw new AppError(ErrorCode.PATH_ESCAPE, '路径必须是相对路径');
   const realRoot = existsSync(root) ? realpathSync(root) : resolve(root);
   const normalized = resolve(realRoot, path);
-  const realTarget = existsSync(normalized) ? realpathSync(normalized) : normalized;
+  let ancestor = normalized;
+  while (!existsSync(ancestor) && ancestor !== dirname(ancestor)) ancestor = dirname(ancestor);
+  const realTarget = resolve(realpathSync(ancestor), relative(ancestor, normalized));
   if (realTarget !== realRoot && !realTarget.startsWith(`${realRoot}${sep}`)) {
     throw new AppError(ErrorCode.PATH_ESCAPE, '路径越出工作区', { details: { path } });
   }
-  return normalized;
+  return realTarget;
 }
 
 function sha256(content: string): string {
@@ -453,7 +462,9 @@ function authorizeSessionRequest(request: FastifyRequest, deps: InternalDependen
   }
   const route = request.url.split('?')[0]!;
   const tool = ROUTE_TO_TOOL[route];
+  if (dispatch.allowedTools !== undefined && !dispatch.allowedTools.includes(tool ?? '')) throw new AppError(ErrorCode.FORBIDDEN, '此会话的项目/来源/单工具策略禁止此工具');
   if (tool === undefined) throw new AppError(ErrorCode.FORBIDDEN, '会话未授权此工具');
+  if (dispatch.allowedTools !== undefined && !toolPolicyView(deps.store, deps.engine, projectId).sources.flatMap((source) => source.tools).some((item) => item.name === tool && item.enabled)) throw new AppError(ErrorCode.FORBIDDEN, '工具许可已收紧或撤销');
   if (dispatch.kind === 'execution') {
     if (task?.executionId === undefined || task.executionId !== metadata.executionId) throw new AppError(ErrorCode.FORBIDDEN, '执行授权已失效');
     const execution = deps.store.executions.get(task.executionId);

@@ -1,3 +1,5 @@
+import { DATABASE_TYPE_META } from '@agent-workflow/shared';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -1230,6 +1232,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       );
     }
     try {
+      if (databaseService !== undefined && JSON.stringify(current.database) !== JSON.stringify(merged.database)) await databaseService.applySettings(merged.database);
       engine.updateSettings(merged);
       engine.commands.settle(body.requestKey, { applied: true });
       return envelope(
@@ -1245,7 +1248,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   // Database connections (mysql2; read-only / probe)
   app.get('/api/settings/databases', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
-    return envelope({ connections: databaseService.list() }, requestId(request));
+    return envelope({ connections: databaseService.list(), types: Object.entries(DATABASE_TYPE_META).filter(([, meta]) => meta.driver !== 'planned').map(([id, meta]) => ({ id, ...meta })) }, requestId(request));
   });
   app.post('/api/settings/databases', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
@@ -1253,11 +1256,16 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const input = body.connection;
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 connection');
     const settings = engine.publicSettings();
+    if (DATABASE_TYPE_META[input.type]?.driver === undefined || DATABASE_TYPE_META[input.type]?.driver === 'planned') throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '此类型没有已提供的驱动，不能新增或修改连接');
+    if (input.readOnly === false) throw new AppError(ErrorCode.VALIDATION_FAILED, '数据库连接必须保持只读');
+    if (input.projectIds !== undefined && (!Array.isArray(input.projectIds) || input.projectIds.some((id) => typeof id !== 'string'))) throw new AppError(ErrorCode.VALIDATION_FAILED, 'projectIds 必须是项目 id 列表');
+    for (const projectId of input.projectIds ?? []) if (store.projects.get(projectId) === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '授权项目不存在');
+    for (const [field, values] of Object.entries({ schemas: input.schemas ?? [], tables: input.tables ?? [] })) if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !/^[\p{L}\p{N}_$.-]+$/u.test(value))) throw new AppError(ErrorCode.VALIDATION_FAILED, `${field}范围格式无效`);
     // 连接登记属于设置变更（OPERATIONS 未单列连接 CRUD），用 settings.update 登记回执。
     const { record, replayed } = engine.commands.begin({
       requestKey: body.requestKey,
       operation: 'settings.update',
-      body: { connectionName: input.name, type: input.type, host: input.host, port: input.port, database: input.database, user: input.user },
+      body: { connection: { ...input, passwordHash: input.password === undefined ? undefined : createHash('sha256').update(input.password).digest('hex'), password: undefined } },
       target: {},
     });
     if (replayed && record.status !== 'accepted') {
@@ -1269,7 +1277,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       );
     }
     const id = input.id ?? `db_${Math.random().toString(36).slice(2, 12)}`;
-    const passwordRef = input.password === undefined ? undefined : `db:${id}`;
+    const passwordRef = input.password === undefined || input.password === '' ? settings.database.connections.find((item) => item.id === id)?.passwordRef : `db:${id}:${body.requestKey}`;
     const config = {
       id,
       name: input.name,
@@ -1279,7 +1287,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       database: input.database,
       user: input.user,
       ...(passwordRef === undefined ? {} : { passwordRef }),
-      readOnly: input.readOnly ?? true,
+      readOnly: true,
+      enabled: input.enabled ?? true,
+      projectIds: input.projectIds ?? [],
+      schemas: input.schemas ?? [],
+      tables: input.tables ?? [],
       ssl: input.ssl ?? false,
     };
     const duplicate = settings.database.connections.find((item) => item.id !== id && item.host === config.host && item.port === config.port && item.database === config.database);
@@ -1289,7 +1301,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       throw conflict;
     }
     try {
-      if (input.password !== undefined && passwordRef !== undefined) store.secrets.put(passwordRef, input.password);
+      if (input.password !== undefined && input.password !== '' && passwordRef !== undefined) store.secrets.put(passwordRef, input.password);
       databaseService.registerConnection(config);
       const connections = [...settings.database.connections.filter((item) => item.id !== id), config];
       engine.updateSettings({ ...settings, database: { ...settings.database, connections } });

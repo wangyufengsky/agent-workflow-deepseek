@@ -1,253 +1,20 @@
+import { ToolsPolicyView } from './ToolsPolicyView.tsx';
 import { useMemo, useState, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ROUTES, createRequestKey, type SkillSourceResponse, type SkillsResponse } from '@agent-workflow/shared';
-import { apiGet, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
-import { useBootstrap, useOpenCodeStatus } from '../../api/hooks.ts';
-import { MANAGED_MCP_TOOLS, MCP_TOOLSETS, TOOL_ACCESS_LABEL, toolsOfToolset, type ManagedToolMeta } from '../../api/catalog.ts';
-import { Badge, type BadgeTone } from '../../components/Badge.tsx';
+import { useQuery } from '@tanstack/react-query';
+import { ROUTES, type SkillSourceResponse, type SkillsResponse } from '@agent-workflow/shared';
+import { apiGet, errorMessage } from '../../api/client.ts';
+import { useOpenCodeStatus } from '../../api/hooks.ts';
+import { MANAGED_MCP_TOOLS } from '../../api/catalog.ts';
+import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
-import { Icon, type IconName } from '../../components/Icon.tsx';
+import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { formatRelativeTime } from '../../app/format.ts';
 
 type ToolsTab = 'tools' | 'skills';
-
-const TOGGLE_BLOCKED_REASON = '服务未提供单工具策略接口；当前只能按 toolset 启停（已接通，保存并重启受管 OpenCode 后生效）。';
-const SOURCE_DISABLE_REASON = '服务未提供来源级停用接口；只能按 toolset 在设置中启停，无法单独停用来源。';
-
-const TOOLSET_ICON: Record<string, IconName> = {
-  workflow: 'flow',
-  git: 'git',
-  database: 'db',
-  workspace: 'terminal',
-};
-
-const ACCESS_TONE: Record<ManagedToolMeta['access'], BadgeTone> = {
-  read: 'idle',
-  write: 'wait',
-  execute: 'danger',
-};
-
-function ToolRow({ tool }: { readonly tool: ManagedToolMeta }) {
-  return (
-    <div className="list-row" style={{ cursor: 'default', alignItems: 'flex-start' }}>
-      <span className="tile" style={{ marginTop: 2 }}>
-        <Icon name={TOOLSET_ICON[tool.toolset] ?? 'tool'} size="sm" />
-      </span>
-      <div className="grow" style={{ minWidth: 0 }}>
-        <div className="row wrap" style={{ gap: 8 }}>
-          <span className="mono" style={{ fontSize: 13 }}>
-            {tool.name}
-          </span>
-          <Badge tone={ACCESS_TONE[tool.access]} icon={tool.access === 'read' ? 'eye' : tool.access === 'write' ? 'edit' : 'terminal'}>
-            {TOOL_ACCESS_LABEL[tool.access]}
-          </Badge>
-        </div>
-        <div style={{ fontSize: 13, marginTop: 3 }}>{tool.title}</div>
-        <div className="hint" style={{ marginTop: 2, lineHeight: 1.55 }}>
-          {tool.description}
-        </div>
-        {tool.constraint === undefined ? null : (
-          <div className="hint" style={{ marginTop: 4 }}>
-            <Icon name="shield" size="sm" /> {tool.constraint}
-          </div>
-        )}
-      </div>
-      <Button variant="ghost" size="sm" icon="lock" disabled disabledReason={TOGGLE_BLOCKED_REASON}>
-        单工具控制
-      </Button>
-    </div>
-  );
-}
-
-function ToolsView() {
-  const queryClient = useQueryClient();
-  const statusQuery = useOpenCodeStatus();
-  const bootstrap = useBootstrap();
-  const toggleToolset = useMutation({
-    mutationFn: async (toolset: string) => {
-      const current = bootstrap.data?.settings.opencode.toolsets ?? [];
-      const next = current.includes(toolset) ? current.filter((item) => item !== toolset) : [...current, toolset];
-      await request('/api/settings', { method: 'PATCH', body: { requestKey: createRequestKey(), patch: { opencode: { toolsets: next } } } });
-      return next;
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
-        queryClient.invalidateQueries({ queryKey: ['settings'] }),
-      ]);
-    },
-  });
-  const enabledToolsets = bootstrap.data?.settings.opencode.toolsets ?? [];
-  const settingsLoaded = bootstrap.data !== undefined;
-  const status = statusQuery.data;
-  const integrationStatus = bootstrap.data?.integration.opencode.status;
-
-  const mcpBadge = (() => {
-    if (statusQuery.isLoading) return { tone: 'idle' as BadgeTone, icon: 'clock' as IconName, label: '正在读取 OpenCode 状态' };
-    if (statusQuery.isError) return { tone: 'unknown' as BadgeTone, icon: 'help' as IconName, label: 'OpenCode 状态未知' };
-    if (status?.mcp.connected === true) return { tone: 'ok' as BadgeTone, icon: 'check' as IconName, label: '内部 MCP 已连接' };
-    return { tone: 'idle' as BadgeTone, icon: 'minus' as IconName, label: '内部 MCP 未连接' };
-  })();
-
-  return (
-    <div className="col" style={{ gap: 16 }}>
-      <section className="card pad">
-        <div className="row wrap" style={{ gap: 10 }}>
-          <span className="tile">
-            <Icon name="tool" />
-          </span>
-          <div className="grow" style={{ minWidth: 0 }}>
-            <div className="row wrap" style={{ gap: 8 }}>
-              <span style={{ fontSize: 15, fontWeight: 500 }}>agent-workflow 内部 MCP</span>
-              <Badge tone={mcpBadge.tone} icon={mcpBadge.icon}>
-                {mcpBadge.label}
-              </Badge>
-              <Badge outline icon="lock">
-                只读清单
-              </Badge>
-            </div>
-            <div className="hint" style={{ marginTop: 4 }}>
-              共 {String(MANAGED_MCP_TOOLS.length)} 个工具，按 toolset 分组注入受管 OpenCode。
-              {status?.mcp.name === undefined ? '' : ` MCP 服务名：${status.mcp.name}。`}
-              {status === undefined ? '' : status.mcp.tools > 0 ? ` 服务上报工具数：${String(status.mcp.tools)}。` : ' 服务未上报工具数。'}
-            </div>
-          </div>
-          {status?.version === undefined ? null : <span className="hint mono">OpenCode {status.version}</span>}
-        </div>
-        <div className="row wrap" style={{ gap: 6, marginTop: 12 }}>
-          {integrationStatus === undefined ? null : <Badge outline>集成状态：{integrationStatus}</Badge>}
-          <span className="hint">toolset 启停已接通（写入设置，重启受管 OpenCode 后生效）；单工具开关未接通。</span>
-        </div>
-        <div className="row wrap" style={{ gap: 8, marginTop: 10, alignItems: 'center' }}>
-          <span className="label">配置范围</span>
-          <select
-            className="select ctl"
-            style={{ width: 'auto' }}
-            aria-label="配置范围"
-            disabled
-            title="服务未提供项目级工具配置契约；当前只有全局范围。"
-          >
-            <option>全局（默认）</option>
-          </select>
-          <span className="hint">
-            服务未提供项目级工具配置契约（settings.opencode.toolsets 是全局设置）；项目范围与「继承 / 启用 / 停用」三态无法展示或修改。
-          </span>
-        </div>
-        <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-          {MCP_TOOLSETS.map((toolset) => {
-            const enabled = enabledToolsets.includes(toolset.id);
-            return (
-              <Button
-                key={toolset.id}
-                variant={enabled ? 'secondary' : 'ghost'}
-                size="sm"
-                icon={enabled ? 'check' : 'minus'}
-                disabled={!settingsLoaded || toggleToolset.isPending}
-                disabledReason={!settingsLoaded ? '设置尚未读取，不能修改工具集' : undefined}
-                onClick={() => { toggleToolset.mutate(toolset.id); }}
-              >
-                {toolset.label} · {settingsLoaded ? (enabled ? '已启用' : '已停用') : '设置未读取'}
-              </Button>
-            );
-          })}
-        </div>
-        {toggleToolset.isError ? <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>{isServiceUnavailable(toggleToolset.error) ? '服务未连接，未保存。' : errorMessage(toggleToolset.error)}</p> : null}
-        {toggleToolset.isSuccess ? <p className="hint" style={{ marginTop: 8 }}>工具集设置已保存；重启 OpenCode 后生效。</p> : null}
-        {statusQuery.isError ? (
-          <div style={{ marginTop: 12 }}>
-            <ServiceNotice
-              error={statusQuery.error}
-              compact
-              onRetry={() => {
-                void statusQuery.refetch();
-              }}
-            />
-          </div>
-        ) : null}
-        {bootstrap.isError ? (
-          <div style={{ marginTop: 12 }}>
-            <ServiceNotice
-              error={bootstrap.error}
-              compact
-              onRetry={() => {
-                void bootstrap.refetch();
-              }}
-            />
-          </div>
-        ) : null}
-      </section>
-
-      {MCP_TOOLSETS.map((toolset) => {
-        const tools = toolsOfToolset(toolset.id);
-        return (
-          <section key={toolset.id} className="card">
-            <div className="card-head">
-              <span className="tile" style={{ width: 32, height: 32 }}>
-                <Icon name={TOOLSET_ICON[toolset.id] ?? 'tool'} size="sm" />
-              </span>
-              <div className="grow" style={{ minWidth: 0 }}>
-                <div className="row wrap" style={{ gap: 8 }}>
-                  <span className="section-title">{toolset.label}</span>
-                  <Badge outline>{String(tools.length)} 个工具</Badge>
-                </div>
-                <div className="hint" style={{ marginTop: 2 }}>
-                  {toolset.description}
-                </div>
-              </div>
-            </div>
-            <div style={{ padding: '10px 16px 0' }}>
-              <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
-                <Badge tone={status?.mcp.connected === true ? 'ok' : 'idle'} icon={status?.mcp.connected === true ? 'check' : 'minus'}>
-                  来源状态：{statusQuery.isLoading ? '读取中' : status?.mcp.connected === true ? '内部 MCP 已连接' : '内部 MCP 未连接'}
-                </Badge>
-                <span className="hint">来源类型：内置（服务端静态注册）；本地 / 远程来源切换没有契约。</span>
-                <span className="spacer" />
-                <Button variant="ghost" size="sm" icon="stop" disabled disabledReason={SOURCE_DISABLE_REASON}>
-                  停用此来源…
-                </Button>
-              </div>
-              <details className="hint" style={{ marginTop: 6 }}>
-                <summary style={{ cursor: 'pointer' }}>查看停用影响（{String(tools.length)} 个工具，仅说明）</summary>
-                <div className="col" style={{ gap: 2, marginTop: 6 }}>
-                  {tools.map((tool) => (
-                    <span key={tool.name} className="mono" style={{ fontSize: 12 }}>
-                      · {tool.name} · {tool.title}
-                    </span>
-                  ))}
-                </div>
-                <p className="hint" style={{ marginTop: 6 }}>
-                  {SOURCE_DISABLE_REASON} 这份清单只说明若停用该来源会影响哪些工具，不执行任何修改。
-                </p>
-              </details>
-            </div>
-            <div style={{ padding: '4px 6px 6px' }}>
-              {tools.length === 0 ? (
-                <EmptyState compact icon="tool" title="没有工具" description="该 toolset 尚未注册工具。" />
-              ) : (
-                tools.map((tool) => <ToolRow key={tool.name} tool={tool} />)
-              )}
-            </div>
-          </section>
-        );
-      })}
-
-      <div className="banner info">
-        <Icon name="info" />
-        <div className="grow">
-          <b>真实 / 降级边界</b>
-          <br />
-          已接通：toolset 启停（写入 settings.opencode.toolsets，重启受管 OpenCode 后生效）、Skill 目录与源文只读。
-          未接通（按钮禁用并写明原因）：单工具开关、项目级配置范围、来源级停用、外部 MCP 来源与 Skill 安装状态；
-          服务没有对应接口，本页不展示虚构状态。
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function SkillsView() {
   const [source, setSource] = useState<SkillSourceResponse | null>(null);
@@ -353,14 +120,14 @@ export function ToolsPage() {
   if (statusQuery.isLoading) {
     body = <p className="hint">正在读取 OpenCode 与工具状态…</p>;
   } else {
-    body = tab === 'tools' ? <ToolsView /> : <SkillsView />;
+    body = tab === 'tools' ? <ToolsPolicyView /> : <SkillsView />;
   }
 
   return (
     <div className="page">
       <PageHeader
         title="工具与 Skill"
-        lede="查看受管 OpenCode 可用的内部工具与 Skill。工具清单来自服务端静态注册，按工具集启停；Skill 目录来自本机只读扫描。"
+        lede="管理服务端工具来源、单工具与项目继承策略；Skill 目录来自本机只读扫描。"
         actions={
           <Button
             variant="secondary"

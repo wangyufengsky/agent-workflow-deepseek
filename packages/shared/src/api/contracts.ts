@@ -1691,6 +1691,10 @@ export interface DatabaseConnectionUpsertRequest {
   readonly requestKey: RequestKey;
   readonly connection: {
     readonly id?: string;
+    readonly enabled?: boolean;
+    readonly projectIds?: readonly string[];
+    readonly schemas?: readonly string[];
+    readonly tables?: readonly string[];
     readonly name: string;
     readonly type: AppSettings['database']['connections'][number]['type'];
     readonly host: string;

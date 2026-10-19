@@ -7,6 +7,7 @@ import { OpenCodeManager, SessionRunner, type OpenCodeManagerStatus, type OpenCo
 import type { OpenCodePort, OpenCodeRunRequest, OpenCodeRunResult } from '@agent-workflow/engine';
 
 export interface OpenCodeAdapterOptions {
+  readonly sessionPolicy?: (request: OpenCodeRunRequest) => OpenCodeRunRequest;
   readonly dataDir: string;
   readonly repoRoot: string;
   readonly binaryPath: string;
@@ -58,6 +59,14 @@ export function rolePermission(role: RoleDefinition, mcpServerName: string): unk
     { permission: '*', pattern: '*', action: 'deny' },
     ...['workflow.context.get', 'workflow.result.submit', ...names].map((name) => ({ permission: `${mcpServerName}_${name.replaceAll('.', '_')}`, pattern: '*', action: 'allow' })),
   ];
+}
+
+export function sessionPermission(request: OpenCodeRunRequest, mcpServerName: string): unknown[] {
+  if ((request as OpenCodeRunRequest & { toolPolicy?: 'none' }).toolPolicy === 'none') return [{ permission: '*', pattern: '*', action: 'deny' }];
+  if (request.allowedTools === undefined) return request.rolePolicy === undefined ? request.permission === 'read_only' ? readOnlyPermission() : workspacePermission() : rolePermission(request.rolePolicy, mcpServerName);
+  const roleTools = request.rolePolicy?.resourcePermissions?.tools.filter((tool) => tool.kind === 'mcp').map((tool) => tool.name);
+  const allowed = request.allowedTools.filter((name) => (roleTools === undefined || name === 'workflow.context.get' || name === 'workflow.result.submit' || roleTools.includes(name)) && (request.permission !== 'read_only' || !['workspace.exec', 'workspace.file.write'].includes(name)));
+  return [{ permission: '*', pattern: '*', action: 'deny' }, ...allowed.map((name) => ({ permission: `${mcpServerName}_${name.replaceAll('.', '_')}`, pattern: '*', action: 'allow' }))];
 }
 
 /**
@@ -142,6 +151,7 @@ export class OpenCodeAdapter implements OpenCodePort {
         details: { maxSessions: this.#options.maxSessions, activeSessions: this.#activeSessions },
       });
     }
+    request = this.#options.sessionPolicy?.(request) ?? request;
     this.#activeSessions += 1;
     const scope = createSessionScope(request);
     try {
@@ -151,9 +161,7 @@ export class OpenCodeAdapter implements OpenCodePort {
       metadata: { ...request.metadata, managedBy: 'agent-workflow' },
       agent: this.#options.defaultAgent,
       model: { id: request.model.model, providerID: request.model.provider },
-      permission: (request as OpenCodeRunRequest & { toolPolicy?: 'none' }).toolPolicy === 'none' ? [{ permission: '*', pattern: '*', action: 'deny' }] : request.rolePolicy === undefined
-        ? request.permission === 'read_only' ? readOnlyPermission() : workspacePermission()
-        : rolePermission(request.rolePolicy, this.#options.mcpServerName),
+      permission: sessionPermission(request, this.#options.mcpServerName),
     });
     request.onSessionId?.(session.id);
     const runner = new SessionRunner(client, session.id, request.sink);

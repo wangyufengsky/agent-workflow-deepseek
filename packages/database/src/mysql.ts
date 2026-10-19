@@ -90,21 +90,25 @@ class MySqlPoolDriver implements MySqlDriver {
         details: { reason: 'connect_timeout', timeoutMs: this.#connectTimeoutMs },
       }),
     );
+    let destroyed = false;
+    const timeoutFailure = () => { destroyed = true; connection.destroy(); return new AppError(ErrorCode.DATABASE_QUERY_BLOCKED, '只读连接检查超时'); };
     try {
-      const [rows] = await runQuery(connection, 'SELECT VERSION() AS version', timeout, () =>
-        new AppError(ErrorCode.NETWORK_UNREACHABLE, '数据库连接超时', {
-          details: { reason: 'connect_timeout', timeoutMs: timeout },
-        }),
+      await runQuery(connection, 'SET TRANSACTION READ ONLY', timeout, timeoutFailure);
+      await runQuery(connection, 'START TRANSACTION', timeout, timeoutFailure);
+      const [rows] = await runQuery(connection, 'SELECT VERSION() AS version', timeout, timeoutFailure,
       );
       const latencyMs = Math.max(0, Math.round(performance.now() - startedAt));
       const first = Array.isArray(rows) ? (rows[0] as unknown) : undefined;
       const version = Array.isArray(first) ? first[0] : undefined;
       return {
         serverVersion: typeof version === 'string' && version.length > 0 ? version : 'unknown',
+        sessionReadOnly: true,
         latencyMs,
       };
     } finally {
-      connection.release();
+      if (!destroyed) {
+        try { await runQuery(connection, 'ROLLBACK', timeout, timeoutFailure); connection.release(); } catch { connection.destroy(); }
+      }
     }
   }
 
@@ -117,6 +121,9 @@ class MySqlPoolDriver implements MySqlDriver {
     );
     let destroyed = false;
     try {
+      const timeoutFailure = () => { destroyed = true; connection.destroy(); return new AppError(ErrorCode.DATABASE_QUERY_BLOCKED, '只读事务初始化超时'); };
+      await runQuery(connection, 'SET TRANSACTION READ ONLY', timeout, timeoutFailure);
+      await runQuery(connection, 'START TRANSACTION', timeout, timeoutFailure);
       const [rawRows, fields] = await runQuery(connection, sql, timeout, () => {
         destroyed = true;
         connection.destroy();
@@ -124,9 +131,11 @@ class MySqlPoolDriver implements MySqlDriver {
           details: { reason: 'query_timeout', timeoutMs: timeout },
         });
       });
-      return { columns: mapColumns(fields), rows: toRowArrays(rawRows) };
+      return { columns: mapColumns(fields), rows: toRowArrays(rawRows), sessionReadOnly: true };
     } finally {
-      if (!destroyed) connection.release();
+      if (!destroyed) {
+        try { await runQuery(connection, 'ROLLBACK', timeout, () => { connection.destroy(); return new AppError(ErrorCode.DATABASE_QUERY_BLOCKED, '只读事务结束超时'); }); connection.release(); } catch { connection.destroy(); }
+      }
     }
   }
 

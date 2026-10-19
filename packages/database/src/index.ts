@@ -4,3 +4,5 @@ export * from './errors.ts';
 export * from './mysql.ts';
 export * from './service.ts';
 export * from './port.ts';
+
+export * from "./access.ts";

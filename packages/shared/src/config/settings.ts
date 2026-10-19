@@ -2,6 +2,10 @@ import type { DatabaseTypeValue, DeliveryGoalValue, DisplayModeValue, GitProvide
 import type { ModelProfile } from '../domain/models.ts';
 
 export interface DatabaseConnectionConfig {
+  readonly enabled?: boolean;
+  readonly projectIds?: readonly string[];
+  readonly schemas?: readonly string[];
+  readonly tables?: readonly string[];
   readonly id: string;
   readonly name: string;
   readonly type: DatabaseTypeValue;
@@ -313,6 +317,10 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
   for (const connection of settings.database.connections) {
     const meta = DATABASE_TYPE_META[connection.type];
     if (meta === undefined) issues.push({ path: `database.connections.${connection.id}.type`, message: '不支持的数据库类型' });
+    for (const [field, values] of Object.entries({ projectIds: connection.projectIds, schemas: connection.schemas, tables: connection.tables })) {
+      if (values !== undefined && (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || value.length === 0 || value.length > 200))) issues.push({ path: `database.connections.${connection.id}.${field}`, message: '授权范围必须是有效的字符串列表' });
+    }
+    if (connection.enabled !== undefined && typeof connection.enabled !== 'boolean') issues.push({ path: `database.connections.${connection.id}.enabled`, message: 'enabled 必须是布尔值' });
     if (connection.port < 1 || connection.port > 65535) issues.push({ path: `database.connections.${connection.id}.port`, message: '数据库端口无效' });
   }
   return issues;

@@ -10,7 +10,7 @@ const activeScopes = new Map<string, SessionScope>();
 
 export function createSessionScope(request: OpenCodeRunRequest): { token: string; revoke(): void } {
   const token = randomBytes(32).toString('base64url');
-  activeScopes.set(token, { request: { ...request, metadata: { ...request.metadata }, ...(request.rolePolicy === undefined ? {} : { rolePolicy: structuredClone(request.rolePolicy) }) }, expiresAt: Date.now() + request.timeoutMs + 30_000 });
+  activeScopes.set(token, { request: { ...request, metadata: { ...request.metadata }, ...(request.allowedTools === undefined ? {} : { allowedTools: [...request.allowedTools] }), ...(request.databaseAccess === undefined ? {} : { databaseAccess: structuredClone(request.databaseAccess) }), ...(request.rolePolicy === undefined ? {} : { rolePolicy: structuredClone(request.rolePolicy) }) }, expiresAt: Date.now() + request.timeoutMs + 30_000 });
   return { token, revoke: () => { activeScopes.delete(token); } };
 }
 

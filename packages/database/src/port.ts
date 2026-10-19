@@ -1,3 +1,4 @@
+import type { DatabaseConnectionConfig } from '@agent-workflow/shared';
 import type { DatabaseService } from './service.ts';
 
 /**
@@ -14,7 +15,7 @@ export interface DatabasePortProbeResult {
 
 export interface DatabasePort {
   probe(connectionId: string): Promise<DatabasePortProbeResult>;
-  query(connectionId: string, sql: string, limit?: number): Promise<unknown>;
+  query(connectionId: string, sql: string, limit?: number, config?: DatabaseConnectionConfig): Promise<unknown>;
 }
 
 export interface DatabasePortOptions {
@@ -35,8 +36,9 @@ export function createDatabasePort(service: DatabaseService, options: DatabasePo
         capabilities: result.capabilities,
       };
     },
-    query(connectionId, sql, limit) {
+    query(connectionId, sql, limit, config) {
       return service.queryReadOnly(connectionId, sql, {
+        ...(config === undefined ? {} : { config }),
         ...(limit === undefined ? {} : { limit }),
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       });

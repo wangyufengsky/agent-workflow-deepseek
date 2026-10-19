@@ -15,6 +15,7 @@ export interface MySqlDriverOptions {
 
 export interface MySqlProbeMeasurement {
   readonly serverVersion: string;
+  readonly sessionReadOnly?: boolean;
   readonly latencyMs: number;
 }
 
@@ -24,6 +25,7 @@ export interface MySqlColumn {
 }
 
 export interface MySqlRawResult {
+  readonly sessionReadOnly?: boolean;
   readonly columns: readonly MySqlColumn[];
   /** Rows already materialised as arrays (mysql2 `rowsAsArray`). */
   readonly rows: readonly (readonly unknown[])[];

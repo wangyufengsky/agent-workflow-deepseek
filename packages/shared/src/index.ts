@@ -11,3 +11,5 @@ export * from './config/database-url.ts';
 export * from './config/catalog.ts';
 export * from './config/themes.ts';
 export * from './api/contracts.ts';
+
+export * from './domain/access.ts';

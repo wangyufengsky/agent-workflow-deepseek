@@ -18,7 +18,7 @@ import {
   type DatabaseTypeValue,
 } from '@agent-workflow/shared';
 import { ApiClientError, apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
-import { useSettings } from '../../api/hooks.ts';
+import { useProjects, useSettings } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
@@ -60,6 +60,10 @@ interface ConnectionFormState {
   readonly password: string;
   readonly ssl: boolean;
   readonly readOnly: boolean;
+  readonly enabled: boolean;
+  readonly projectIds: readonly string[];
+  readonly schemas: string;
+  readonly tables: string;
 }
 
 interface ProbeFeedback {
@@ -90,6 +94,7 @@ function emptyForm(): ConnectionFormState {
     password: '',
     ssl: false,
     readOnly: true,
+    enabled: true, projectIds: [], schemas: '', tables: '',
   };
 }
 
@@ -103,8 +108,12 @@ function formFrom(connection: DatabaseConnection): ConnectionFormState {
     database: connection.database,
     user: connection.user,
     password: '',
-    ssl: false,
-    readOnly: connection.readOnly,
+    ssl: connection.ssl ?? false,
+    readOnly: true,
+    enabled: connection.enabled ?? true,
+    projectIds: connection.projectIds ?? [],
+    schemas: (connection.schemas ?? []).join(', '),
+    tables: (connection.tables ?? []).join(', '),
   };
 }
 
@@ -121,9 +130,7 @@ function validateForm(form: ConnectionFormState): string[] {
   if (!Number.isInteger(port) || port < 1 || port > 65535) issues.push('端口（1–65535）');
   if (form.database.trim().length === 0) issues.push('数据库');
   if (form.user.trim().length === 0) issues.push('用户名');
-  if (form.password.length === 0) {
-    issues.push(form.id === undefined ? '密码' : '密码（更新需重新填写）');
-  }
+  if (form.password.length === 0 && form.id === undefined) issues.push('密码');
   return issues;
 }
 
@@ -171,6 +178,7 @@ function ProbeFeedbackView({ feedback }: { readonly feedback: ProbeFeedback }) {
           </div>
         )}
         <div className="hint" style={{ marginTop: 4 }}>
+          会话只读：{probe.sessionReadOnly === true ? '已确认' : probe.sessionReadOnly === false ? '未通过' : '未知'} · 只读强制：{probe.readOnlyEnforced === true ? '已强制' : '待核实，不能视为已强制'}<br />
           能力：查询 {probe.capabilities.query ? '可用' : '不可用'} · EXPLAIN {probe.capabilities.explain ? '可用' : '不可用'} · 表结构{' '}
           {probe.capabilities.schemaRead ? '可读' : '不可读'}
         </div>
@@ -189,6 +197,12 @@ export function DatabasesPage() {
     staleTime: 10_000,
   });
   const connections = listQuery.data ?? [];
+  const typeQuery = useQuery({ queryKey: ['settings', 'database-types'], queryFn: async () => (await apiGet<{ types: readonly { id: DatabaseTypeValue }[] }>(ROUTES.databaseConnections)).data.types, retry: false });
+  const supportedTypes = typeQuery.data?.map((type) => type.id) ?? [];
+  const projectsQuery = useProjects();
+  const [saveKey, setSaveKey] = useState<string | null>(null);
+  const [saveUnknown, setSaveUnknown] = useState(false);
+  const [writeLabel, setWriteLabel] = useState('保存');
   const limits = settingsQuery.data?.settings.database;
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -211,13 +225,18 @@ export function DatabasesPage() {
         user: input.user.trim(),
         password: input.password,
         ssl: input.ssl,
-        readOnly: input.readOnly,
+        readOnly: true, enabled: input.enabled, projectIds: input.projectIds,
+        schemas: input.schemas.split(',').map((item) => item.trim()).filter(Boolean),
+        tables: input.tables.split(',').map((item) => item.trim()).filter(Boolean),
       };
-      const body: DatabaseConnectionUpsertRequest = { requestKey: createRequestKey(), connection };
+      const requestKey = createRequestKey();
+      setWriteLabel('保存'); setSaveKey(requestKey); setSaveUnknown(false);
+      const body: DatabaseConnectionUpsertRequest = { requestKey, connection };
       const response = await apiPost<{ readonly connection: DatabaseConnection }>(ROUTES.databaseConnections, body);
       return response.data.connection;
     },
     onSuccess: async (connection) => {
+      setSaveKey(null); setSaveUnknown(false);
       const created = form?.id === undefined;
       await queryClient.invalidateQueries({ queryKey: DATABASE_LIST_KEY });
       setNotice(
@@ -227,20 +246,32 @@ export function DatabasesPage() {
       setFormError(null);
     },
     onError: (error) => {
-      setFormError(apiErrorDetail(error));
+      const unknown = error instanceof ApiClientError && ['unavailable', 'timeout', 'protocol'].includes(error.kind);
+      setSaveUnknown(unknown);
+      if (!unknown) setSaveKey(null);
+      setFormError(unknown ? '保存结果未知；表单与原请求号已保留。请核对原操作，不要重新提交。' : apiErrorDetail(error));
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (connectionId: string) => {
-      await request(`/api/settings/databases/${encodeURIComponent(connectionId)}`, { method: 'DELETE' });
+      const requestKey = createRequestKey();
+      setWriteLabel('删除'); setSaveKey(requestKey); setSaveUnknown(false);
+      await request(`/api/settings/databases/${encodeURIComponent(connectionId)}`, { method: 'DELETE', body: { requestKey } });
     },
     onSuccess: async () => {
+      setSaveKey(null); setSaveUnknown(false);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['databases'] }),
+        queryClient.invalidateQueries({ queryKey: DATABASE_LIST_KEY }),
         queryClient.invalidateQueries({ queryKey: ['settings'] }),
         queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
       ]);
+    },
+    onError: (error) => {
+      const unknown = error instanceof ApiClientError && ['unavailable', 'timeout', 'protocol'].includes(error.kind);
+      setSaveUnknown(unknown);
+      if (!unknown) setSaveKey(null);
+      setNotice(unknown ? '删除结果未知，请核对原请求；不会重新提交。' : apiErrorDetail(error));
     },
   });
   const probeMutation = useMutation({
@@ -296,12 +327,14 @@ export function DatabasesPage() {
   }, [connections, keyword, typeFilter]);
 
   const openCreate = () => {
+    if (saveUnknown) return;
     setForm(emptyForm());
     setFormError(null);
     saveMutation.reset();
   };
 
   const openEdit = (connection: DatabaseConnection) => {
+    if (saveUnknown) return;
     setForm(formFrom(connection));
     setFormError(null);
     saveMutation.reset();
@@ -313,6 +346,8 @@ export function DatabasesPage() {
   };
 
   const updateForm = (patch: Partial<ConnectionFormState>) => {
+    if (saveUnknown) return;
+    if (form?.id !== undefined) setProbeFeedback((current) => { const next = { ...current }; delete next[form.id!]; return next; });
     // Accept a pasted Spring datasource URL in either the host or database
     // field and split it into the discrete fields the service expects.
     const jdbcCandidate = (typeof patch.host === 'string' && patch.host.includes('://'))
@@ -328,7 +363,16 @@ export function DatabasesPage() {
   };
 
   const formIssues = form === null ? [] : validateForm(form);
-  const canSave = form !== null && formIssues.length === 0 && !saveMutation.isPending;
+  const canSave = form !== null && formIssues.length === 0 && !saveMutation.isPending && !saveUnknown && supportedTypes.includes(form.type);
+  const reconcileSave = async () => {
+    if (saveKey === null) return;
+    try {
+      const { operation } = (await apiGet<{ operation: { status: string } }>(`/api/operations/${encodeURIComponent(saveKey)}`)).data;
+      if (operation.status === 'succeeded') { await listQuery.refetch(); setSaveUnknown(false); setSaveKey(null); setForm(null); setNotice(`已核对原请求：数据库连接${writeLabel}成功。`); }
+      else if (operation.status === 'failed') { setSaveUnknown(false); setSaveKey(null); setFormError('已核对：保存失败，可修改后重新保存。'); }
+      else setFormError('原操作仍在处理中或结果未知，请稍后再次核对。');
+    } catch (error) { setFormError(`尚未核对成功：${apiErrorDetail(error)}`); }
+  };
 
   let listBody: ReactNode;
   if (listQuery.isLoading) {
@@ -355,7 +399,7 @@ export function DatabasesPage() {
           title="还没有数据库连接"
           description="添加只读连接后，任务和知识库可以按授权范围读取表结构与数据。支持 MySQL / MariaDB / GoldenDB（mysql2）与 PostgreSQL（pg）；Oracle、达梦、DB2 的驱动仍在计划中，探针会返回不支持原因。"
           action={
-            <Button variant="primary" icon="plus" onClick={openCreate}>
+            <Button variant="primary" icon="plus" disabled={typeQuery.isLoading || typeQuery.isError || supportedTypes.length === 0} disabledReason="数据库类型清单尚未成功读取" onClick={openCreate}>
               添加连接
             </Button>
           }
@@ -397,6 +441,7 @@ export function DatabasesPage() {
                     驱动计划中
                   </Badge>
                 ) : null}
+                <Badge tone={connection.enabled === false ? 'idle' : 'ok'} icon={connection.enabled === false ? 'minus' : 'check'}>{connection.enabled === false ? '已停用' : '已启用'}</Badge>
                 {connection.readOnly ? (
                   <Badge tone="ok" icon="lock">
                     只读
@@ -417,21 +462,19 @@ export function DatabasesPage() {
                 <div className="db-fact">
                   <span className="db-fact-k">可读范围</span>
                   <span className="db-fact-v mono">{connection.database}</span>
-                  <span className="hint">服务只保存一个数据库 / Schema；没有多 schema、表级可读范围字段。</span>
+                  <span className="hint">可读范围：{(connection.schemas ?? []).join('、') || '未授权 schema'} · 表：{(connection.tables ?? []).join('、') || '已授权 schema 内全部表'}</span>
                 </div>
                 <div className="db-fact db-fact-warn">
                   <span className="db-fact-k">授权项目</span>
                   <span className="db-fact-v">
-                    <Badge tone="warn" icon="alert">
-                      服务未提供
-                    </Badge>
+                    {(connection.projectIds ?? []).length === 0 ? <Badge tone="warn" icon="alert">任务读不到它</Badge> : (connection.projectIds ?? []).map((id) => <Badge key={id} outline icon="folder">{projectsQuery.data?.find((project) => project.id === id)?.name ?? id}</Badge>)}
                   </span>
-                  <span className="hint">没有数据库→项目授权字段；执行侧 database.query 只按 connectionId 访问，本页不展示授权项目清单。</span>
+                  <span className="hint">查询必须同时满足项目绑定、职业授权、节点声明与会话只读限制。</span>
                 </div>
                 <div className="db-fact">
                   <span className="db-fact-k">最近检查</span>
                   <span className="db-fact-v">
-                    {connection.lastCheckedAt === undefined ? '尚未检查' : `${STATE_META[connection.state].label} · ${formatRelativeTime(connection.lastCheckedAt)}`}
+                    {connection.lastCheckedAt === undefined ? '尚未检查' : `${STATE_META[connection.state].label} · ${formatRelativeTime(connection.lastCheckedAt)}`} · {connection.sessionReadOnly === 'enforced' ? '会话只读已强制' : '只读强制待核实'}
                   </span>
                   <span className="hint">
                     {feedback?.probe === undefined
@@ -511,7 +554,7 @@ export function DatabasesPage() {
                   variant="ghost"
                   size="sm"
                   icon="trash"
-                  disabled={deleteMutation.isPending}
+                  disabled={deleteMutation.isPending || saveUnknown} disabledReason={saveUnknown ? '请先核对原请求' : undefined}
                   onClick={() => {
                     if (window.confirm(`删除数据库连接「${connection.name}」？只删除本地配置，不会改动数据库。`)) deleteMutation.mutate(connection.id);
                   }}
@@ -545,13 +588,14 @@ export function DatabasesPage() {
             >
               刷新
             </Button>
-            <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
+            <Button variant="primary" size="sm" icon="plus" disabled={typeQuery.isLoading || typeQuery.isError || supportedTypes.length === 0} disabledReason="数据库类型清单尚未成功读取" onClick={openCreate}>
               添加连接
             </Button>
           </>
         }
       />
 
+      {form === null && saveUnknown ? <div className="banner warn" role="status"><Icon name="help" /><span className="grow mono">{writeLabel}结果未知 · 原请求号：{saveKey}</span><Button size="sm" icon="refresh" onClick={() => { void reconcileSave(); }}>核对原请求</Button></div> : null}
       {notice === null ? null : (
         <div className="banner ok" role="status" style={{ marginBottom: 14 }}>
           <Icon name="check" />
@@ -588,6 +632,7 @@ export function DatabasesPage() {
         <span className="hint">共 {String(connections.length)} 个连接 · 查询只读 · 类型/驱动来自服务枚举，openGauss / GaussDB 没有类型与驱动契约</span>
       </div>
 
+      {typeQuery.isError ? <ServiceNotice error={typeQuery.error} compact onRetry={() => { void typeQuery.refetch(); }} /> : null}
       {listBody}
 
       {limits === undefined ? null : (
@@ -618,7 +663,7 @@ export function DatabasesPage() {
         title={form?.id === undefined ? '添加只读连接' : '编辑数据库连接'}
         size="lg"
         onClose={() => {
-          if (saveMutation.isPending) return;
+          if (saveMutation.isPending || saveUnknown) return;
           setForm(null);
           setFormError(null);
         }}
@@ -637,26 +682,26 @@ export function DatabasesPage() {
                 setForm(null);
                 setFormError(null);
               }}
-              disabled={saveMutation.isPending}
+              disabled={saveMutation.isPending || saveUnknown}
             >
               取消
             </Button>
             <Button
               variant="primary"
               icon="check"
-              disabled={!canSave}
-              disabledReason={formIssues.length > 0 ? `还缺：${formIssues.join('、')}` : '保存中'}
+              disabled={!canSave} disabledReason={form !== null && !supportedTypes.includes(form.type) ? '服务没有提供此类型驱动，历史连接只能查看' : saveUnknown ? '请先核对原保存请求' : formIssues.join('、')}
               onClick={() => {
                 if (form !== null) saveMutation.mutate(form);
               }}
             >
-              {saveMutation.isPending ? '保存中…' : '保存连接'}
+              {saveMutation.isPending ? '保存中…' : saveUnknown ? '结果未知' : '保存连接'}
             </Button>
           </>
         }
       >
         {form === null ? null : (
           <div className="col" style={{ gap: 16 }}>
+            {saveUnknown ? <div className="banner warn" role="status"><Icon name="help" /><span className="grow mono">原请求号：{saveKey}</span><Button size="sm" icon="refresh" onClick={() => { void reconcileSave(); }}>核对原请求</Button></div> : null}
             {saveMutation.isError ? (
               <div className="banner danger" role="alert">
                 <Icon name="alert" />
@@ -665,11 +710,14 @@ export function DatabasesPage() {
                   <br />
                   {formError ?? apiErrorDetail(saveMutation.error)}
                   <br />
-                  如果在超时后保存，结果可能已写入；请先关闭并刷新列表核对，不会自动重发。
+                  {saveUnknown ? '请保持表单打开并核对原请求；不会重新提交。' : '请修正错误后保存。'}
                 </div>
               </div>
             ) : null}
 
+            {typeQuery.isError ? <ServiceNotice error={typeQuery.error} compact onRetry={() => { void typeQuery.refetch(); }} /> : null}
+            {!supportedTypes.includes(form.type) ? <div className="banner warn"><Icon name="lock" />此类型不在服务提供的驱动清单中；历史连接只能查看。</div> : null}
+            <fieldset disabled={saveUnknown || !supportedTypes.includes(form.type)} className="col" style={{ gap: 16, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div className="field" style={{ margin: 0 }}>
               <label className="label" htmlFor="db-jdbc">
                 JDBC URL（可选，粘贴后自动拆分）
@@ -713,10 +761,10 @@ export function DatabasesPage() {
                 value={form.type}
                 onChange={(event) => {
                   const type = event.target.value as DatabaseTypeValue;
-                  updateForm({ type, port: defaultPort(type) });
+                  updateForm({ type, port: defaultPort(type), host: '', database: '' });
                 }}
               >
-                {DATABASE_TYPES.map((type) => (
+                {supportedTypes.map((type) => (
                   <option key={type} value={type}>
                     {DATABASE_TYPE_META[type].label}
                     {DATABASE_TYPE_META[type].driver === 'planned' ? '（驱动计划中）' : ''}
@@ -802,14 +850,14 @@ export function DatabasesPage() {
                   type="password"
                   autoComplete="new-password"
                   value={form.password}
-                  placeholder={form.id === undefined ? '只保存在服务端凭据中' : '更新需重新填写'}
+                  placeholder={form.id === undefined ? '只保存在服务端凭据中' : '留空保留原密码'}
                   onChange={(event) => {
                     updateForm({ password: event.target.value });
                   }}
                 />
               </div>
             </div>
-            <p className="hint">密码不会回显。服务端更新连接时不保留旧密码，因此编辑连接必须重新填写密码。</p>
+            <p className="hint">密码从不回填；编辑时留空保留原密码版本。</p>
 
             <label className="check">
               <input
@@ -822,7 +870,7 @@ export function DatabasesPage() {
               <span>
                 <span style={{ fontSize: 13.5 }}>使用 SSL</span>
                 <span className="hint" style={{ display: 'block' }}>
-                  由 mysql2 驱动建立 TLS 连接。连接列表不回显 SSL 标记，编辑保存时按当前勾选写入。
+                  由 mysql2 驱动建立 TLS 连接。SSL 配置由服务保存并在编辑时回显。
                 </span>
               </span>
             </label>
@@ -830,7 +878,7 @@ export function DatabasesPage() {
             <label className="check">
               <input
                 type="checkbox"
-                checked={form.readOnly}
+                checked disabled
                 onChange={(event) => {
                   updateForm({ readOnly: event.target.checked });
                 }}
@@ -838,46 +886,24 @@ export function DatabasesPage() {
               <span>
                 <span style={{ fontSize: 13.5 }}>标记为只读连接</span>
                 <span className="hint" style={{ display: 'block' }}>
-                  只读查询始终由服务端守卫强制；该标记用于配置与提示。
+                  SQL 守卫与数据库只读事务共同限制写入；检查前不宣称会话已强制只读。
                 </span>
               </span>
             </label>
 
             <div className="section" style={{ marginTop: 4 }}>
-              <div className="section-head">
-                <span className="section-title">访问范围</span>
-                <Badge tone="unknown" icon="help">
-                  服务未提供
-                </Badge>
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label className="label" htmlFor="db-readable-scopes">
-                  可读库 / Schema（标签输入）
-                </label>
-                <input
-                  id="db-readable-scopes"
-                  className="input"
-                  disabled
-                  placeholder={form.database === '' ? '服务未提供多 schema 可读范围字段' : form.database}
-                  title="服务连接模型只有单个 database 字段；没有多 schema / 表级可读范围接口。"
-                />
-                <span className="hint">服务端连接模型只有一个 database 字段；无法在本页配置多个 schema 或表级可读范围。</span>
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label className="label" htmlFor="db-authorized-projects">
-                  授权项目
-                </label>
-                <select id="db-authorized-projects" className="select" disabled aria-label="授权项目" title="服务未提供数据库→项目授权字段/接口。">
-                  <option>服务未提供授权项目字段</option>
-                </select>
-                <span className="hint">服务没有把数据库连接与项目关联的接口；执行侧 database.query 只按 connectionId 访问，不能从本页展示或修改授权项目。</span>
-              </div>
+              <div className="section-head"><span className="section-title">访问范围</span><Badge outline icon="shield">服务端执行授权</Badge></div>
+              <label className="field"><span className="label">允许访问的 schema（逗号分隔）</span><input className="input mono" value={form.schemas} disabled={saveUnknown} placeholder={form.type === 'postgresql' ? 'public, report' : 'app, report'} onChange={(event) => { updateForm({ schemas: event.target.value }); }} /><span className="hint">任务只能读取明确列出的 schema。空范围禁止任务读取。</span></label>
+              <label className="field"><span className="label">可读表（schema.table，逗号分隔）</span><input className="input mono" value={form.tables} disabled={saveUnknown} placeholder="report.orders, report.customers" onChange={(event) => { updateForm({ tables: event.target.value }); }} /><span className="hint">留空允许已授权 schema 中的全部表；填写后只允许这些表。</span></label>
+              <div className="field"><span className="label">绑定项目</span>{projectsQuery.isError ? <ServiceNotice error={projectsQuery.error} compact onRetry={() => { void projectsQuery.refetch(); }} /> : (projectsQuery.data ?? []).map((project) => <label className="check" key={project.id}><input type="checkbox" checked={form.projectIds.includes(project.id)} disabled={saveUnknown} onChange={(event) => { updateForm({ projectIds: event.target.checked ? [...form.projectIds, project.id] : form.projectIds.filter((id) => id !== project.id) }); }} /><span>{project.name}</span></label>)}<span className="hint">未绑定项目时，任务无法发现此连接。撤销立即阻止后续查询；扩权供新会话使用。</span></div>
+              <label className="check"><input type="checkbox" checked={form.enabled} disabled={saveUnknown} onChange={(event) => { updateForm({ enabled: event.target.checked }); }} /><span>启用连接，供绑定项目的新会话使用</span></label>
             </div>
 
             <div className="banner info">
               <Icon name="info" />
-              <div className="grow">保存写操作使用 requestKey；服务端目前不对重复 requestKey 去重，因此超时后请先刷新列表核对，不会自动重发。</div>
+              <div className="grow">保存按原请求号去重；响应丢失时保留表单并锁定重复保存，只核对原操作。</div>
             </div>
+            </fieldset>
           </div>
         )}
       </Drawer>

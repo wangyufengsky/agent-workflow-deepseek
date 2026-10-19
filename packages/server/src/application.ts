@@ -1,3 +1,4 @@
+import { registerToolPolicyRoutes, sessionPolicy } from './tool-policy.ts';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
@@ -130,6 +131,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
     startedAt,
   });
 
+  registerToolPolicyRoutes(app, store, engine, async () => (await opencodeRef.current?.diagnostics())?.mcp ?? {});
   registerInternalRoutes(app, { engine, store, token: internalToken, internalUrl: '' });
   registerReviewRoutes(app, { engine, store });
   registerDirectoryApplyRoutes(app, { engine, store });
@@ -160,6 +162,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
       const planner = pickModel(baseSettings.models, 'planner') ?? baseSettings.models[0]!;
       adapter = new OpenCodeAdapter({
         dataDir,
+        sessionPolicy: (request) => sessionPolicy(store, engine, request),
         repoRoot: paths.repoRoot,
         binaryPath: baseSettings.opencode.binaryPath,
         expectedVersion: baseSettings.opencode.expectedVersion,

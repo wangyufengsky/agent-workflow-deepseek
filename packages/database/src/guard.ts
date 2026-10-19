@@ -129,6 +129,10 @@ export function prepareReadOnlyQuery(sql: unknown, options: ReadOnlyGuardOptions
   if (typeof sql !== 'string' || sql.trim().length === 0) {
     throw new AppError(ErrorCode.VALIDATION_FAILED, 'SQL 不能为空', { details: { field: 'sql' } });
   }
+  // SQL modes and PostgreSQL dollar quotes must not change statement boundaries.
+  if (sql.includes('\\') || /\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.test(sql)) {
+    throw blocked('只读查询不支持反斜杠或 dollar-quoted 字符串，请使用标准引号与双引号转义', 'ambiguous_quote_mode');
+  }
   if (sql.includes('\u0000')) {
     throw blocked('SQL 包含空字节', 'nul_byte');
   }

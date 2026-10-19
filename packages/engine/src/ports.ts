@@ -123,6 +123,8 @@ export interface OpenCodeRunRequest {
   /** No runtime tools; only the supplied context may be used. */
   readonly toolPolicy?: 'none';
   readonly rolePolicy?: RoleDefinition;
+  readonly allowedTools?: readonly string[];
+  readonly databaseAccess?: readonly import('@agent-workflow/shared').DatabaseAccessGrant[];
   readonly jsonSchema?: Record<string, unknown>;
   readonly sink: SessionSink;
   readonly timeoutMs: number;
@@ -147,7 +149,7 @@ export interface OpenCodePort {
 
 export interface DatabasePort {
   probe(connectionId: string): Promise<{ readonly state: string; readonly serverVersion?: string; readonly latencyMs?: number; readonly message?: string }>;
-  query(connectionId: string, sql: string, limit?: number): Promise<unknown>;
+  query(connectionId: string, sql: string, limit?: number, config?: import('@agent-workflow/shared').DatabaseConnectionConfig): Promise<unknown>;
 }
 
 export interface ClockPort {
