@@ -1,6 +1,6 @@
 import type { IsoDateTime, RequestKey, TaskId } from '../ids.ts';
 import type { ErrorCodeValue } from '../errors.ts';
-import type { ThemeIdValue } from '../domain/enums.ts';
+import type { DimensionValue, SeverityValue, ThemeIdValue } from '../domain/enums.ts';
 import type { AppEventEnvelope } from '../domain/events.ts';
 import type {
   ActionAvailability,
@@ -759,6 +759,22 @@ export interface ReviewStartRequest extends CommandRequest {
   readonly professionRevision: string;
 }
 
+export interface ReviewFindingSummary {
+  readonly severity: SeverityValue;
+  readonly dimension: DimensionValue;
+  readonly title: string;
+  readonly path?: string;
+  readonly line?: number;
+}
+
+export interface ReviewCompareResponse {
+  readonly base: { readonly reviewRunId: string; readonly commitSha: string };
+  readonly target: { readonly reviewRunId: string; readonly commitSha: string };
+  readonly resolved: readonly ReviewFindingSummary[];
+  readonly introduced: readonly ReviewFindingSummary[];
+  readonly persisting: readonly ReviewFindingSummary[];
+}
+
 export interface ReviewResponse {
   readonly review: ReviewRun;
 }
@@ -1017,6 +1033,8 @@ export const ROUTES = {
   gitMergeRequests: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/merge-requests`,
   gitMergeRequest: (projectId: string, iid: number) => `/api/git/repos/${encodeURIComponent(projectId)}/merge-requests/${iid}`,
   reviews: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews`,
+  reviewCompare: (projectId: string, baseId: string, targetId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(baseId)}/compare/${encodeURIComponent(targetId)}`,
+  commitReviews: (projectId: string, sha: string) => `/api/git/repos/${encodeURIComponent(projectId)}/commits/${encodeURIComponent(sha)}/reviews`,
   review: (projectId: string, reviewRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewRunId)}`,
   reviewStart: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews/start`,
   reviewStop: (projectId: string, reviewRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewRunId)}/stop`,

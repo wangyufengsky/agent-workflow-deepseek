@@ -419,6 +419,42 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope({ commit }, requestId(request));
   });
 
+  app.get<{ Params: { projectId: string; sha: string } }>('/api/git/repos/:projectId/commits/:sha/reviews', async (request) => {
+    const reviews = store.reviews.listByCommit(request.params.projectId, request.params.sha).map((review) => ({
+      reviewRunId: review.reviewRunId,
+      ordinal: review.ordinal,
+      state: review.state,
+      startedAt: review.startedAt,
+      endedAt: review.endedAt,
+      findings: review.findings.length,
+    }));
+    return envelope({ reviews }, requestId(request));
+  });
+  app.get<{ Params: { projectId: string; baseId: string; targetId: string } }>('/api/git/repos/:projectId/reviews/:baseId/compare/:targetId', async (request) => {
+    const base = store.reviews.get(request.params.baseId);
+    const target = store.reviews.get(request.params.targetId);
+    if (base === undefined || target === undefined || base.projectId !== request.params.projectId || target.projectId !== request.params.projectId) {
+      throw new AppError(ErrorCode.NOT_FOUND, '审查记录不存在');
+    }
+    const summarize = (review: typeof base) => review.findings.map((finding) => ({
+      severity: finding.severity,
+      dimension: finding.dimension,
+      title: finding.title,
+      ...(finding.location === undefined ? {} : { path: finding.location.path, line: finding.location.startLine }),
+    }));
+    const key = (finding: { dimension: string; title: string; path?: string; line?: number }) => `${finding.dimension}|${finding.path ?? ''}|${String(finding.line ?? '')}|${finding.title}`;
+    const baseFindings = summarize(base);
+    const targetFindings = summarize(target);
+    const baseKeys = new Map(baseFindings.map((finding) => [key(finding), finding]));
+    const targetKeys = new Map(targetFindings.map((finding) => [key(finding), finding]));
+    return envelope({
+      base: { reviewRunId: base.reviewRunId, commitSha: base.subject.commitSha },
+      target: { reviewRunId: target.reviewRunId, commitSha: target.subject.commitSha },
+      resolved: baseFindings.filter((finding) => !targetKeys.has(key(finding))),
+      introduced: targetFindings.filter((finding) => !baseKeys.has(key(finding))),
+      persisting: targetFindings.filter((finding) => baseKeys.has(key(finding))),
+    }, requestId(request));
+  });
   app.get<{ Params: { projectId: string; sha: string }; Querystring: { compareId?: string } }>('/api/git/repos/:projectId/commits/:sha/files', async (request) => {
     const project = requireProject(engine, request.params.projectId);
     const commit = await engine.ports.git.commitShow(project.rootPath, request.params.sha);

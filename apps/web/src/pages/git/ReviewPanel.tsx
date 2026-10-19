@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiGet } from '../../api/client.ts';
+import { Modal } from '../../components/Modal.tsx';
 import {
   DIMENSION_ORDER,
   type DimensionValue,
@@ -87,6 +89,10 @@ export function ReviewPanel({
   const [setupOpen, setSetupOpen] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptView | null>(null);
   const [lookupKey, setLookupKey] = useState<string | null>(null);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareBusy, setCompareBusy] = useState(false);
+  const [compareError, setCompareError] = useState<string | undefined>(undefined);
+  const [compareResult, setCompareResult] = useState<{ resolved: { title: string }[]; introduced: { title: string }[]; persisting: { title: string }[] } | null>(null);
 
   const reviewQuery = useQuery({
     queryKey: gitKeys.review(projectId, reviewRunId ?? ''),
@@ -330,6 +336,33 @@ export function ReviewPanel({
             <h3 style={{ fontSize: 13.5, fontWeight: 500 }}>问题列表</h3>
             <Badge tone="neutral">{String(findings.length)}</Badge>
             <span className="spacer" />
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="refresh"
+              disabled={reviewRunId === undefined || compareBusy}
+              onClick={() => {
+                if (reviewRunId === undefined) return;
+                setCompareBusy(true);
+                setCompareError(undefined);
+                void (async () => {
+                  try {
+                    const list = (await apiGet<{ reviews: { reviewRunId: string }[] }>(`/api/git/repos/${encodeURIComponent(projectId)}/commits/${encodeURIComponent(commit.sha)}/reviews`)).data.reviews;
+                    const previous = list.find((item) => item.reviewRunId !== reviewRunId);
+                    if (previous === undefined) throw new Error('这个提交还没有更早的审查可对比');
+                    const comparison = (await apiGet<{ resolved: { title: string }[]; introduced: { title: string }[]; persisting: { title: string }[] }>(`/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(previous.reviewRunId)}/compare/${encodeURIComponent(reviewRunId)}`)).data;
+                    setCompareResult(comparison);
+                    setCompareOpen(true);
+                  } catch (error) {
+                    setCompareError(error instanceof Error ? error.message : '对比失败');
+                  } finally {
+                    setCompareBusy(false);
+                  }
+                })();
+              }}
+            >
+              {compareBusy ? '对比中…' : '对比上次审查'}
+            </Button>
             <span className="muted-note">接受 / 忽略 / 误报会写入审查问题状态；忽略与误报不能被选入修复。</span>
           </div>
 
@@ -562,6 +595,23 @@ export function ReviewPanel({
           {receipt !== null && setupOpen ? <ReceiptBanner receipt={receipt} onVerify={(key) => { setLookupKey(key); }} verifying={lookupQuery.isFetching} /> : null}
         </div>
       </Drawer>
+
+      <Modal open={compareOpen} title="审查对比" onClose={() => { setCompareOpen(false); }} footer={<Button variant="ghost" onClick={() => { setCompareOpen(false); }}>关闭</Button>}>
+        {compareResult === null ? null : (
+          <div className="col" style={{ gap: 12 }}>
+            <p className="hint">与同一提交的上一次审查按「维度 + 位置 + 标题」匹配；仅比较问题清单，不推断代码质量。</p>
+            {(['resolved', 'introduced', 'persisting'] as const).map((bucket) => (
+              <div key={bucket}>
+                <div className="row" style={{ gap: 8 }}>
+                  <span className="section-title">{bucket === 'resolved' ? '已解决' : bucket === 'introduced' ? '新发现' : '仍存在'}</span>
+                  <Badge tone="neutral">{String(compareResult[bucket].length)}</Badge>
+                </div>
+                {compareResult[bucket].length === 0 ? <p className="hint">无</p> : compareResult[bucket].map((item, index) => <p key={`${bucket}-${String(index)}`} className="hint">· {item.title}</p>)}
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
