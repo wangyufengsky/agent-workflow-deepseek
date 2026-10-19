@@ -312,3 +312,9 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 以 `AGENT_WORKFLOW_DATA_DIR=.tmp/view-data AGENT_WORKFLOW_PORT=5177 npm run dev` 重启：health 200；OpenCode 状态 `ready`（1.19.0，managed/enabled=true）；MCP `agent-workflow` 已连接 **13 个工具**。
 - 修复并发会话误报：`/api/opencode/status` 的 `sessions` 改为受管运行中的活动会话数（强制上限使用同一计数），新增 `totalSessions` 表示 OpenCode 历史会话总数；当前 `sessions=0/8`、`totalSessions=46`，历史会话不再触发“已达上限”。
 - Vite 开发地址 `http://127.0.0.1:5173`，服务地址 `http://127.0.0.1:5177`。
+
+### 第 87 轮一键重启部署（2026-10-19）
+
+- 新增 `npm run dev:restart`：停止 5177/5173 旧监听 → `build:web` → 以分离进程启动 `npm run dev`（日志 `.tmp/dev.log`）→ 等待 health 与 OpenCode `ready`，打印 MCP 工具数/会话数。
+- 支持 `AGENT_WORKFLOW_DATA_DIR`、`AGENT_WORKFLOW_PORT`、`AGENT_WORKFLOW_WEB_PORT` 覆盖；自动移除 `AGENT_WORKFLOW_DISABLE_OPENCODE`。
+- 实测：`.tmp/view-data` 数据保留（1 项目/2 任务），OpenCode 1.19.0 ready、MCP 13 工具、活动会话 0/8、历史会话 46 不计入。
