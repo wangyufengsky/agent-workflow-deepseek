@@ -209,7 +209,7 @@ export class RemoteService implements RemotePort {
       });
     }
     return new GitLabAdapter({
-      projectId: encodeURIComponent(coordinates.pathWithNamespace),
+      projectId: coordinates.pathWithNamespace,
       token,
       apiBaseUrl: settings.git.gitlab.apiBaseUrl,
       webBaseUrl: settings.git.gitlab.baseUrl,

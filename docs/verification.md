@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**287 tests / 54 suites / 279 pass / 8 skipped / 0 fail**，约 24s。
+结果（本轮）：**288 tests / 54 suites / 280 pass / 8 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -38,7 +38,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/review | review/fix 服务与 15 条 HTTP 路由、findings 校验丢弃、CAS、worktree 隔离、revert/commit/discard |
 | server/remote | GitHub token 加密/连接/MR 读取/令牌不泄漏；fetch 更新本地远端引用；非 Git 目录副本 |
 | server/apply | 非 Git 三方预览 → 冻结 → 逐项应用：真实 prepare baseline、无冲突写入、冲突处理、备份、漂移拒绝、路径逃逸 |
-| server/push-mr | 本地 bare 远端 push 创建/非快进拒绝；GitHub REST 创建 MR（stub）→ delivered/lifecycle completed |
+| server/push-mr | 本地 bare 远端 push 创建/非快进拒绝；GitHub/GitLab REST 创建 MR（stub）→ delivered/lifecycle completed |
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
@@ -105,6 +105,9 @@ node --import tsx --test --test-force-exit tests/integration/github-live.test.ts
 
 结果（PASS）：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；`/api/bootstrap` 与仓库视图显示
 connected；响应中不包含令牌。未执行任何写操作（push / 创建 MR / 合并）以避免修改真实仓库。
+
+GitLab 适配用本地桩服务覆盖：`tests/integration/gitlab-mr.test.ts` 校验 PRIVATE-TOKEN、`/projects/:id/merge_requests`
+列表与创建、交付结算 delivered。真实 GitLab 实例未连接。
 
 ### 3.7 flash + 兼容网关（PASS）
 
@@ -180,8 +183,8 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 
 ## 7. 已知限制 / 未验证
 
-- Git 远端写只验证了 fetch（本地远端）和 MR 读取（真实 GitHub）；真实 GitHub push / 创建 MR / 直接合并
-  未执行（避免修改真实仓库），GitLab 未联调。
+- Git 远端写：fetch 用本地远端验证；MR 创建用 GitHub/GitLab 桩服务验证；真实 GitHub push / 创建 MR / 直接合并
+  未执行（避免修改真实仓库），真实 GitLab 未连接。
 - AI 审查/修复的服务端结果已验证；模型自报的校验命令未由服务独立执行；`fix.merge` 未实现。
 - FixRun 的 start/stop requestKey 只存在内存，进程重启后的恢复仍需补（ReviewRun 可从 receipt 恢复）。
 - 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理确认仅基础实现。

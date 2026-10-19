@@ -70,7 +70,7 @@ OpenCode ──OpenAI 兼容请求──▶ http://127.0.0.1:<app>/api/opencode/
 | flash + MCP 工具（dummy `ping`） | 工具真实被调用，无 APIError |
 | flash 规划（真实 provider、真实 MCP 提交） | 候选通过结构检查（0 problems）→ 应用 → 确认计划 → worktree 准备成功 |
 | flash 执行（MCP 文件写入 + result.submit） | 节点成功，worktree 中 `README.md` 有真实改动 |
-| 全量测试 | 287 tests / 279 pass / 8 skip |
+| 全量测试 | 288 tests / 280 pass / 8 skip |
 | flash 规划经网关（真实 MCP 提交） | `tests/integration/planning-gateway-live.test.ts` PASS（4/4 归一化） |
 
 ## 风险与切换
