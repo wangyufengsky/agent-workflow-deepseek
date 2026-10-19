@@ -521,6 +521,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = request.body as PptWorkCreateRequest;
     return envelope(engine.ppt.create(body), requestId(request));
   });
+  app.get<{ Params: { id: string } }>('/api/ppt/works/:id/export', async (request) => envelope(engine.ppt.exportMarkdown(request.params.id), requestId(request)));
   app.patch<{ Params: { id: string } }>('/api/ppt/works/:id', async (request) => {
     const body = request.body as PptWorkUpdateRequest;
     return envelope(engine.ppt.update(request.params.id, body), requestId(request));

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ROUTES, createRequestKey, type PptWork } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, type PptWork, type PptWorkExportResponse } from '@agent-workflow/shared';
 import { apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useProjects } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';

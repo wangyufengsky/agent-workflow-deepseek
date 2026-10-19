@@ -36,6 +36,12 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     const badUpdate = await app.app.inject({ method: 'PATCH', url: `/api/ppt/works/${id}`, payload: { requestKey: requestKey('pptbad'), title: '', confirmUpdate: true } });
     assert.equal(badUpdate.statusCode, 400, badUpdate.body);
 
+    const exported = await app.app.inject({ method: 'GET', url: `/api/ppt/works/${id}/export` });
+    assert.equal(exported.statusCode, 200, exported.body);
+    assert.match(exported.json().data.filename as string, /季度汇报（改）\.md/);
+    assert.match(exported.json().data.content as string, /## 1\. 开场/);
+    assert.equal((await app.app.inject({ method: 'GET', url: '/api/ppt/works/ppt_unknown/export' })).statusCode, 404);
+
     const generate = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/generate`, payload: { requestKey: requestKey('gen'), confirmGenerate: true } });
     assert.equal(generate.statusCode, 503, generate.body);
     assert.equal(generate.json().error.code, 'OPENCODE_NOT_READY');

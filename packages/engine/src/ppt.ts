@@ -44,6 +44,17 @@ export class PptService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.list().works };
   }
 
+  exportMarkdown(id: string): { filename: string; content: string } {
+    const work = this.#store.pptWorks.get(id);
+    if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    const safe = work.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 60) || '演示';
+    const outline = work.outline.length === 0 ? '（尚未生成大纲）' : work.outline.map((slide, index) => `## ${String(index + 1)}. ${slide}`).join('\n\n');
+    return {
+      filename: `${safe}.md`,
+      content: `# ${work.title}\n\n> ${work.topic}\n\n${outline}\n\n---\n\n由 agent-workflow 导出的 PPT 大纲（未生成逐页视觉）。\n`,
+    };
+  }
+
   update(id: string, input: PptWorkUpdateRequest): CommandResponse<PptWork> {
     if (input?.confirmUpdate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '编辑 PPT 需要显式确认');
     const work = this.#store.pptWorks.get(id);
