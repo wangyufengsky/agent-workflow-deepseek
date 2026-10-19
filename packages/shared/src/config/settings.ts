@@ -114,6 +114,11 @@ export interface ServerSettings {
   readonly corsOrigins: readonly string[];
 }
 
+export interface MonitoringSettings {
+  /** UI polling interval used only when SSE is unavailable. */
+  readonly pollIntervalMs: number;
+}
+
 export interface AppSettings {
   readonly ui: UiSettings;
   readonly server: ServerSettings;
@@ -123,6 +128,7 @@ export interface AppSettings {
   readonly planning: PlanningSettings;
   readonly execution: ExecutionSettings;
   readonly delivery: DeliverySettings;
+  readonly monitoring: MonitoringSettings;
   readonly models: readonly ModelProfile[];
 }
 
@@ -200,6 +206,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     pauseTimeoutMs: 15000,
     verifyCommandTimeoutMs: 300000,
   },
+  monitoring: { pollIntervalMs: 1500 },
   delivery: {
     defaultGoal: 'create_merge_request',
     requirePushConfirmation: true,
@@ -259,6 +266,9 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
     issues.push({ path: 'opencode.expectedVersion', message: '当前受管运行时固定 OpenCode 1.19.0' });
   }
   if (!settings.opencode.binaryPath.trim()) issues.push({ path: 'opencode.binaryPath', message: 'OpenCode 可执行路径不能为空' });
+  if (!Number.isInteger(settings.monitoring.pollIntervalMs) || settings.monitoring.pollIntervalMs < 500 || settings.monitoring.pollIntervalMs > 30_000) {
+    issues.push({ path: 'monitoring.pollIntervalMs', message: '轮询间隔需要在 500–30000ms 之间' });
+  }
   if (settings.planning.maxRevisions < 0 || settings.planning.maxRevisions > 1) {
     issues.push({ path: 'planning.maxRevisions', message: '有界修订最多 1 次（MVP 决定）' });
   }

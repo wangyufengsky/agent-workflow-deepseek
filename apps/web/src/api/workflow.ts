@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useBootstrap } from './hooks.ts';
 import {
   ROUTES,
   createRequestKey,
@@ -571,6 +572,8 @@ export interface TaskLiveUpdates extends WorkflowStreamStatus {
 /** Stream + debounced invalidation for the current task view. */
 export function useTaskLiveUpdates(taskId: string | undefined, options: { enabled?: boolean } = {}): TaskLiveUpdates {
   const client = useQueryClient();
+  const bootstrap = useBootstrap();
+  const pollIntervalMs = bootstrap.data?.settings.monitoring.pollIntervalMs ?? 1_500;
   const timerRef = useRef<number | null>(null);
   const stream = useWorkflowEventStream(taskId, {
     enabled: options.enabled,
@@ -598,7 +601,7 @@ export function useTaskLiveUpdates(taskId: string | undefined, options: { enable
   return {
     ...stream,
     connected: stream.connection === 'connected',
-    refetchInterval: polling ? 1_500 : false,
+    refetchInterval: polling ? pollIntervalMs : false,
   };
 }
 
