@@ -94,7 +94,7 @@ export interface ProjectSettings {
   readonly gitProvider?: GitProviderValue;
   readonly defaultModelProfileId?: string;
   readonly defaultMethodId?: string;
-  /** Project docs the agent should read, relative to the project root. */
+  /** Output directories for generated design/change documents, relative to the workspace root. Empty disables document generation; not a read permission. */
   readonly docPaths?: readonly string[];
   /** Project-level GitLab override (non-secret; tokens stay in global settings). */
   readonly gitlab?: ProjectGitlabSettings;

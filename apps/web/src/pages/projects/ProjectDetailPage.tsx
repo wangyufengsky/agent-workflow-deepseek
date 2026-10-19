@@ -10,6 +10,7 @@ import {
   type GitRepo,
   type IntegrationStatus,
   type OperationReceipt,
+  type OperationsByKeyResponse,
   type Project,
   type ProjectCharterResponse,
   type ProjectCharterStatusValue,
@@ -346,9 +347,9 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
       <div className="banner info">
         <Icon name="info" />
         <div className="grow">
-          <b>运行时仍使用全局 GitLab 配置。</b>
+          <b>项目 GitLab 配置用于远程仓库调用。</b>
           <br />
-          这里保存的是项目级非敏感覆盖（地址与 projectPath）；当前远程调用和凭据仍由全局 GitLab 设置提供，项目级覆盖不会改变运行时连接。
+          项目地址与 projectPath 用于合并请求和保护分支查询；凭据继承本机 GitLab 账号。停用后不发起 GitLab 远程调用。
         </div>
       </div>
       <label className="check" style={{ marginTop: 10 }}>
@@ -386,7 +387,7 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
         <span>启用项目级 GitLab 覆盖</span>
       </label>
       <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
-        <span className="hint grow">非敏感配置；不保存 token。当前服务仍以全局 GitLab 连接为准。</span>
+        <span className="hint grow">非敏感配置；不保存 token。远程调用采用已保存的项目覆盖；凭据仍保存在本机。</span>
         <Button
           variant="primary"
           size="sm"
@@ -398,7 +399,7 @@ function ProjectGitlabForm({ project, globalBaseUrl }: { readonly project: Proje
           {mutation.isPending ? '保存中…' : '保存 GitLab 覆盖'}
         </Button>
       </div>
-      <ReceiptNotice receipt={receipt} successMessage="项目级 GitLab 覆盖已保存；运行时仍使用全局配置。" />
+      <ReceiptNotice receipt={receipt} successMessage="项目级 GitLab 覆盖已保存并用于后续远程调用。" />
       {error === null ? null : <CommandErrorNotice error={error} title="GitLab 覆盖未保存" />}
     </div>
   );
@@ -542,7 +543,7 @@ function GitTab({
       ) : (
         <DetailSection
           title="GitLab 与证据"
-          subtitle="仓库事实来自服务端 Git 读取接口；项目级 GitLab 覆盖可保存，但运行时仍使用全局配置。"
+          subtitle="仓库事实来自服务端 Git 读取接口；项目级 GitLab 覆盖用于远程仓库读取与合并请求。"
           className="project-section"
           aside={repo === undefined ? <Badge tone="idle">未读取</Badge> : <Badge tone={GITLAB_STATE_TONE[gitlabState]} icon={gitlabState === 'connected' ? 'check' : gitlabState === 'auth_failed' || gitlabState === 'unreachable' ? 'alert' : 'help'}>{GITLAB_STATE_LABEL[gitlabState]}</Badge>}
         >
@@ -794,6 +795,17 @@ function CharterTab({
   const [errorState, setErrorState] = useState<unknown>(null);
   const [generateError, setGenerateError] = useState<unknown>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
+  const stopMutation = useMutation({
+    mutationFn: async () => (await apiPost<CommandResponse<ProjectCharterResponse>>(ROUTES.projectCharterStop(project.id), { requestKey: createRequestKey(), confirmStop: true })).data,
+    onSuccess: async (data) => { setStopOpen(false); setReceipt(data.receipt); await refreshCharter(); },
+    onError: (caught) => { setGenerateError(caught); },
+  });
+  useEffect(() => {
+    if (charter?.status !== 'generating' && receipt?.status === 'accepted') {
+      void apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(receipt.requestKey)).then((response) => setReceipt(response.data.operation)).catch(() => undefined);
+    }
+  }, [charter?.status, receipt?.requestKey]);
 
   useEffect(() => {
     setContent(sourceContent);
@@ -808,9 +820,20 @@ function CharterTab({
     setConfirmOpen(false);
   }, [project.id]);
 
+  useEffect(() => {
+    if (charter?.status !== 'generating') return;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    const navigate = (event: MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest('a[href]') !== null) { event.preventDefault(); event.stopPropagation(); setStopOpen(true); }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    document.addEventListener('click', navigate, true);
+    return () => { window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('click', navigate, true); };
+  }, [charter?.status]);
+
   const dirty = content !== baseline;
   const locked = receipt !== undefined && (receipt.status === 'unknown' || receipt.status === 'accepted');
-  const unknownState = charter?.needsReconcile === true || charter?.status === 'unknown';
+  const unknownState = charter?.needsReconcile === true || charter?.status === 'unknown' || (error != null && charter?.status === 'generating');
   const canEdit = charter?.capabilities.edit.allowed !== false;
   const expectedVersion = charter?.draft?.version ?? charter?.written?.version;
   const currentStatus = charter?.status;
@@ -914,7 +937,7 @@ function CharterTab({
         {errorMessage(generateError)}
         {isApiClientError(generateError) && generateError.code !== null ? <span className="mono"> · {generateError.code}</span> : null}
         <br />
-        服务没有生成草稿；可继续手动编辑后保存。不会把 501 当作成功。
+        请按原请求号核对生成结果；已保留的草稿与当前 AGENTS.md 不会被失败结果覆盖。
       </div>
     </div>
   );
@@ -922,7 +945,7 @@ function CharterTab({
   return (
     <DetailSection
       title="项目公约"
-      subtitle="AGENTS.md 告诉执行中的智能体这个项目的约定；读、手动保存草稿、确认写入都来自服务，模型生成当前未接线。"
+      subtitle="根据项目实际结构只读生成草稿，先审阅和编辑，确认后才写入 AGENTS.md。"
       aside={<Badge tone={statusMeta.tone} icon={statusMeta.icon}>{statusMeta.label}</Badge>}
     >
       {loading ? <SkeletonText lines={6} /> : null}
@@ -931,9 +954,9 @@ function CharterTab({
         <div className="banner unknown" role="alert">
           <Icon name="help" />
           <div className="grow">
-            <b>上次写入状态未明（needsReconcile）。</b>
+            <b>无法确认原公约操作是否已结束。</b>
             <br />
-            进程可能在上次写入 AGENTS.md 时中断；本页不会自动重试。请重新读取当前文件核对内容，再决定是否重新编辑草稿。
+            生成或写入记录保留；本页不会重新生成或重写。请重新读取并按原请求号核对，原进程未停稳前不开放新操作。
             {charter?.current.readError === undefined ? null : <><br />读取错误：{charter.current.readError}</>}
           </div>
           <div className="actions">
@@ -979,16 +1002,20 @@ function CharterTab({
               variant="secondary"
               size="sm"
               icon="sparkle"
-              disabled={loading || charter === undefined || generateMutation.isPending || locked}
-              disabledReason={loading ? '正在读取项目公约…' : charter === undefined ? '服务没有返回项目公约。' : locked ? '结果待核对。' : undefined}
+              disabled={loading || charter === undefined || generateMutation.isPending || locked || dirty || !charter.capabilities.generate.allowed}
+              disabledReason={loading ? '正在读取项目公约…' : charter === undefined ? '服务没有返回项目公约。' : locked ? '结果待核对。' : dirty ? '请先保存或放弃未保存的公约修改。' : charter?.capabilities.generate.reason}
               onClick={() => { setGenerateError(null); setReceipt(undefined); setReceiptKind(undefined); generateMutation.mutate(); }}
             >
               {generateMutation.isPending ? '生成中…' : '生成公约草稿'}
             </Button>
             <span className="hint">
-              服务声明生成能力未接通{charter.capabilities.generate.reason === undefined ? '' : `（${charter.capabilities.generate.reason}）`}；点击会返回真实 501，不会创建草稿。
+              {charter.capabilities.generate.reason ?? '调用已配置的规划模型，只读检查项目；生成后先审阅，不会自动写入。'}
             </span>
           </div>
+          {charter.status === 'generating' ? <div className="banner info"><Icon name="play" /><div className="grow"><b>正在生成公约草稿</b><br />开始于 {charter.generation === undefined ? '未知' : formatDateTime(charter.generation.startedAt)} · 请求号 {charter.generation?.requestKey} · 原调用结束前不能编辑、重新生成或确认写入。生成期间请留在本页；需要离开请先停止。</div><Button variant="secondary" disabled={stopMutation.isPending} onClick={() => setStopOpen(true)}>停止</Button></div> : null}
+          <Modal open={stopOpen} title="停止生成公约草稿？" onClose={() => { if (!stopMutation.isPending) setStopOpen(false); }} footer={<><Button variant="ghost" disabled={stopMutation.isPending} onClick={() => setStopOpen(false)}>取消</Button><span className="spacer" /><Button disabled={stopMutation.isPending} onClick={() => stopMutation.mutate()}>确认停止</Button></>}>
+            已有草稿与 AGENTS.md 保留。停止请求受理后仍等待原调用结束，不会把迟到输出覆盖为新草稿。
+          </Modal>
           {generateErrorView}
           <div className="row wrap" style={{ marginTop: 10, gap: 8 }}>
             <Button
@@ -1144,8 +1171,8 @@ function ConfigStatusCard({
       ? '项目覆盖：继承全局'
       : `项目覆盖：${projectGitlab.baseUrl ?? '未填地址'} · ${projectGitlab.projectPath ?? '未填路径'}`;
   const gitlabDetail = !isGit
-    ? `非 Git 项目 · ${gitlabOverride} · 运行时仍用全局配置`
-    : `${gitlabState === 'not_configured' && gitlabConfigured ? '全局 GitLab 已配置' : '证据来源配置服务未提供'} · ${gitlabOverride} · 运行时仍用全局配置`;
+    ? `非 Git 项目 · ${gitlabOverride} · 远程调用采用项目覆盖或继承全局`
+    : `${gitlabState === 'not_configured' && gitlabConfigured ? '全局 GitLab 已配置' : '证据来源配置服务未提供'} · ${gitlabOverride} · 远程调用采用项目覆盖或继承全局`;
 
   const projectProvider = project.settings.gitProvider ?? integration?.git.provider;
   const providerState = integration === undefined || projectProvider === undefined
@@ -1238,6 +1265,7 @@ export function ProjectDetailPage() {
 
   const charterQuery = useQuery({
     queryKey: charterKey(projectId ?? ''),
+    refetchInterval: (query) => query.state.data?.status === 'generating' ? 1_500 : false,
     queryFn: () => fetchCharter(projectId!),
     enabled: projectId !== undefined && projectId.length > 0,
     retry: false,

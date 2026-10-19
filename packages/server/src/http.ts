@@ -32,6 +32,7 @@ import type {
   UpdateDraftRequest,
   ProjectCharterConfirmRequest,
   ProjectCharterGenerateRequest,
+  ProjectCharterStopRequest,
   ProjectCharterUpdateRequest,
   UpdateProjectRequest,
   UpdateSettingsRequest,
@@ -439,6 +440,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = request.body as ProjectCharterGenerateRequest;
     return envelope(await engine.charters.generate(request.params.id, body), requestId(request));
   });
+  app.post<{ Params: { id: string } }>('/api/projects/:id/charter/stop', async (request) => envelope(await engine.charters.stop(request.params.id, request.body as ProjectCharterStopRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/projects/:id/charter/confirm', async (request) => {
     const body = request.body as ProjectCharterConfirmRequest;
     return envelope(await engine.charters.confirm(request.params.id, body), requestId(request));

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { AppError, DEFAULT_SETTINGS, ErrorCode, mergeSettings, nowIso, type AppSettings, type GitConnectionStatus, type GitMergeRequest } from '@agent-workflow/shared';
+import { AppError, DEFAULT_SETTINGS, ErrorCode, mergeSettings, nowIso, type AppSettings, type GitConnectionStatus, type GitMergeRequest, type Project } from '@agent-workflow/shared';
 import type { RemoteProvider } from '@agent-workflow/git';
 import { GitHubAdapter, GitLabAdapter } from '@agent-workflow/git';
 import type { RemotePort } from '@agent-workflow/engine';
@@ -149,9 +149,12 @@ export class RemoteService implements RemotePort {
     if (projectId === undefined) return base;
     const project = this.#store.projects.get(projectId);
     if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
+    const override = project.settings.gitlab;
     const coordinates = await this.#coordinates(project.rootPath, project.remoteDisplayUrl);
-    if (coordinates === undefined) return { ...base, state: base.state === 'connected' ? 'connected' : base.state, message: '项目没有可识别的远端仓库' };
-    return { ...base, hostDisplayName: coordinates.host };
+    if (override?.enabled === false && coordinates?.provider !== 'github') return { provider: 'gitlab', state: 'not_configured', message: '此项目已停用 GitLab 集成' };
+    if (override?.enabled !== false && override?.inheritGlobal === false) return { ...this.connectionState('gitlab'), hostDisplayName: new URL(override.baseUrl!).host, message: '使用项目 GitLab 地址与仓库路径；认证继承本机 GitLab 账号，尚未验证此项目连接' };
+    if (coordinates === undefined) return { ...base, message: '项目没有可识别的远端仓库' };
+    return { ...this.connectionState(coordinates.provider), hostDisplayName: coordinates.host };
   }
 
   integrationStatus(): { github: { configured: boolean; authState: string }; gitlab: { configured: boolean; authState: string }; provider: 'github' | 'gitlab' } {
@@ -167,14 +170,14 @@ export class RemoteService implements RemotePort {
 
   async listMergeRequests(projectId: string, state: 'opened' | 'merged' | 'closed' | 'all' = 'opened'): Promise<readonly GitMergeRequest[]> {
     const project = this.#requireProject(projectId);
-    const provider = await this.#providerFor(project.rootPath, project.remoteDisplayUrl);
+    const provider = await this.#providerFor(project);
     if (provider === undefined) return [];
     return provider.listMergeRequests({ state, limit: 50 });
   }
 
   async createMergeRequest(projectId: string, input: { sourceBranch: string; targetBranch: string; title: string; description: string }): Promise<{ iid: number; webUrl: string }> {
     const project = this.#requireProject(projectId);
-    const provider = await this.#providerFor(project.rootPath, project.remoteDisplayUrl);
+    const provider = await this.#providerFor(project);
     if (provider === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前未配置 GitHub/GitLab 连接，无法创建合并请求');
     const mr = await provider.createMergeRequest({ sourceBranch: input.sourceBranch, targetBranch: input.targetBranch, title: input.title, description: input.description });
     return { iid: mr.iid, webUrl: mr.webUrl };
@@ -182,7 +185,7 @@ export class RemoteService implements RemotePort {
 
   async listProtectedBranches(projectId: string): Promise<readonly string[]> {
     const project = this.#requireProject(projectId);
-    const provider = await this.#providerFor(project.rootPath, project.remoteDisplayUrl);
+    const provider = await this.#providerFor(project);
     if (provider === undefined) return [];
     return provider.listProtectedBranches();
   }
@@ -193,9 +196,12 @@ export class RemoteService implements RemotePort {
     return project;
   }
 
-  async #providerFor(rootPath: string, remoteUrl: string | undefined): Promise<RemoteProvider | undefined> {
-    const coordinates = await this.#coordinates(rootPath, remoteUrl);
-    if (coordinates === undefined) return undefined;
+  async #providerFor(project: Project): Promise<RemoteProvider | undefined> {
+    const override = project.settings.gitlab;
+    const coordinates = override?.enabled !== false && override?.inheritGlobal === false && override.baseUrl !== undefined && override.projectPath !== undefined
+      ? { provider: 'gitlab' as const, host: new URL(override.baseUrl).host, pathWithNamespace: override.projectPath }
+      : await this.#coordinates(project.rootPath, project.remoteDisplayUrl);
+    if (coordinates === undefined || (coordinates.provider === 'gitlab' && override?.enabled === false)) return undefined;
     const token = this.token(coordinates.provider);
     if (token === undefined) return undefined;
     const settings = this.settings();
@@ -211,8 +217,8 @@ export class RemoteService implements RemotePort {
     return new GitLabAdapter({
       projectId: coordinates.pathWithNamespace,
       token,
-      apiBaseUrl: settings.git.gitlab.apiBaseUrl,
-      webBaseUrl: settings.git.gitlab.baseUrl,
+      apiBaseUrl: override?.inheritGlobal === false ? `${override.baseUrl!.replace(/\/$/, '')}/api/v4` : settings.git.gitlab.apiBaseUrl,
+      webBaseUrl: override?.inheritGlobal === false ? override.baseUrl! : settings.git.gitlab.baseUrl,
     });
   }
 

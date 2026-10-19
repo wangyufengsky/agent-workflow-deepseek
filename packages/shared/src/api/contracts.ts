@@ -315,6 +315,7 @@ export interface ProjectCharterVersion {
 }
 
 export interface ProjectCharterView {
+  readonly generation?: { readonly requestKey: string; readonly startedAt: string };
   readonly projectId: string;
   readonly status: ProjectCharterStatusValue;
   readonly draft?: ProjectCharterDraft;
@@ -336,6 +337,10 @@ export interface ProjectCharterResponse {
 
 export interface ProjectCharterGenerateRequest extends CommandRequest {
   readonly confirmGenerate: true;
+}
+
+export interface ProjectCharterStopRequest extends CommandRequest {
+  readonly confirmStop: true;
 }
 
 export interface ProjectCharterUpdateRequest extends CommandRequest {
@@ -1878,6 +1883,7 @@ export const ROUTES = {
   projectRecheck: (id: string) => `/api/projects/${encodeURIComponent(id)}/recheck`,
   projectCharter: (id: string) => `/api/projects/${encodeURIComponent(id)}/charter`,
   projectCharterGenerate: (id: string) => `/api/projects/${encodeURIComponent(id)}/charter/generate`,
+  projectCharterStop: (id: string) => `/api/projects/${encodeURIComponent(id)}/charter/stop`,
   projectCharterConfirm: (id: string) => `/api/projects/${encodeURIComponent(id)}/charter/confirm`,
   templateDetail: (id: string) => `/api/templates/${encodeURIComponent(id)}`,
   templateTasks: (id: string) => `/api/templates/${encodeURIComponent(id)}/tasks`,

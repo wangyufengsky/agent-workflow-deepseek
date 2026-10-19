@@ -121,7 +121,7 @@ export class Engine {
     };
     this.projects = new ProjectService(this.store, this.ports.git, this.commands, this.context);
     this.tasks = new TaskService(this.store, this.commands, this.context, this.projects, this.catalog);
-    this.charters = new CharterService(this.store, this.commands);
+    this.charters = new CharterService(this.store, this.commands, this.ports.opencode, this.context);
     this.extras = new TaskExtrasService({ store: this.store, templates: () => this.catalog.templates });
     this.inbox = new InboxService(this.store, this.tasks);
     this.recoveries = new RecoveryService({ store: this.store, commands: this.commands });

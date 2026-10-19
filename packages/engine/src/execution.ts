@@ -1,3 +1,4 @@
+import { projectDocumentInstructions } from './project-documents.ts';
 import type {
   AttemptResult,
   CommandResponse,
@@ -1079,6 +1080,8 @@ ${node.roleSnapshot === undefined ? "历史计划未记录职业快照" : `${nod
 上游依赖步骤：${upstream.join('、') || '无'}
 读取资源：${node.resources.read.map((resource) => resource.label).join('、') || '无'}
 写入资源：${node.resources.write.map((resource) => resource.label).join('、') || '无'}
+
+${projectDocumentInstructions(this.#store.projects.get(task.projectId)?.settings)}
 
 # 执行要求
 1. 只在当前工作区内修改文件；使用 workspace.file.read/list/write 工具；可以用 workspace.exec 运行允许的测试命令。

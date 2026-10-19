@@ -10,6 +10,7 @@ import type {
   ProjectCharterConfirmRequest,
   ProjectCharterGenerateRequest,
   ProjectCharterResponse,
+  ProjectCharterStopRequest,
   ProjectCharterUpdateRequest,
   ProjectCharterVersion,
   ProjectCharterView,
@@ -39,7 +40,7 @@ import {
 import type { Store } from '@agent-workflow/storage';
 import { READ_ONLY_RECOVERY_REASON, computeTaskActions, computeTaskAttention, planningView, readOnlyRecoveryError } from './actions.ts';
 import type { CommandService } from './operations.ts';
-import type { GitPort } from './ports.ts';
+import type { OpenCodePort, GitPort } from './ports.ts';
 import type { EngineContext } from './actions.ts';
 
 export class ProjectService {
@@ -516,6 +517,7 @@ const CHARTER_VERSION_LIMIT = 10;
 
 interface StoredCharterState {
   readonly status: 'draft' | 'writing' | 'written' | 'generating';
+  readonly generation?: { readonly requestKey: string; readonly startedAt: string };
   readonly draft?: { readonly version: number; readonly content: string; readonly source: 'manual' | 'model' | 'existing_file'; readonly savedAt: string };
   readonly written?: { readonly version: number; readonly path: string; readonly writtenAt: string };
   readonly versions: readonly ProjectCharterVersion[];
@@ -523,40 +525,46 @@ interface StoredCharterState {
 }
 
 /**
- * W3-1b project charter: read/save/confirm-write of AGENTS.md. Model generation
- * is NOT wired (no safe model dispatch budget for a project-level document yet),
- * so `generate` reports CHARTER_GENERATION_UNAVAILABLE and the UI offers manual
- * editing. Writes are atomic (temp + rename) and a crash between the persisted
+ * Project charter: read-only model generation, draft editing and separately
+ * confirmed atomic writes. In-flight identity is persisted before dispatch.
+ * Writes are atomic (temp + rename) and a crash between the persisted
  * `writing` state and completion surfaces as `status=unknown` on read instead of
  * being silently retried.
  */
 export class CharterService {
   readonly #store: Store;
   readonly #commands: CommandService;
+  readonly #opencode?: OpenCodePort;
+  readonly #context?: EngineContext;
+  readonly #active = new Map<string, { key: string; sessionId?: string; stopRequested: boolean }>();
 
-  constructor(store: Store, commands: CommandService) {
+  constructor(store: Store, commands: CommandService, opencode?: OpenCodePort, context?: EngineContext) {
     this.#store = store;
     this.#commands = commands;
+    this.#opencode = opencode;
+    this.#context = context;
   }
 
   async view(projectId: string): Promise<ProjectCharterView> {
     const project = this.#requireProject(projectId);
     const state = this.#state(projectId);
     const current = await readCharterFile(project.rootPath);
-    const needsReconcile = state?.status === 'writing';
+    const needsReconcile = state?.status === 'writing' || (state?.status === 'generating' && !this.#active.has(projectId));
     const status: ProjectCharterView['status'] = state === undefined
       ? 'none'
-      : state.status === 'writing'
+      : needsReconcile
         ? 'unknown'
         : state.status;
-    const generateReason = {
-      allowed: false,
-      reasonCode: 'CHARTER_GENERATION_UNAVAILABLE',
-      reason: '项目公约的模型生成尚未接线；可手动编辑草稿后确认写入',
-    };
+    const model = this.#context?.settings().models.find((item) => item.enabled && item.roles.includes('planner'));
+    const generateReason = needsReconcile || state?.status === 'generating'
+      ? { allowed: false, reasonCode: 'CHARTER_STATE_UNKNOWN', reason: '原生成或写入尚未结束；请先核对原操作' }
+      : this.#opencode === undefined || this.#context?.opencodeReady() !== true || model === undefined
+        ? { allowed: false, reasonCode: 'CHARTER_GENERATION_UNAVAILABLE', reason: '运行环境或规划模型未就绪，请检查设置与运行环境' }
+        : { allowed: true };
     return {
       projectId,
-      status,
+      status: status === 'draft' && state?.draft === undefined && state?.written === undefined ? 'none' : status,
+      ...(state?.generation === undefined ? {} : { generation: state.generation }),
       ...(state?.draft === undefined ? {} : { draft: state.draft }),
       ...(state?.written === undefined ? {} : { written: { version: state.written.version, path: state.written.path, writtenAt: state.written.writtenAt } }),
       current: { path: CHARTER_FILE, ...current },
@@ -564,8 +572,8 @@ export class CharterService {
       needsReconcile,
       capabilities: {
         generate: generateReason,
-        edit: { allowed: true },
-        confirmWrite: needsReconcile
+        edit: state?.status === 'generating' ? { allowed: false, reason: '生成尚未结束，请先停止并核对' } : { allowed: true },
+        confirmWrite: needsReconcile || state?.status === 'generating'
           ? { allowed: false, reasonCode: 'CHARTER_STATE_UNKNOWN', reason: '上次写入状态未明；请先核对 AGENTS.md 或重新编辑草稿' }
           : state?.draft === undefined
             ? { allowed: false, reasonCode: 'NO_CHARTER_DRAFT', reason: '还没有可写入的公约草稿' }
@@ -575,23 +583,78 @@ export class CharterService {
   }
 
   async generate(projectId: string, input: ProjectCharterGenerateRequest): Promise<CommandResponse<ProjectCharterResponse>> {
+    const project = this.#requireProject(projectId);
+    if (input.confirmGenerate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '生成公约需要确认模型调用');
+    const { record, replayed } = this.#commands.begin({ requestKey: input.requestKey, operation: 'project.charter.generate', body: { projectId }, target: { projectId } });
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
+    const before = this.#state(projectId);
+    const model = this.#context?.settings().models.find((item) => item.enabled && item.roles.includes('planner'));
+    const view = await this.view(projectId);
+    if (!view.capabilities.generate.allowed || this.#opencode === undefined || model === undefined) {
+      const error = new AppError(ErrorCode.CHARTER_GENERATION_UNAVAILABLE, view.capabilities.generate.reason ?? '规划模型未就绪', { details: { capability: 'generate' } });
+      this.#commands.fail(input.requestKey, error); throw error;
+    }
+    // Register synchronously before yielding; another key cannot start a second generation.
+    if (this.#state(projectId)?.updatedAt !== before?.updatedAt) { const error = new AppError(ErrorCode.STALE_TARGET, '公约在生成前已变化，请重新读取'); this.#commands.fail(input.requestKey, error); throw error; }
+    if (this.#active.has(projectId)) { const error = new AppError(ErrorCode.OPERATION_IN_PROGRESS, '公约仍在生成'); this.#commands.fail(input.requestKey, error); throw error; }
+    const active = { key: input.requestKey, stopRequested: false, sessionId: undefined as string | undefined };
+    this.#active.set(projectId, active);
+    this.#save(projectId, { ...before, status: 'generating', versions: before?.versions ?? [], generation: { requestKey: input.requestKey, startedAt: nowIso() }, updatedAt: nowIso() });
+    const opencode = this.#opencode;
+    void (async () => {
+      try {
+        const existing = await readCharterFile(project.rootPath);
+        if (active.stopRequested) {
+          this.#save(projectId, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
+          this.#commands.settle(input.requestKey, { stopped: true, dispatched: false });
+          return;
+        }
+        const result = await opencode.runSession({ kind: 'planning', metadata: { projectId, purpose: 'project.charter.generate', requestKey: input.requestKey }, cwd: project.rootPath,
+          prompt: `根据项目实际目录与配置生成 AGENTS.md。只读项目，不修改任何文件、不执行命令、不联网。输出纯 Markdown 公约，不加代码围栏。涵盖实际目录结构、开发约定、测试命令与未知项；不要编造未读取的信息。当前公约：\n${existing.content ?? '无'}\n项目说明：${project.description ?? ''}`,
+          model, permission: 'read_only', sink: {}, timeoutMs: 120_000,
+          onSessionId: (sessionId) => { active.sessionId = sessionId; if (active.stopRequested) void opencode.abortSession(sessionId).catch(() => undefined); },
+        });
+        if (active.stopRequested) {
+          this.#save(projectId, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
+          this.#commands.settle(input.requestKey, { stopped: true, draftPreserved: true });
+          return;
+        }
+        if (result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '公约生成超时');
+        if (result.outcome.error) throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, result.outcome.error);
+        const content = normalizeCharterContent((result.outcome.assistantText ?? '').replace(/^```(?:markdown|md)?\s*\n|\n```\s*$/g, ''));
+        const now = nowIso(); const version = nextCharterVersion(before);
+        const draft = { version, content, source: 'model' as const, savedAt: now };
+        this.#save(projectId, { status: 'draft', draft, ...(before?.written === undefined ? {} : { written: before.written }), versions: [{ version, status: 'draft' as const, source: 'model' as const, savedAt: now }, ...(before?.versions ?? [])].slice(0, CHARTER_VERSION_LIMIT), updatedAt: now });
+        this.#commands.settle(input.requestKey, { projectId, version });
+      } catch (error) {
+        // Timeout/abort failure may leave the provider alive: preserve original identity.
+        const uncertain = active.stopRequested || (error instanceof AppError && error.code === ErrorCode.MODEL_BUDGET_EXCEEDED);
+        if (!uncertain) this.#save(projectId, before ?? { status: 'draft', versions: [], updatedAt: nowIso() });
+        this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('公约生成失败'), uncertain);
+      } finally { if (this.#active.get(projectId) === active) this.#active.delete(projectId); }
+    })();
+    return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
+  }
+
+  async stop(projectId: string, input: ProjectCharterStopRequest): Promise<CommandResponse<ProjectCharterResponse>> {
     this.#requireProject(projectId);
-    const { record, replayed } = this.#commands.begin({
-      requestKey: input.requestKey,
-      operation: 'project.charter.generate',
-      body: { projectId },
-      target: { projectId },
-    });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
-    const error = new AppError(ErrorCode.CHARTER_GENERATION_UNAVAILABLE, '项目公约的模型生成尚未接线；可手动编辑草稿后确认写入', {
-      details: { capability: 'generate', fallback: 'PATCH /api/projects/:id/charter' },
-    });
-    this.#commands.fail(input.requestKey, error);
-    throw error;
+    if (input.confirmStop !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '停止需要确认');
+    const { record, replayed } = this.#commands.begin({ requestKey: input.requestKey, operation: 'project.charter.stop', body: { projectId }, target: { projectId } });
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
+    const active = this.#active.get(projectId);
+    if (active === undefined) { const error = new AppError(ErrorCode.CHARTER_STATE_UNKNOWN, '没有可观察的生成进程，只能核对原记录'); this.#commands.fail(input.requestKey, error); throw error; }
+    active.stopRequested = true;
+    try {
+      if (active.sessionId !== undefined) await this.#opencode!.abortSession(active.sessionId);
+      // Abort acknowledgement alone never proves the run has settled.
+      this.#commands.settle(input.requestKey, { stopRequested: true, generationRequestKey: active.key });
+    } catch (error) { this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('停止回执未知'), true); }
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { charter: await this.view(projectId) } };
   }
 
   async update(projectId: string, input: ProjectCharterUpdateRequest): Promise<CommandResponse<ProjectCharterResponse>> {
     const project = this.#requireProject(projectId);
+    if (this.#state(projectId)?.status === 'generating') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '原生成尚未结束，不能覆盖草稿');
     const content = normalizeCharterContent(input.content);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -640,7 +703,7 @@ export class CharterService {
     }
     const state = this.#state(projectId);
     try {
-      if (state?.status === 'writing') {
+      if (state?.status === 'writing' || state?.status === 'generating') {
         throw new AppError(ErrorCode.CHARTER_STATE_UNKNOWN, '上次写入状态未明，请先核对 AGENTS.md 或重新编辑草稿', {
           details: { path: CHARTER_FILE, fallback: 'PATCH /api/projects/:id/charter' },
         });
