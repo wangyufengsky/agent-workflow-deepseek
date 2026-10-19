@@ -4,6 +4,7 @@ import {
   createRequestKey,
   type CommandResponse,
   type OperationReceipt,
+  type TemplateArchiveResponse,
   type OperationsByKeyResponse,
   type TaskTemplate,
 } from '@agent-workflow/shared';
@@ -11,6 +12,9 @@ import { ApiClientError, apiGet, errorMessage, request } from '../../api/client.
 import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { Modal } from '../../components/Modal.tsx';
+import { pendingCommands, rememberCommand, commandScope } from '../../api/pending-commands.ts';
+import { ArchiveReceiptMismatch, archiveReceipt, type TemplateArchiveResult } from './archive-state.ts';
+export type { TemplateArchiveResult } from './archive-state.ts';
 
 const STEP_KINDS = Object.values(NodeKind);
 type StepKind = (typeof STEP_KINDS)[number];
@@ -36,13 +40,6 @@ export interface TemplateSaveResult {
   readonly version?: number;
 }
 
-export interface TemplateArchiveResult {
-  readonly templateId: string;
-  readonly requestKey: string;
-  readonly receiptStatus?: string;
-  readonly auditId?: string;
-  readonly verifiedBy: 'receipt' | 'catalog';
-}
 
 function narrowKind(kind: string): StepKind {
   return STEP_KINDS.includes(kind as StepKind) ? kind as StepKind : 'implementation';
@@ -541,15 +538,15 @@ export function JsonTemplateEditor({ template, onClose, onSaved }: {
   );
 }
 
-export function ArchiveTemplateDialog({ template, onClose, onArchived, verifyArchived }: {
+export function ArchiveTemplateDialog({ template, onClose, onArchived }: {
   readonly template: TaskTemplate;
   readonly onClose: () => void;
   readonly onArchived: (result: TemplateArchiveResult) => void;
-  readonly verifyArchived: (templateId: string) => Promise<boolean>;
 }) {
-  const [phase, setPhase] = useState<'idle' | 'archiving' | 'verifying' | 'failed' | 'unknown'>('idle');
-  const [message, setMessage] = useState('');
-  const [requestKey, setRequestKey] = useState('');
+  const [recovered] = useState(() => pendingCommands().find((item) => item.path === ROUTES.catalogTemplateArchive(template.id)));
+  const [phase, setPhase] = useState<'idle' | 'archiving' | 'verifying' | 'failed' | 'unknown'>(recovered ? 'unknown' : 'idle');
+  const [message, setMessage] = useState(recovered ? '已恢复原请求号；只核对原操作，不会重新发送归档。' : '');
+  const [requestKey, setRequestKey] = useState(recovered?.requestKey ?? '');
   const busy = phase === 'archiving' || phase === 'verifying';
 
   const finish = (result: TemplateArchiveResult) => {
@@ -562,45 +559,21 @@ export function ArchiveTemplateDialog({ template, onClose, onArchived, verifyArc
     setPhase('archiving');
     setMessage('');
     try {
-      // The archive route currently returns the remaining template list instead of a
-      // CommandResponse; accept either shape and never invent a receipt.
-      const response = await request<{ readonly templates?: readonly TaskTemplate[]; readonly receipt?: OperationReceipt }>(
-        ROUTES.catalogTemplateArchive(template.id),
-        { method: 'DELETE', body: { requestKey: key, confirmArchive: true } },
-      );
+      const response = await request<TemplateArchiveResponse>(ROUTES.catalogTemplateArchive(template.id), { method: 'DELETE', body: { requestKey: key, confirmArchive: true } });
       const receipt = response.data.receipt;
-      if (receipt !== undefined) {
-        if (receipt.status === 'succeeded') {
-          finish({
-            templateId: template.id,
-            requestKey: key,
-            receiptStatus: receipt.status,
-            ...(receipt.auditId.length === 0 ? {} : { auditId: receipt.auditId }),
-            verifiedBy: 'receipt',
-          });
-        } else if (receipt.status === 'failed') {
-          setPhase('failed');
-          setMessage(receipt.error?.message ?? '服务返回失败回执，模板没有归档。');
-        } else {
-          setPhase('unknown');
-          setMessage('归档请求已受理，但服务尚未确认结果；不会自动重复归档。');
-        }
-        return;
-      }
-      const templates = response.data.templates;
-      if (templates === undefined) {
-        setPhase('unknown');
-        setMessage('服务既没有返回回执也没有返回模板列表，无法确认归档结果；不会自动重复归档。');
-        return;
-      }
-      if (templates.some((item) => item.id === template.id)) {
-        setPhase('failed');
-        setMessage('服务返回的模板目录里仍有这个模板，归档未生效。');
-        return;
-      }
-      finish({ templateId: template.id, requestKey: key, verifiedBy: 'catalog' });
+      const result = archiveReceipt(receipt, template.id, key);
+      if (result) finish(result);
+      else if (receipt.status === 'failed') { setPhase('failed'); setMessage(receipt.error?.message ?? '服务返回失败回执，归档未完成。'); }
+      else { setPhase('unknown'); setMessage('服务尚未确认结果；请按原请求核对，不会重复归档。'); }
+
     } catch (error) {
-      setPhase(isUnknownFailure(error) ? 'unknown' : 'failed');
+      if (error instanceof ArchiveReceiptMismatch) {
+        const path = ROUTES.catalogTemplateArchive(template.id);
+        try { rememberCommand({ path, scope: commandScope(path)!, requestKey: key }); } catch { /* Keep the displayed original key locked even if durable storage failed. */ }
+      }
+      const pending = pendingCommands().find((item) => item.path === ROUTES.catalogTemplateArchive(template.id));
+      if (pending) setRequestKey(pending.requestKey);
+      setPhase(pending || error instanceof ArchiveReceiptMismatch || isUnknownFailure(error) ? 'unknown' : 'failed');
       setMessage(errorMessage(error));
     }
   };
@@ -608,17 +581,13 @@ export function ArchiveTemplateDialog({ template, onClose, onArchived, verifyArc
   const verify = async () => {
     setPhase('verifying');
     try {
-      const gone = await verifyArchived(template.id);
-      if (gone) {
-        finish({ templateId: template.id, requestKey, verifiedBy: 'catalog' });
-      } else {
-        setPhase('failed');
-        setMessage('刷新目录后这个模板仍在列表里，归档未生效。');
-      }
-    } catch (error) {
-      setPhase('unknown');
-      setMessage(`核对失败：${errorMessage(error)}`);
-    }
+      const response = await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(requestKey));
+      const operation = response.data.operation;
+      const result = archiveReceipt(operation, template.id, requestKey);
+      if (result) finish(result);
+      else if (operation.status === 'failed') { setPhase('failed'); setMessage(operation.error?.message ?? '原归档操作失败；可以修改后另行发起新请求。'); }
+      else { setPhase('unknown'); setMessage('原归档仍未确认；保留原请求号，只能继续核对。'); }
+    } catch (error) { setPhase('unknown'); setMessage(`核对失败：${errorMessage(error)}`); }
   };
 
   return (
@@ -640,9 +609,9 @@ export function ArchiveTemplateDialog({ template, onClose, onArchived, verifyArc
             disabled={busy || phase === 'unknown'}
             disabledReason={
               phase === 'unknown'
-                ? '结果未明，请先刷新目录核对；不会自动重发'
+                ? '结果未明，请先核对原操作；不会自动重发'
                 : phase === 'verifying'
-                  ? '正在刷新模板目录核对'
+                  ? '正在核对原归档操作'
                   : '归档请求处理中'
             }
             onClick={() => void archive()}
@@ -666,7 +635,7 @@ export function ArchiveTemplateDialog({ template, onClose, onArchived, verifyArc
           <div className="banner danger" role="alert">
             <Icon name="alert" />
             <div className="grow">
-              <b>归档失败，模板仍在目录中</b>
+              <b>归档尚未确认完成</b>
               <br />
               {message}
             </div>
@@ -688,10 +657,10 @@ export function ArchiveTemplateDialog({ template, onClose, onArchived, verifyArc
                 size="sm"
                 icon="refresh"
                 disabled={busy}
-                disabledReason={busy ? '正在刷新模板目录' : undefined}
+                disabledReason={busy ? '正在核对原操作' : undefined}
                 onClick={() => void verify()}
               >
-                {phase === 'verifying' ? '核对中…' : '刷新目录核对'}
+                {phase === 'verifying' ? '核对中…' : '核对原操作'}
               </Button>
             </div>
           </div>

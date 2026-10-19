@@ -300,10 +300,7 @@ export function TemplatesPage() {
     setCatalogNotice({
       tone: 'ok',
       title: '自定义模板已归档',
-      detail:
-        result.receiptStatus === undefined
-          ? `服务未返回回执（归档路由暂未签发）；已按模板目录核对 · requestKey ${result.requestKey}`
-          : `回执 ${result.receiptStatus} · requestKey ${result.requestKey}${result.auditId === undefined ? '' : ` · auditId ${result.auditId}`}`,
+      detail: `回执 ${result.receiptStatus} · requestKey ${result.requestKey} · auditId ${result.auditId}`,
     });
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
@@ -311,12 +308,6 @@ export function TemplatesPage() {
     ]);
   };
 
-  const verifyArchived = async (templateId: string): Promise<boolean> => {
-    const result = await bootstrap.refetch();
-    const data = result.data;
-    if (data === undefined) throw new Error('刷新模板目录失败，无法确认归档结果。');
-    return !data.catalog.templates.some((item) => item.id === templateId);
-  };
 
   let content: ReactNode;
   if (bootstrap.isLoading) {
@@ -884,7 +875,6 @@ export function TemplatesPage() {
           template={archiveTemplate}
           onClose={() => { setArchiveTemplateId(null); }}
           onArchived={(result) => { void handleTemplateArchived(result); }}
-          verifyArchived={verifyArchived}
         />
       )}
     </div>

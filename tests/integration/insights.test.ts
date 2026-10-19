@@ -179,6 +179,17 @@ test('insights joins all four run types, preserves missing versus zero and curre
     app.store.planning.create({ ...roundInput, taskId: tasks[2]!.id, ordinal: 1, usage: { dispatches: { used: 1, maximum: 2 }, revisions: { used: 0, maximum: 1 }, budget: { known: 0.25, currency: 'EUR', reserved: 0, unknown: 0 } } });
     const costOnly = app.engine.insights.taskUsage().find((item) => item.taskId === tasks[2]!.id)!; assert.equal(costOnly.tokens, undefined); assert.deepEqual(costOnly.costs, [{ currency: 'EUR', amount: 0.25 }]);
     const global = app.engine.insights.summary(); assert.equal(global.planning.costKnown, undefined); assert.equal(global.planning.currency, undefined); assert.equal(global.planning.costs.length, 3);
-    app.store.db.prepare('UPDATE reviews SET state=? WHERE id=?').run('failed', review.reviewRunId); assert.equal(app.engine.insights.taskUsage().find((item) => item.taskId === task.id)!.quality, 'pending_review');
+    // Keep old audit findings, but a fresh current review supersedes them for current quality.
+    app.store.db.prepare('UPDATE reviews SET findings_json=? WHERE id=?').run('[{"status":"open"}]', review.reviewRunId);
+    assert.equal(app.engine.insights.taskUsage().find((item) => item.taskId === task.id)!.quality, 'issues');
+    const freshReview = app.store.reviews.create({ ...review, findings: [], state: 'completed' });
+    assert.equal(app.engine.insights.taskUsage().find((item) => item.taskId === task.id)!.quality, 'passed');
+    assert.equal(app.engine.insights.taskQuality().find((item) => item.taskId === task.id)!.openFindings, 1, 'historical audit findings remain');
+    app.store.db.prepare('UPDATE reviews SET execution_id=? WHERE id=?').run('historical_exec', review.reviewRunId);
+    app.store.db.prepare('INSERT INTO executions(id,task_id,plan_revision_id,status,auto_advance,progress_json,revision) VALUES(?,?,?,?,?,?,?)').run('historical_exec', task.id, 'fixture_plan', 'completed', 0, '{}', 1);
+    assert.equal(app.engine.insights.taskUsage().find((item) => item.taskId === task.id)!.quality, 'passed', 'old execution open findings do not poison current quality');
+    assert.equal(app.engine.insights.taskQuality().find((item) => item.taskId === task.id)!.openFindings, 1);
+    app.store.db.prepare('UPDATE reviews SET state=? WHERE id=?').run('failed', freshReview.reviewRunId);
+ assert.equal(app.engine.insights.taskUsage().find((item) => item.taskId === task.id)!.quality, 'pending_review');
   } finally { await app.close(); }
 });
