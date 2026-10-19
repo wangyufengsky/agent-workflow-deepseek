@@ -553,8 +553,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       body: { taskId, planRevisionId: body.planRevisionId ?? null, note: body.note ?? null },
       target: { taskId },
     });
-    if (replayed && record.status !== 'accepted') {
-      const snapshot = engine.extras.listPlanFreezes(taskId).find((item) => item.requestKey === body.requestKey) ?? engine.extras.latestPlanFreeze(taskId);
+    if (replayed) {
+      const snapshot = engine.extras.listPlanFreezes(taskId).find((item) => item.requestKey === body.requestKey);
       return envelope(
         { receipt: engine.commands.toReceipt(record), ...(snapshot === undefined ? {} : { resource: { freeze: snapshot, replayed: true } }) },
         requestId(request),
@@ -873,24 +873,25 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
 
   app.post<{ Params: { projectId: string } }>('/api/git/repos/:projectId/fetch', async (request) => {
     const body = commandBody<GitFetchRequest>(request);
-    const project = requireProject(engine, request.params.projectId);
-    if (body.projectId !== undefined && body.projectId !== project.id) {
-      throw new AppError(ErrorCode.VALIDATION_FAILED, 'projectId 与请求路径不一致', { details: { path: project.id, body: body.projectId } });
-    }
-    const fetchImpl = engine.ports.git.fetch;
-    if (fetchImpl === undefined) throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '当前 Git 适配不支持获取远端');
+    if (body.projectId !== undefined && body.projectId !== request.params.projectId) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, 'projectId 与请求路径不一致', { details: { path: request.params.projectId, body: body.projectId } });
+      }
     const remote = typeof body.remote === 'string' && body.remote.trim() !== '' ? body.remote.trim() : 'origin';
     const { record, replayed } = engine.commands.begin({
       requestKey: body.requestKey,
       operation: 'git.fetch',
-      body: { projectId: project.id, remote },
-      target: { projectId: project.id },
+      body: { projectId: request.params.projectId, remote },
+      target: { projectId: request.params.projectId },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       const fetchedAt = typeof record.outcome?.fetchedAt === 'string' ? record.outcome.fetchedAt : undefined;
       return envelope({ receipt: engine.commands.toReceipt(record), resource: { fetchedAt, remote } }, requestId(request));
     }
     try {
+      const project = requireProject(engine, request.params.projectId);
+
+      const fetchImpl = engine.ports.git.fetch;
+      if (fetchImpl === undefined) throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '当前 Git 适配不支持获取远端');
       const result = await fetchImpl.call(engine.ports.git, { repoRoot: project.rootPath, remote, prune: true });
       store.events.publish('git.repo.changed', { projectId: project.id });
       engine.commands.settle(body.requestKey, { fetchedAt: result.fetchedAt, remote });
@@ -1053,8 +1054,6 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.delete<{ Params: { id: string } }>('/api/catalog/templates/:id', async (request) => {
     const body = commandBody<TemplateArchiveRequest>(request);
     if (body.confirmArchive !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '归档模板需要 confirmArchive=true 确认');
-    const existing = engine.templates.list().find((template) => template.id === request.params.id);
-    if (existing === undefined) throw new AppError(ErrorCode.NOT_FOUND, '自定义模板不存在');
     // TemplateCatalogService.archive() has no command envelope, so the receipt
     // is registered here at the HTTP boundary (the template file itself is
     // owned by the catalog service and must not be duplicated in the route).
@@ -1064,11 +1063,13 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       body: { templateId: request.params.id },
       target: { ref: request.params.id },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       const templates = engine.templates.list();
       return envelope({ receipt: engine.commands.toReceipt(record), resource: { templates }, templates }, requestId(request));
     }
     try {
+      const existing = engine.templates.list().find((template) => template.id === request.params.id);
+      if (existing === undefined) throw new AppError(ErrorCode.NOT_FOUND, '自定义模板不存在');
       const templates = engine.templates.archive(request.params.id);
       engine.commands.settle(body.requestKey, { templateId: request.params.id, remaining: templates.length });
       return envelope(
@@ -1141,7 +1142,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     action: () => { readonly method: MethodCatalogDetail },
   ): ReturnType<typeof envelope> => {
     const { record, replayed } = engine.commands.begin({ requestKey, operation, body, target });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       const methodId = typeof record.outcome?.['methodId'] === 'string' ? record.outcome['methodId'] : undefined;
       return envelope(
         { receipt: engine.commands.toReceipt(record), ...(methodId === undefined ? {} : { resource: { method: engine.methods.get(methodId) } }) },
@@ -1256,10 +1257,6 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     if (body.patch === null || typeof body.patch !== 'object' || Array.isArray(body.patch)) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 patch');
     }
-    const current = engine.publicSettings();
-    const merged = mergeSettings(current, body.patch) as AppSettings;
-    const issues = validateSettings(merged);
-    if (issues.length > 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '设置校验失败', { details: { issues } });
     // 设置保存是全局变更：登记操作并返回回执，失败/重放都能按 requestKey 核对。
     const { record, replayed } = engine.commands.begin({
       requestKey: body.requestKey,
@@ -1267,7 +1264,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       body: { patch: body.patch, confirmAcrossProjects: body.confirmAcrossProjects === true },
       target: {},
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       const settingsNow = engine.publicSettings();
       const issuesNow = validateSettings(settingsNow);
       return envelope(
@@ -1276,6 +1273,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       );
     }
     try {
+      const current = engine.publicSettings();
+      const merged = mergeSettings(current, body.patch) as AppSettings;
+      const issues = validateSettings(merged);
+      if (issues.length > 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '设置校验失败', { details: { issues } });
       if (databaseService !== undefined && JSON.stringify(current.database) !== JSON.stringify(merged.database)) await databaseService.applySettings(merged.database);
       engine.updateSettings(merged);
       engine.commands.settle(body.requestKey, { applied: true });
@@ -1299,12 +1300,6 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = commandBody<DatabaseConnectionUpsertRequest>(request);
     const input = body.connection;
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 connection');
-    const settings = engine.publicSettings();
-    if (DATABASE_TYPE_META[input.type]?.driver === undefined || DATABASE_TYPE_META[input.type]?.driver === 'planned') throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '此类型没有已提供的驱动，不能新增或修改连接');
-    if (input.readOnly === false) throw new AppError(ErrorCode.VALIDATION_FAILED, '数据库连接必须保持只读');
-    if (input.projectIds !== undefined && (!Array.isArray(input.projectIds) || input.projectIds.some((id) => typeof id !== 'string'))) throw new AppError(ErrorCode.VALIDATION_FAILED, 'projectIds 必须是项目 id 列表');
-    for (const projectId of input.projectIds ?? []) if (store.projects.get(projectId) === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '授权项目不存在');
-    for (const [field, values] of Object.entries({ schemas: input.schemas ?? [], tables: input.tables ?? [] })) if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !/^[\p{L}\p{N}_$.-]+$/u.test(value))) throw new AppError(ErrorCode.VALIDATION_FAILED, `${field}范围格式无效`);
     // 连接登记属于设置变更（OPERATIONS 未单列连接 CRUD），用 settings.update 登记回执。
     const { record, replayed } = engine.commands.begin({
       requestKey: body.requestKey,
@@ -1312,7 +1307,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       body: { connection: { ...input, passwordHash: input.password === undefined ? undefined : createHash('sha256').update(input.password).digest('hex'), password: undefined } },
       target: {},
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       const savedId = typeof record.outcome?.connectionId === 'string' ? record.outcome.connectionId : undefined;
       const connection = savedId === undefined ? undefined : databaseService.list().find((item) => item.id === savedId);
       return envelope(
@@ -1320,31 +1315,36 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
         requestId(request),
       );
     }
-    const id = input.id ?? `db_${Math.random().toString(36).slice(2, 12)}`;
-    const passwordRef = input.password === undefined || input.password === '' ? settings.database.connections.find((item) => item.id === id)?.passwordRef : `db:${id}:${body.requestKey}`;
-    const config = {
-      id,
-      name: input.name,
-      type: input.type,
-      host: input.host,
-      port: input.port,
-      database: input.database,
-      user: input.user,
-      ...(passwordRef === undefined ? {} : { passwordRef }),
-      readOnly: true,
-      enabled: input.enabled ?? true,
-      projectIds: input.projectIds ?? [],
-      schemas: input.schemas ?? [],
-      tables: input.tables ?? [],
-      ssl: input.ssl ?? false,
-    };
-    const duplicate = settings.database.connections.find((item) => item.id !== id && item.host === config.host && item.port === config.port && item.database === config.database);
-    if (duplicate !== undefined) {
-      const conflict = new AppError(ErrorCode.CONFLICT, '同一主机/端口/数据库已经有连接配置', { details: { connectionId: duplicate.id, name: duplicate.name } });
-      engine.commands.fail(body.requestKey, conflict);
-      throw conflict;
-    }
     try {
+      const settings = engine.publicSettings();
+      if (DATABASE_TYPE_META[input.type]?.driver === undefined || DATABASE_TYPE_META[input.type]?.driver === 'planned') throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '此类型没有已提供的驱动，不能新增或修改连接');
+      if (input.readOnly === false) throw new AppError(ErrorCode.VALIDATION_FAILED, '数据库连接必须保持只读');
+      if (input.projectIds !== undefined && (!Array.isArray(input.projectIds) || input.projectIds.some((id) => typeof id !== 'string'))) throw new AppError(ErrorCode.VALIDATION_FAILED, 'projectIds 必须是项目 id 列表');
+      for (const projectId of input.projectIds ?? []) if (store.projects.get(projectId) === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '授权项目不存在');
+      for (const [field, values] of Object.entries({ schemas: input.schemas ?? [], tables: input.tables ?? [] })) if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !/^[\p{L}\p{N}_$.-]+$/u.test(value))) throw new AppError(ErrorCode.VALIDATION_FAILED, `${field}范围格式无效`);
+      const id = input.id ?? `db_${Math.random().toString(36).slice(2, 12)}`;
+      const passwordRef = input.password === undefined || input.password === '' ? settings.database.connections.find((item) => item.id === id)?.passwordRef : `db:${id}:${body.requestKey}`;
+      const config = {
+        id,
+        name: input.name,
+        type: input.type,
+        host: input.host,
+        port: input.port,
+        database: input.database,
+        user: input.user,
+        ...(passwordRef === undefined ? {} : { passwordRef }),
+        readOnly: true,
+        enabled: input.enabled ?? true,
+        projectIds: input.projectIds ?? [],
+        schemas: input.schemas ?? [],
+        tables: input.tables ?? [],
+        ssl: input.ssl ?? false,
+      };
+      const duplicate = settings.database.connections.find((item) => item.id !== id && item.host === config.host && item.port === config.port && item.database === config.database);
+      if (duplicate !== undefined) {
+        const conflict = new AppError(ErrorCode.CONFLICT, '同一主机/端口/数据库已经有连接配置', { details: { connectionId: duplicate.id, name: duplicate.name } });
+          throw conflict;
+      }
       if (input.password !== undefined && input.password !== '' && passwordRef !== undefined) store.secrets.put(passwordRef, input.password);
       databaseService.registerConnection(config);
       const connections = [...settings.database.connections.filter((item) => item.id !== id), config];
@@ -1362,10 +1362,6 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   app.delete<{ Params: { id: string } }>('/api/settings/databases/:id', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
-    const settings = engine.publicSettings();
-    if (!settings.database.connections.some((connection) => connection.id === request.params.id)) {
-      throw new AppError(ErrorCode.NOT_FOUND, '数据库连接不存在');
-    }
     // Legacy Web clients call DELETE without a request body; a server key is
     // generated for those so the change still gets an auditable receipt. New
     // callers should send `{ requestKey }` and it is echoed back.
@@ -1376,11 +1372,15 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       body: { deletedConnectionId: request.params.id },
       target: {},
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       const connections = databaseService.list();
       return envelope({ receipt: engine.commands.toReceipt(record), resource: { connections }, connections }, requestId(request));
     }
     try {
+      const settings = engine.publicSettings();
+      if (!settings.database.connections.some((connection) => connection.id === request.params.id)) {
+        throw new AppError(ErrorCode.NOT_FOUND, '数据库连接不存在');
+      }
       const next: AppSettings = {
         ...settings,
         database: {
@@ -1436,10 +1436,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const { record, replayed } = engine.commands.begin({
       requestKey: body.requestKey,
       operation: 'secret.save',
-      body: { provider: body.provider, baseUrl: body.baseUrl, apiBaseUrl: body.apiBaseUrl },
+      body: { provider: body.provider, baseUrl: body.baseUrl, apiBaseUrl: body.apiBaseUrl, tokenHash: body.token === undefined ? undefined : createHash('sha256').update(body.token).digest('hex') },
       target: {},
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       const connection = remoteService.connectionState(body.provider);
       const settings = remoteService.settings();
       return envelope({ receipt: engine.commands.toReceipt(record), resource: { connection, settings }, connection, settings }, requestId(request));

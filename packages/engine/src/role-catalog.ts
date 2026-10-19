@@ -141,6 +141,9 @@ export class RoleCatalogService {
 
   save(input: RoleSaveRequest): CommandResponse<RoleCatalogResponse> {
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '职业草稿请求体不合法');
+    const { requestKey: _requestKey, ...commandBody } = input;
+    const original = this.#commands.replay({ requestKey: input.requestKey, operation: 'catalog.role.save', body: commandBody }, () => this.list());
+    if (original !== undefined) return original;
     if (input.confirmSave !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '保存职业草稿需要显式确认');
     const name = normalizeText(input.name, '职业名称', 1, 60);
     const purpose = normalizeText(input.purpose, '职业定位', 1, 1_000);
@@ -159,22 +162,10 @@ export class RoleCatalogService {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'catalog.role.save',
-      body: {
-        roleId: id,
-        name,
-        purpose,
-        responsibilities,
-        baseId,
-        instructions: extended.instructions,
-        model: extended.model,
-        maxRuntimeMinutes: extended.maxRuntimeMinutes,
-        capabilityGroups: extended.capabilityGroups,
-        resourcePermissions: extended.resourcePermissions,
-        image: extended.image,
-      },
+      body: commandBody,
       target: { ref: id },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.list() };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.list() };
     try {
       const records = [...this.#records()];
       const existing = records.findIndex((entry) => entry.id === id);
@@ -241,6 +232,8 @@ export class RoleCatalogService {
   publish(roleId: string, input: RolePublishRequest): CommandResponse<RoleCatalogResponse> {
     if (input?.confirmPublish !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '发布职业需要显式确认');
     const id = normalizeId(roleId);
+    const original = this.#commands.replay({ requestKey: input.requestKey, operation: 'catalog.role.publish', body: { roleId: id } }, () => this.list());
+    if (original !== undefined) return original;
     const records = [...this.#records()];
     const index = records.findIndex((record) => record.id === id);
     if (index < 0) throw new AppError(ErrorCode.NOT_FOUND, '没有可发布的职业草稿', { details: { roleId: id } });
@@ -252,7 +245,7 @@ export class RoleCatalogService {
       body: { roleId: id },
       target: { ref: id },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.list() };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.list() };
     try {
       const builtin = BUILT_IN_ROLES.find((role) => role.id === id);
       const checks = this.#publishChecks(id, current, builtin);
@@ -314,6 +307,8 @@ export class RoleCatalogService {
   restore(roleId: string, revision: string, input: { requestKey: string; confirmRestore: true }): CommandResponse<RoleCatalogResponse> {
     if (input?.confirmRestore !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '恢复历史版本需要显式确认');
     const id = normalizeId(roleId);
+    const original = this.#commands.replay({ requestKey: input.requestKey, operation: 'catalog.role.restore', body: { roleId: id, revision } }, () => this.list());
+    if (original !== undefined) return original;
     const history = this.#history(id);
     const snapshot = history.find((item) => item.revision === revision);
     if (snapshot === undefined) throw new AppError(ErrorCode.NOT_FOUND, '历史版本不存在');
@@ -321,13 +316,13 @@ export class RoleCatalogService {
     const records = [...this.#records()];
     const index = records.findIndex((record) => record.id === id);
     if (builtin === undefined && index < 0) throw new AppError(ErrorCode.NOT_FOUND, '职业不存在', { details: { roleId: id } });
-    const { replayed } = this.#commands.begin({
+    const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'catalog.role.restore',
       body: { roleId: id, revision },
       target: { ref: id },
     });
-    if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.list() };
     const now = nowIso();
     // Legacy snapshots have no extended fields; they restore as defaults.
     const draft: StoredRoleDraft = {
@@ -370,6 +365,8 @@ export class RoleCatalogService {
   archive(roleId: string, input: RoleArchiveRequest): CommandResponse<RoleCatalogResponse> {
     if (input?.confirmArchive !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '归档职业需要显式确认');
     const id = normalizeId(roleId);
+    const original = this.#commands.replay({ requestKey: input.requestKey, operation: 'catalog.role.archive', body: { roleId: id } }, () => this.list());
+    if (original !== undefined) return original;
     if (!BUILT_IN_ROLES.some((role) => role.id === id) && !this.#records().some((record) => record.id === id)) {
       throw new AppError(ErrorCode.NOT_FOUND, '职业不存在', { details: { roleId: id } });
     }
@@ -379,7 +376,7 @@ export class RoleCatalogService {
       body: { roleId: id },
       target: { ref: id },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.list() };
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.list() };
     try {
       this.#saveRecords(this.#records().filter((entry) => entry.id !== id));
       this.applyEffective();

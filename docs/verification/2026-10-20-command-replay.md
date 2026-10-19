@@ -33,3 +33,10 @@ CommandService 校验 operation + bodyHash；新回执将工作区基线选择�
 Lead 负责 HTTP 包装层以及 ProjectService；PPT、knowledge、project-charter、模板目录服务由其他负责人处理。本批未修改这些文件，也未修改设计稿或前端验收脚本。
 
 静态发现 role-catalog 新角色 save 在哈希前生成新 ID，publish/archive 也存在状态检查先于重放及 accepted 再写风险；已通知 Lead，需由对应负责人继续。template-catalog 的重放也需由 P10 负责人核对。本批不是全仓所有写入口已完成的声明。
+
+## Lead 整合：HTTP、项目、职业与模板
+
+- 全部 HTTP 命令包装对 accepted/unknown 原请求直接返回原回执；Git fetch、模板归档、全局设置、数据库连接变更先处理原回执，再检查可能已经改变的资源状态。新请求校验失败会终结原回执，避免悬挂 accepted。
+- 新职业保存以原始请求字段绑定身份，不再把每次随机生成的职业 ID 或随后变化的默认配置放进请求 hash。发布、恢复、归档优先核对原请求；自定义模板导入/更新绑定完整规范化模板，不再只绑定 ID/版本。
+- 项目 archived 参与请求身份；公约确认对 accepted/unknown 不再写原目录，后续用户修改 AGENTS.md 不被旧请求覆盖。Git 连接 token 仅以 hash 参与回执身份，未保存明文请求副本。
+- 专项回归覆盖新增职业重复保存、发布后重放、归档后重放、模板正文变化、实际 AGENTS.md 后续编辑，以及资源已移除后的 HTTP accepted/unknown。验证属于真实本地存储/文件与 HTTP 控制流，不是远端副作用或 GUI 验收。

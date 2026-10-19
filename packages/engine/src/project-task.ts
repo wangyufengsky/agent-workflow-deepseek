@@ -86,7 +86,7 @@ export class ProjectService {
       body: { name: input.name, rootPath: input.rootPath, description: input.description ?? '' },
       target: {},
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record) };
     }
     try {
@@ -123,13 +123,15 @@ export class ProjectService {
   }
 
   update(projectId: string, input: UpdateProjectRequest): CommandResponse<ProjectDetailResponse> {
+    const original = this.#commands.replay({ requestKey: input.requestKey, operation: 'project.update', body: { projectId, name: input.name, description: input.description, settings: input.settings, archived: input.archived }, legacyBodies: [{ projectId, name: input.name, description: input.description, settings: input.settings }] }, () => this.detail(projectId));
+    if (original !== undefined) return original;
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'project.update',
-      body: { projectId, name: input.name, description: input.description, settings: input.settings },
+      body: { projectId, name: input.name, description: input.description, settings: input.settings, archived: input.archived },
       target: { projectId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record) };
     try {
       const currentSettings = this.#store.projects.get(projectId)?.settings;
       const updated = this.#store.projects.update(projectId, {
@@ -150,6 +152,8 @@ export class ProjectService {
   }
 
   async recheck(projectId: string, input: { requestKey: string }): Promise<CommandResponse<ProjectDetailResponse>> {
+    const original = this.#commands.replay({ requestKey: input.requestKey, operation: 'project.recheck', body: { projectId } }, () => this.detail(projectId));
+    if (original !== undefined) return original;
     const project = this.#store.projects.get(projectId);
     if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
     const { record, replayed } = this.#commands.begin({
@@ -158,7 +162,7 @@ export class ProjectService {
       body: { projectId },
       target: { projectId },
     });
-    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
+    if (replayed) return { receipt: this.#commands.toReceipt(record) };
     try {
       const detection = await this.#git.detect(project.rootPath);
       this.#store.repos.upsert({
@@ -814,6 +818,8 @@ export class CharterService {
   }
 
   async update(projectId: string, input: ProjectCharterUpdateRequest): Promise<CommandResponse<ProjectCharterResponse>> {
+    const original = this.#commands.replay<ProjectCharterResponse>({ requestKey: input.requestKey, operation: 'project.charter.update', body: { projectId, content: normalizeCharterContent(input.content), expectedVersion: input.expectedVersion } });
+    if (original !== undefined) return original;
     const project = this.#requireProject(projectId);
     if (this.#state(projectId)?.status === 'generating') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '原生成尚未结束，不能覆盖草稿');
     const content = normalizeCharterContent(input.content);
@@ -823,7 +829,7 @@ export class CharterService {
       body: { projectId, content, expectedVersion: input.expectedVersion },
       target: { projectId },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
     }
     try {
@@ -851,15 +857,17 @@ export class CharterService {
   }
 
   async confirm(projectId: string, input: ProjectCharterConfirmRequest): Promise<CommandResponse<ProjectCharterResponse>> {
+    const original = this.#commands.replay<ProjectCharterResponse>({ requestKey: input.requestKey, operation: 'project.charter.confirm', body: { projectId, expectedVersion: input.expectedVersion, confirmWrite: input.confirmWrite }, legacyBodies: [{ projectId, expectedVersion: input.expectedVersion }] });
+    if (original !== undefined) return original;
     const project = this.#requireProject(projectId);
     if (input.confirmWrite !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '写入公约需要显式确认');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'project.charter.confirm',
-      body: { projectId, expectedVersion: input.expectedVersion },
+      body: { projectId, expectedVersion: input.expectedVersion, confirmWrite: input.confirmWrite },
       target: { projectId },
     });
-    if (replayed && record.status !== 'accepted') {
+    if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: { charter: await this.view(projectId) } };
     }
     const state = this.#state(projectId);
