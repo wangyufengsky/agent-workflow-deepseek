@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { AttemptResult, Task } from '@agent-workflow/shared';
 import { AppError, ErrorCode, nowIso } from '@agent-workflow/shared';
-import type { Engine } from '@agent-workflow/engine';
+import { roleFileAllowed, roleCommandAllowed, roleCapability, type Engine } from '@agent-workflow/engine';
 import type { Store } from '@agent-workflow/storage';
 import { envelope, mapError } from './http.ts';
 
@@ -125,8 +125,18 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   }));
 
   app.post('/internal/mcp/database/query', handler(async (request) => {
-    const body = request.body as { connectionId?: string; sql?: string; limit?: number };
+    const body = request.body as { taskId?: string; connectionId?: string; sql?: string; limit?: number };
     if (body.connectionId === undefined || body.sql === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 connectionId / sql');
+    if (body.taskId === undefined) throw new AppError(ErrorCode.FORBIDDEN, '数据库查询必须提供任务授权上下文');
+    const task = requireTask(deps, body.taskId);
+    const execution = task.executionId === undefined ? undefined : deps.store.executions.get(task.executionId);
+    const plan = execution === undefined ? undefined : deps.store.plans.get(execution.planRevisionId);
+    const runningNodes = execution?.nodes.filter((node) => node.status === 'running').map((node) => plan?.graph.nodes.find((item) => item.id === node.nodeId)) ?? [];
+    const roles = runningNodes.map((node) => node?.roleSnapshot);
+    if (runningNodes.some((node) => !node?.resources.read.some((resource) => resource.kind === 'database' && resource.id === body.connectionId))) throw new AppError(ErrorCode.FORBIDDEN, '当前步骤未声明此数据库连接');
+    if (roles.length === 0 || roles.some((role) => role === undefined || !roleCapability(role, 'database_read') || !role.resourcePermissions?.resources.some((resource) => resource.id === 'database_read'))) {
+      throw new AppError(ErrorCode.FORBIDDEN, '当前职业没有此数据库连接的读取授权');
+    }
     if (deps.engine.ports.database === undefined) throw new AppError(ErrorCode.DATABASE_NOT_CONFIGURED, '数据库模块未接通');
     return deps.engine.ports.database.query(body.connectionId, body.sql, body.limit);
   }));
@@ -134,6 +144,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   app.get('/internal/mcp/workspace/file', handler(async (request) => {
     const query = request.query as { taskId?: string; path?: string; offset?: string; limit?: string };
     if (query.taskId === undefined || query.path === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / path');
+    assertRoleResource(deps, query.taskId, 'read', query.path ?? '.');
     const root = resolveReadRoot(deps, query.taskId);
     const absolute = safePath(root, query.path);
     if (!existsSync(absolute)) throw new AppError(ErrorCode.NOT_FOUND, `文件不存在：${query.path}`);
@@ -160,6 +171,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   app.get('/internal/mcp/workspace/files', handler(async (request) => {
     const query = request.query as { taskId?: string; path?: string };
     if (query.taskId === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId');
+    assertRoleResource(deps, query.taskId, 'read', query.path ?? '.');
     const root = resolveReadRoot(deps, query.taskId);
     const base = query.path === undefined || query.path === '' ? root : safePath(root, query.path);
     if (!existsSync(base)) throw new AppError(ErrorCode.NOT_FOUND, '目录不存在');
@@ -186,6 +198,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   app.post('/internal/mcp/workspace/file-write', handler(async (request) => {
     const body = request.body as { taskId?: string; path?: string; content?: string; expectedSha?: string };
     if (body.taskId === undefined || body.path === undefined || body.content === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / path / content');
+    assertRoleResource(deps, body.taskId, 'write', body.path);
     const root = resolveWriteRoot(deps, body.taskId);
     const absolute = safePath(root, body.path);
     if (Buffer.byteLength(body.content, 'utf8') > MAX_FILE_BYTES) throw new AppError(ErrorCode.VALIDATION_FAILED, '写入内容超过 512KB');
@@ -202,6 +215,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   app.post('/internal/mcp/workspace/exec', handler(async (request) => {
     const body = request.body as { taskId?: string; command?: string; timeoutMs?: number };
     if (body.taskId === undefined || body.command === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / command');
+    assertRoleResource(deps, body.taskId, 'command', body.command);
     const root = resolveWriteRoot(deps, body.taskId);
     const argv = tokenizeCommand(body.command);
     if (argv.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '命令为空');
@@ -387,4 +401,22 @@ function runCommand(argv: readonly string[], cwd: string, timeoutMs: number): Pr
       });
     });
   });
+}
+
+/** Resolve authority from durable running attempts, never from model-supplied role ids. */
+function assertRoleResource(deps: InternalDependencies, taskId: string, kind: 'read' | 'write' | 'command', value: string): void {
+  const task = deps.store.tasks.get(taskId);
+  const execution = task?.executionId === undefined ? undefined : deps.store.executions.get(task.executionId);
+  if (execution === undefined) return; // Planning/fix calls retain their separate policy.
+  const plan = deps.store.plans.get(execution.planRevisionId);
+  const running = execution.nodes.filter((node) => node.status === 'running');
+  if (running.length === 0) throw new AppError(ErrorCode.FORBIDDEN, '没有运行中的步骤授权此资源操作');
+  for (const node of running) {
+    const role = plan?.graph.nodes.find((item) => item.id === node.nodeId)?.roleSnapshot;
+    if (role === undefined) throw new AppError(ErrorCode.FORBIDDEN, '历史计划缺少职业权限快照，请重新确认计划');
+    const allowed = kind === 'command'
+      ? roleCapability(role, 'native_tools') && roleCommandAllowed(role, tokenizeCommand(value))
+      : roleCapability(role, kind === 'read' ? 'document_read' : 'document_write') && roleFileAllowed(role, value, kind);
+    if (!allowed) throw new AppError(ErrorCode.FORBIDDEN, `职业 ${role.name} 未授权${kind}资源：${value}`);
+  }
 }

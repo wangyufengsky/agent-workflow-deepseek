@@ -11,6 +11,7 @@ import type {
   GitMergeRequest,
   GitRepo,
   ModelProfile,
+  RoleDefinition,
   NodeStatusValue,
   RepoGitStateValue,
   TaskChanges,
@@ -121,6 +122,7 @@ export interface OpenCodeRunRequest {
   readonly permission: 'read_only' | 'workspace_write';
   /** No runtime tools; only the supplied context may be used. */
   readonly toolPolicy?: 'none';
+  readonly rolePolicy?: RoleDefinition;
   readonly jsonSchema?: Record<string, unknown>;
   readonly sink: SessionSink;
   readonly timeoutMs: number;

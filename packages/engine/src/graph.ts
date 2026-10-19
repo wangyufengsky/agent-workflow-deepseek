@@ -62,7 +62,7 @@ export function methodToGraph(method: WorkflowMethod): PlanGraph {
       outputs: [{ name: `${step.title}产物`, kind: 'artifact' }],
       acceptance: [`${step.title}完成，且有可核对的证据`],
       resources: { read: [], write: [] },
-      roleId: step.kind === 'test' ? 'role.tester' : step.kind === 'verify' ? 'role.reviewer' : 'role.developer',
+      roleId: step.roleId ?? (step.kind === 'test' ? 'role.tester' : step.kind === 'verify' ? 'role.reviewer' : 'role.developer'),
       templateRevision: `${method.id}@${method.revision}`,
       position: positionFor(groupIndex.get(group) ?? 0, indexInGroup),
     };

@@ -549,9 +549,12 @@ function emptyResourcePermissions(): RoleResourcePermissions {
 
 /** Apply defaults to a stored/built-in role (old records simply lack the fields). */
 function resolveRole(role: RoleDefinition): RoleDefinitionResolved {
+  const builtinDefaults = BUILT_IN_ROLES.some((item) => item.id === role.id && item.revision === role.revision && JSON.stringify(item.responsibilities) === JSON.stringify(role.responsibilities));
   const instructions = typeof role.instructions === 'string' && role.instructions.trim() !== '' ? role.instructions.trim() : defaultInstructions(role);
-  const groups = resolveCapabilityGroups(role.capabilityGroups);
-  const resources = resolveResourcePermissions(role.resourcePermissions);
+  const groups = resolveCapabilityGroups(role.capabilityGroups).map((group) => ({ ...group, items: group.items.map((item) => item.id === 'document_write' && role.capabilityGroups === undefined && builtinDefaults ? { ...item, enabled: role.id === 'role.developer' || role.id === 'role.tester' } : item) }));
+  const resources = role.resourcePermissions === undefined && builtinDefaults
+    ? { tools: ['workspace.file.read', 'workspace.file.list', ...(role.id === 'role.developer' || role.id === 'role.tester' ? ['workspace.file.write', 'workspace.exec'] : [])].map((name) => ({ kind: 'mcp' as const, name })), files: [{ kind: 'read' as const, path: '.' }, ...(role.id === 'role.developer' || role.id === 'role.tester' ? [{ kind: 'write' as const, path: '.' }] : [])], commands: [], resources: [] }
+    : resolveResourcePermissions(role.resourcePermissions);
   const image = isRoleImageBinding(role.image) ? role.image : undefined;
   const maxRuntimeMinutes = typeof role.maxRuntimeMinutes === 'number' && Number.isInteger(role.maxRuntimeMinutes) && role.maxRuntimeMinutes >= 1 && role.maxRuntimeMinutes <= 1_440
     ? role.maxRuntimeMinutes

@@ -371,6 +371,7 @@ export interface PlanNodeOutputRef {
 }
 
 export interface ResourceRef {
+  readonly id?: string;
   readonly kind: 'file' | 'directory' | 'database' | 'http' | 'mcp';
   readonly label: string;
   readonly basis: 'declared' | 'read' | 'truncated';
@@ -388,6 +389,8 @@ export interface PlanNode {
   readonly acceptance: readonly string[];
   readonly resources: { readonly read: readonly ResourceRef[]; readonly write: readonly ResourceRef[] };
   readonly roleId?: string;
+  /** Published occupation frozen when the plan is confirmed. */
+  readonly roleSnapshot?: RoleDefinition;
   readonly templateRevision?: string;
   /** Position stored by the service so restarts and re-reads keep the same canvas view. */
   readonly position?: { readonly x: number; readonly y: number };

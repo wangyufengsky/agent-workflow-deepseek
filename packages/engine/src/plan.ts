@@ -33,6 +33,7 @@ import type { ExecutionService } from './execution.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
 import type { Store } from '@agent-workflow/storage';
+import { freezeGraphRoles } from './role-runtime.ts';
 import { methodToGraph } from './graph.ts';
 import type { TaskService } from './project-task.ts';
 
@@ -177,6 +178,7 @@ export class PlanService {
     }
     const settings = this.#context.settings();
     const project = this.#requireProject(task.projectId);
+    this.#store.plans.updateGraph(plan.id, freezeGraphRoles(plan.graph, this.#catalog.roles));
     this.#store.plans.setStatus(plan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
     const execution = this.#store.executions.byTask(taskId) ??
       this.#store.executions.create({
@@ -338,6 +340,7 @@ export class PlanService {
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     const nextPlan = task.currentPlanRevisionId === undefined ? undefined : this.#store.plans.get(task.currentPlanRevisionId);
     if (nextPlan !== undefined && input.continueExecution) {
+      this.#store.plans.updateGraph(nextPlan.id, freezeGraphRoles(nextPlan.graph, this.#catalog.roles));
       this.#store.plans.setStatus(nextPlan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
     }
     // W2-15: a task that was already paused before the edit stays paused; only an

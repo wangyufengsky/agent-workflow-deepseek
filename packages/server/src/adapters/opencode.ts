@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ModelProfile } from '@agent-workflow/shared';
+import type { ModelProfile, RoleDefinition } from '@agent-workflow/shared';
 import { AppError, ErrorCode } from '@agent-workflow/shared';
 import { OpenCodeManager, SessionRunner, type OpenCodeManagerStatus, type OpenCodeSession, type PromptOutcome, type SessionSink } from '@agent-workflow/opencode';
 import type { OpenCodePort, OpenCodeRunRequest, OpenCodeRunResult } from '@agent-workflow/engine';
@@ -45,6 +45,17 @@ export function workspacePermission(): unknown[] {
     { permission: 'webfetch', pattern: '*', action: 'deny' },
     { permission: 'websearch', pattern: '*', action: 'deny' },
     { permission: 'external_directory', pattern: '*', action: 'deny' },
+  ];
+}
+
+/** Freeze the effective tool ceiling into the actual OpenCode session. */
+export function rolePermission(role: RoleDefinition, mcpServerName: string): unknown[] {
+  const tools = role.resourcePermissions?.tools ?? [];
+  const enabled = (id: string) => role.capabilityGroups?.flatMap((group) => group.items).find((item) => item.id === id)?.enabled === true;
+  const names = tools.filter((tool) => tool.kind === 'mcp' && enabled('external_mcp')).map((tool) => tool.name);
+  return [
+    { permission: '*', pattern: '*', action: 'deny' },
+    ...['workflow.context.get', 'workflow.result.submit', ...names].map((name) => ({ permission: `${mcpServerName}_${name.replaceAll('.', '_')}`, pattern: '*', action: 'allow' })),
   ];
 }
 
@@ -138,7 +149,9 @@ export class OpenCodeAdapter implements OpenCodePort {
       metadata: { ...request.metadata, managedBy: 'agent-workflow' },
       agent: this.#options.defaultAgent,
       model: { id: request.model.model, providerID: request.model.provider },
-      permission: request.permission === 'read_only' ? readOnlyPermission() : workspacePermission(),
+      permission: request.rolePolicy === undefined
+        ? request.permission === 'read_only' ? readOnlyPermission() : workspacePermission()
+        : rolePermission(request.rolePolicy, this.#options.mcpServerName),
     });
     request.onSessionId?.(session.id);
     const runner = new SessionRunner(client, session.id, request.sink);

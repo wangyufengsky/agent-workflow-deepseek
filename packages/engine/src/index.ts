@@ -19,3 +19,5 @@ export * from './knowledge.ts';
 export * from './ppt.ts';
 export * from './template-catalog.ts';
 export * from './acceptance.ts';
+
+export * from "./role-runtime.ts";

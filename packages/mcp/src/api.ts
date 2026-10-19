@@ -54,6 +54,7 @@ export interface ResultSubmitInput {
 }
 
 export interface DatabaseQueryInput {
+  readonly taskId?: string;
   readonly connectionId: string;
   readonly sql: string;
   readonly limit?: number;
@@ -139,6 +140,7 @@ export class InternalMcpApi {
 
   databaseQuery(input: DatabaseQueryInput): Promise<unknown> {
     return this.#client.post(INTERNAL_MCP_ROUTES.databaseQuery, {
+      ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
       connectionId: input.connectionId,
       sql: input.sql,
       ...(input.limit === undefined ? {} : { limit: input.limit }),

@@ -29,6 +29,7 @@ import {
   type ExecutionAcceptanceGate,
 } from './actions.ts';
 import type { CommandService } from './operations.ts';
+import { roleModel } from './role-runtime.ts';
 import type { OpenCodePort } from './ports.ts';
 
 interface ResultWaiter {
@@ -862,7 +863,15 @@ export class ExecutionService {
       && this.#store.executions.getAttempt(attempt.id)?.status === NodeStatus.RUNNING;
     const stopped = () => this.#stops.get(execution.id)?.attemptId === attempt.id;
     const resultPromise = new Promise<AttemptResult>((resolve) => this.#resultWaiters.set(attempt.id, { resolve }));
-    const model = this.#coderModel();
+    const role = node.roleSnapshot;
+    let model: ModelProfile;
+    try {
+      if (role === undefined) throw new AppError(ErrorCode.PLAN_NOT_CONFIRMED, '历史计划缺少职业修订快照，请重新确认计划后执行');
+      model = roleModel(role, settings.models);
+    } catch (error) {
+      this.#finishNode(execution.id, node.id, attempt.id, NodeStatus.FAILED, undefined, { code: ErrorCode.VALIDATION_FAILED, message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
     const prompt = this.#executionPrompt(task, plan, node, attempt.id, workspace.displayRoot);
     let outputSeq = 0;
     let textBuffer = '';
@@ -921,6 +930,7 @@ export class ExecutionService {
         prompt,
         model,
         permission: 'workspace_write',
+        ...(role === undefined ? {} : { rolePolicy: role }),
         onSessionId: (id) => {
           if (!isCurrent()) throw new AppError(ErrorCode.STALE_TARGET, '旧执行尝试不能派发会话');
           this.#store.settings.putJson(`execution.session.${attempt.id}`, { sessionId: id });
@@ -950,16 +960,11 @@ export class ExecutionService {
           },
           onPermission: (permission) => {
             if (!isCurrent() || stopped()) return 'reject';
-            if (['webfetch', 'websearch', 'external_directory'].includes(permission.permission)) return 'reject';
-            if (['read', 'glob', 'grep', 'list', 'edit', 'write', 'todowrite'].includes(permission.permission)) return 'once';
-            if (permission.permission === 'bash') {
-              const allowed = settings.git.defaultTestCommand;
-              if (allowed !== '' && permission.patterns.some((pattern) => allowed.includes(pattern) || pattern === '*')) return 'once';
-            }
+            if (role !== undefined) return 'reject'; // Frozen roles use guarded MCP routes exclusively.
             return 'reject';
           },
         },
-        timeoutMs: settings.execution.nodeTimeoutMinutes * 60_000,
+        timeoutMs: Math.min(settings.execution.nodeTimeoutMinutes, role?.maxRuntimeMinutes ?? settings.execution.nodeTimeoutMinutes) * 60_000,
         abortOnToolCall: ['result.submit', 'result-submit', 'result_submit'],
       });
       if (isCurrent() && !stopped()) this.#activeSessions.set(execution.id, outcome.sessionId);
@@ -1061,6 +1066,9 @@ ${task.title}
 # 需求原文
 ${task.requirement.text}
 
+# 已冻结职业
+${node.roleSnapshot === undefined ? "历史计划未记录职业快照" : `${node.roleSnapshot.name} @ ${node.roleSnapshot.revision}\n${node.roleSnapshot.instructions ?? node.roleSnapshot.purpose}\n职责：${node.roleSnapshot.responsibilities.join("；")}`}
+
 # 当前步骤
 标题：${node.title}
 分组：${node.groupId}
@@ -1079,11 +1087,6 @@ ${task.requirement.text}
    { taskId: "${task.id}", nodeId: "${node.id}", attemptId: "${attemptId}", summary: "做了什么、结果如何", verification: { state: "passed" | "failed" | "not_configured", summary: "..." } }
 4. 如果无法完成，也调用 workflow.result.submit，在 summary 中说明失败原因，verification.state 设为 "failed"。
 5. 不要声称未实际验证的测试结果。`;
-  }
-
-  #coderModel(): ModelProfile {
-    const models = this.#context.settings().models;
-    return models.find((model) => model.enabled && model.roles.includes('coder')) ?? models.find((model) => model.enabled) ?? models[0]!;
   }
 
   #viewResponse(taskId: string): ExecutionResponse {
