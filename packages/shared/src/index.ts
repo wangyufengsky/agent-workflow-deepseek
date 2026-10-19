@@ -7,6 +7,7 @@ export * from './domain/models.ts';
 export * from './domain/planning.ts';
 export * from './domain/events.ts';
 export * from './config/settings.ts';
+export * from './config/database-url.ts';
 export * from './config/catalog.ts';
 export * from './config/themes.ts';
 export * from './api/contracts.ts';

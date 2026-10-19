@@ -18,7 +18,7 @@
 | git/index.html | `/git`、`/git/:projectId` | `/api/git/*` | ✅ | 读模型、fetch、MR、AI 审查/修复（真实模型验证）、修复分支合并 |
 | delivery/* | 任务页交付 | `/delivery/*`、`/delivery/merge`、`/delivery/apply` | ✅/🟡 | 选择/提交/推送/MR/合并/非 Git 应用已接线；真实远端写待验证 |
 | node/index.html | 任务页节点面板 | `/nodes/:nodeId` | ✅/🟡 | 事实条、正文/工具、attempts、输出；历史分页/补读未做 |
-| databases.html | `/databases` | `/api/settings/databases` | ✅ | 连接管理（增/改/删）、探针、只读查询；真实 MySQL 9.2 已验证 |
+| databases.html | `/databases` | `/api/settings/databases` | ✅ | 连接管理（增/改/删）、JDBC URL 自动拆分、探针、只读查询；真实 MySQL 9.2 已验证 |
 | roles.html / roles-legacy.html | `/roles` | `/api/catalog/roles` | ✅/🟡 | 草稿/发布/归档/自定义已接线；版本对比/导入未做 |
 | templates.html | `/templates` | catalog + `/api/catalog/templates/{import,/:id}` + `/api/tasks`、`/api/templates/:id{,/tasks}`、`/plan/from-template` | ✅/🟡 | 模板创建/计划/历史/导出 + 自定义模板导入/可视化步骤编辑（拖拽排序/增删/类型/分组）/JSON 编辑/归档 |
 | workflows.html / workflow-editor.html | `/workflows` | catalog.methods | 🟡 | 目录只读；编辑未接通 |

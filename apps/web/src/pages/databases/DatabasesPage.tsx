@@ -5,6 +5,7 @@ import {
   DatabaseConnectionState,
   ROUTES,
   createRequestKey,
+  parseJdbcDatabaseUrl,
   type DatabaseConnection,
   type DatabaseConnectionStateValue,
   type DatabaseConnectionUpsertRequest,
@@ -311,7 +312,18 @@ export function DatabasesPage() {
   };
 
   const updateForm = (patch: Partial<ConnectionFormState>) => {
-    setForm((current) => (current === null ? current : { ...current, ...patch }));
+    // Accept a pasted Spring datasource URL in either the host or database
+    // field and split it into the discrete fields the service expects.
+    const jdbcCandidate = (typeof patch.host === 'string' && patch.host.includes('://'))
+      ? patch.host
+      : (typeof patch.database === 'string' && patch.database.includes('://'))
+        ? patch.database
+        : undefined;
+    const parsed = jdbcCandidate === undefined ? undefined : parseJdbcDatabaseUrl(jdbcCandidate);
+    const nextPatch: Partial<ConnectionFormState> = parsed === undefined
+      ? patch
+      : { ...patch, type: parsed.type, host: parsed.host, port: String(parsed.port), database: parsed.database };
+    setForm((current) => (current === null ? current : { ...current, ...nextPatch }));
   };
 
   const formIssues = form === null ? [] : validateForm(form);
@@ -597,6 +609,24 @@ export function DatabasesPage() {
                 </div>
               </div>
             ) : null}
+
+            <div className="field" style={{ margin: 0 }}>
+              <label className="label" htmlFor="db-jdbc">
+                JDBC URL（可选，粘贴后自动拆分）
+              </label>
+              <input
+                id="db-jdbc"
+                className="input mono"
+                placeholder="jdbc:mysql://127.0.0.1:3306/opencode_workflow_test?connectionTimeZone=UTC"
+                onChange={(event) => {
+                  const parsed = parseJdbcDatabaseUrl(event.target.value);
+                  if (parsed !== undefined) {
+                    setForm((current) => current === null ? current : { ...current, type: parsed.type, host: parsed.host, port: String(parsed.port), database: parsed.database });
+                  }
+                }}
+              />
+              <p className="hint">也可直接把 URL 粘贴到「主机」或「数据库」输入框，查询参数会被忽略。</p>
+            </div>
 
             <div className="field" style={{ margin: 0 }}>
               <label className="label" htmlFor="db-name">

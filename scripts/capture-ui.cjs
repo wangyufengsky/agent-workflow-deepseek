@@ -150,6 +150,21 @@ async function smokeDatabaseForm(window) {
     return document.activeElement === input;
   })()`);
   if (!focused) throw new Error('UI smoke: 连接名称 input not focusable');
+  // A full Spring datasource URL pasted into the host field must be split.
+  const hostFocused = await window.webContents.executeJavaScript(`(() => { const input = document.querySelector('#db-host'); if (!input) return false; input.focus(); return true; })()`);
+  if (!hostFocused) throw new Error('UI smoke: 主机 input not found');
+  window.webContents.insertText('jdbc:mysql://127.0.0.1:3306/opencode_workflow_test?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true');
+  await sleep(350);
+  const split = await window.webContents.executeJavaScript(`({
+    type: document.querySelector('#db-type')?.value ?? '',
+    host: document.querySelector('#db-host')?.value ?? '',
+    port: document.querySelector('#db-port')?.value ?? '',
+    database: document.querySelector('#db-database')?.value ?? ''
+  })`);
+  if (split.type !== 'mysql' || split.host !== '127.0.0.1' || split.port !== '3306' || split.database !== 'opencode_workflow_test') {
+    throw new Error(`UI smoke: JDBC URL was not split (${JSON.stringify(split)})`);
+  }
+  await window.webContents.executeJavaScript(`document.querySelector('#db-name')?.focus()`);
   for (let index = 0; index < 5; index += 1) {
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'a' });
     window.webContents.sendInputEvent({ type: 'char', keyCode: 'a' });

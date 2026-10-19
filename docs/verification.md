@@ -283,3 +283,11 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 断言每个页面的期望文案非空且存在，并校验主题 `data-theme`；全部通过；
 - **抽屉连续输入回归（第 82 轮）**：`Drawer` 的 focus 副作用不再依赖内联 `onClose`，父组件每输入一个字符重渲染时不会重新聚焦抽屉根节点。UI smoke 新增：数据库「添加连接」抽屉输入 `aaaaa`，断言值与 `document.activeElement` 保持 `#db-name`，PASS。
 `evidence/ui-git.png`、`ui-requirement-canvas.png`、`ui-settings.png`、`ui-task-canvas.png` 已更新为当前实现。
+
+### 第 83 轮数据库连接输入修复（2026-10-19）
+
+- 数据库表单支持粘贴 JDBC URL 并自动拆分（也接受 Spring `${WF_DB_URL:...}` 默认值写法和 `url:` 前缀）：
+  `jdbc:mysql://127.0.0.1:3306/opencode_workflow_test?connectionTimeZone=UTC&...`
+  → 类型 mysql / 主机 127.0.0.1 / 端口 3306 / 库 opencode_workflow_test。
+- 用用户提供的本地 MySQL 凭据复测：服务端 `POST /settings/databases` 保存 + `POST /probe` 返回 `connected`（MySQL 9.2.0，目标库存在）；密码不写入文档。
+- 抽屉 focus 修复后，UI smoke 验证连续输入 `aaaaa` 焦点不丢，且粘贴 JDBC URL 后四个字段被正确拆分。
