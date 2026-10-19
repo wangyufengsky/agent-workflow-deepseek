@@ -1,3 +1,4 @@
+import { templateRunContent, templateRunInput } from './run-content-model.ts';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { snapshotReport } from './snapshot-review.ts';
@@ -279,6 +280,7 @@ export interface RunContentGroup {
 }
 
 export interface RunContentModel {
+  readonly specialized?: import('@agent-workflow/shared').TemplateRunContent;
   readonly taskId: string;
   readonly available: boolean;
   readonly note: string;
@@ -745,10 +747,13 @@ export class TaskExtrasService {
    * entry (documents / source / tests / other). Read-only; honest empty state
    * when there is no plan yet.
    */
+  runContentInput(taskId: string, inputId: string, expectedVersion: string, expectedSha256: string) { return templateRunInput(this.#store, taskId, inputId, expectedVersion, expectedSha256); }
+
   runContent(taskId: string): RunContentModel {
     const task = this.#requireTask(taskId);
-    const plan = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
     const execution = task.executionId === undefined ? this.#store.executions.byTask(taskId) : this.#store.executions.get(task.executionId);
+    const plan = execution === undefined ? (task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId)) : this.#store.plans.get(execution.planRevisionId);
+    if (execution !== undefined && execution.taskId !== taskId || plan !== undefined && plan.taskId !== taskId) throw new AppError(ErrorCode.STALE_TARGET, '运行/计划身份与任务不一致，拒绝呈现内容');
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
     const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(taskId) : this.#store.deliveries.get(task.deliveryId);
     const workspaceSummary = workspace === undefined
@@ -764,6 +769,7 @@ export class TaskExtrasService {
     if (plan === undefined) {
       return {
         taskId,
+        specialized: templateRunContent(this.#store, task, plan, execution),
         available: false,
         note: '任务还没有确认计划，运行内容尚未产生。',
         ...(workspaceSummary === undefined ? {} : { workspace: workspaceSummary }),
@@ -827,6 +833,7 @@ export class TaskExtrasService {
       .filter((group) => group.total > 0);
     return {
       taskId,
+      specialized: templateRunContent(this.#store, task, plan, execution),
       available: execution !== undefined || plan !== undefined,
       note: execution === undefined
         ? '计划已存在但尚未执行；以下按计划步骤列出将要产生的运行内容。'

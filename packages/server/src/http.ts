@@ -604,8 +604,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       requestId(request),
     );
   });
-  app.get<{ Params: { id: string } }>('/api/tasks/:id/run-content', async (request) => {
-    return envelope(engine.extras.runContent(request.params.id), requestId(request));
+  app.get<{ Params: { id: string }; Querystring: { inputId?: string; version?: string; sha256?: string } }>('/api/tasks/:id/run-content', async (request) => {
+    return envelope(request.query.inputId === undefined ? engine.extras.runContent(request.params.id) : engine.extras.runContentInput(request.params.id, request.query.inputId, request.query.version ?? '', request.query.sha256 ?? ''), requestId(request));
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/begin', async (request) => envelope(engine.plans.editBegin(request.params.id, request.body as EditBeginRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/save', async (request) => envelope(engine.plans.editSave(request.params.id, request.body as EditSaveRequest), requestId(request)));

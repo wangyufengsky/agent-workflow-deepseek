@@ -823,6 +823,7 @@ export interface RunContentGroup {
 }
 
 export interface RunContentModel {
+  readonly specialized?: import('../domain/run-content.ts').TemplateRunContent;
   readonly taskId: string;
   readonly available: boolean;
   readonly note: string;

@@ -1,3 +1,5 @@
+import { RunPendingRecovery } from './RunCommands.tsx';
+import { TemplateRunView } from './TemplateRunView.tsx';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
@@ -42,8 +44,8 @@ export function RunContentPage() {
     enabled: taskId !== '' && taskDetail.data !== undefined,
     retry: false,
   });
-  const contentQuery = useQuery({ queryKey: ['run', 'content', taskId], queryFn: async () => (await apiGet<RunContentModel>(ROUTES.taskRunContent(taskId))).data, enabled: taskId !== '', retry: false });
-  const content = contentQuery.error || contentQuery.isFetching ? undefined : contentQuery.data;
+  const contentQuery = useQuery({ queryKey: ['run', 'content', taskId], refetchInterval: 5000, queryFn: async () => (await apiGet<RunContentModel>(ROUTES.taskRunContent(taskId))).data, enabled: taskId !== '', retry: false });
+  const content = contentQuery.error ? undefined : contentQuery.data;
   const [selection, setSelection] = useState<RunSelection | null>(null);
 
   useEffect(() => {
@@ -228,6 +230,14 @@ export function RunContentPage() {
   }
 
   if (data === undefined || task === undefined) return null;
+
+  if (task.fixedTemplate !== undefined) {
+    if (contentQuery.error) return <div className="page"><PageHeader title="运行内容" actions={backToCanvas} /><RunPendingRecovery taskId={taskId} refresh={refresh} /><ServiceNotice error={contentQuery.error} onRetry={refresh} /></div>;
+    if (content === undefined) return <div className="page"><PageHeader title="运行内容" actions={backToCanvas} /><section className="card pad"><Skeleton height={120} /></section></div>;
+    if (content.taskId !== taskId || (execution !== undefined && content.executionId !== execution.id)) return <div className="page"><PageHeader title="运行身份无法确认" actions={backToCanvas} /><EmptyState title="运行标识不一致" description="没有展示任何产物或操作，请重新读取任务与运行快照。" action={<Button onClick={refresh}>重新读取</Button>} /></div>;
+    if (content.specialized !== undefined) return <TemplateRunView key={taskId} taskId={taskId} detail={data} content={content} refresh={refresh} />;
+    return <div className="page"><PageHeader title="模板运行内容未接通" actions={backToCanvas} /><EmptyState title="服务未提供模板阅读模型" description="此任务不会以通用节点列表冒充正式模板运行内容。" action={<Button onClick={refresh}>重新读取</Button>} /></div>;
+  }
 
   const progress = execution?.progress;
   const totalSteps = progress?.total ?? nodes.length;

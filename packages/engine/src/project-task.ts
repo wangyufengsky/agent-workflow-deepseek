@@ -1,3 +1,4 @@
+import { taskArchiveAction } from './task-archive-policy.ts';
 import { freezeTemplateScope } from './template-scope.ts';
 import { freezeCodeReviewSnapshot } from './snapshot-review.ts';
 import { readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -266,12 +267,7 @@ export class TaskService {
   }
 
   #archiveAction(task: Task): import('@agent-workflow/shared').ActionAvailability {
-    const round = this.#store.planning.latest(task.id);
-    const execution = this.#store.executions.byTask(task.id);
-    if (task.lifecycle === 'active') return { allowed: false, reason: '只有已结束或已终止的任务可以归档', reasonCode: 'TASK_ACTIVE' };
-    if (round && ['queued', 'running', 'stopping', 'unknown'].includes(round.status)) return { allowed: false, reason: '规划尚未停稳或结果待核对', reasonCode: 'PLANNING_ACTIVE' };
-    if (execution && (['running', 'stopping', 'unknown'].includes(execution.status) || execution.nodes.some((node) => node.status === 'running'))) return { allowed: false, reason: '仍有执行步骤运行，不能归档', reasonCode: 'EXECUTION_ACTIVE' };
-    return { allowed: true };
+    return taskArchiveAction(this.#store, task);
   }
 
   get(taskId: string): Task {
