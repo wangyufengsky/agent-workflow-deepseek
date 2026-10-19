@@ -12,6 +12,7 @@ import { KnowledgePage } from '../pages/knowledge/KnowledgePage.tsx';
 import { KnowledgeHistoryPage } from '../pages/knowledge-history/KnowledgeHistoryPage.tsx';
 import { PptPage } from '../pages/ppt/PptPage.tsx';
 import { ProjectsPage } from '../pages/projects/ProjectsPage.tsx';
+import { ProjectDetailPage } from '../pages/projects/ProjectDetailPage.tsx';
 import { RecoveryPage } from '../pages/recovery/RecoveryPage.tsx';
 import { RuntimePage } from '../pages/runtime/RuntimePage.tsx';
 import { InsightsPage } from '../pages/insights/InsightsPage.tsx';
@@ -40,6 +41,7 @@ export function App() {
         <Route path="start" element={<StartPage />} />
         <Route path="inbox" element={<InboxPage />} />
         <Route path="projects" element={<ProjectsPage />} />
+        <Route path="projects/:projectId" element={<ProjectDetailPage />} />
         <Route path="git" element={<GitPage />} />
         <Route path="git/:projectId" element={<GitPage />} />
         <Route path="workflows" element={<WorkflowsPage />} />

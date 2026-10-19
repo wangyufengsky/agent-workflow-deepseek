@@ -1,136 +1,374 @@
-/* PPT 制作页：作品列表 / 详情两列布局。只用设计令牌，不写死颜色。 */
+/* PPT 制作页：作品库（网格/列表）与四步工作台。只用设计令牌，不写死颜色。 */
 
-.ppt-layout {
+/* ---------- 作品库 ---------- */
+.ppt-works {
+  margin-top: 16px;
+}
+
+.ppt-works-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.ppt-search {
+  flex: 1 1 240px;
+  min-width: 190px;
+}
+
+.ppt-project-filter {
+  width: auto;
+  max-width: 200px;
+}
+
+.ppt-works-note {
+  line-height: 1.7;
+  margin: 0 0 14px;
+}
+
+.ppt-work-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
-  gap: 16px;
-  align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
 }
 
-@media (max-width: 1100px) {
-  .ppt-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.ppt-col {
+.ppt-work-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
-/* ---------- 最近演示卡片 ---------- */
-.ppt-recent {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.ppt-recent-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
   background: var(--fill-1);
-  text-align: left;
-  min-width: 0;
   transition: background var(--t-fast), border-color var(--t-fast);
 }
 
-.ppt-recent-card:hover {
+.ppt-work-card:hover {
   background: var(--fill-2);
   border-color: var(--line-3);
 }
 
-.ppt-recent-card[aria-pressed="true"] {
+.ppt-work-card[data-selected="true"] {
   border-color: var(--accent-line);
   box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 
-.ppt-mini {
+.ppt-work-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 10px 6px;
+  text-align: left;
+  color: inherit;
+}
+
+.ppt-work-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ppt-work-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  min-width: 0;
+}
+
+.ppt-work-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 2px 8px 8px;
+  border-top: 1px solid var(--line);
+  margin: 0 2px;
+}
+
+.ppt-next {
+  display: block;
+  color: var(--sub);
+}
+
+.ppt-stagebar {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  margin: 4px 0 2px;
+}
+
+.ppt-stagebar i {
+  width: 18px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--fill-5);
+}
+
+.ppt-stagebar i[data-state="done"] {
+  background: var(--ok);
+}
+
+.ppt-stagebar i[data-state="current"] {
+  background: var(--accent);
+}
+
+.ppt-stagebar i[data-step="export"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+
+/* 示意封面：明确标注不是渲染图 */
+.ppt-cover {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  justify-content: flex-end;
+  gap: 6px;
   aspect-ratio: 16 / 9;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: linear-gradient(135deg, var(--fill-3), var(--fill-1));
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background:
+    radial-gradient(circle at 82% 18%, var(--accent-fill), transparent 58%),
+    linear-gradient(135deg, var(--fill-3), var(--fill-1));
   overflow: hidden;
 }
 
-.ppt-mini b {
-  font-size: 11.5px;
-  font-weight: 500;
-  color: var(--ink-2);
+.ppt-cover-sm {
+  width: 132px;
+  flex: none;
+  padding: 8px 10px;
+  gap: 4px;
+  border-radius: 10px;
+}
+
+.ppt-cover-tag {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: var(--fill-4);
+  color: var(--sub);
+  font-size: 10px;
   white-space: nowrap;
+}
+
+.ppt-cover-sm .ppt-cover-tag {
+  top: 6px;
+  left: 6px;
+  font-size: 9px;
+  padding: 0 4px;
+  max-width: calc(100% - 12px);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.ppt-mini i {
+.ppt-cover-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ppt-cover-sm .ppt-cover-title {
+  font-size: 11px;
+  -webkit-line-clamp: 1;
+}
+
+.ppt-cover-line {
   display: block;
   height: 4px;
   border-radius: 2px;
   background: var(--fill-5);
 }
 
-.ppt-mini-empty {
+.ppt-cover-empty {
   margin: auto;
   font-size: 11.5px;
   color: var(--muted);
 }
 
-.ppt-mini-page {
-  position: absolute;
-  right: 8px;
-  bottom: 7px;
-  padding: 1px 7px;
-  border-radius: var(--r-xs);
-  background: var(--fill-4);
-  color: var(--sub);
-  font-size: 10.5px;
-  white-space: nowrap;
+.ppt-cover-skel {
+  justify-content: stretch;
+  padding: 0;
 }
 
-/* ---------- 作品行 ---------- */
-.ppt-row-extra {
-  white-space: nowrap;
+.ppt-work-skel {
+  pointer-events: none;
 }
 
-.ppt-row-time {
-  white-space: nowrap;
+/* 列表视图 */
+.ppt-work-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ppt-work-listitem {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+
+.ppt-work-listitem:hover {
+  background: var(--fill-2);
+  border-color: var(--line-3);
+}
+
+.ppt-work-listitem[data-selected="true"] {
+  border-color: var(--accent-line);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.ppt-work-rowmain {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: left;
+  color: inherit;
+}
+
+.ppt-work-listitem .ppt-work-actions {
+  flex-direction: column;
+  justify-content: center;
+  border-top: 0;
+  border-left: 1px solid var(--line);
+  margin: 6px 6px 6px 0;
+  padding: 0 4px;
 }
 
 @media (max-width: 720px) {
-  .ppt-row-extra {
-    display: none;
-  }
-
-  .ppt-row-time {
+  .ppt-work-rowmain .ppt-cover {
     display: none;
   }
 }
 
-/* ---------- 作品详情 ---------- */
-.ppt-actions {
+/* ---------- 工作台 ---------- */
+.ppt-workbench {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ppt-wb-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ppt-stepper {
+  display: flex;
   align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 
-.ppt-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
+.ppt-stepper button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  color: var(--muted);
   font-size: 12.5px;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+
+.ppt-stepper button:hover {
+  background: var(--fill-2);
+  color: var(--ink-2);
+}
+
+.ppt-stepper button[aria-selected="true"] {
+  background: var(--fill-3);
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+.ppt-stepper button[data-state="done"] {
   color: var(--sub);
+}
+
+.ppt-stepper button[data-state="available"] {
+  color: var(--accent);
+}
+
+.ppt-step-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 10.5px;
+  box-shadow: inset 0 0 0 1px var(--line-3);
+  flex: none;
+}
+
+.ppt-stepper button[data-state="done"] .ppt-step-mark {
+  background: var(--ok-fill);
+  color: var(--ok);
+  box-shadow: none;
+}
+
+.ppt-stepper button[data-state="current"] .ppt-step-mark {
+  background: var(--accent);
+  color: var(--bg);
+  box-shadow: none;
+}
+
+.ppt-stepper button[aria-selected="true"] .ppt-step-label {
+  font-weight: 500;
+}
+
+.ppt-wb-step .card-head {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 步骤内通用 ---------- */
+.ppt-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.ppt-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--fill-1);
+  min-width: 0;
+}
+
+.ppt-fact-k {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ppt-fact-v {
+  font-size: 13px;
+  color: var(--ink-2);
+  word-break: break-all;
 }
 
 .ppt-outline {
@@ -215,9 +453,41 @@
   min-width: 0;
 }
 
-/* ---------- 回执 / 导出内容 ---------- */
+/* ---------- 导出 / 删除 ---------- */
+.ppt-export-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.ppt-export-card {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+}
+
+.ppt-danger-zone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--danger-line);
+  border-radius: var(--r-md);
+  background: var(--danger-fill);
+}
+
+/* ---------- 回执 / Markdown 预览 ---------- */
 .ppt-receipt {
   align-items: flex-start;
+}
+
+.ppt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12.5px;
+  color: var(--sub);
 }
 
 .ppt-receipt .ppt-meta {

@@ -1,0 +1,69 @@
+.task-row[role='link'] {
+  cursor: pointer;
+}
+
+.task-row[role='link']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.task-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.task-progress .badge {
+  align-self: flex-start;
+}
+
+.task-progress-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--fill-4);
+  overflow: hidden;
+}
+
+.task-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.task-progress-caption {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-more {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.task-more .icon-btn {
+  width: 24px;
+  height: 24px;
+}
+
+.task-menu {
+  top: 30px;
+  right: 0;
+  min-width: 190px;
+}
+
+.task-menu button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.task-menu-note {
+  padding: 4px 10px 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}

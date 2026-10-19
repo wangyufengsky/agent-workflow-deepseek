@@ -1,10 +1,17 @@
 import type {
+  ActionAvailability,
   CommandResponse,
   ConfirmPlanRequest,
   EditBeginRequest,
   EditFinishRequest,
   EditSaveRequest,
-  NodeDetail,
+  NodeAcceptRequest,
+  NodeAcceptanceView,
+  NodeDetailResponse,
+  NodeRejectRequest,
+  NodeStatusValue,
+  ErrorCodeValue,
+  NodeResponse,
   PlanEditAbandonRequest,
   PlanResponse,
   PlanRevision,
@@ -14,13 +21,30 @@ import type {
   TaskTemplate,
   UseTemplateRequest,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso } from '@agent-workflow/shared';
+import { AppError, ErrorCode, NodeManualAcceptanceState, NodeStatus, Rationale, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso } from '@agent-workflow/shared';
 import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
 import type { Store } from '@agent-workflow/storage';
 import { methodToGraph } from './graph.ts';
 import type { TaskService } from './project-task.ts';
+
+/**
+ * Manual node acceptance is an audit verdict stored as JSON in the local
+ * settings key/value store (the node row has no acceptance column and
+ * `packages/storage` is outside this task's write scope). One key per
+ * execution+node keeps it durable, readable by nodeDetail and independent from
+ * the execution result.
+ */
+const NODE_ACCEPTANCE_KEY_PREFIX = 'execution.node.acceptance.';
+
+interface StoredNodeAcceptance {
+  readonly nodeId: string;
+  readonly state: 'accepted' | 'rejected';
+  readonly verdictAt: string;
+  readonly note?: string;
+  readonly requestKey: string;
+}
 
 export class PlanService {
   readonly #store: Store;
@@ -360,7 +384,7 @@ export class PlanService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
   }
 
-  nodeDetail(taskId: string, nodeId: string): NodeDetail {
+  nodeDetail(taskId: string, nodeId: string): NodeDetailResponse {
     const task = this.#requireTask(taskId);
     const plan = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
     if (plan === undefined) throw new AppError(ErrorCode.NOT_FOUND, '当前没有计划');
@@ -378,6 +402,7 @@ export class PlanService {
     const currentNode = execution?.nodes.find((item) => item.nodeId === node.id);
     const currentAttempt = attemptStates.find((attempt) => attempt.id === currentNode?.currentAttemptId) ?? attemptStates[0];
     const output = currentAttempt === undefined ? [] : this.#store.executions.listOutput(currentAttempt.id);
+    const acceptance = this.#acceptanceView(execution?.id, node.id, currentNode?.status);
     return {
       taskId,
       nodeId,
@@ -395,9 +420,109 @@ export class PlanService {
         terminal: currentNode === undefined ? false : currentNode.status !== NodeStatus.RUNNING,
         capabilities: { modelText: 'ok', publicReasoningSummary: 'none_in_attempt', toolSources: ['managed_mcp'] },
       },
+      ...(acceptance === undefined ? {} : { acceptance }),
       actions: {
-        accept: currentNode?.status === NodeStatus.SUCCEEDED ? { allowed: false, reason: '已完成' } : { allowed: false, reason: '执行未实现验收动作' },
+        accept: nodeAcceptanceAvailability(currentNode?.status, acceptance, NodeManualAcceptanceState.ACCEPTED),
+        reject: nodeAcceptanceAvailability(currentNode?.status, acceptance, NodeManualAcceptanceState.REJECTED),
       },
+    };
+  }
+
+  /** Human verdict: the node already succeeded and the verdict is an audit fact on top. */
+  acceptNode(taskId: string, nodeId: string, input: NodeAcceptRequest): CommandResponse<NodeResponse> {
+    return this.#decideNodeAcceptance(taskId, nodeId, input, NodeManualAcceptanceState.ACCEPTED);
+  }
+
+  rejectNode(taskId: string, nodeId: string, input: NodeRejectRequest): CommandResponse<NodeResponse> {
+    return this.#decideNodeAcceptance(taskId, nodeId, input, NodeManualAcceptanceState.REJECTED);
+  }
+
+  #decideNodeAcceptance(
+    taskId: string,
+    nodeId: string,
+    input: NodeAcceptRequest | NodeRejectRequest,
+    verdict: 'accepted' | 'rejected',
+  ): CommandResponse<NodeResponse> {
+    this.#requireTask(taskId);
+    const confirmed = verdict === NodeManualAcceptanceState.ACCEPTED
+      ? (input as NodeAcceptRequest).confirmAccept === true
+      : (input as NodeRejectRequest).confirmReject === true;
+    if (!confirmed) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, verdict === NodeManualAcceptanceState.ACCEPTED ? '验收通过需要显式确认' : '退回修改需要显式确认');
+    }
+    const rawNote = typeof input.note === 'string' ? input.note.trim() : '';
+    if (verdict === NodeManualAcceptanceState.REJECTED && rawNote === '') {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '退回修改必须填写原因');
+    }
+    const note = rawNote.slice(0, 2_000);
+    const task = this.#requireTask(taskId);
+    const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
+    if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
+    const nodeState = execution.nodes.find((item) => item.nodeId === nodeId);
+    if (nodeState === undefined) throw new AppError(ErrorCode.NOT_FOUND, '步骤不存在', { details: { nodeId } });
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: verdict === NodeManualAcceptanceState.ACCEPTED ? 'node.accept' : 'node.reject',
+      body: { taskId, nodeId, verdict, note },
+      target: { taskId, executionId: execution.id, ref: nodeId },
+    });
+    // A settled replay answers from the stored receipt before the verdict guard:
+    // the persisted verdict may have been replaced since the first call.
+    if (replayed && record.status !== 'accepted') {
+      return { receipt: this.#commands.toReceipt(record), resource: { node: this.nodeDetail(taskId, nodeId) } };
+    }
+    const reject = (code: ErrorCodeValue, message: string, details: Record<string, unknown> = {}): never => {
+      const error = new AppError(code, message, { details });
+      this.#commands.fail(input.requestKey, error);
+      throw error;
+    };
+    if (nodeState.status !== NodeStatus.SUCCEEDED) {
+      reject(ErrorCode.OPERATION_IN_PROGRESS, `步骤当前状态为 ${nodeState.status}，只有已成功的步骤可以验收或退回`, { status: nodeState.status });
+    }
+    const existing = this.#readNodeAcceptance(execution.id, nodeId);
+    if (existing?.state === verdict) {
+      reject(
+        ErrorCode.VALIDATION_FAILED,
+        verdict === NodeManualAcceptanceState.ACCEPTED ? '该步骤已验收通过，无需重复验收' : '该步骤已退回修改，无需重复提交',
+        { verdict: existing.state, verdictAt: existing.verdictAt },
+      );
+    }
+    const stored: StoredNodeAcceptance = {
+      nodeId,
+      state: verdict,
+      verdictAt: nowIso(),
+      ...(note === '' ? {} : { note }),
+      requestKey: input.requestKey,
+    };
+    this.#store.settings.putJson(this.#acceptanceKey(execution.id, nodeId), stored);
+    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: execution.status, revision: 1 });
+    this.#commands.settle(input.requestKey, { nodeId, verdict, ...(note === '' ? {} : { note }) });
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { node: this.nodeDetail(taskId, nodeId) } };
+  }
+
+  #acceptanceKey(executionId: string, nodeId: string): string {
+    return `${NODE_ACCEPTANCE_KEY_PREFIX}${executionId}.${nodeId}`;
+  }
+
+  #readNodeAcceptance(executionId: string | undefined, nodeId: string): StoredNodeAcceptance | undefined {
+    if (executionId === undefined) return undefined;
+    return this.#store.settings.getJson<StoredNodeAcceptance>(this.#acceptanceKey(executionId, nodeId));
+  }
+
+  /** Only a succeeded node exposes the verdict; `pending` = completed, awaiting the human verdict. */
+  #acceptanceView(executionId: string | undefined, nodeId: string, status: string | undefined): NodeAcceptanceView | undefined {
+    if (status !== NodeStatus.SUCCEEDED) return undefined;
+    const stored = this.#readNodeAcceptance(executionId, nodeId);
+    return {
+      nodeId,
+      state: stored?.state ?? NodeManualAcceptanceState.PENDING,
+      ...(stored === undefined
+        ? {}
+        : {
+            verdictAt: stored.verdictAt,
+            ...(stored.note === undefined ? {} : { note: stored.note }),
+            requestKey: stored.requestKey,
+          }),
     };
   }
 
@@ -432,6 +557,30 @@ function requireCatalog(): typeof sharedCatalog {
   return sharedCatalog;
 }
 
+
+/**
+ * Availability of the two human verdicts for one node. A verdict is available
+ * whenever it would change the stored state, so a mistaken verdict can be
+ * corrected (audit replacement) without re-running the node.
+ */
+function nodeAcceptanceAvailability(
+  status: NodeStatusValue | undefined,
+  acceptance: NodeAcceptanceView | undefined,
+  verdict: 'accepted' | 'rejected',
+): ActionAvailability {
+  if (status === undefined) return { allowed: false, reasonCode: Rationale.NODE_EXECUTION_MISSING, reason: '步骤尚未执行' };
+  if (status !== NodeStatus.SUCCEEDED) {
+    if (status === NodeStatus.FAILED) return { allowed: false, reasonCode: Rationale.NODE_NOT_SUCCEEDED, reason: '步骤失败，不能验收；先重试或跳过' };
+    if (status === NodeStatus.SKIPPED || status === NodeStatus.CANCELLED) return { allowed: false, reasonCode: Rationale.NODE_NOT_SUCCEEDED, reason: '步骤已跳过或取消，无需人工验收' };
+    return { allowed: false, reasonCode: Rationale.NODE_NOT_SUCCEEDED, reason: '步骤尚未成功完成，不能验收' };
+  }
+  if (acceptance?.state === verdict) {
+    return verdict === NodeManualAcceptanceState.ACCEPTED
+      ? { allowed: false, reasonCode: Rationale.NODE_ACCEPTED, reason: '已验收通过' }
+      : { allowed: false, reasonCode: Rationale.NODE_REJECTED, reason: '已退回修改' };
+  }
+  return { allowed: true };
+}
 
 function hasCycle(nodeIds: readonly string[], edges: readonly { readonly from: string; readonly to: string }[]): boolean {
   const adjacency = new Map<string, string[]>();

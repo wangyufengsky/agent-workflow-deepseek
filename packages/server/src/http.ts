@@ -52,6 +52,8 @@ import type {
   GitFetchRequest,
   OpenCodeRestartRequest,
   TemplateArchiveRequest,
+  NodeAcceptRequest,
+  NodeRejectRequest,
   NodeStatusValue,
 } from '@agent-workflow/shared';
 import {
@@ -197,6 +199,8 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/tasks/:id/execution/advance',
   'POST /api/tasks/:id/execution/cancel',
   'POST /api/tasks/:id/execution/nodes/:nodeId/skip',
+  'POST /api/tasks/:id/nodes/:nodeId/accept',
+  'POST /api/tasks/:id/nodes/:nodeId/reject',
   'POST /api/tasks/:id/delivery/select',
   'POST /api/tasks/:id/delivery/commit',
   'POST /api/tasks/:id/delivery/push',
@@ -514,6 +518,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/cancel', async (request) => envelope(await engine.executions.cancel(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
   app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId), requestId(request)));
+  app.post<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId/accept', async (request) =>
+    envelope(engine.plans.acceptNode(request.params.id, request.params.nodeId, request.body as NodeAcceptRequest), requestId(request)));
+  app.post<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId/reject', async (request) =>
+    envelope(engine.plans.rejectNode(request.params.id, request.params.nodeId, request.body as NodeRejectRequest), requestId(request)));
   app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId/attempts', async (request) => {
     const execution = engine.executions.get(request.params.id);
     if (execution === undefined) return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attempts: [] }, requestId(request));

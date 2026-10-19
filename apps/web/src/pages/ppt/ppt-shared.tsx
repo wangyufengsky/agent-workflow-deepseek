@@ -67,6 +67,80 @@ export function formatFileSize(size: number): string {
 }
 
 /* ------------------------------------------------------------------ */
+/* 四步制作阶段（讨论需求 → 设计方案 → 制作检查 → 导出）                 */
+/* ------------------------------------------------------------------ */
+
+export type PptStageKey = 'discuss' | 'design' | 'check' | 'export';
+
+export interface PptStageStep {
+  readonly key: PptStageKey;
+  readonly label: string;
+  readonly icon: IconName;
+}
+
+export const PPT_STAGES: readonly PptStageStep[] = [
+  { key: 'discuss', label: '讨论需求', icon: 'help' },
+  { key: 'design', label: '设计方案', icon: 'layers' },
+  { key: 'check', label: '制作检查', icon: 'shield' },
+  { key: 'export', label: '导出', icon: 'download' },
+];
+
+export type PptStageFilter = 'all' | 'design' | 'discuss' | 'check';
+
+export interface PptProgress {
+  /** 当前真实阶段；导出不是持久状态，因此永远不会由数据推导为 current。 */
+  readonly current: 'discuss' | 'design' | 'check';
+  /** 已完成的数据阶段数（0–2）：大纲、逐页。 */
+  readonly completed: number;
+  readonly stageLabel: string;
+  readonly nextHint: string;
+  readonly pageText: string;
+  readonly hasOutline: boolean;
+  readonly hasSlides: boolean;
+}
+
+/**
+ * 只按服务真实字段推导进度：大纲=设计方案产出、逐页=制作产出。
+ * 服务没有“已导出/已检查”状态，所以导出与检查不会被标成已完成。
+ */
+export function derivePptProgress(work: PptWork): PptProgress {
+  const hasOutline = work.outline.length > 0;
+  const hasSlides = work.slides.length > 0;
+  const completed = (hasOutline ? 1 : 0) + (hasSlides ? 1 : 0);
+  const current: PptProgress['current'] = !hasOutline ? 'discuss' : !hasSlides ? 'design' : 'check';
+  const stageLabel = PPT_STAGES.find((step) => step.key === current)?.label ?? '讨论需求';
+  const pageText = hasSlides
+    ? `已生成 ${String(work.slides.length)} 页`
+    : hasOutline
+      ? `大纲 ${String(work.outline.length)} 条 · 未生成逐页`
+      : '尚无大纲 · 0 页';
+  const nextHint =
+    work.status === 'generating'
+      ? '服务正在生成内容，等回执后再操作'
+      : work.status === 'failed'
+        ? '最近一次生成失败；到工作台按回执重试'
+        : !hasOutline
+          ? '下一步：到工作台补全主题与大纲'
+          : !hasSlides
+            ? '下一步：生成逐页内容'
+            : '下一步：导出 PPTX 或 Markdown';
+  return { current, completed, stageLabel, nextHint, pageText, hasOutline, hasSlides };
+}
+
+export type PptStepState = 'done' | 'current' | 'todo' | 'available';
+
+/** 工作台四步状态；导出永远不显示为“已完成”（服务不记录导出）。 */
+export function pptStepState(step: PptStageKey, progress: PptProgress): PptStepState {
+  const order: readonly PptStageKey[] = ['discuss', 'design', 'check', 'export'];
+  const currentIndex = order.indexOf(progress.current);
+  const index = order.indexOf(step);
+  if (step === 'export') return progress.hasSlides ? 'available' : 'todo';
+  if (index < currentIndex) return 'done';
+  if (index === currentIndex) return 'current';
+  return 'todo';
+}
+
+/* ------------------------------------------------------------------ */
 /* 命令（所有写操作都走 requestKey + 回执）                              */
 /* ------------------------------------------------------------------ */
 

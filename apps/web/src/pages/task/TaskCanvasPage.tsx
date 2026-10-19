@@ -411,7 +411,16 @@ export function TaskCanvasPage() {
         />
 
         {nodeId !== undefined ? (
-          <NodeDetailPanel taskId={taskId} nodeId={nodeId} connection={live.connection} pollInterval={live.refetchInterval} onClose={closeNode} onOpenPlan={openRequirement} />
+          <NodeDetailPanel
+            taskId={taskId}
+            nodeId={nodeId}
+            connection={live.connection}
+            pollInterval={live.refetchInterval}
+            plan={plan}
+            execution={execution}
+            onClose={closeNode}
+            onOpenPlan={openRequirement}
+          />
         ) : deliveryOpen ? (
           <TaskDeliveryPanel
             taskId={taskId}

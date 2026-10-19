@@ -1,0 +1,201 @@
+/* 项目详情：头图/路径/页签/概览双栏/配置状态/公约步骤。全部使用主题令牌。 */
+.project-detail-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.project-detail-head .tile {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+}
+
+.project-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.project-detail-title h2 {
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.project-detail-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.project-detail-path .mono {
+  overflow-wrap: anywhere;
+}
+
+.project-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.project-tabs {
+  margin-bottom: 18px;
+}
+
+.project-tab-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  margin-left: 6px;
+  display: inline-block;
+}
+
+.project-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .project-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.project-section + .project-section {
+  margin-top: 16px;
+}
+
+.seg + .project-section {
+  margin-top: 14px;
+}
+
+.project-config-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 6px 8px;
+}
+
+.project-config-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 10px;
+  border-radius: var(--r-md);
+  text-align: left;
+  color: inherit;
+  transition: background var(--t-fast);
+}
+
+.project-config-item:hover {
+  background: var(--fill-2);
+}
+
+.project-config-item + .project-config-item {
+  box-shadow: inset 0 1px 0 var(--line);
+}
+
+.project-config-item .t {
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.project-config-item .d {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-top: 2px;
+}
+
+.project-charter-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 4px;
+}
+
+.project-charter-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.project-charter-step .rail {
+  width: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.project-charter-step .rail i {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  background: var(--fill-4);
+  color: var(--sub);
+}
+
+.project-charter-step .rail b {
+  flex: 1;
+  width: 1px;
+  background: var(--line-2);
+  margin: 4px 0;
+}
+
+.project-charter-step .tx {
+  padding-bottom: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.project-charter-step.pending {
+  opacity: 0.62;
+}
+
+.project-charter-step .tx .t {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.project-doc-preview {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.project-doc-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  box-shadow: inset 0 1px 0 var(--line);
+}

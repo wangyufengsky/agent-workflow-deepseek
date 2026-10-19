@@ -297,3 +297,119 @@
 - **UI**：自动推进真实开关/整体推进/推进直接后继入口、放弃调整 Modal、RecoveryPage unknown 三入口、知识历史页接线完成；UI 冒烟仍受当前 Electron sandbox 限制，未计通过。
 - **范围审计**：设计稿目录未改；无凭据；`git diff --check` 通过。
 - **新登记 follow-up**：W2-4b（verify_only 硬只读）、W2-14（storage removeJson）、W2-15（abandon 恢复暂停态）、W3-5a（NodeDetailPanel 推进入口）、W4-1b（文档同步 Wave 2 + design-coverage 重写）。
+
+### 20:48 分派 | Wave 3A
+
+- `be-api` → task-16：W0-4 节点验收后端（accept/reject 路由+引擎+契约+测试）。
+- `fe-templates` → task-17：W0-4 节点验收 UI + W3-5a 节点面板「推进直接后继」入口。
+- `fe-ppt` → task-18：W3-7b PPT 作品/工作台视图（/ppt 内，无新路由）。
+- `fe-audit` → task-19：W3-9a 任务列表步骤条/行菜单 + 开始任务三段结构。
+- `design-audit` → task-20：W3-1a 项目详情页四页签（charter 后端待做）。
+- `docs-audit` → task-21：W4-1b 文档同步 Wave 2 + 重写 design-coverage 覆盖矩阵。
+- 本波并行约束：App.tsx 仅 design-audit 修改；PPT 视图不新增路由；后端仅 be-api 改 http/shared/engine/plan。
+
+### 20:50 任务完成 | W4-1b（task-21）| 文档同步 Wave 2 + 重写 design-coverage 覆盖矩阵
+
+- 负责人：`docs-audit`；写范围：`README.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/design-coverage.md`；未改 `docs/review/**`（仅本日志）、`docs/task-assignment.md`、产品代码、设计稿。
+- README：测试数字改为 **345 tests / 54 suites / 334 pass / 11 skipped / 0 fail**（46.6s，`.tmp/wave2-verify.log`）；实现状态改为 Wave 0–2 完成、Wave 3A 进行中，补 Wave 2 已完成项；「未完成」清单改为 W0-4（进行中）、Wave 3A 四项（W3-1a 项目详情、W3-7b PPT 作品/工作台、W3-9a 任务/开始页、W3-5a 节点推进入口）、W3 其余缺失页与整块能力、Wave 2 follow-up（W2-4b/12/14/15）、外部环境、打包、视觉回归、文档体系；删除「Wave 2 进行中」和「design-coverage 旧副本」。
+- remaining-work：新增 Wave 2 已实现项（执行控制、非 Git 真实清理、恢复三模式、PPT 启动恢复、恢复页 unknown、知识历史页、viewActions）；工作区清理改为已实现；缺口重编 1–10，保留 W0-4、Wave 3A 进行中、W2 follow-up、W3 设计缺失页/整块能力、真实环境、打包、视觉回归、文档体系、PPT 高级视觉、恢复/审查深度。
+- verification：计数改 345/334/11/0（46.6s）；§10 重写非 Git 清理、恢复三模式、节点验收、design-coverage、远端 UNKNOWN 等；§7 增加恢复三模式；新增 **Wave 2 验收** 记录（执行控制/清理/恢复/PPT 恢复/知识历史/契约例外/W2-13）；Wave 0/1 契约例外注明已闭合两条。
+- design-coverage：删除 verification 副本，重写为 25 页真实矩阵（`home` … `roles-legacy`）+ delivery/planning/git/node 补充稿 + 整块能力 + 不误报清单 + 维护规则；当前 **✅ 2 / 🟡 19 / ⛔ 4**；基于 `docs/review/design-parity.md` 更新 Wave 1/2 已闭合项（知识历史页、自动推进/推进/放弃、恢复 unknown、非 Git 清理、PPT 恢复），Wave 3A 代码开始落地的项标「进行中/未验收」。
+- 验证：`diff docs/design-coverage.md docs/verification.md` 不同且设计覆盖文件不含验证记录结构；4 文件 grep 无 `313/302/24s` / `Wave 2 进行中` / `旧副本` / `缺口已关闭` / `v1–v7`；`git diff --check` 干净；4 文件 Markdown 链接 0 broken；未跑全量 test（仅文档改动，Wave 2 的 345 tests 已由 Lead 验收）。
+- 未覆盖：Wave 3A 合并后需把 W0-4/W3-1a/W3-5a/W3-7b/W3-9a 从「进行中」更新为验收结果；`docs/api.md` 重生成（W4-2）、证据/CI（W4-3）仍待后续。
+
+### 20:44 任务完成 | W0-4 节点人工验收后端（task-16）| be-api
+
+- 负责人：`be-api`；写范围：`packages/shared/src/domain/enums.ts`、`packages/shared/src/api/contracts.ts`、`packages/engine/src/plan.ts`、`packages/server/src/http.ts`、新增 `tests/integration/node-acceptance.test.ts`；未改 `apps/web/**`、`execution/workspace/recovery/ppt`、storage/migrations、设计稿、`task-assignment.md`。`machines.ts` 未改（验收不改节点状态，无需新迁移）；`engine.ts` 未改（方法挂在既有 `PlanService`）。
+- 契约（已同步 fe-templates）：
+  - `POST /api/tasks/:id/nodes/:nodeId/accept`，body `{requestKey, confirmAccept:true, note?:string}`；`ROUTES.nodeAccept`；operation `node.accept`。
+  - `POST /api/tasks/:id/nodes/:nodeId/reject`，body `{requestKey, confirmReject:true, note:string}`（必填，去空格 1–2000 字，退回原因）；`ROUTES.nodeReject`；operation `node.reject`。
+  - 响应 `{receipt, resource:{node: NodeDetailResponse}}`；`NodeDetailResponse = NodeDetail & { acceptance?: NodeAcceptanceView }`；`acceptance={nodeId, state:'pending'|'accepted'|'rejected', verdictAt?, note?, requestKey?}`，仅当节点 `succeeded` 时返回（pending=已成功待人工判定）。新增 `NodeAcceptRequest`/`NodeRejectRequest`/`NodeAcceptanceView`/`NodeDetailResponse`、`NodeManualAcceptanceState`、Rationale `NODE_EXECUTION_MISSING/NODE_NOT_SUCCEEDED/NODE_ACCEPTED/NODE_REJECTED`。
+  - `nodeDetail.actions`：`accept.allowed = succeeded && state!=='accepted'`，`reject.allowed = succeeded && state!=='rejected'`，不允许时带真实 reason/reasonCode（未执行/未成功/已验收/已退回）；两个 nodeDetail 读路由（`/nodes/:nodeId` 与 `/plan/nodes/:nodeId`）同源。
+  - 错误语义：缺 requestKey 400（统一 hook）、缺 confirm 400、reject 缺 note 400、任务/执行/节点不存在 404、节点非 succeeded 409 OPERATION_IN_PROGRESS、同 verdict 重复 400 VALIDATION_FAILED、同 key 不同 body 409 REQUEST_KEY_REUSED、同 key 同 body 重放原回执。
+- 实现要点：
+  - 验收是**审计结论叠加**，不重写节点/执行状态（任务明确要求「不要让验收改变节点执行结果」）；accepted↔rejected 可互相更正（审计替换），同结论重复被拒；`by` 不伪造（服务无登录主体）。
+  - 持久化：本机 settings JSON `execution.node.acceptance.<executionId>.<nodeId>`（含 state/verdictAt/note/requestKey）；原因：`ExecutionNodeState` 在 `models.ts`、节点行在 `packages/storage`，均不在本任务写范围，避免越界加列/迁移。重启后 nodeDetail 仍可读（有测试）。
+  - `acceptNode`/`rejectNode` 走 `commands.begin/settle/fail`（requestKey+bodyHash），失败先结算 failed 再抛错；replay 先于状态/重复 guard，保证已结算请求可核对。
+  - HTTP 路由加入 `COMMAND_ROUTE_SIGNATURES`（统一 400）；publish `execution.changed` 供 UI 刷新。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（并行前端文件修复后复跑）。
+  - `node --import tsx --test --test-force-exit tests/integration/node-acceptance.test.ts` → **3 tests / 3 pass / 0 fail**（验收成功/状态不变/回执、幂等与 key 冲突、重复结论拒绝、reject 必填原因与翻转、非法状态 409、404、重启持久化、任务级 acceptance 独立、无执行时 404+actions reason）。
+  - 回归：`node-acceptance + routes-contract + api-contract + execution-control` → 17 pass / 0 fail（ROUTES 快照自动包含两条新路由）；`node-skip, plan-edit-dependencies, task-acceptance, server-smoke, startup-recovery, execution-control` → 16 pass / 0 fail。
+  - 运行中 dev server（5177 热加载）探针：accept/reject 缺 requestKey → 400 VALIDATION_FAILED（路由已注册），未知任务 node detail → 404 JSON。
+- 未覆盖 / 已知缺口：
+  1. **验收不 gate 执行完成/自动推进/下游领取**：`packages/engine/src/execution.ts` 不在本任务写范围（Lead 明示），设计「所有自动步骤通过 → 待人工验收 → 验收通过才结束执行/进入等待交付」的流程尚未强制；当前结论可用于 UI 展示与审计，后续需 W? 小任务在 execution 调度中读取 verdict。
+  2. reject 不重置节点状态、不触发重新执行（同上：节点 SUCCEEDED 为 terminal，改状态需 machines.ts 新边 + execution 调度；本任务按要求只记录结论），UI 可用恢复/重试路径继续处理。
+  3. 结论存 settings JSON 而非节点表新列；`packages/storage` 补 `node_acceptances` 表/迁移需另开任务（当前方案重启持久、无 schema 变更）。
+  4. 未跑 `build:web`/全量 `npm test`/浏览器点击（Lead 整合范围）。
+
+### 20:45 任务完成 | W0-4/W3-5a（task-17）| 节点人工验收与推进入口 UI
+
+- 负责人：`fe-templates`；写范围：`apps/web/src/pages/node/**`、`apps/web/src/pages/task/**`。
+- 改动文件：`pages/node/NodeDetailPanel.tsx`、`pages/task/advance.ts`（新增：从 ExecutionPanel 抽出可推进集合/原因/可切换状态助手）、`pages/task/ExecutionPanel.tsx`（改为引用共享助手，行为不变）、`pages/task/TaskCanvasPage.tsx`（向节点面板传 plan/execution）。
+- 节点验收（W0-4）：概览底部新增「人工验收」区，读取 `NodeDetailResponse.acceptance` 显示 pending/accepted/rejected + 判定时间 + 备注 + requestKey；按 `nodeDetail.actions.accept/reject` 渲染「验收通过」（主）与「退回修改」（次），禁用时显示后端 `reasonCode/reason`；二次确认 Modal（通过可选备注、退回必填原因，去空格 1–2000 字，Modal 内校验 + 计数）；调用 `POST /api/tasks/:id/nodes/:nodeId/accept|reject`（shared `NodeAcceptRequest`/`NodeRejectRequest` + `ROUTES.nodeAccept/nodeReject`），用 `useWorkflowCommand` 显示 succeeded/failed/unknown/accepted 回执（unknown 只按原 requestKey 核对、不自动重发），成功后刷新节点/执行视图；文案明确验收是审计事实，不改变执行状态/下游推进/任务级验收。
+- 节点面板推进入口（W3-5a）：`NodeDetailPanel` 接收任务 plan/execution，在自动推进关闭且节点已成功时显示「直接后继 · 自动推进已关闭」：列出直接后继状态（可推进 / 并行汇合等待「前置」/运行中/完成/失败），按钮「推进直接后继 · N 步」调用 W2-1 `advanceExecution(taskId, nodeId)`；禁用原因覆盖并行汇合、无后继、用户暂停需先继续、编辑会话中、unknown 需先核对；成功后按 `receipt.outcome.released` 显示放行数量并刷新。
+- 契约核对：与 be-api 落地的 shared DTO/路由逐条一致（含 notes trim、reject note 必填、同结论重复 400、actions 原因、`{receipt, resource:{node}}` 响应）；真实服务 inject 探针验证 pending→accepted→rejected 的 acceptance 事实、actions 可用性翻转与同 key 重放。
+- 验证：`npx tsc -p tsconfig.json --noEmit` → exit 0；`--noUnusedLocals` 过滤 `pages/node|pages/task` → 0；`tests/integration/node-acceptance.test.ts` 3 pass；`tests/integration/execution-control.test.ts` 5 pass；`tests/integration/routes-contract.test.ts` 2 pass；`git diff --check` 通过。
+- 未覆盖：按要求未运行 `npm run build:web`、未跑全量 `npm test`；无浏览器点击验证。验收 gating（验收通过才结束执行）按 be-api 说明属后续任务，本页不伪造该语义。
+
+### 20:48 任务完成 | W3-9a（task-19）| 任务列表与开始任务结构补齐
+
+- 负责人：`fe-audit`；写范围：`apps/web/src/pages/tasks/**`、`apps/web/src/pages/start/**`。
+- 任务列表：行内新增真实阶段胶囊 + **聚合进度条**（`TaskSummary.progress.done/total/running/failed`）、第 x/y 步与执行中/失败计数；「⋯」菜单按阶段打开需求/执行画布、复制任务链接（Clipboard，失败给可读提示）、已结束任务显示“归档（接口未接通）”禁用项；底部「加载更多」使用现有 `/api/tasks?limit=` 能力（50→200），少于 limit 或达 200 时禁用并写原因；「查看已归档」无接口、禁用写原因；顶部「需要你处理」保留并排除 `unknown` 状态。
+- 降级口径：`TaskSummary` 没有逐步骤状态字段（只有聚合 progress），**不伪造步骤段**；页面注明“列表接口未提供逐步骤状态/总数/游标，计数基于已加载任务”，行内显示真实阶段胶囊与聚合进度。
+- 开始任务：改为项目单选卡（路径不可用禁用）、目标 textarea + 自动生成任务名称/字数、流程卡（步骤链 + 版本徽标）；右侧固定「将要创建 + 接下来三步」；项目/流程/目标/名称的缺失原因实时显示在主按钮下；保留 `project`/`methodId` URL 预选与非法回退提示。
+- 回执：提交成功显示回执卡（任务/项目/流程版本、去确认计划/稍后回列表/再创建一个）；`resource.task.id` 缺失时显示“草稿已形成，但没能自动打开”，不伪造任务 ID；unknown 沿用 `ReceiptNotice` 的只核对原请求语义。流程版本来自 `/api/bootstrap` 目录快照，无独立版本读取接口，读取失败复用 bootstrap 错误页，不伪造“读取中”状态。
+- 验证：`npx tsc -p tsconfig.json --noEmit` → exit 0；本批 scoped tsc → exit 0；`--noUnusedLocals --noUnusedParameters` 过滤 `pages/tasks|pages/start` → 0；`git diff --check` 通过。按要求未跑 `build:web`/全量测试，未做浏览器点击。
+- 未覆盖：逐步骤状态条需列表接口补字段（含当前停滞/失败步骤名与原因）后才能实现；任务归档/已归档列表、分页游标/总数、独立流程版本读取仍无接口；开始任务“打开失败”只能检测回执缺失 taskId，无法检测路由打开失败。
+
+### 20:49 任务完成 | W3-7b（task-18）| PPT 作品库 + 四步工作台（/ppt 内视图）
+
+- 负责人：`fe-ppt`；写范围：`apps/web/src/pages/ppt/**`；未新增路由、未改 App.tsx/后端/shared/其他页面/设计稿。Lead 指出的临时冒烟配置 `apps/web/src/pages/ppt/vite.smoke.config.mts` 已删除，`git status` 仅含本任务产品文件（含旧 `PptWorkPanel.tsx` 被新模块替代的删除记录）。
+- 视图结构：`/ppt` 页头新增 `作品 / 工作台` 分段 + 「新建演示」；作品库默认网格（可切列表），点击作品进入工作台；工作台四步页签（讨论需求 → 设计方案 → 制作检查 → 导出）+ 四步进度条；创建改为对话框（原入口保留），创建成功后刷新列表、选中新作品并进入工作台。
+- 改动/新增文件：重写 `PptPage.tsx`（页面壳/查询/命令执行/回执/视图切换）；新增 `PptWorksView.tsx`（工具条/网格/列表/示意封面/禁用操作）、`PptCreateDialog.tsx`、`PptWorkbench.tsx`（页头+四步进度+步骤切换）、`PptWorkbenchSteps.tsx`（讨论/设计/检查三步）、`PptStepExport.tsx`（导出+删除）；`ppt-shared.tsx` 新增 `derivePptProgress` / `PPT_STAGES` / `pptStepState`（只按真实字段推导）；重写 `ppt.css`（令牌驱动，无硬编码颜色）；删除 `PptWorkPanel.tsx`（内容迁入工作台，避免新旧两套重复 UI）。
+- 作品库事实与降级：网格/列表切换、搜索（标题/主题）、项目筛选、阶段分段（全部/讨论需求/设计方案/制作检查，按真实大纲/逐页推导）、阶段条、页数、项目、主题、更新时间、下一步提示；**缩略图**：服务没有缩略图接口，卡片显示明确标注「示意封面 · 无缩略图接口」的占位视觉（内容取自真实首屏要点/大纲），无大纲时标「无缩略图 / 尚未生成大纲」，不伪装渲染图；**复制/归档**：无后端接口，按钮禁用并用 `disabledReason` 写明原因；服务无归档状态，故不提供「显示已归档」开关。
+- 工作台四步：① 讨论需求=标题/主题/大纲 inline 编辑（真实 PATCH，本地预检后仍展示服务消息），并写明设计稿五项需求简报无结构化字段的降级；② 设计方案=版式主题选择 + 保存（PATCH theme）、大纲展示/生成、逐页展示/生成，写明三个视觉方向需提案字段；③ 制作检查=真实计数（逐页/大纲/附件/主题/状态/更新时间/tokens）+ 文本/图片附件增删，明确「服务没有逐页视觉检查接口」，不显示检查结论或问题页标记；④ 导出=真实 PPTX 下载与 Markdown 预览/下载，说明导出不回写作品状态；删除作品（二次确认）放在导出步骤。
+- 回执/unknown：沿用 W1-1 的统一 `runCommand`（7 类写命令 requestKey + 回执条 accepted/succeeded/failed/unknown；失败显示服务 message；网络超时/不可用归类 unknown 且不自动重发，可用 `operations.by-key` 核对）；生成中禁用写操作并写原因（删除仍允许）；页头回执条在两个视图都可见；工作台步骤内嵌失败说明（附件/删除）。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（0 error）。
+  - `npx tsc -p tsconfig.json --noEmit --noUnusedLocals` 过滤 `pages/ppt` → 0 条。
+  - 真实服务 UI 冒烟（真实 Vite + 真实服务 5177；临时 Vite 仅关闭 HMR 防并行编辑触发 reload，验证后已删除）：55 项断言全 PASS —— 作品库两张卡片、示意封面/无缩略图、页数/下一步、复制归档禁用原因、阶段计数 2/1/1/0、搜索/阶段/网格列表切换、打开工作台、四步状态（讨论 done、设计 current、检查/导出 todo）、保存主题与讨论需求均写回服务、制作检查真实计数与「无视觉检查」、导出 Markdown 弹窗内容、删除作品回作品库、未选中工作台占位、新建对话框创建后进入工作台；测试作品全部清理（真实服务当前 0 份 PPT 作品）。
+  - 截图自检：作品库网格（示意封面标签、阶段条、禁用操作）与工作台（回执条、四步进度、导出步骤）渲染正常。
+  - 按约束未运行 `npm run build:web`、未跑全量 `npm test`。
+- 未覆盖 / 已知限制：
+  1. 缩略图接口缺失 → 只展示明确标注的示意封面；真实首页渲染图需新增服务端缩略图导出。
+  2. 复制/归档、版本/修订、需求简报五项、三个视觉方向、逐页视觉检查/演讲备注均无接口，已按要求禁用并写原因或标注降级。
+  3. 阶段条中的「导出」永不标记完成（服务不记录导出状态）；制作检查阶段由「已有逐页内容」推导，不代表通过检查。
+  4. 全项目作品为单次列表接口前端过滤，无分页；作品很多时首屏一次返回全部。
+  5. 未做模型生成成功路径的浏览器验证（避免真实模型消耗）；生成按钮与既有 W1-1 服务契约一致。
+
+### 21:03 任务完成 | W3-1a（task-20）| 项目详情页与四页签（前端）
+
+- 负责人：`design-audit`；写范围：`apps/web/src/pages/projects/**`、`apps/web/src/app/App.tsx`（只加一条 `/projects/:projectId` 路由与对应 import）；未改后端/shared/其他页面/其他路由。
+- 新增文件：`pages/projects/ProjectDetailPage.tsx`、`pages/projects/project-detail.css`。修改：`ProjectsPage.tsx`（卡片加「模板任务」与「查看配置 ›」；开始/模板任务带 `project` 参数）、`App.tsx`（路由）。
+- 页头：Git 状态徽标、项目名、路径 + 复制按钮、开始任务 / 模板任务 / 查看 Git / 重新检测；路径不可用时开始/模板任务禁用并写原因。
+- 四页签（URL `?tab=`，默认概览）：
+  1) 概览：项目信息（说明、当前分支、Git 状态及原因、Provider、默认方法、更新时间）+ 最近任务（`GET /api/projects/:id` 的 tasks，按更新时间取 5 条，空态真实）+ 右侧配置状态（Git 账号 / GitLab 与证据 / 文档路径 / 项目公约，点击跳页签；Git 账号按项目 Provider 读取 bootstrap integration，GitLab 读取项目详情 `repos.gitlab` + 全局配置）。
+  2) Git 与 GitLab：全局账号只读事实 + 项目级凭据「服务未提供」；仓库事实走 `GET /api/git/repos/:projectId`（分支/HEAD/上游/远端/工作区/最近获取/最近提交/打开 MR），含未接通/不可用/业务失败/加载/未知状态；GitLab 仓库绑定与证据来源明确「服务未提供接口」，无假表单。可跳 `/git/:projectId`。
+  3) 文档路径：读取 `settings.docPaths`（当前 shared 契约没有该字段，做前向兼容读取）。有字段时可编辑并 PATCH `settings.docPaths` 后刷新；无字段时显示「未配置」、输入与保存禁用并写明需要后端补字段；显示实际位置预览、回执与错误。
+  4) 项目公约：真实「服务未提供项目公约生成接口」+ 生成/审阅/写入三步置灰 + 生成按钮禁用原因；不读取或伪造 AGENTS.md。
+- 重新检测：`POST /api/projects/:id/recheck`，requestKey + `ReceiptNotice`，成功后刷新 detail/projects/bootstrap/git repo；错误显示服务原因。
+- 验证：`npx tsc -p tsconfig.json --noEmit` exit 0；本任务文件 scoped tsc + `--noUnusedLocals --noUnusedParameters` 0 报错；`git diff --check` 通过；新文件无 hex/rgb 硬编码颜色（仅主题令牌）。按约束未运行 `build:web`/全量 `npm test`，未做浏览器点击。
+- 待后端/未覆盖：
+  1. 项目公约（charter）生成/读取/写入接口不存在；页签只读待后端。
+  2. 项目级 GitLab 仓库绑定与执行证据来源（JUnit/日志）接口不存在；已明确服务未提供。
+  3. 当前 shared `ProjectSettings` 无 `docPaths`，文档路径仅在服务实际返回该字段时才可保存；需后端契约补齐后去掉禁用态。
+  4. 模板页当前不读取 `?project=`（不在本任务写范围）；详情/卡片链接已带该参数，落地预选需模板页负责人补读参数。
+  5. 未做真实服务 + 浏览器 smoke（本地 5177 未运行）；建议 Lead 整合时验证 404、路径不可用、非 Git、Git 读取失败、docs 无字段/有字段、recheck 回执与 `?tab=` 深链。
+
+### 21:06 整合 | Wave 3A 验收通过
+
+- **验收范围**：W0-4 节点验收（后端+UI）、W3-5a 节点推进入口、W3-1a 项目详情页、W3-7b PPT 作品/工作台、W3-9a 任务列表/开始页、W4-1b 文档同步+design-coverage 重写。
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **348 tests / 54 suites / 337 pass / 11 skipped / 0 fail**（51.2s）。
+- **构建**：`npm run build:web` → exit 0（2.14s）；`npm run build:server` → exit 0。
+- **运行态验收（5177）**：`POST .../nodes/:id/accept` 缺 requestKey → 400；未知任务 reject → 404 JSON；`/projects/:id` 与 `/knowledge/history` SPA 路由 200 HTML。
+- **功能证据**：节点验收契约（accepted/rejected 审计叠加、actions/reasonCode、requestKey 幂等/冲突、3 个集成测试）；项目详情四页签（charter 明确未提供、不造假）；PPT 作品库/四步工作台；任务列表行菜单/聚合进度；开始任务三段卡/回执。
+- **范围审计**：设计稿未改；临时 Vite 配置已删除；`git diff --check` 通过。
+- **新登记 follow-up**：W0-4b（验收 gating）、W3-1b（charter/docPaths/GitLab 项目绑定）、W3-7c（run/roles-legacy）、W3-9b（结构缺口批次）、W3-11（主页/品牌）。

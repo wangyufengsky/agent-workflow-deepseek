@@ -39,7 +39,7 @@
 | W0-1 | `restart` / `git fetch` 返回合法 `CommandResponse`（含 receipt），修前端按回执读取；补 ErrorBoundary | be-api | — | `packages/server/src/http.ts`、`packages/shared/src/api/contracts.ts`、`apps/web/src/api/endpoints.ts`、`apps/web/src/main.tsx`、`tests/integration/**` | 设置页重启成功不崩；Git 工作台 fetch 成功不崩；两种响应都有 `receipt.requestKey/status`；集成测试通过 | done |
 | W0-2 | SPA 兜底只匹配非 `/api`；未知 `GET /api/*` 返回 JSON 404 | be-api | — | `packages/server/src/http.ts`、`tests/integration/**` | 实测未知 GET `/api/not-a-real-route` 与死 ROUTES 返回 404 JSON；静态页面仍可访问 | done |
 | W0-3 | 启动恢复：execution（running→unknown + 结算回执）、planning（running→unknown/可 reconcile）、workspace（preparing→unknown），并在状态投影/UI 标记 | be-recovery | — | `packages/engine/src/{execution,planning,workspace,engine}.ts`、`packages/server/src/application.ts`、`tests/integration/**` | 重启后执行/规划/工作区不再永久 running；`/api/operations/:key` 可核对；新增集成测试 | done |
-| W0-4 | 节点验收：实现 `node.accept/node.reject`（路由+引擎+状态机+UI），或经产品确认后移除并改 README | be-exec | W0-1..3 后 | `packages/engine/src/plan.ts`、`packages/shared/src/domain/{enums,machines}.ts`、`packages/server/src/http.ts`、`apps/web/src/pages/node/**`、`tests/**` | 节点面板可验收/驳回；状态与回执正确；或文档明确移除且不再宣传 | pending |
+| W0-4 | 节点验收：实现 `node.accept/node.reject`（路由+引擎+状态机+UI），或经产品确认后移除并改 README | be-exec | W0-1..3 后 | `packages/engine/src/plan.ts`、`packages/shared/src/domain/{enums,machines}.ts`、`packages/server/src/http.ts`、`apps/web/src/pages/node/**`、`tests/**` | 节点面板可验收/驳回；状态与回执正确；或文档明确移除且不再宣传 | done |
 | W0-5 | 修硬编码状态：`output.terminal` 用真实值，`mcp.tools` 从诊断计数，`database.connected` 真实探测，view `actions` 至少返回任务能力 | be-api | — | `packages/server/src/http.ts`、`packages/engine/src/**`（仅必要处）、`tests/**` | 终态节点显示「未提供正文/完成」；工具数随 toolset 变化；测试覆盖 | done |
 
 ### Wave 1 · 前端假接通清理
@@ -88,23 +88,29 @@
 
 | ID | 任务 | 负责人 | 说明 | 状态 |
 | --- | --- | --- | --- | --- |
-| W3-1 | 项目详情 `/projects/:id` + 四页签（概览/Git 与 GitLab/文档路径/项目公约）+ 配置状态 + 公约后端 | design-pages | 设计 REVIEW §4 | pending |
+| W3-1 | 项目详情 `/projects/:id` + 四页签（概览/Git 与 GitLab/文档路径/项目公约）+ 配置状态 + 公约后端 | design-pages | 设计 REVIEW §4 | in_progress |
 | W3-2 | 待处理中心就地处理：问题/权限/策略禁止/结果未明/草稿；后端 interactions 契约 | design-pages | 设计 REVIEW §11 | pending |
 | W3-3 | 角色管理四页签 + 能力/资源权限/形象/发布检查/权限预估（扩展 RoleDefinition） | design-pages | 设计 REVIEW §23 | pending |
 | W3-4 | 知识库体验：研究步骤、来源选择、流式/轮询回答、引用原文面板、研究员面板 | design-pages | 设计 REVIEW §14/B-08 | pending |
-| W3-5 | 任务画布：恢复/冻结计划/审计记录/运行内容入口、快照评审面板（B-07） | design-pages | 设计 task.html | pending |
+| W3-5 | 任务画布：恢复/冻结计划/审计记录/运行内容入口、快照评审面板（B-07） | design-pages | 设计 task.html | in_progress |
 | W3-6 | PE37 大需求分组逐步细化：refineScope preview/start、未细化确认拦截 | design-pages | v5 已批准 | pending |
 | W3-7 | 缺失页：knowledge-history、ppt-works、ppt-studio、run、roles-legacy | design-pages | 先只读/空/加载/错误/未知 | in_progress |
 | W3-8 | 工作流编辑器：method CRUD/复制/归档/校验 + 前端画布编辑 | design-pages | 设计 REVIEW §6-7 | pending |
-| W3-9 | 结构缺口批次：任务列表步骤条/行菜单、开始任务三段卡/回执、模板分支/时间/文档、数据库授权项目/类型/三态、设置分区/脏保存、工具范围、需求目录抽屉 | design-pages | 设计细节 | pending |
+| W3-9 | 结构缺口批次：任务列表步骤条/行菜单、开始任务三段卡/回执、模板分支/时间/文档、数据库授权项目/类型/三态、设置分区/脏保存、工具范围、需求目录抽屉 | design-pages | 设计细节 | in_progress |
 | W3-10 | 节点详情子视图：工具详情/产物阅读/引用原文/宽阅读区/补读 | design-pages | 设计 node COVERAGE | pending |
 | W3-11 | 主页与品牌：按设计调整主页区块；产品名是否改 `opencode-workflow` 需产品确认 | design-pages | 设计 REVIEW §3 | pending |
+
+| W0-4b | 节点验收 gating：验收通过才结束执行/自动推进下游；驳回可触发重跑 | be | 来自 W0-4 验收 | `engine/execution.ts`、`shared/domain/**`、`tests/**` | 设计要求的待验收语义成立；测试覆盖 | pending |
+| W3-1b | 项目公约后端：charter 生成/读取/写入；ProjectSettings.docPaths/GitLab 项目绑定契约 | be | 来自 W3-1a | `engine/project-task.ts`、`packages/storage/**`、`server/http.ts`、`shared/**` | 项目详情四页签均有真实数据；测试 | pending |
+| W3-7c | 剩余设计页：运行内容 run、历史角色配置 roles-legacy | design | 来自 W3-7 | 新增页面/路由 | 两页有真实数据/明确降级；无 mock | pending |
+| W3-9b | 结构缺口批次：模板分支/时间/文档、数据库授权项目/类型/三态、设置脏保存/分区、工具范围、需求目录抽屉 | design | 来自 W3-9a | 对应页面 + 必要后端 | 设计清单逐项验收 | pending |
+| W3-11 | 主页按设计对齐（产品窗口/能力卡/收尾）；品牌名 agent-workflow vs opencode-workflow 由产品确认 | design | 设计 REVIEW §3 | `apps/web/src/pages/home/**`、可能的品牌文案 | 设计结构一致或书面 de-scope | pending |
 
 ### Wave 4 · 文档与验证体系
 
 | ID | 任务 | 负责人 | 说明 | 状态 |
 | --- | --- | --- | --- | --- |
-| W4-1 | 重写 `docs/design-coverage.md`（真实覆盖矩阵），修正 README/remaining-work/verification 矛盾与计数 | docs-keeper | 不得复制 verification | in_progress |
+| W4-1 | 重写 `docs/design-coverage.md`（真实覆盖矩阵），修正 README/remaining-work/verification 矛盾与计数 | docs-keeper | 不得复制 verification | done |
 | W4-2 | `docs/api.md` 按 ROUTES+服务端注册重新生成；加契约快照脚本进 verify | docs-keeper | 与 W1-10 配合 | pending |
 | W4-3 | 证据体系：live 日志摘要、`docs/evidence/README.md` 清单、截图更新、`test:e2e` 修复、最小 CI | docs-keeper | — | pending |
 | W4-4 | 打包：重新 dist、签名/公证、Windows/Linux 目标评估 | docs-keeper + Lead | 需要环境/凭据 | pending |

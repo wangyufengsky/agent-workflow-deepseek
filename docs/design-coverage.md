@@ -1,329 +1,96 @@
-# 验证记录
-
-日期：2026-10-19（Asia/Shanghai）。命令在仓库根目录执行。
-
-## 1. 类型检查
-
-```sh
-npx tsc -p tsconfig.json --noEmit
-```
-
-结果：exit 0，0 errors（shared/storage/engine/git/database/mcp/opencode/server/web/desktop）。
-
-## 2. 离线测试
-
-```sh
-npm test        # scripts/test.mjs → node --test --test-force-exit
-```
-
-结果（本轮）：**313 tests / 54 suites / 302 pass / 11 skipped / 0 fail**，约 24s。
-
-跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
-
-跳过项：`live:` 两个模型端到端（需 `AGENT_WORKFLOW_LIVE=1`）与真实 MySQL 探测（无凭据时 skip）。
-
-覆盖模块（摘要）：
-
-| 模块 | 覆盖 |
-| --- | --- |
-| shared | 12 组状态机合法/非法迁移、规划图校验（V1–V8、环、缺失步骤、写冲突） |
-| storage | 项目/任务/计划/轮次/记录/工作区/操作/密钥、JSONL 事件日志、迁移幂等与重开 |
-| engine | `methodToGraph`/`candidateToGraph`/`diffGraphs`、候选校验 |
-| git | 100 项：状态/log/commit/diff/branches/worktree、注入拒绝、REST stub、脱敏 |
-| database | 只读守卫注入、错误映射、连接池/超时 |
-| mcp | 工具注册、错误信封、路径逃逸、写权限、exec 白名单、fake 内部服务 |
-| server | 项目→任务→骨架→确认→真实 worktree 准备、requestKey 幂等/冲突、内部 MCP 鉴权 |
-| server/git | `/api/git/*` 读口；任务分支合并成功、STALE_TARGET、冲突中止且目标分支不变 |
-| server/concurrency | 两个任务并发准备独立 worktree，分支/目录不同；互不污染、main 不变；清理后无残留分支 |
-| server/review | review/fix 服务与 15 条 HTTP 路由、findings 校验丢弃、CAS、worktree 隔离、revert/commit/discard |
-| server/remote | GitHub token 加密/连接/MR 读取/令牌不泄漏；fetch 更新本地远端引用；非 Git 目录副本 |
-| server/apply | 非 Git 三方预览 → 冻结 → 逐项应用：真实 prepare baseline、无冲突写入、冲突处理、备份、漂移拒绝、路径逃逸 |
-| server/push-mr | 本地 bare 远端 push 创建/非快进拒绝；GitHub/GitLab REST 创建 MR（stub）→ delivered/lifecycle completed |
-| server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
-| server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
-| server/roles-history | 发布快照（≤20）：读取/恢复为草稿；未知快照或角色 404 |
-| server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
-| server/ppt | 草稿 CRUD/大纲编辑/文本+图片附件/四主题 PPTX/Markdown 导出；真实模型大纲与逐页（live PASS） |
-| server/templates | 固定模板详情/导出；自定义模板导入/可视化编辑新版本（旧任务冻结旧版本）/归档；按模板生成计划/历史 |
-| server/settings | 断连轮询间隔持久化/校验、模型档案启停、工具集启停（非空/合法校验）、数据库概览跳转；任务页轮询使用该设置 |
-| mcp/runtime | 工具集过滤：只注入启用前缀的工具；空/未知工具集回退默认；设置经 AGENT_WORKFLOW_TOOLSETS 注入 |
-| server/session-limit | 并发 runSession 达到 opencode.maxSessions 即拒绝并返回 OPENCODE_SESSION_LIMIT(429)；状态口暴露 sessions/maxSessions；告警阈值可配置并驱动运行状态告警 |
-| server/acceptance | 人工验收结论 accepted/rejected + 备注，可覆盖重录，requestKey 回执；未知任务 404 |
-| server/insights | 计数与用量；逐任务规划 tokens、节点通过/失败、审查次数/待处理问题 |
-| server/insights-old | 真实 SQLite 聚合：任务/规划/执行/尝试/审查/待处理 finding/修复/交付计数；规划成本从 usage_json 累计，未知预算轮次单独计数 |
-| server/skills-source | 读取单个 SKILL.md 带行号源文（≤2000 行），未知 id 404 |
-| server/skills | 只读扫描 ~/.claude/skills 与 ~/.agents/skills 的 SKILL.md 元数据；可配置扫描目录；不安装/不执行 |
-| server/projects | 名称/说明/项目级设置编辑；同目录重复登记幂等；重新检测路径/Git 状态并落库；归档/恢复 |
-| server/plan-edit | 执行中调整计划：标题/验收/前置依赖（order 边）；自依赖、缺失节点、已领取依赖与环路被拒绝 |
-| server/knowledge | 只读来源清单/搜索/正文；文档问答返回 answer + 校验引用；问答历史本机保存（最多 30 条） |
-| server/logs | 受管 OpenCode 日志尾部读取（≤500 行/2KB 行截断）并对 PAT/Bearer/密码形态脱敏 |
-| server/database-delete | 删除数据库连接：关闭连接池、设置移除、二次删除 404；同主机/端口/库重复登记 409；不触碰真实数据库 |
-| server/opencode-detect | PATH / ~/.opencode/versions 扫描、候选 --version 探测、当前 binary 标记；不改设置 |
-| server/node-skip | 跳过节点及全部下游 → cancelled；上游/无关节点不变；回执与操作登记 |
-| server/cleanup | 清理预览对执行中/规划中/交付中/工作区忙给出 blockers；确认拒绝 blockers 与过期预览；清理后状态 cleaned |
-
-## 2.5 最近一次模型冒烟（第 27 轮）
-
-`npm run test:model` PASS：受管 OpenCode **1.19.0** 启动成功（临时端口 59871），内部 MCP `agent-workflow: connected`，
-flash 模型经兼容网关返回文本 `OK`。验证发生在工具集过滤、会话上限、洞察统计等改动之后。
-
-## 2.6 知识库问答（真实模型，PASS）
-
-`AGENT_WORKFLOW_LIVE=1 tests/integration/knowledge-ask-live.test.ts`：基于项目 README/docs 提问“交付流程/清理前要做什么”，
-flash 模型返回答案并给出 `README.md:3`、`README.md:4` 两条引用（服务端校验路径与行号），**PASS 31s**。
-问答结果含 usage tokens 与会话 id 写入本机历史；同一会话后续问题带最近 3 条问答作上下文。live PASS 24s：首问 + 追问同一 conversationId、历史 2 条、usage>0。
-
-## 2.7 PPT 大纲生成（真实模型，PASS）
-
-`AGENT_WORKFLOW_LIVE=1 tests/integration/ppt-live.test.ts`：草稿“季度汇报/交付质量计划” → flash 模型生成 12 页大纲，
-再生成逐页标题+要点（每页 2–6 条）并落库，usage tokens>0，列表读取一致，**PASS 29s**。PPTX 文件导出已验证（真实 zip，生产 server 冒烟 55KB）；逐页高级视觉仍为基础版式。
-
-
-## 3.2 真实 GitHub 远端写（PASS，2026-10-19）
-
-`AGENT_WORKFLOW_LIVE=1` + `GITHUB_TEST_WRITE_REPO=wangyufengsky/opencode-workflow-java-test` 运行
-`tests/integration/github-live-write.test.ts`（使用本机 `gh` 凭据，令牌不写入仓库/日志）：
-
-1. 克隆测试仓库 → 从 `main` 创建一次性分支 `agent-workflow/write-test-*` 并提交测试文件；
-2. `git push` 到 GitHub，`ls-remote` 确认分支存在；
-3. 通过 `RemoteService.createMergeRequest` 创建 **MR #1**，`listMergeRequests('opened')` 能读到；
-4. 清理：REST 关闭 MR（HTTP 200），删除远端分支；
-5. 复核：MR #1 状态 `closed`，`refs/heads/agent-workflow/write-test-*` 剩余 0。
-
-总耗时约 15s。注意：`.tmp/github-env` 中的 PAT 对 git 写为 403（读可用）；写验证使用本机 `gh` 凭据。
-
-## 3. 模型端到端（真实 opencode-go，用户已授权）
-
-### 3.1 受管 OpenCode + MCP 注入
-
-```sh
-AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/planning-live.test.ts
-```
-
-结果（PASS，81s）：受管 OpenCode 1.19.0 启动（随机端口 + Basic 密码），`/mcp` 显示
-`agent-workflow: connected`；模型（`opencode-go/deepseek-v4-pro`）调用 MCP
-`workflow.plan.submit` 提交候选；确定性校验 0 problems；`apply → confirm → workspace/prepare`
-成功；workspace 状态 ready，真实 Git worktree 与 `task/...` 分支创建成功。
-
-### 3.2 执行：模型通过 MCP 修改 worktree 并提交结果
-
-```sh
-AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/execution-live.test.ts
-```
-
-结果（PASS，52s）：使用单写节点的确定性计划（确认 → 准备真实 worktree → 开始执行）；模型通过
-`workspace.file.*` 修改 `README.md`，调用 `workflow.result.submit` 提交结果；节点 succeeded、attempt 有结果；
-`GET /changes` 返回 `README.md`；随后取消执行。
-
-### 3.3 AI 审查（真实模型，PASS）
-
-```sh
-AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/review-fix-live.test.ts
-```
-
-结果（PASS，208s）：真实仓库提交 → 模型（flash，经兼容网关）输出严格 JSON findings → 服务端按 diff 校验
-位置/枚举后结算 completed，回执已结算；非法 findings 被丢弃并计数。
-
-### 3.4 AI 修复（真实模型，PASS）
-
-```sh
-AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/fix-live.test.ts
-```
-
-结果（PASS，25s）：构造真实 finding → 在 `ai-fix/*` 隔离 worktree 内用 MCP 文件工具修复 →
-outcome=fixed(exact)、`app.ts` 为唯一变更 → `fixes/:id/commit` 成功 → `fixes/:id/merge` 在真实仓库把修复分支
-合并回 main（verify merge commit 出现在 main 历史）→ discard 清理 worktree、本地分支与 `fix.worktree.<id>` 映射；
-用户工作区未被触碰。真实 live 36s PASS。
-
-### 3.5 真实 MySQL（PASS）
-
-凭据来自 `opencode-workflow-java-test/src/main/resources/application.yml`，通过环境变量注入（不入库）：
-
-```sh
-export WF_DB_URL='jdbc:mysql://127.0.0.1:3306/opencode_workflow_test?...'
-export WF_DB_USER='<user>' WF_DB_PASSWORD='<password>'
-node --import tsx --test --test-force-exit tests/integration/database-live.test.ts
-```
-
-结果（PASS）：MySQL 9.2.0，probe connected（~50ms），`SHOW TABLES` 返回 3 张 `wf_test_*` 表，
-`SELECT COUNT(*) FROM wf_test_project` 成功；`DELETE` 与多语句注入返回 `DATABASE_QUERY_BLOCKED`；响应不含密码。
-
-### 3.6 GitHub 只读联调（PASS）
-
-```sh
-export GITHUB_TEST_TOKEN='<pat>'
-node --import tsx --test --test-force-exit tests/integration/github-live.test.ts
-```
-
-结果（PASS）：PAT 加密保存后连接为 `wangyufengsky`，读取到 9 个 open MR；`/api/bootstrap` 与仓库视图显示
-connected；响应中不包含令牌。未执行任何写操作（push / 创建 MR / 合并）以避免修改真实仓库。
-
-GitLab 适配用本地桩服务覆盖：`tests/integration/gitlab-mr.test.ts` 校验 PRIVATE-TOKEN、`/projects/:id/merge_requests`
-列表与创建、交付结算 delivered。真实 GitLab 实例未连接。
-
-### 3.7 flash + 兼容网关（PASS）
-
-```sh
-AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integration/planning-gateway-live.test.ts
-```
-
-结果（PASS，30s）：flash 模型经网关 4 次请求、4 次归一化（去掉 tool_choice）→ MCP `workflow.plan.submit`
-候选通过。默认规划/开发/修复模型为 flash，审查可配置为 v4-pro。
-
-### 3.8 非 Git 目录应用（离线 PASS）
-
-```sh
-node --import tsx --test --test-force-exit tests/integration/directory-apply-e2e.test.ts
-```
-
-结果（PASS）：真实 `workspace/prepare` 生成独立目录副本与 baseline 快照 → 修改副本 → preview（只读、2 项可应用）
-→ apply → 原目录写入、delivery=delivered、task lifecycle=completed；UI 证据
-[task-delivery-apply-preview.png](evidence/task-delivery-apply-preview.png)。
-
-### 3.9 模型冒烟
-
-```sh
-npm run test:model
-```
-
-结果（PASS）：受管服务 ready，MCP connected，模型返回非空文本。
-
-## 4. 构建
-
-```sh
-npm run build:mcp       # .build/mcp/server.mjs（esbuild，stdio 冒烟 13 tools）
-npm run build:server    # .build/server/main.mjs
-npm run build:web       # apps/web/dist（Vite）
-node scripts/build-desktop.mjs  # .build/desktop/{main,preload}.mjs
-```
-
-结果：均成功。MCP 产物通过 SDK stdio 冒烟：13 个工具、stdout 仅 JSON-RPC、错误返回结构化 code。
-
-## 5. 界面证据（docs/evidence/）
-
-以下截图由真实构建产物 + 受管服务（`AGENT_WORKFLOW_DATA_DIR=.tmp/run-data`，端口 5288）生成，数据为真实 SQLite +
-真实 Git 仓库 + 真实模型规划：
-
-| 文件 | 内容 |
-| --- | --- |
-| `home-deepseek.png` | 主页（deepseek，真实项目/任务/统计） |
-| `tasks.png` | 任务列表（五段阶段胶囊、规划状态、筛选） |
-| `start-task.png` | 开始任务（方法卡、项目选择） |
-| `requirement-candidate.png` | 需求画布：真实模型候选（13 步/13 依赖/6 组）、检查、规划记录、用量 |
-| `task-execution-running.png` | 任务画布：执行中（1 步完成、1 步运行、自动推进只读） |
-| `node-execution-detail.png` | 节点执行现场：事实条 + 模型正文实时记录 + 工具记录 |
-| `git-workbench.png` | Git 工作台：真实提交列表/详情/diff |
-| `task-warm-1440.png` / `task-spdb-1440.png` / `task-github-white-1440.png` | 同一任务画布其余三主题 |
-| `task-warm-1024.png` | 1024 宽度响应式（侧栏收成图标） |
-| `settings.png` / `inbox.png` | 设置 / 待处理中心 |
-| `electron-task-warm.png` | 真实 Electron 产物（bundled server）+ warm 主题的任务画布 |
-| `electron-requirements-spdb.png` | 真实 Electron + SPDB 主题的需求目录 |
-| `electron-selfhosted-home.png` | 无预启服务时 Electron 自行拉起 bundled server（GitHub White、空项目冷启动） |
-
-截图获取方式：`node scripts/build-*` 后启动 `.build/server/main.mjs`，再以 Electron offscreen
-`capturePage()` 加载 `http://127.0.0.1:5288/<route>?theme=<theme>`。
-
-## 6. Electron 生产链路
-
-```sh
-npm run build   # typecheck + mcp + web + server + desktop
-ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build/desktop/main.mjs
-```
-
-结果：应用启动后若本地服务未运行，主进程用 `.build/server/main.mjs` 拉起受管服务（Electron RUN_AS_NODE），
-等待 `/api/health` 后加载本地 Web；截图见 `electron-selfhosted-home.png`。退出时子进程收到 SIGTERM 并正常关闭。
-
-## 7. 任务恢复（PASS）
-
-`POST /api/tasks/:id/recovery` + `GET /api/tasks/:id/recoveries`：
-- 仅对失败/受阻/已取消任务创建派生草稿；原任务、执行证据与交付记录不变。
-- `from_failed_stage / all_stages / verify_only` 三种方式，草稿为 `draft` 阶段，不自动规划/执行。
-- requestKey 幂等（重放返回同一草稿）、回执结算、操作表登记 `task.recovery.create`。
-- UI 恢复工作台已接线：真实任务摘要、方式选择、创建后跳转需求画布、派生草稿历史；失败执行可直接
-  「按原配置重试失败步骤」（新 attempt，保留成功步骤）/「继续执行」/「停止执行（保留工作区）」。
-- `POST /api/tasks/:id/execution/retry` 已实现并登记 `execution.retry`。
-测试：`tests/integration/recovery-api.test.ts` PASS。
-
-## 8. 角色目录编辑（PASS）
-
-`GET/POST /api/catalog/roles`、`POST /api/catalog/roles/:id/{publish,archive}`：
-- 内置职业可保存草稿（不改线上角色），发布后修订 `rN→rN+1` 并热更新引擎有效目录（审查/修复职业解析立即使用新修订）。
-- 自定义职业先以草稿存在，发布后进入目录；归档内置覆盖会还原默认，归档自定义会移除。
-- 每个写操作 requestKey + 回执、幂等重放；目录变更发 `catalog.changed` 事件。
-- UI 角色页已接线：新建/编辑草稿、发布、还原/归档、草稿徽标。
-- UI 证据：[roles-editor.png](evidence/roles-editor.png)（真实服务数据：内置职业草稿待发布）。
-测试：`tests/integration/roles-api.test.ts` PASS。
-
-## 9. 质量与用量页（真实计数）
-
-- UI 证据：[insights-real-counters.png](evidence/insights-real-counters.png)（真实服务：3 个任务、规划成本 0、执行/审查/修复/交付为 0）。
-- 顶部 tokens 仍显示未知；规划成本来自 `planning_rounds.usage_json`。
-
-## 10. 已知限制 / 未验证
-
-- Git 远端写：fetch 用本地远端验证；MR 创建用 GitHub/GitLab 桩服务验证；真实 GitHub push / 创建 MR / 直接合并
-  未执行（避免修改真实仓库），真实 GitLab 未连接。
-- AI 审查/修复的服务端结果已验证；模型自报的校验命令未由服务独立执行；`fix.merge` 未实现。
-- FixRun 的 start/stop requestKey 只存在内存，进程重启后的恢复仍需补（ReviewRun 可从 receipt 恢复）。
-- 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理确认仅基础实现。
-- Electron 打包分发（签名、跨平台）未验证；`desktop` 构建脚本与主进程已可启动。
-- 页面视觉与设计稿的最终对照（截图）与浏览器自动化回归待补（见 `docs/remaining-work.md`）。
-
-### 第 64 轮打包回归（2026-10-19）
-
-- `npm run dist` 成功：`release/mac-arm64/Agent Workflow.app`（341MB，未签名）。
-- 打包产物包含 `Contents/Resources/app/node_modules/pptxgenjs`（PPTX 运行时依赖）。
-- 直接启动 `.app` 可执行文件时需确保 shell 未设置 `ELECTRON_RUN_AS_NODE=1`（本工具环境默认设置，会令 Electron 以 Node 模式运行而无法开窗）。
-- 启动后 `/api/health` 返回 200；通过打包内 server 创建 PPT 草稿并导出 `.pptx`，55,341B、标准 ZIP 头（运行时 `pptxgenjs` 在打包环境中可用）。
-
-### 第 77 轮 UI 截图冒烟（2026-10-19）
-
-`npm run ui:smoke`（即 `env -u ELECTRON_RUN_AS_NODE electron scripts/capture-ui.cjs`）：以真实服务（隔离数据目录 + 演示 Git 仓库）渲染、断言并截图 10 个路由：
-`/`、`/tasks`、`/requirement/:id`、`/tasks/:id`、`/start`、`/git`、`/settings` 以及 3 个非默认主题首页。
-断言每个页面的期望文案非空且存在，并校验主题 `data-theme`；全部通过；
-- **抽屉连续输入回归（第 82 轮）**：`Drawer` 的 focus 副作用不再依赖内联 `onClose`，父组件每输入一个字符重渲染时不会重新聚焦抽屉根节点。UI smoke 新增：数据库「添加连接」抽屉输入 `aaaaa`，断言值与 `document.activeElement` 保持 `#db-name`，PASS。
-`evidence/ui-git.png`、`ui-requirement-canvas.png`、`ui-settings.png`、`ui-task-canvas.png` 已更新为当前实现。
-
-### 第 83 轮数据库连接输入修复（2026-10-19）
-
-- 数据库表单支持粘贴 JDBC URL 并自动拆分（也接受 Spring `${WF_DB_URL:...}` 默认值写法和 `url:` 前缀）：
-  `jdbc:mysql://127.0.0.1:3306/opencode_workflow_test?connectionTimeZone=UTC&...`
-  → 类型 mysql / 主机 127.0.0.1 / 端口 3306 / 库 opencode_workflow_test。
-- 用用户提供的本地 MySQL 凭据复测：服务端 `POST /settings/databases` 保存 + `POST /probe` 返回 `connected`（MySQL 9.2.0，目标库存在）；密码不写入文档。
-- 抽屉 focus 修复后，UI smoke 验证连续输入 `aaaaa` 焦点不丢，且粘贴 JDBC URL 后四个字段被正确拆分。
-
-### 第 84 轮设置页模型/OpenCode 配置（2026-10-19）
-
-- 「模型与执行」不再只读：职责模型下拉（规划/开发/审查/修复）会重分配 `roles` 并保存；支持新增/编辑模型档案（provider/model/角色/启停）；禁止停用最后一个启用模型；模型字段与角色由 `validateSettings` 校验（PATCH 非法 400）。
-- 同页可直接配置：OpenCode 可执行文件路径（保存后重启生效）、启用受管运行时、自动启动、权限模式、Agent、重启按钮；完整检测/日志仍在「服务」分区。
-- UI smoke 新增 `/settings?section=model` 断言（职责模型/添加模型/OpenCode 可执行文件），截图 `evidence/ui-settings-model.png`。
-- 服务端测试：自定义模型写入、全部停用 400、非法角色 400。
-
-### 第 85 轮 OpenCode 未启用状态（2026-10-19）
-
-- `/api/opencode/status` 新增 `managed`（本次进程是否加载了受管适配器）与 `enabled`（保存的设置）。
-- 服务页在 `managed=false` 时显示明确原因：“受管 OpenCode 未启用（opencode.enabled=false 或启动环境 AGENT_WORKFLOW_DISABLE_OPENCODE=1），请启用后重启 Agent Workflow 服务”，不再把重启的 NOT_CONFIGURED 误报成“本地后端未连接”。
-- 重启按钮在未加载适配器时禁用；重启错误直接显示服务返回文案。
-- 测试：disabledOpenCode 应用 status 返回 stopped/managed=false/enabled=true/MCP 未连接 0 工具。
-
-### 第 86 轮整栈重启与并发会话计数（2026-10-19）
-
-- 停止旧 5177/5173 开发进程（旧 5177 运行时带 `AGENT_WORKFLOW_DISABLE_OPENCODE=1`、数据目录 `.tmp/view-data`）。
-- 以 `AGENT_WORKFLOW_DATA_DIR=.tmp/view-data AGENT_WORKFLOW_PORT=5177 npm run dev` 重启：health 200；OpenCode 状态 `ready`（1.19.0，managed/enabled=true）；MCP `agent-workflow` 已连接 **13 个工具**。
-- 修复并发会话误报：`/api/opencode/status` 的 `sessions` 改为受管运行中的活动会话数（强制上限使用同一计数），新增 `totalSessions` 表示 OpenCode 历史会话总数；当前 `sessions=0/8`、`totalSessions=46`，历史会话不再触发“已达上限”。
-- Vite 开发地址 `http://127.0.0.1:5173`，服务地址 `http://127.0.0.1:5177`。
-
-### 第 87 轮一键重启部署（2026-10-19）
-
-- 新增 `npm run dev:restart`：停止 5177/5173 旧监听 → `build:web` → 以分离进程启动 `npm run dev`（日志 `.tmp/dev.log`）→ 等待 health 与 OpenCode `ready`，打印 MCP 工具数/会话数。
-- 支持 `AGENT_WORKFLOW_DATA_DIR`、`AGENT_WORKFLOW_PORT`、`AGENT_WORKFLOW_WEB_PORT` 覆盖；自动移除 `AGENT_WORKFLOW_DISABLE_OPENCODE`。
-- 实测：`.tmp/view-data` 数据保留（1 项目/2 任务），OpenCode 1.19.0 ready、MCP 13 工具、活动会话 0/8、历史会话 46 不计入。
-
-### 第 88 轮项目文件夹选择器（2026-10-19）
-
-- 项目登记不再要求手输绝对路径：「项目目录」旁新增「选择文件夹…」。
-  - 桌面版：走 Electron preload 的 `workflowDesktop.pickDirectory()` 原生目录对话框。
-  - 浏览器版（Chrome/5177）：打开服务端只读目录浏览器（`GET /api/fs/directories`），支持上一级/主目录/刷新、Git 仓库标记、进入目录后「选择此文件夹」。
-- 目录接口只列出目录名与 `.git` 标记，不读取文件内容；要求绝对路径，未知目录 404，相对路径 400。
-- 选择后自动回填绝对路径，并在名称为空时用目录 basename 填充项目名。
-- 验证：集成测试目录列表/Git 标记/404/400；UI smoke 打开登记抽屉 → 文件夹选择器（首页 101 个目录）→ 关闭，PASS。
+# 设计稿覆盖矩阵
+
+> 设计来源：`opencode-workflow-design-showcase/`（v5：`originals/main` 22 个正式产品页 + B-01/B-04/B-15 补出 recovery / requirements / roles-legacy，共 25 页；另核对 delivery / planning / git / node 补充稿）。
+> 实现基线：`apps/web/src/app/App.tsx`（2026-10-19，Wave 2 完成、Wave 3A 进行中的工作区快照）。
+> 状态口径：✅ 主流程与设计对齐（仅文案/P2 差异，关键缺口列仍注明）；🟡 页面/载体已存在，但核心区块缺失、降级或以面板替代；⛔ 无路由、无载体或未实现。
+> 证据口径：集成测试 + `npm test`（最近一次 **345 tests / 54 suites / 334 pass / 11 skipped / 0 fail**，46.6s，`.tmp/wave2-verify.log`）+ `docs/review/execution-log.md` + `npm run build:web`。当前沙箱 UI smoke 因 Electron GPU 初始化失败，**没有像素级视觉回归**；`docs/evidence/` 截图早于 Wave 0。
+> 与审查报告的关系：`docs/review/design-parity.md`（18:39 快照）是逐页差异审查；本文件是**当前覆盖矩阵**，已按 Wave 1/2 的实际代码更新其中已闭合项，后续每波合并后同步更新。
+
+## 0. 总结
+
+- 25 个正式页中：**✅ 2、🟡 19、⛔ 4**。4 个完全缺失页：`ppt-studio`、`workflow-editor`、`run`、`roles-legacy`。
+- Wave 1/2 已闭合的主要缺口：知识对话记录页（新增 `/knowledge/history`）、任务画布自动推进/整体推进/推进直接后继/放弃调整、恢复页 unknown 三入口、非 Git 工作区真实清理、恢复三模式真实差异、PPT「生成中」启动恢复、`viewActions` 回归、契约路由。
+- 仍缺的整块能力：待处理中心就地处理、角色四页签、知识库研究体验、项目详情/公约、工作流编辑器、PPT 工作室/作品专页、run 页、PE37、任务画布冻结/审计/运行内容/快照评审、节点详情子视图、首页/品牌收敛。
+- **不要把本矩阵当完成度百分比**：标 🟡 的页面多数主流程可用，但设计要求的核心区块仍未实现；⛔ 项没有可点击载体。
+
+## 1. 25 个正式产品页
+
+| # | 设计页 | 实现路由 / 载体 | 覆盖度 | 已验证证据 | 关键缺口（未完成） | 更新 |
+|---|---|---|---|---|---|---|
+| 1 | `home` | `/` `HomePage` | 🟡 | `npm run build:web`；`docs/evidence/home-deepseek.png`（旧图） | 多出统计三卡、「需要你处理」「最近活动」；设计只有「进行中」单卡；行内提示文案不同 | 10-19 |
+| 2 | `projects` | `/projects`、`/projects/:projectId` `ProjectDetailPage`（W3-1a 进行中，未验收） | 🟡 | 项目登记/重检/归档集成测试；build:web；W3-1a 代码已开始落地 | 四页签（概览/Git 与 GitLab/文档路径/项目公约）、配置状态清单与项目公约后端待验收；卡片缺「查看 Git / 模板任务」入口 | 10-19 |
+| 3 | `knowledge` | `/knowledge` `KnowledgePage` | 🟡 | knowledge-sources 测试、知识问答 live PASS（引用校验 + conversationId） | 缺研究四步、命中来源卡、来源选择、流式/轮询回答、引用原文 520 面板、研究员检查面板（W3-4） | 10-19 |
+| 4 | `knowledge-history` | `/knowledge/history` `KnowledgeHistoryPage` | 🟡 | `App.tsx`（`/knowledge/history` 路由）；W3-7a 33 项 UI 断言（execution-log 20:36）；`/api/knowledge/history` | 服务端无会话状态字段：状态分段降级为「全部/有引用/无引用」，无「需要回答/进行中/已完成/去回答」；无重命名/归档/删除；面包屑仍「知识库」；无独立集成测试 | 10-19 |
+| 5 | `ppt` | `/ppt` `PptPage` + 作品视图组件（`PptWorksView` / `PptWorkbench`，W3-7b 进行中） | 🟡 | `ppt-works.test.ts`、PPT live PASS、W1-1 44 项 UI 断言、真实 PPTX 导出 | 设计「讨论需求 → 确认方向 → 逐页制作」的讨论会话与确认方向入口未做；作品/工作台视图 W3-7b 待验收；高级视觉（品牌模板/PDF/逐页视觉检查）未做 | 10-19 |
+| 6 | `ppt-works` | 无独立路由；`/ppt` 内 `PptWorksView` / `PptWorkbench`（W3-7b 进行中，未验收） | 🟡 | `PptPage.tsx` 作品列表/选中/导出；W3-7b 代码已开始落地 | 无 `/ppt/works` 专页；作品网格/阶段进度/下一步/归档/复制/导出页级入口待验收 | 10-19 |
+| 7 | `ppt-studio` | 无 | ⛔ | — | 四步工作台、大纲/视觉方向、逐页检查、七模块制作方案均无；W3-7b/后续 | 10-19 |
+| 8 | `start` | `/start` `StartPage` | 🟡 | W1-4 查询参数预选（`StartPage.tsx`）；planning/start 补充稿基本对齐 | 仍是「标题 + 需求原文」结构；缺自动命名/「未命名任务」、项目与流程抽屉、版本核对、草稿回执页；W3-9a 进行中 | 10-19 |
+| 9 | `workflows` | `/workflows` `WorkflowsPage` | 🟡 | 搜索/筛选/详情步骤/「用这个流程开始任务」；build:web | 目录只读、编辑按钮禁用；缺步骤链（并行）、使用次数、复制/归档、详情加载/错误态（W3-8） | 10-19 |
+| 10 | `workflow-editor` | 无 | ⛔ | — | 画布编辑/增删/撤销重做/检查定位/保存与冲突全缺；W3-8 pending | 10-19 |
+| 11 | `requirement` | `/requirement/:id` `RequirementCanvasPage` | ✅ | planning-live PASS；五段胶囊/规划状态条/四图层/阶段页签/规划记录/检查/应用/确认 | 缺页头「更多操作」（保存为流程/查看问答/取消需求）；右侧标题「规划面板」与设计「计划」为文案差异 | 10-19 |
+| 12 | `tasks` | `/tasks` `TasksPage` | 🟡 | 列表/筛选/项目分组/需处理；build:web | 行内步骤状态条、行更多菜单（打开画布/复制链接/归档）、加载更多/已归档缺失；W3-9a 进行中 | 10-19 |
+| 13 | `task` | `/tasks/:id` `TaskCanvasPage` | 🟡 | `execution-control.test.ts` 5 pass（自动推进/推进一步/放弃调整）；W2-10 恢复页 unknown；任务画布恢复入口 | 缺「⋯」菜单（恢复/冻结计划/审计记录/暂停/停止）、运行内容入口、快照评审 B-07；节点面板「推进直接后继」W3-5a 已落地待验收；放弃调整后恢复「调整前已暂停」W2-15；情况条缺少上下文操作 | 10-19 |
+| 14 | `inbox` | `/inbox` `InboxPage` | 🟡 | 汇总列表/按类型分组/跳转；build:web | 不能就地回答/授权/拒绝；缺单选多选/推荐/权限范围卡/未知回读/草稿保留；规划事项区缺失；W3-2 pending | 10-19 |
+| 15 | `insights` | `/insights` `InsightsPage` | ✅ | insights / task-acceptance / task-usage 集成测试 | 少项目/任务状态/包含已归档筛选；多出「运行统计」块；汇总卡口径与设计三卡不同（P2） | 10-19 |
+| 16 | `templates` | `/templates` `TemplatesPage` | 🟡 | templates 测试；W1-2 导入/可视化+JSON 编辑/归档；历史任务 | 缺分支/时间范围/源码范围/需求文档、底部固定说明条、B-06 五页签归档、左侧分组；导入与可视化编辑是实现自行扩展 | 10-19 |
+| 17 | `run` | 无 | ⛔ | — | 文档/源码/单测阅读器、需求覆盖、批次恢复、引用原文、运行身份未知态全缺；W3-5/W3-7 | 10-19 |
+| 18 | `runtime` | `/runtime` `RuntimePage` | 🟡 | 状态主卡/事实卡/重启确认/错误态（round 85/86 实测） | 「最近一次操作」为空占位；缺外部进程/启动失败专门态；P2 | 10-19 |
+| 19 | `tools` | `/tools` `ToolsPage` | 🟡 | 工具总览/toolset 启停/Skill 带行号源文；skills 测试 | 缺配置范围（全局/项目）、逐工具继承/启用/停用、来源整体停用影响清单、部分/未知状态 | 10-19 |
+| 20 | `databases` | `/databases` `DatabasesPage` | 🟡 | 连接 CRUD/探针/只读查询/JDBC 拆分；database 测试 | 缺 openGauss/GaussDB 契约类型、授权项目/可读范围、只读强制三态、抽屉授权项目/启用开关、状态分段筛选；W3-9 | 10-19 |
+| 21 | `roles` | `/roles` `RolesPage` | 🟡 | roles-api 测试；发布历史/恢复快照 | 四页签（职责与指令/能力范围/资源权限/形象）、能力开关、发布核对/差异、权限预估全缺；W3-3 pending | 10-19 |
+| 22 | `settings` | `/settings` `SettingsPage` | 🟡 | settings 测试；服务/外观/模型与执行/Git/数据库分区可保存 | 缺重试等待/发布网络/开发辅助分区；设计监控间隔语义不同；缺会话异常阈值+细分超时；缺脏保存条与「生效」标签；W3-9 | 10-19 |
+| 23 | `recovery` | `/recovery`、`/tasks/:id/recovery` `RecoveryPage` | 🟡 | recovery-api + `recovery-modes.test.ts`（三模式真实差异）；W2-10 unknown 三入口；任务画布入口 | `verify_only` 硬只读未强制（W2-4b）；恢复不复制执行上下文/阶段图；缺任务画布内完整入口（已有「到恢复页处理」） | 10-19 |
+| 24 | `requirements` | `/requirements` `RequirementsPage` | 🟡 | 搜索/项目筛选/阶段计数/加载更多；build:web | 无 B-15 详情抽屉（行直接进画布）、无计划修订/状态说明；W3-9 | 10-19 |
+| 25 | `roles-legacy` | 无 | ⛔ | — | 旧角色配置目录/四页签、版本比较、导入四步核对、发布全缺；W3-7 再评估 | 10-19 |
+
+## 2. 补充稿与评审辅助页
+
+| 设计稿 | 实现载体 | 覆盖度 | 已验证证据 | 关键缺口 | 更新 |
+|---|---|---|---|---|---|
+| `delivery/start.html` | `/start` + 需求画布「工作区」页签 | 🟡 | workspace 准备/清理测试；W3-9a 进行中 | 开始页没有隔离方式行/准备-开始两步预览；隔离信息分散在需求画布 | 10-19 |
+| `delivery/task.html` | 任务页 `TaskDeliveryPanel` | ✅ | delivery / directory-apply 集成测试 | 设计明确「不新增一级页面」，以右侧面板承载，符合；仅细节文案差异 | 10-19 |
+| `delivery/git.html`、`delivery/apply.html` | 任务页交付面板（Git / 非 Git 应用预览） | ✅ | `directory-apply-e2e.test.ts`、delivery merge/MR 测试 | 非 Git 应用、文件选择、目标、分步确认齐全 | 10-19 |
+| `delivery/index.html`、`delivery/flows.html` | 不适用 | N/A | — | 评审辅助（状态图/容器说明），非产品页 | 10-19 |
+| `planning/start.html` | `/start` | ✅ | planning-live PASS | 方法卡（必经步骤/可细化/AI 规划）、右侧四步说明已实现 | 10-19 |
+| `planning/requirement.html` | `/requirement/:id` | ✅ | planning-live PASS | 五段胶囊、规划状态条、图层、页签、记录、检查、候选/应用/确认齐全 | 10-19 |
+| `planning/task.html` | `/tasks/:id` | 🟡 | execution-control 5 pass | 自动推进/推进一步/放弃调整已补；仍缺领取竞态重确认、冻结/审计/运行内容入口 | 10-19 |
+| `git/index.html` | `/git`、`/git/:projectId` | ✅ | git 读模型/worktree/REST 测试；GitHub 真实读/写 live PASS | 三栏工作台、提交三页签、diff、AI 审查/修复、提交/推送/MR/合并齐全；无结构性缺口 | 10-19 |
+| `git/flows.html` | 不适用 | N/A | — | 操作流程说明文档 | 10-19 |
+| `node/index.html` | `/tasks/:id` 右侧 `NodeDetailPanel` | 🟡 | 节点详情/attempt/output 集成测试 | 以面板替代独立页可接受；缺宽阅读区、工具详情、产物阅读/下载、引用原文、断线补读缺口；W3-5a/W3-10 | 10-19 |
+| `main/index.html`、`main/skin-map.html` | 不适用 | N/A | — | 设计目录/颜色迁移图 | 10-19 |
+
+## 3. 仍缺的整块能力（对应任务）
+
+| 能力 | 状态 | 对应任务 |
+|---|---|---|
+| 待处理中心就地回答/授权/拒绝/未知回读/草稿保留 | ⛔ 未实现 | W3-2 |
+| 角色管理四页签、能力/资源权限/形象、发布核对、权限预估 | ⛔ 未实现 | W3-3 |
+| 知识库研究步骤、来源选择、流式回答、引用原文、研究员面板 | ⛔ 未实现 | W3-4 |
+| 项目详情 `/projects/:id` 四页签 + 项目公约后端 | 🟡 进行中（W3-1a）：`App.tsx` 已注册路由，页面/页签/公约后端待验收 | W3-1 |
+| 任务画布恢复/冻结/审计/运行内容入口、快照评审 B-07 | 🟡 部分：恢复入口已有；其余未做 | W3-5 |
+| 节点面板「推进直接后继」入口 | 🟡 进行中（W3-5a）：`NodeDetailPanel` 已加入口，待验收 | W3-5a |
+| PE37 大需求分组逐步细化 | ⛔ 未实现 | W3-6 |
+| `ppt-works`/`ppt-studio`/`run`/`roles-legacy` 页 | 🟡 ppt-works 组件已落地待验收；其余 ⛔ | W3-7 / W3-7b |
+| 工作流编辑器 | ⛔ 未实现 | W3-8 |
+| 任务列表/开始页/模板/数据库/设置/需求目录结构缺口 | 🟡 部分进行中（W3-9a） | W3-9 |
+| 节点详情子视图（工具/产物/引用/补读） | ⛔ 未实现 | W3-10 |
+| 主页与品牌收敛（多出区块、产品名/页头主题入口） | ⛔ 未实现 | W3-11 |
+| 自动推进/推进一步/放弃调整、非 Git 清理、恢复三模式、PPT 生成恢复、知识历史页 | ✅ 已实现并验证 | Wave 2 |
+| W2-4b verify_only 硬只读、W2-12 远端超时 UNKNOWN、W2-14 storage removeJson、W2-15 恢复暂停态 | ⛔ 未实现 | Wave 2 follow-up |
+| W0-4 节点验收（accept/reject） | 🟡 进行中（Wave 3A task-16/17） | W0-4 |
+
+## 4. 已基本对齐、不应误报的部分
+
+- **阶段胶囊**：主稿为四段，`planning/DESIGN-DELTA.md` 已定五段，实现按五段，视为对齐。
+- **恢复位置**：设计 `task.html` 要求画布右面板，B-01 又新增独立恢复页；实现采用独立页 + 画布「到恢复页处理」入口，以较新的 B-01 为准。
+- **皮肤数量**：`index.html` 文案写「五套皮肤」，但 `settings.html`/`CLAUDE-设计结果.md` 实际四套，实现四套，视为对齐。
+- **菜单**：`originals/main/assets/shell.js` 的旧 NAV 缺 Git/需求目录/开始任务；实现 17 项菜单与 `sources/navigation-coverage-v2.json` 一致，视为对齐。
+- **需求画布页签**：实现按 planning 补充稿的按阶段页签，不按主稿两态，视为对齐。
+- **主题系统**：四套主题令牌集中在 `packages/shared/src/config/themes.ts` 与 `apps/web/src/styles/ds.css`，组件 TSX 未发现硬编码颜色。
+- **Git 工作台、交付面板、恢复工作台、需求目录、质量与用量、运行环境**：主流程对齐，差异多为 P2。
+
+## 5. 证据与维护规则
+
+- 集成测试与结果见 `docs/verification.md`；每轮执行记录见 `docs/review/execution-log.md`；逐页差异细节见 `docs/review/design-parity.md`（注意该报告是 18:39 快照，Wave 1/2 已闭合项以本矩阵为准）。
+- 当前没有 UI 视觉回归：`ui:smoke` 只有文案/主题断言且在本沙箱失败；`docs/evidence/` 是 Wave 0 前旧截图。新增/重写页面的覆盖度需要有真实服务点击或新增断言后才能从 🟡 升到 ✅。
+- **维护规则**：每波合并后更新本文件；不得把本文件写成验证记录、不得复制 `docs/verification.md`；缺一项就标 🟡/⛔，不把"有禁用入口/占位页"标成 ✅。

@@ -147,6 +147,17 @@ export const NodeStatus = {
 export type NodeStatusValue = (typeof NodeStatus)[keyof typeof NodeStatus];
 export const NODE_TERMINAL_STATUSES: readonly NodeStatusValue[] = [NodeStatus.SUCCEEDED, NodeStatus.FAILED, NodeStatus.SKIPPED, NodeStatus.CANCELLED];
 
+/**
+ * Human acceptance of one succeeded node. It is an audit verdict, not a node
+ * status: recording it must never rewrite the execution result.
+ */
+export const NodeManualAcceptanceState = {
+  PENDING: 'pending',
+  ACCEPTED: 'accepted',
+  REJECTED: 'rejected',
+} as const;
+export type NodeManualAcceptanceStateValue = (typeof NodeManualAcceptanceState)[keyof typeof NodeManualAcceptanceState];
+
 export const ExecutionStatus = {
   IDLE: 'idle',
   READY: 'ready',
@@ -677,5 +688,9 @@ export const Rationale = {
   RECONFIRM_PENDING: 'RECONFIRM_PENDING',
   DELIVERY_BLOCKED: 'DELIVERY_BLOCKED',
   CONNECTIVITY: 'CONNECTIVITY',
+  NODE_EXECUTION_MISSING: 'NODE_EXECUTION_MISSING',
+  NODE_NOT_SUCCEEDED: 'NODE_NOT_SUCCEEDED',
+  NODE_ACCEPTED: 'NODE_ACCEPTED',
+  NODE_REJECTED: 'NODE_REJECTED',
 } as const;
 export type RationaleValue = (typeof Rationale)[keyof typeof Rationale];

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { TaskSummary } from '@agent-workflow/shared';
 import { useTasks } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
-import { LinkButton } from '../../components/Button.tsx';
+import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
@@ -82,13 +82,20 @@ function TaskListBody({ tasks }: { readonly tasks: readonly TaskSummary[] }) {
 }
 
 export function TasksPage() {
-  const tasksQuery = useTasks();
+  const [limit, setLimit] = useState(50);
+  const tasksQuery = useTasks({ limit });
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [project, setProject] = useState('all');
   const [grouped, setGrouped] = useState(false);
 
   const tasks = tasksQuery.data ?? [];
+  const loadMoreBlockedReason = limit >= 200
+    ? '服务端单次最多返回 200 条任务；请用搜索或项目筛选缩小范围。'
+    : tasks.length < limit
+      ? '已加载全部任务（列表接口未返回更多分页信息）。'
+      : undefined;
+  const loadMoreDisabledReason = tasksQuery.isFetching ? '正在读取任务…' : loadMoreBlockedReason;
 
   const counts = useMemo(() => {
     const base: Record<TaskFilter, number> = { all: tasks.length, attention: 0, active: 0, closed: 0 };
@@ -124,7 +131,7 @@ export function TasksPage() {
   }, [filtered]);
 
   const attentionTasks = useMemo(
-    () => sortByUpdatedDesc(tasks.filter((task) => taskGroup(task) === 'attention')).slice(0, 6),
+    () => sortByUpdatedDesc(tasks.filter((task) => taskGroup(task) === 'attention' && deriveTaskStatus(task).tone !== 'unknown')).slice(0, 6),
     [tasks],
   );
 
@@ -256,11 +263,15 @@ export function TasksPage() {
         </label>
       </div>
 
+      <p className="hint" style={{ margin: '0 2px 10px' }}>
+        列表接口未提供逐步骤状态，也未返回总数/游标；行内展示阶段胶囊与聚合进度（完成/总数步），计数基于已加载任务。
+      </p>
+
       <section className="card" aria-label="任务列表">
         <div className="task-thead">
           <span>任务</span>
           <span className="c-need">需要处理</span>
-          <span className="c-stage">阶段</span>
+          <span className="c-stage">阶段 / 聚合进度</span>
           <span className="task-status">状态</span>
           <span />
         </div>
@@ -271,16 +282,33 @@ export function TasksPage() {
               已加载 {String(filtered.length)} 个 · 最近更新优先
               {tasksQuery.isFetching ? ' · 正在刷新' : ''}
             </span>
-            <button
-              type="button"
-              className="btn ghost sm"
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="refresh"
+              disabled={tasksQuery.isFetching}
+              disabledReason={tasksQuery.isFetching ? '正在刷新任务列表…' : undefined}
               onClick={() => {
                 void tasksQuery.refetch();
               }}
             >
-              <Icon name="refresh" size="sm" />
               刷新
-            </button>
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="plus"
+              disabled={loadMoreDisabledReason !== undefined}
+              disabledReason={loadMoreDisabledReason}
+              onClick={() => {
+                setLimit(Math.min(limit + 50, 200));
+              }}
+            >
+              加载更多
+            </Button>
+            <Button variant="ghost" size="sm" icon="archive" disabled disabledReason="任务归档与已归档列表接口未接通；当前不能查看已归档任务。">
+              查看已归档
+            </Button>
             <Link className="btn ghost sm" to="/inbox">
               <Icon name="inbox" size="sm" />
               待处理中心

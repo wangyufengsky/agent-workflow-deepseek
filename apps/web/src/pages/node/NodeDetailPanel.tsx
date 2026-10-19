@@ -1,15 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NODE_STATUS_LABEL, type Attempt, type NodeDetail, type OutputFragment } from '@agent-workflow/shared';
+import {
+  NODE_STATUS_LABEL,
+  ROUTES,
+  createRequestKey,
+  type Attempt,
+  type CommandResponse,
+  type ExecutionView,
+  type NodeAcceptRequest,
+  type NodeAcceptanceView,
+  type NodeDetail,
+  type NodeDetailResponse,
+  type NodeRejectRequest,
+  type NodeResponse,
+  type OutputFragment,
+  type PlanRevision,
+} from '@agent-workflow/shared';
+import { apiPost } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { IconButton } from '../../components/IconButton.tsx';
 import { EmptyState, SkeletonText } from '../../components/EmptyState.tsx';
+import { Modal } from '../../components/Modal.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
-import { useNodeAttempts, useNodeDetail, useNodeOutput, type PollInterval, type WorkflowStreamConnection } from '../../api/workflow.ts';
+import {
+  advanceExecution,
+  useNodeAttempts,
+  useNodeDetail,
+  useNodeOutput,
+  useWorkflowCommand,
+  type PollInterval,
+  type WorkflowStreamConnection,
+} from '../../api/workflow.ts';
 import { NODE_KIND_LABEL } from '../../flow/types.ts';
-import { FactPill, FactsBar } from '../../flow/workflow-ui.tsx';
+import { ActionReasonLine, CommandErrorNotice, FactPill, FactsBar, ReceiptNotice, ServiceActionButton } from '../../flow/workflow-ui.tsx';
 import { formatAbsoluteTime, formatDateTime } from '../../app/format.ts';
+import { advanceTargets, nodeTitle, successorReason } from '../task/advance.ts';
 import './node.css';
 
 type NodeTab = 'overview' | 'session' | 'attempts';
@@ -27,6 +53,16 @@ const RESULT_STATE_LABEL: Record<string, { label: string; tone: 'ok' | 'fail' | 
   error: { label: '校验出错', tone: 'fail' },
 };
 
+const ACCEPTANCE_LABEL: Readonly<Record<NodeAcceptanceView['state'], string>> = {
+  pending: '待人工验收',
+  accepted: '已验收通过',
+  rejected: '已退回修改',
+};
+
+function acceptanceTone(state: NodeAcceptanceView['state']): 'wait' | 'ok' | 'fail' {
+  return state === 'accepted' ? 'ok' : state === 'rejected' ? 'fail' : 'wait';
+}
+
 function fragmentTag(category: OutputFragment['category']): { label: string; className: string } {
   switch (category) {
     case 'model_text':
@@ -40,11 +76,27 @@ function fragmentTag(category: OutputFragment['category']): { label: string; cla
   }
 }
 
+async function submitNodeVerdict(taskId: string, nodeId: string, kind: 'accept' | 'reject', note: string): Promise<CommandResponse<NodeResponse>> {
+  if (kind === 'accept') {
+    const body: NodeAcceptRequest = {
+      requestKey: createRequestKey(),
+      confirmAccept: true,
+      ...(note.length === 0 ? {} : { note }),
+    };
+    return (await apiPost<CommandResponse<NodeResponse>>(ROUTES.nodeAccept(taskId, nodeId), body)).data;
+  }
+  const body: NodeRejectRequest = { requestKey: createRequestKey(), confirmReject: true, note };
+  return (await apiPost<CommandResponse<NodeResponse>>(ROUTES.nodeReject(taskId, nodeId), body)).data;
+}
+
 export interface NodeDetailPanelProps {
   readonly taskId: string;
   readonly nodeId: string;
   readonly connection: WorkflowStreamConnection;
   readonly pollInterval: PollInterval;
+  /** Authoritative plan/execution of the current task (W3-5a manual advance). */
+  readonly plan?: PlanRevision;
+  readonly execution?: ExecutionView;
   readonly onClose: () => void;
   readonly onOpenPlan?: () => void;
 }
@@ -53,20 +105,29 @@ export interface NodeDetailPanelProps {
  * 节点执行现场：事实条、公开正文/工具卡、尝试列表与只读历史。
  * Missing model text is stated as a runtime fact — never filled with fake prose.
  */
-export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, onClose, onOpenPlan }: NodeDetailPanelProps) {
+export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan, execution, onClose, onOpenPlan }: NodeDetailPanelProps) {
   const [tab, setTab] = useState<NodeTab>('session');
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | undefined>(undefined);
+  const [actionSuccess, setActionSuccess] = useState<string | undefined>(undefined);
+  const [pendingAction, setPendingAction] = useState<'advance' | 'accept' | 'reject' | null>(null);
+  const [verdict, setVerdict] = useState<'accept' | 'reject' | null>(null);
+  const [verdictNote, setVerdictNote] = useState('');
+  const [verdictError, setVerdictError] = useState<string | undefined>(undefined);
   const detailQuery = useNodeDetail(taskId, nodeId);
   const attemptsQuery = useNodeAttempts(taskId, nodeId);
+  const command = useWorkflowCommand(taskId);
   const selectedAttemptIdResolved = selectedAttemptId ?? detailQuery.data?.currentAttempt?.id;
   const outputQuery = useNodeOutput(taskId, nodeId, selectedAttemptIdResolved, pollInterval);
 
   useEffect(() => {
     setTab('session');
     setSelectedAttemptId(undefined);
+    setActionSuccess(undefined);
+    setVerdict(null);
+    setPendingAction(null);
   }, [nodeId]);
 
-  const detail = detailQuery.data;
+  const detail = detailQuery.data as NodeDetailResponse | undefined;
   const currentAttempt = detail?.currentAttempt;
   const attempts =
     attemptsQuery.data?.attempts ??
@@ -91,6 +152,82 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, onCl
   const terminal = outputQuery.data?.terminal ?? detail?.output.terminal ?? false;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
+
+  /**
+   * W3-5a: while auto advance is off, an accepted step can release its direct
+   * successors. Counts/reasons mirror the engine join rule; the service stays
+   * authoritative and errors are shown verbatim.
+   */
+  const manualAdvance = useMemo(() => {
+    if (plan === undefined || execution === undefined || execution.autoAdvance !== false) return undefined;
+    if (detail?.execution?.status !== 'succeeded') return undefined;
+    const targets = advanceTargets(plan, execution, nodeId);
+    const successorIds = [...new Set(plan.graph.edges.filter((edge) => edge.from === nodeId).map((edge) => edge.to))];
+    const rows = successorIds.map((id) => {
+      const nodeStatus = execution.nodes.find((node) => node.nodeId === id)?.status;
+      const blockers = plan.graph.edges
+        .filter((edge) => edge.to === id)
+        .filter((edge) => {
+          const source = execution.nodes.find((node) => node.nodeId === edge.from)?.status;
+          return source !== 'succeeded' && source !== 'skipped';
+        })
+        .map((edge) => nodeTitle(plan, edge.from));
+      return { id, title: nodeTitle(plan, id), status: nodeStatus, blockers };
+    });
+    const reason = successorIds.length === 0
+      ? '这一步没有直接后继步骤。'
+      : successorReason(plan, execution, targets, command.state.busy);
+    return { targets, rows, reason };
+  }, [command.state.busy, detail?.execution?.status, execution, nodeId, plan]);
+
+  const runAdvanceSuccessors = () => {
+    if (manualAdvance === undefined) return;
+    setActionSuccess(undefined);
+    setPendingAction('advance');
+    void command.run(() => advanceExecution(taskId, nodeId)).then((response) => {
+      setPendingAction(null);
+      if (response?.receipt.status !== 'succeeded') return;
+      const released = response.receipt.outcome?.released;
+      const count = Array.isArray(released) ? released.length : 0;
+      setActionSuccess(count > 0 ? `已放行这一步的直接后继 ${String(count)} 步（回执 succeeded）。` : '推进已受理；本次没有放行新的步骤（回执 succeeded）。');
+    });
+  };
+
+  const openVerdict = (kind: 'accept' | 'reject') => {
+    setVerdict(kind);
+    setVerdictNote('');
+    setVerdictError(undefined);
+    setActionSuccess(undefined);
+  };
+
+  const submitVerdict = () => {
+    if (verdict === null || command.state.busy) return;
+    const trimmed = verdictNote.trim();
+    if (verdict === 'reject' && trimmed.length === 0) {
+      setVerdictError('退回修改必须填写原因（去空格后 1–2000 字）。');
+      return;
+    }
+    if (trimmed.length > 2000) {
+      setVerdictError('备注最多 2000 字。');
+      return;
+    }
+    const kind = verdict;
+    setVerdictError(undefined);
+    setActionSuccess(undefined);
+    setPendingAction(kind);
+    void command.run(() => submitNodeVerdict(taskId, nodeId, kind, trimmed)).then((response) => {
+      setPendingAction(null);
+      setVerdict(null);
+      if (response?.receipt.status !== 'succeeded') return;
+      const saved = response.resource?.node.acceptance;
+      const label = kind === 'accept' ? '验收通过' : '退回修改';
+      setActionSuccess(
+        saved === undefined
+          ? `${label}已记录（回执 succeeded）。`
+          : `${label}已记录：${ACCEPTANCE_LABEL[saved.state]}${saved.note === undefined ? '' : ` · 备注：${saved.note}`}（回执 succeeded）。`,
+      );
+    });
+  };
 
   useEffect(() => {
     if (!following) return;
@@ -130,6 +267,10 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, onCl
       </aside>
     );
   }
+
+  const acceptance = detail.acceptance;
+  const acceptAction = detail.actions.accept;
+  const rejectAction = detail.actions.reject;
 
   return (
     <aside className="side node-side" aria-label="节点执行现场">
@@ -324,7 +465,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, onCl
                 {isHistoricalAttempt ? (
                   <div className="banner info" style={{ marginBottom: 10 }}>
                     <Icon name="lock" />
-                    <div className="grow">历史尝试只读：结果、验收与产物都属于所选尝试；没有重跑、恢复或验收入口。</div>
+                    <div className="grow">历史尝试只读：结果、产物与尝试记录属于所选尝试；没有重跑或恢复入口。人工验收在概览页按节点判定。</div>
                   </div>
                 ) : null}
                 {selectedAttempt?.result === undefined ? (
@@ -388,7 +529,175 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, onCl
           </div>
         ) : null}
 
-        {tab === 'overview' ? null : null}
+        {tab === 'overview' && manualAdvance !== undefined ? (
+          <div>
+            <div className="sec-t" style={{ marginTop: 16 }}>
+              直接后继 · 自动推进已关闭
+            </div>
+            {manualAdvance.rows.length === 0 ? (
+              <p className="hint">计划里没有从这一步出发的后继步骤。</p>
+            ) : (
+              <div className="box">
+                {manualAdvance.rows.map((row) => (
+                  <div key={row.id} className="rowx">
+                    <span className={`ic ${row.status === 'succeeded' ? 'ok' : row.status === 'failed' ? 'no' : row.status === 'running' ? 'run' : 'idle'}`}>
+                      <Icon name={row.status === 'succeeded' ? 'check' : row.status === 'failed' ? 'x' : row.status === 'running' ? 'play' : 'clock'} size="sm" />
+                    </span>
+                    <span className="grow">
+                      <span className="t">{row.title}</span>
+                      <span className="s">{row.status === undefined ? '未执行' : NODE_STATUS_LABEL[row.status]}</span>
+                    </span>
+                    {row.status === 'pending' || row.status === 'ready' ? (
+                      row.blockers.length > 0 ? (
+                        <Badge tone="idle" icon="clock">并行汇合 · 等「{row.blockers.join('、')}」</Badge>
+                      ) : (
+                        <Badge tone="wait" icon="play">可推进</Badge>
+                      )
+                    ) : (
+                      <Badge tone={row.status === 'succeeded' ? 'done' : row.status === 'failed' ? 'fail' : row.status === 'running' ? 'run' : 'idle'}>
+                        {row.status === undefined ? '未执行' : NODE_STATUS_LABEL[row.status]}
+                      </Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+              <Button
+                variant="primary"
+                size="sm"
+                icon="play"
+                disabled={manualAdvance.reason !== undefined}
+                disabledReason={manualAdvance.reason}
+                onClick={runAdvanceSuccessors}
+              >
+                {pendingAction === 'advance'
+                  ? '正在推进…'
+                  : manualAdvance.targets.candidates.length > 0
+                    ? `推进直接后继 · ${String(manualAdvance.targets.candidates.length)} 步`
+                    : '推进直接后继'}
+              </Button>
+              <span className="hint grow">只启动这一步的直接后继；同次不级联，有多个前置的步骤要等全部前置验收。</span>
+            </div>
+            {manualAdvance.reason === undefined ? null : (
+              <div style={{ marginTop: 6 }}>
+                <ActionReasonLine action={{ allowed: false, reason: manualAdvance.reason }} block />
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {tab === 'overview' ? (
+          <div>
+            <div className="sec-t" style={{ marginTop: 16 }}>
+              人工验收
+            </div>
+            <div className="box pad">
+              <div className="row wrap" style={{ gap: 8 }}>
+                <Badge
+                  tone={acceptance === undefined ? 'idle' : acceptanceTone(acceptance.state)}
+                  icon={acceptance?.state === 'accepted' ? 'check' : acceptance?.state === 'rejected' ? 'undo' : 'clock'}
+                >
+                  {acceptance === undefined ? '暂无验收事实' : ACCEPTANCE_LABEL[acceptance.state]}
+                </Badge>
+                {acceptance?.verdictAt === undefined ? null : <span className="hint">判定时间 {formatDateTime(acceptance.verdictAt)}</span>}
+                {acceptance?.requestKey === undefined ? null : <span className="mono hint">{acceptance.requestKey}</span>}
+              </div>
+              {acceptance === undefined ? (
+                <p className="hint" style={{ marginTop: 8 }}>
+                  服务未返回验收事实：只有已成功完成的步骤才会出现待验收结论。
+                </p>
+              ) : (
+                <>
+                  <p className="hint" style={{ marginTop: 8 }}>
+                    {acceptance.state === 'pending'
+                      ? '步骤已成功完成，等待人工验收；验收或退回只记录审计结论，不改变执行状态、下游推进或任务级验收。'
+                      : acceptance.state === 'accepted'
+                        ? '这一步已由人工验收通过。结论可在需要时更正为退回修改。'
+                        : '这一步已退回修改。结论可在需要时更正为验收通过。'}
+                  </p>
+                  {acceptance.note === undefined ? null : <p className="hint" style={{ marginTop: 6 }}>备注：{acceptance.note}</p>}
+                </>
+              )}
+              <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+                <ServiceActionButton size="sm" variant="secondary" icon="undo" action={rejectAction} busy={command.state.busy} fallbackReason="服务未提供退回修改动作" onRun={() => openVerdict('reject')}>
+                  退回修改
+                </ServiceActionButton>
+                <ServiceActionButton size="sm" variant="primary" icon="check" action={acceptAction} busy={command.state.busy} fallbackReason="服务未提供验收动作" onRun={() => openVerdict('accept')}>
+                  验收通过
+                </ServiceActionButton>
+              </div>
+              {acceptAction?.allowed !== true ? (
+                <div style={{ marginTop: 6 }}>
+                  <ActionReasonLine action={acceptAction} fallback="服务未提供验收动作" block />
+                </div>
+              ) : rejectAction?.allowed !== true ? (
+                <div style={{ marginTop: 6 }}>
+                  <ActionReasonLine action={rejectAction} fallback="服务未提供退回修改动作" block />
+                </div>
+              ) : null}
+              <p className="hint" style={{ marginTop: 8 }}>
+                验收结论是审计事实，不改变节点执行状态，也不作为任务完成的 gating；任务级验收在质量与用量页单独记录。
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {tab === 'overview' ? (
+          <>
+            <CommandErrorNotice error={command.state.error} title="节点操作未完成" />
+            <ReceiptNotice receipt={command.state.receipt} successMessage={actionSuccess} />
+          </>
+        ) : null}
+
+        <Modal
+          open={verdict !== null}
+          title={verdict === 'accept' ? '验收通过这一步？' : '退回修改这一步？'}
+          onClose={() => {
+            if (!command.state.busy) setVerdict(null);
+          }}
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setVerdict(null)} disabled={command.state.busy} disabledReason="正在提交，等待服务回执…">
+                取消
+              </Button>
+              <span className="spacer" />
+              <Button
+                variant={verdict === 'reject' ? 'danger' : 'primary'}
+                icon={verdict === 'reject' ? 'undo' : 'check'}
+                disabled={command.state.busy || (verdict === 'reject' && verdictNote.trim().length === 0)}
+                disabledReason={command.state.busy ? '正在提交，等待服务回执…' : '退回修改必须填写原因'}
+                onClick={submitVerdict}
+              >
+                {pendingAction === 'accept' || pendingAction === 'reject' ? '正在提交…' : verdict === 'accept' ? '确认验收通过' : '确认退回修改'}
+              </Button>
+            </>
+          }
+        >
+          <p>{verdict === 'accept' ? '记录“验收通过”结论；可选备注会写入审计事实。' : '记录“退回修改”结论；退回原因必填，会写入审计事实。'}</p>
+          <p className="hint">验收 / 退回只记录人工结论，不改变执行状态、下游推进或任务级验收；结果未明时只按原请求号核对，不会自动重发。</p>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label className="label" htmlFor="node-verdict-note">
+              {verdict === 'accept' ? '备注（可选）' : '退回原因（必填）'}
+            </label>
+            <textarea
+              id="node-verdict-note"
+              className="textarea"
+              value={verdictNote}
+              maxLength={2000}
+              disabled={command.state.busy}
+              placeholder={verdict === 'accept' ? '例如：已核对验收条款与产物' : '写清要改什么（去空格后 1–2000 字）'}
+              onChange={(event) => {
+                setVerdictNote(event.target.value);
+                setVerdictError(undefined);
+              }}
+            />
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <span className="hint">{verdictNote.length} / 2000</span>
+              {verdictError === undefined ? null : <span className="hint" style={{ color: 'var(--danger)' }}>{verdictError}</span>}
+            </div>
+          </div>
+        </Modal>
 
         {attemptsQuery.isError ? <p className="hint">尝试列表读取失败；不会用当前尝试顶替历史。</p> : null}
         {outputQuery.isError ? <p className="hint">执行记录读取失败；已显示已持久化的片段，重连后会补读。</p> : null}
@@ -505,15 +814,6 @@ function NodeOverview({ detail, onOpenPlan }: { readonly detail: NodeDetail; rea
           </div>
         </li>
       </div>
-
-      <div className="sec-t" style={{ marginTop: 14 }}>
-        动作
-      </div>
-      <p className="hint">
-        {Object.entries(detail.actions)
-          .map(([key, action]) => `${key}: ${action.allowed ? '允许' : (action.reason ?? '不允许')}`)
-          .join(' · ') || '服务未提供节点动作'}
-      </p>
     </div>
   );
 }

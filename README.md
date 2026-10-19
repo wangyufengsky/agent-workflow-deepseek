@@ -65,10 +65,11 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 
 ## 已验证（离线）
 
-- `npm test`（最近一次：2026-10-19）：**330 tests / 54 suites / 319 pass / 11 skipped / 0 fail**，约 44s
-  （日志 `.tmp/final-verify.log`）。覆盖共享状态机、存储/JSONL/密钥、规划图与校验、HTTP 集成、Git 读模型、
-  worktree 合并/冲突回退、MCP 工具、数据库只读守卫、启动恢复、API 契约与回执等（详见 `docs/verification.md`）。
-- `npx tsc -p tsconfig.json --noEmit` 0 errors；`npm run build:web`/`build:server` 成功（Wave 0/1 验收）。
+- `npm test`（最近一次：2026-10-19）：**345 tests / 54 suites / 334 pass / 11 skipped / 0 fail**，约 46.6s
+  （日志 `.tmp/wave2-verify.log`）。覆盖共享状态机、存储/JSONL/密钥、规划图与校验、HTTP 集成、Git 读模型、
+  worktree 合并/冲突回退、MCP 工具、数据库只读守卫、启动恢复、API 契约与回执、执行控制（自动推进/推进一步/
+  放弃调整）、非 Git 清理、恢复三模式、PPT 启动恢复等（详见 `docs/verification.md`）。
+- `npx tsc -p tsconfig.json --noEmit` 0 errors；`npm run build:web`/`build:server` 成功（Wave 0/1/2 验收）。
 
 ## 已验证（真实环境）
 
@@ -94,36 +95,41 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 
 ## 未完成 / 下一步
 
-- **W0-4 节点验收**：`node.accept / node.reject` 目前只有操作常量，没有路由、引擎与 UI；实现或由产品确认移除，二选一。
-- **Wave 2 进行中**（不要当作已完成）：自动推进开关与推进一步、放弃执行中调整、非 Git 工作区清理真实删除、
-  恢复三模式真实语义、PPT「生成中」启动恢复、远端 fetch/写超时 UNKNOWN、`viewActions` 回归、GitLab 真实写。
-- **设计缺失页与整块能力**：项目详情 `/projects/:id` 四页签 + 项目公约、待处理中心就地处理、角色四页签
-  （含能力/资源权限/版本对比/导入）、知识库体验与 knowledge-history、任务画布运行内容/快照评审、PE37 分组细化、
-  工作流编辑器，以及任务列表/开始页/模板/数据库/设置等结构缺口和节点详情子视图。
+- **W0-4 节点验收（进行中）**：`node.accept / node.reject` 的路由、引擎与节点面板 UI 正在 Wave 3A 实现；完成后从本清单移除。
+- **Wave 3A 进行中**（不要当作已完成）：项目详情 `/projects/:id` 四页签与项目公约（W3-1a）、PPT 作品/工作台视图
+  （W3-7b）、任务列表步骤条与开始页三段结构（W3-9a）、节点面板「推进直接后继」入口（W3-5a）。
+- **其余设计缺失页与整块能力**：待处理中心就地处理（W3-2）、角色四页签/能力范围/资源权限/发布核对（W3-3）、
+  知识库研究体验（W3-4）、任务画布冻结计划/审计记录/运行内容/快照评审（W3-5）、PE37 分组细化（W3-6）、
+  `ppt-studio` / `run` / `roles-legacy` 页（W3-7）、工作流编辑器（W3-8）、任务列表/开始页/模板/数据库/设置/
+  需求目录结构缺口（W3-9）、节点详情子视图（W3-10）、主页与品牌（W3-11）。逐页状态见 `docs/design-coverage.md`。
+- **Wave 2 遗留**：`verify_only` 硬只读（W2-4b）、远端 fetch/写超时 UNKNOWN（W2-12）、storage `removeJson`（W2-14）、
+  放弃调整后恢复「调整前已暂停」（W2-15）。
 - **真实外部环境**：GitLab 真实实例、PostgreSQL 真实实例未验证；GitHub 远端关闭/合并/删分支的产品边界待确认（W2-8）。
-- **打包分发**：当前 `release/` 中的 .app 是第 64 轮未签名产物，Wave 0/1 后未重新打包；签名/公证、Windows/Linux、自动更新未做。
-- **视觉回归**：`ui:smoke` 只有文案/主题断言，无像素级回归；Wave 0/1 后沙箱 Electron GPU 初始化失败，需桌面环境复跑。
-- **文档体系**：`docs/design-coverage.md` 仍是验证记录旧副本（W4-1 重写中）；`docs/api.md` 未按最新 ROUTES/服务端注册重生成（W4-2）；证据清单、`test:e2e`、最小 CI 待补（W4-3）。
+- **打包分发**：当前 `release/` 中的 .app 是第 64 轮未签名产物，Wave 0-2 后未重新打包；签名/公证、Windows/Linux、自动更新未做。
+- **视觉回归**：`ui:smoke` 只有文案/主题断言，无像素级回归；Wave 0-2 后沙箱 Electron GPU 初始化失败，需桌面环境复跑。
+- **文档体系**：`docs/design-coverage.md` 已重写为 25 页真实覆盖矩阵（W4-1b）；`docs/api.md` 未按最新 ROUTES/服务端注册
+  重生成（W4-2）；证据清单、live 日志摘要、`test:e2e`、最小 CI 待补（W4-3）。
 
 ## 界面证据
 
 `docs/evidence/` 是 Wave 0 之前的手工截图（真实服务 + 真实 Git 仓库 + 真实模型），覆盖主页、任务列表、开始任务、
 需求画布（模型候选）、任务执行画布、节点执行现场、Git 工作台、四主题与 1024 宽度；`evidence/` 是 `npm run ui:smoke`
-输出的路由截图。Wave 0/1 后 UI smoke 在当前沙箱未成功，截图与页面文案可能落后于新实现，说明见 `docs/verification.md`。
+输出的路由截图。Wave 1/2 后 UI smoke 在当前沙箱仍未成功，截图与页面文案可能落后于新实现，说明见 `docs/verification.md`。
 
 协议与设计细节见 `docs/architecture.md`、`docs/design-system.md`、`docs/api.md`、`docs/design-coverage.md`、`docs/remaining-work.md`、`docs/verification.md`、`AGENTS.md`。
-其中 `docs/design-coverage.md` 目前仍是验证记录的旧副本（W4-1 重写中），暂不能作为设计覆盖依据。
+设计覆盖现状见 `docs/design-coverage.md`：2026-10-19 重写的 25 页覆盖矩阵（✅/🟡/⛔ + 已验证证据 + 未完成项），不是验证记录。
 
 ## 实现状态
 
-截至 2026-10-19（第 89 轮审查后，Wave 0 + Wave 1 完成、Wave 2 进行中）：核心链路（Electron/主题/画布/后端/存储/
+截至 2026-10-19（Wave 0–2 完成，Wave 3A 进行中）：核心链路（Electron/主题/画布/后端/存储/
 MySQL/Git/MCP/受管 OpenCode/规划/执行/审查/修复/交付/恢复）均已真实运行；离线测试
-**330 tests / 54 suites / 319 pass / 11 skipped / 0 fail**（约 44s，`.tmp/final-verify.log`）。
+**345 tests / 54 suites / 334 pass / 11 skipped / 0 fail**（约 46.6s，`.tmp/wave2-verify.log`）。
 
-Wave 0/1 已补齐：`restart` / `git fetch` 合法回执与前端按回执读取、未知 `/api/*` JSON 404、缺 `requestKey` 400、
+Wave 0/1/2 已补齐：`restart` / `git fetch` 合法回执与前端按回执读取、未知 `/api/*` JSON 404、缺 `requestKey` 400、
 真实 terminal/MCP 工具数/数据库连接状态、execution/planning/workspace 启动恢复、PPT 页完整闭环、模板可视化/JSON
-编辑器与归档、工作区清理 UI、陈旧文案清理与 ErrorBoundary。**W0-4 节点验收与上列「未完成 / 下一步」仍未完成**，
-详见 `docs/remaining-work.md`。
+编辑器与归档、工作区清理 UI 与**非 Git 真实清理**、自动推进开关/整体推进/推进直接后继/放弃调整、恢复三模式与
+恢复页 unknown、PPT「生成中」启动恢复、知识历史页 `/knowledge/history`、`viewActions` 回归、陈旧文案清理。
+**W0-4 节点验收与上列「未完成 / 下一步」仍未完成**，详见 `docs/remaining-work.md`。
 
 > 若从某些工具终端启动桌面应用时只见日志、不开窗，检查是否继承了 `ELECTRON_RUN_AS_NODE=1`；桌面主进程需要普通 Electron 模式（可 `unset ELECTRON_RUN_AS_NODE` 后再启动）。
 

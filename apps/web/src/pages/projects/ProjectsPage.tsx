@@ -138,6 +138,24 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
             开始任务
           </LinkButton>
         )}
+        {unavailable ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="template"
+            disabled
+            disabledReason="项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始模板任务。"
+          >
+            模板任务
+          </Button>
+        ) : (
+          <LinkButton to={`/templates?project=${encodeURIComponent(project.id)}`} variant="ghost" size="sm" icon="template">
+            模板任务
+          </LinkButton>
+        )}
+        <LinkButton to={`/projects/${encodeURIComponent(project.id)}`} variant="ghost" size="sm" iconAfter="chevRight">
+          查看配置
+        </LinkButton>
         <Button variant="ghost" size="sm" icon="refresh" disabled={busy} onClick={onRecheck}>
           重新检测
         </Button>

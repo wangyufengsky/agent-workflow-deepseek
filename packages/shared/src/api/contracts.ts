@@ -1,6 +1,6 @@
 import type { IsoDateTime, RequestKey, TaskId } from '../ids.ts';
 import type { ErrorCodeValue } from '../errors.ts';
-import type { DimensionValue, SeverityValue, ThemeIdValue } from '../domain/enums.ts';
+import type { DimensionValue, NodeManualAcceptanceStateValue, SeverityValue, ThemeIdValue } from '../domain/enums.ts';
 import type { AppEventEnvelope } from '../domain/events.ts';
 import type {
   ActionAvailability,
@@ -702,8 +702,35 @@ export interface ExecutionResponse {
   readonly actions: Record<string, ActionAvailability>;
 }
 
+/** Human verdict recorded on one succeeded node (audit fact, never a node status rewrite). */
+export interface NodeAcceptanceView {
+  readonly nodeId: string;
+  readonly state: NodeManualAcceptanceStateValue;
+  readonly verdictAt?: IsoDateTime;
+  readonly note?: string;
+  readonly requestKey?: RequestKey;
+}
+
+/**
+ * `NodeDetail` plus the persisted manual-acceptance fact. `acceptance` is
+ * present only for `succeeded` nodes; `pending` means "completed, waiting for
+ * the human verdict". Accepting/rejecting never rewrites the execution result.
+ */
+export type NodeDetailResponse = NodeDetail & { readonly acceptance?: NodeAcceptanceView };
+
 export interface NodeResponse {
-  readonly node: NodeDetail;
+  readonly node: NodeDetailResponse;
+}
+
+export interface NodeAcceptRequest extends CommandRequest {
+  readonly confirmAccept: true;
+  readonly note?: string;
+}
+
+export interface NodeRejectRequest extends CommandRequest {
+  readonly confirmReject: true;
+  /** Why the node is sent back; required so the verdict is actionable. */
+  readonly note: string;
 }
 
 export interface NodeOutputQuery {
@@ -1157,6 +1184,8 @@ export const ROUTES = {
   node: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}`,
   nodeAttempts: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/attempts`,
   nodeOutput: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/output`,
+  nodeAccept: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/accept`,
+  nodeReject: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/reject`,
   delivery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery`,
   deliverySelect: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/select`,
   deliveryCommit: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/commit`,
