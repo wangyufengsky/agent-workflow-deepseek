@@ -1,3 +1,4 @@
+import { templateScopePrompt } from './template-scope.ts';
 import { toolEvidence } from './tool-evidence.ts';
 import { projectDocumentInstructions } from './project-documents.ts';
 import { canShareWorkspace, executionPolicy, executionTimeoutMs, retryClass, retryDelayMs } from './execution-policy.ts';
@@ -1343,6 +1344,7 @@ ${task.title}
 
 # 需求原文
 ${task.requirement.text}
+${templateScopePrompt(task.fixedTemplate?.scope)}
 
 # 已冻结职业
 ${node.roleSnapshot === undefined ? "历史计划未记录职业快照" : `${node.roleSnapshot.name} @ ${node.roleSnapshot.revision}\n${node.roleSnapshot.instructions ?? node.roleSnapshot.purpose}\n职责：${node.roleSnapshot.responsibilities.join("；")}`}
@@ -1358,7 +1360,7 @@ ${node.roleSnapshot === undefined ? "历史计划未记录职业快照" : `${nod
 读取资源：${node.resources.read.map((resource) => resource.label).join('、') || '无'}
 写入资源：${node.resources.write.map((resource) => resource.label).join('、') || '无'}
 
-${projectDocumentInstructions(this.#store.projects.get(task.projectId)?.settings)}
+${projectDocumentInstructions(task.fixedTemplate?.scope?.outputDirectory ? { ...this.#store.projects.get(task.projectId)?.settings, docPaths: [task.fixedTemplate.scope.outputDirectory] } : this.#store.projects.get(task.projectId)?.settings)}
 
 # 执行要求
 1. 只在当前工作区内修改文件；使用 workspace.file.read/list/write 工具；可以用 workspace.exec 运行允许的测试命令。

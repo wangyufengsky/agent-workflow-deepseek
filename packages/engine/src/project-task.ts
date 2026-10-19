@@ -1,6 +1,7 @@
+import { freezeTemplateScope } from './template-scope.ts';
 import { freezeCodeReviewSnapshot } from './snapshot-review.ts';
-import { readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
+import { readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
   ApiEnvelope,
   CatalogSnapshot,
@@ -60,6 +61,16 @@ export class ProjectService {
 
   list(includeArchived = false): readonly ProjectSummary[] {
     return this.#store.projects.listSummaries(includeArchived);
+  }
+
+  async sourcePath(projectId: string, picked: string): Promise<{ path: string }> {
+    if (typeof picked !== 'string' || !picked.trim()) throw new AppError(ErrorCode.VALIDATION_FAILED, '请选择源码目录');
+    const project = this.get(projectId);
+    const root = await realpath(project.rootPath); const selected = await realpath(picked);
+    const path = relative(root, selected);
+    if (isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) throw new AppError(ErrorCode.FORBIDDEN, '请选择项目目录内的源码目录');
+    if (!(await stat(selected)).isDirectory()) throw new AppError(ErrorCode.VALIDATION_FAILED, '请选择目录');
+    return { path: path === '' ? '.' : path.split(sep).join('/') };
   }
 
   get(projectId: string): ProjectSummary {
@@ -204,6 +215,7 @@ export class TaskService {
   readonly #projects: ProjectService;
   readonly #catalog: CatalogSnapshot;
   readonly #snapshotGit: GitPort | undefined;
+  readonly #activeCreates = new Set<string>();
 
   constructor(store: Store, commands: CommandService, context: EngineContext, projects: ProjectService, catalog: CatalogSnapshot, snapshotGit?: GitPort) {
     this.#store = store;
@@ -222,7 +234,7 @@ export class TaskService {
   }
 
   list(query: ListTasksQuery = {}): readonly TaskSummary[] {
-    let tasks = this.#store.tasks.list();
+    let tasks = this.#store.tasks.list().filter((task) => Boolean(this.#store.settings.getJson<string>(`task.archived.${task.id}`)) === (query.archived === true || String(query.archived) === 'true'));
     if (query.projectId !== undefined) tasks = tasks.filter((task) => task.projectId === query.projectId);
     if (query.stage !== undefined) tasks = tasks.filter((task) => task.stage === query.stage);
     if (query.attention !== undefined) tasks = tasks.filter((task) => task.attention === query.attention);
@@ -234,6 +246,30 @@ export class TaskService {
     return tasks.slice(0, limit).map((task) => this.#summary(task));
   }
 
+  archive(taskId: string, input: import('@agent-workflow/shared').TaskArchiveRequest): CommandResponse<TaskSummary> {
+    const { record, replayed } = this.#commands.begin({ requestKey: input.requestKey, operation: 'task.archive', body: { taskId, archived: input.archived, confirmArchive: input.confirmArchive }, target: { taskId } });
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.#summary(this.get(taskId)) };
+    try {
+      const task = this.get(taskId);
+      if (input.confirmArchive !== true || typeof input.archived !== 'boolean') throw new AppError(ErrorCode.VALIDATION_FAILED, '归档操作需要确认');
+      const action = this.#archiveAction(task);
+      if (!action.allowed) throw new AppError(ErrorCode.TASK_STAGE_CONFLICT, action.reason ?? '任务不能归档');
+      this.#store.settings.putJson(`task.archived.${taskId}`, input.archived ? nowIso() : null);
+      this.#commands.settle(input.requestKey, { taskId, archived: input.archived });
+      this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: task.stage, revision: 1 });
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#summary(task) };
+    } catch (error) { this.#commands.fail(input.requestKey, error as Error); throw error; }
+  }
+
+  #archiveAction(task: Task): import('@agent-workflow/shared').ActionAvailability {
+    const round = this.#store.planning.latest(task.id);
+    const execution = this.#store.executions.byTask(task.id);
+    if (task.lifecycle === 'active') return { allowed: false, reason: '只有已结束或已终止的任务可以归档', reasonCode: 'TASK_ACTIVE' };
+    if (round && ['queued', 'running', 'stopping', 'unknown'].includes(round.status)) return { allowed: false, reason: '规划尚未停稳或结果待核对', reasonCode: 'PLANNING_ACTIVE' };
+    if (execution && (['running', 'stopping', 'unknown'].includes(execution.status) || execution.nodes.some((node) => node.status === 'running'))) return { allowed: false, reason: '仍有执行步骤运行，不能归档', reasonCode: 'EXECUTION_ACTIVE' };
+    return { allowed: true };
+  }
+
   get(taskId: string): Task {
     const task = this.#store.tasks.get(taskId);
     if (task === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务不存在');
@@ -241,20 +277,46 @@ export class TaskService {
   }
 
   async createForRequest(input: CreateTaskRequest): Promise<CommandResponse<TaskDetailResponse>> {
-    const existing = this.#commands.get(input.requestKey);
-    if (existing !== undefined && existing.status !== 'accepted') return this.create(input);
-    const template = input.template === undefined ? undefined : this.#catalog.templates.find((item) => item.id === input.template!.templateId);
-    if (template?.kind !== 'snapshot_review') return this.create(input);
-    const project = this.#store.projects.get(input.projectId);
-    if (project?.gitState !== 'git' || this.#snapshotGit?.snapshotInventory === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '快照代码评审需要可读取固定源码版本的 Git 仓库');
-    const parameters = input.template!.parameters;
-    if (parameters === null || typeof parameters !== 'object' || Array.isArray(parameters) || Object.values(parameters).some((value) => typeof value !== 'string')) throw new AppError(ErrorCode.VALIDATION_FAILED, '快照模板参数必须是字符串配置');
-    if (parameters.mode === 'incremental' && !parameters.baselineRef?.trim()) throw new AppError(ErrorCode.VALIDATION_FAILED, '增量审查必须填写源码基线');
-    const snapshot = freezeCodeReviewSnapshot(await this.#snapshotGit.snapshotInventory({ repoRoot: project.rootPath, targetRef: parameters.targetRef?.trim() || 'HEAD', ...(parameters.mode === 'incremental' ? { baselineRef: parameters.baselineRef?.trim() || undefined } : {}) }), parameters);
-    return this.create(input, snapshot);
+    if (input.template?.scope === undefined && input.template === undefined) return this.create(input);
+    const { record, replayed } = this.#commands.begin({ requestKey: input.requestKey, operation: input.template ? 'template.task.create' : 'task.create', body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, template: input.template }, target: { projectId: input.projectId } });
+    if (replayed) { const taskId = record.outcome?.taskId; return { receipt: this.#commands.toReceipt(record), ...(typeof taskId === 'string' ? { resource: this.detail(taskId) } : {}) }; }
+    this.#activeCreates.add(input.requestKey);
+    try {
+      const template = this.#catalog.templates.find((item) => item.id === input.template!.templateId);
+      if (!template) throw new AppError(ErrorCode.NOT_FOUND, '模板不存在');
+      const requestScope = input.template?.scope;
+      if (template.inputs?.source && (requestScope !== undefined || template.id !== 'template.unit-test-development') && !requestScope?.sourcePaths?.length && !input.template?.parameters.targetPath) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板需要明确源码范围');
+      if (template.inputs?.documents && !requestScope?.documents?.length) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板需要需求文档');
+      if (template.inputs?.dates && requestScope && !requestScope.dateRange) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板需要时间范围');
+      const effectiveScope = requestScope;
+      const scope = effectiveScope === undefined ? undefined : await freezeTemplateScope(this.#store.projects.get(input.projectId), effectiveScope, this.#snapshotGit);
+      if (template.kind !== 'snapshot_review') return this.create(input, undefined, scope);
+      const project = this.#store.projects.get(input.projectId);
+      if (project?.gitState !== 'git' || this.#snapshotGit?.snapshotInventory === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '快照代码评审需要可读取固定源码版本的 Git 仓库');
+      const parameters = input.template!.parameters;
+      if (parameters === null || typeof parameters !== 'object' || Array.isArray(parameters) || Object.values(parameters).some((value) => typeof value !== 'string')) throw new AppError(ErrorCode.VALIDATION_FAILED, '快照模板参数必须是字符串配置');
+      const dated = scope?.dateRange !== undefined;
+      if (!dated && parameters.mode === 'incremental' && !parameters.baselineRef?.trim()) throw new AppError(ErrorCode.VALIDATION_FAILED, '增量审查必须填写源码基线');
+      const incremental = dated ? scope.dateRange!.preset !== 'full' : parameters.mode === 'incremental';
+      const oldest = scope?.commits?.toSorted((a,b) => Date.parse(a.commit.committedAt) - Date.parse(b.commit.committedAt))[0]?.commit;
+      const baselineRef = dated ? oldest?.parents[0] : parameters.baselineRef?.trim() || undefined;
+      const inventory = await this.#snapshotGit.snapshotInventory({ repoRoot: project.rootPath, targetRef: scope?.targetSha ?? (parameters.targetRef?.trim() || 'HEAD'), ...(incremental && baselineRef ? { baselineRef } : {}) });
+      const scopedParameters = { ...parameters, ...(scope?.sourcePaths.length ? { scopePaths: scope.sourcePaths.join(',') } : {}), ...(dated ? { mode: incremental ? 'incremental' : 'full' } : {}) };
+      const datedInventory = dated && incremental ? { ...inventory, baselineSha: inventory.baselineSha ?? oldest?.compareOptions[0]?.baseSha ?? inventory.targetSha, changedPaths: [...new Set(scope.commits?.flatMap((item) => item.changes.flatMap((change) => [change.file.path, ...(change.file.oldPath ? [change.file.oldPath] : [])])) ?? [])] } : inventory;
+      const snapshot = freezeCodeReviewSnapshot(datedInventory, scopedParameters);
+      return this.create(input, snapshot, scope);
+    } catch (error) { this.#commands.fail(input.requestKey, error as Error, this.#store.settings.getJson(`task.create.result.${input.requestKey}`) !== undefined); throw error; } finally { this.#activeCreates.delete(input.requestKey); }
   }
 
-  create(input: CreateTaskRequest, snapshot?: import('@agent-workflow/shared').CodeReviewSnapshot): CommandResponse<TaskDetailResponse> {
+  reconcileCreate(requestKey: string): void {
+    const operation = this.#commands.get(requestKey);
+    if (!operation || !['task.create', 'template.task.create'].includes(operation.operation) || !['accepted', 'unknown'].includes(operation.status) || this.#activeCreates.has(requestKey)) return;
+    const taskId = this.#store.settings.getJson<string>(`task.create.result.${requestKey}`);
+    if (taskId && this.#store.tasks.get(taskId)) this.#commands.settle(requestKey, { taskId, reconciled: true });
+    else this.#commands.fail(requestKey, new AppError(ErrorCode.INTERNAL_ERROR, '创建预处理已中断，未创建任务；原请求已核对，不自动重发'));
+  }
+
+  create(input: CreateTaskRequest, snapshot?: import('@agent-workflow/shared').CodeReviewSnapshot, scope?: import('@agent-workflow/shared').TemplateTaskScope): CommandResponse<TaskDetailResponse> {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: input.template === undefined ? 'task.create' : 'template.task.create',
@@ -277,31 +339,38 @@ export class TaskService {
       const selectedTemplate = input.template === undefined ? undefined : this.#catalog.templates.find((template) => template.id === input.template!.templateId);
       if (input.template !== undefined && selectedTemplate === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '任务模板不存在');
       if (selectedTemplate?.kind === 'snapshot_review' && snapshot === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '快照模板需要先固定源码版本');
+      if (input.template?.scope !== undefined && scope === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板范围须经服务冻结后创建');
       const fixedTemplate = input.template === undefined
         ? undefined
         : {
             templateId: input.template.templateId,
             templateVersion: this.#catalog.templates.find((template) => template.id === input.template!.templateId)?.version ?? 1,
             locked: true as const,
+            contract: structuredClone(selectedTemplate!),
             parameters: input.template.parameters,
+            ...(scope === undefined ? {} : { scope }),
             ...(snapshot === undefined ? {} : { snapshot }),
           };
-      const task = this.#store.tasks.create({
-        projectId: input.projectId,
-        title: input.title.trim(),
-        requirementText: input.requirementText,
-        methodId: method.id,
-        methodRevision: method.revision,
-        stage: TaskStage.DRAFT,
-        fixedTemplate,
+      const task = this.#store.transaction(() => {
+        const task = this.#store.tasks.create({
+          projectId: input.projectId,
+          title: input.title.trim(),
+          requirementText: input.requirementText,
+          methodId: method.id,
+          methodRevision: method.revision,
+          stage: TaskStage.DRAFT,
+          fixedTemplate,
+        });
+        this.#store.settings.putJson(`task.execution-settings.${task.id}`, structuredClone(this.#context.settings().execution));
+        this.#store.settings.putJson(`task.create.result.${input.requestKey}`, task.id);
+        return task;
       });
-      this.#store.settings.putJson(`task.execution-settings.${task.id}`, structuredClone(this.#context.settings().execution));
       this.#store.events.publish('task.changed', { taskId: task.id, projectId: task.projectId, stage: task.stage, revision: 1 });
       this.#commands.settle(input.requestKey, { taskId: task.id });
       const refreshed = this.#commands.get(input.requestKey)!;
       return { receipt: this.#commands.toReceipt(refreshed), resource: this.detail(task.id) };
     } catch (error) {
-      this.#commands.fail(input.requestKey, error as Error);
+      this.#commands.fail(input.requestKey, error as Error, this.#store.settings.getJson(`task.create.result.${input.requestKey}`) !== undefined);
       throw error;
     }
   }
@@ -463,6 +532,9 @@ export class TaskService {
       lifecycle: task.lifecycle,
       attention: task.attention,
       methodName: method?.name ?? task.methodId,
+      archivedAt: this.#store.settings.getJson<string>(`task.archived.${task.id}`) ?? undefined,
+      planRevision: this.#store.plans.get(task.currentPlanRevisionId ?? '')?.revisionNumber,
+      archiveAction: this.#archiveAction(task),
       planning: round === undefined ? undefined : { status: round.status, stage: round.stage, lastActivity: round.lastActivity ?? '' },
       progress,
       deliveryProjection: delivery?.projection,

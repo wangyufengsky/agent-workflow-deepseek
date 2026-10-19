@@ -258,6 +258,9 @@ export interface RoleImageHistoryEntry {
 }
 
 export interface TaskTemplate {
+  readonly description?: string;
+  readonly group?: 'report' | 'review' | 'dev';
+  readonly inputs?: { readonly dates?: boolean; readonly fullHistory?: boolean; readonly source?: boolean; readonly documents?: boolean; readonly output?: boolean };
   readonly kind?: 'standard' | 'snapshot_review';
   readonly id: string;
   readonly name: string;
@@ -294,7 +297,21 @@ export interface ModelProfile {
 /* Task and requirement                                                */
 /* ------------------------------------------------------------------ */
 
+export interface TemplateTaskScope {
+  readonly outputDirectory?: string;
+  readonly branch?: string;
+  readonly targetSha?: string;
+  readonly dateRange?: { readonly preset: 'week' | 'month' | 'custom' | 'full'; readonly from?: string; readonly to?: string };
+  readonly sourcePaths: readonly string[];
+  readonly documents: readonly { readonly name: string; readonly sha256: string; readonly bytes: number; readonly text: string }[];
+  readonly commits?: readonly { readonly commit: GitCommit; readonly changes: readonly { readonly file: FileChange; readonly diff: DiffPage }[] }[];
+  readonly sourceFiles?: readonly { readonly path: string; readonly blobSha: string; readonly text: string }[];
+  readonly frozenAt: string;
+}
+
 export interface FixedTemplateBinding {
+  readonly contract?: TaskTemplate;
+  readonly scope?: TemplateTaskScope;
   readonly snapshot?: import('./snapshot.ts').CodeReviewSnapshot;
   readonly templateId: string;
   readonly templateVersion: number;
@@ -346,6 +363,9 @@ export interface Task {
 }
 
 export interface TaskSummary {
+  readonly archivedAt?: IsoDateTime;
+  readonly planRevision?: number;
+  readonly archiveAction?: ActionAvailability;
   readonly id: TaskId;
   readonly projectId: ProjectId;
   readonly projectName: string;

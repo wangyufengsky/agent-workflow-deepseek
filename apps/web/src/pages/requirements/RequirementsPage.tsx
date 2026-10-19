@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   PLANNING_STAGE_LABEL,
   PLANNING_STATUS_LABEL,
@@ -8,10 +8,13 @@ import {
   type TaskStageValue,
   type TaskSummary,
 } from '@agent-workflow/shared';
+import { useQuery } from '@tanstack/react-query';
+import { fetchTaskDetail } from '../../api/workflow.ts';
+import { Drawer } from '../../components/Drawer.tsx';
+import { taskHref } from '../../app/taskStatus.ts';
 import { useProjects, useTasks } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
 import { sortByUpdatedDesc, taskStageIcon } from '../../app/taskStatus.ts';
-import { Badge } from '../../components/Badge.tsx';
 import { LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
@@ -19,7 +22,7 @@ import { Icon } from '../../components/Icon.tsx';
 import { IconButton } from '../../components/IconButton.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
-import { StageCapsule } from '../../components/StageCapsule.tsx';
+import { TaskStatusBadge } from '../../components/StageBadge.tsx';
 
 type StageFilter = 'all' | TaskStageValue;
 
@@ -30,32 +33,11 @@ function planningText(task: TaskSummary): string {
   return `${PLANNING_STATUS_LABEL[task.planning.status]} · ${PLANNING_STAGE_LABEL[task.planning.stage]}`;
 }
 
-function planningTone(task: TaskSummary): 'neutral' | 'accent' | 'ok' | 'wait' | 'fail' | 'unknown' | 'idle' {
-  if (task.planning === undefined) return 'neutral';
-  switch (task.planning.status) {
-    case 'queued':
-    case 'running':
-      return 'accent';
-    case 'completed':
-      return 'ok';
-    case 'stopped':
-    case 'stopping':
-      return 'idle';
-    case 'failed':
-      return 'fail';
-    case 'unknown':
-      return 'unknown';
-    default:
-      return 'neutral';
-  }
-}
-
-function RequirementRow({ task, showProject }: { readonly task: TaskSummary; readonly showProject: boolean }) {
+function RequirementRow({ task, showProject, onSelect }: { readonly task: TaskSummary; readonly showProject: boolean; readonly onSelect: () => void }) {
   return (
-    <Link
+    <button type="button" onClick={onSelect}
       className="list-row"
-      to={`/requirement/${encodeURIComponent(task.id)}`}
-      style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(230px, 300px) 136px 118px 18px', gap: 16, alignItems: 'center', borderRadius: 0 }}
+      style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 164px 136px 118px 18px', gap: 16, alignItems: 'center', borderRadius: 0, width: '100%', textAlign: 'left' }}
     >
       <span style={{ minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 14, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>
@@ -70,19 +52,17 @@ function RequirementRow({ task, showProject }: { readonly task: TaskSummary; rea
         </span>
       </span>
       <span style={{ minWidth: 0 }}>
-        <StageCapsule compact current={task.stage} lifecycle={task.lifecycle} attention={task.attention} />
+        <TaskStatusBadge task={task} />
       </span>
       <span className="row" style={{ gap: 6, minWidth: 0 }}>
-        <Badge tone={planningTone(task)} icon={task.planning === undefined ? 'minus' : 'sparkle'}>
-          {task.planning === undefined ? '未规划' : PLANNING_STATUS_LABEL[task.planning.status]}
-        </Badge>
-        {task.planning === undefined ? null : <span className="hint ellipsis">{PLANNING_STAGE_LABEL[task.planning.stage]}</span>}
+        <span className="num">{task.planRevision === undefined ? '尚无修订' : `修订 ${task.planRevision}`}</span>
+
       </span>
       <span className="hint num" style={{ textAlign: 'right', whiteSpace: 'nowrap' }} title={task.updatedAt}>
         {formatRelativeTime(task.updatedAt)}
       </span>
       <Icon name="chevRight" size="sm" />
-    </Link>
+    </button>
   );
 }
 
@@ -90,6 +70,8 @@ export function RequirementsPage() {
   const tasksQuery = useTasks({ limit: 200 });
   const projectsQuery = useProjects();
   const [params, setParams] = useSearchParams();
+  const [selected, setSelected] = useState<TaskSummary | null>(null);
+  const detail = useQuery({ queryKey: ['requirement-directory', selected?.id], queryFn: () => fetchTaskDetail(selected!.id), enabled: selected !== null, retry: false });
   const [stage, setStage] = useState<StageFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [visible, setVisible] = useState(PAGE_SIZE);
@@ -216,7 +198,7 @@ export function RequirementsPage() {
           className="rq-head"
           style={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) minmax(230px, 300px) 136px 118px 18px',
+            gridTemplateColumns: 'minmax(0, 1fr) 164px 136px 118px 18px',
             gap: 16,
             padding: '10px 16px',
             fontSize: 12,
@@ -225,14 +207,14 @@ export function RequirementsPage() {
           }}
         >
           <span>需求</span>
-          <span>阶段</span>
-          <span>规划</span>
+          <span>状态</span>
+          <span>计划修订</span>
           <span style={{ textAlign: 'right' }}>更新时间</span>
           <span />
         </div>
         <div style={{ padding: '4px 6px 6px' }}>
           {shown.map((task) => (
-            <RequirementRow key={task.id} task={task} showProject={projectId === 'all'} />
+            <RequirementRow key={task.id} task={task} showProject={projectId === 'all'} onSelect={() => setSelected(task)} />
           ))}
         </div>
         <div className="row" style={{ padding: '10px 16px 14px', boxShadow: 'inset 0 1px 0 var(--line)', flexWrap: 'wrap', gap: 8 }}>
@@ -320,6 +302,14 @@ export function RequirementsPage() {
         </div>
       ) : null}
 
+      <Drawer open={selected !== null} title={selected?.title ?? '需求'} onClose={() => setSelected(null)} footer={selected ? <LinkButton to={taskHref(selected)} variant="primary" iconAfter="arrowRight">打开画布</LinkButton> : null}>
+        {detail.isLoading ? <Skeleton height={100} /> : detail.isError ? <ServiceNotice error={detail.error} onRetry={() => { void detail.refetch(); }} /> : detail.data ? <>
+          {selected ? <TaskStatusBadge task={{ ...selected, ...detail.data.task }} /> : null}
+          <dl className="kv"><dt>计划修订</dt><dd>{detail.data.plan ? `修订 ${detail.data.plan.revisionNumber}` : '尚无计划修订'}</dd><dt>更新时间</dt><dd>{detail.data.task.updatedAt}</dd></dl>
+          <p className="hint">计划修订记录已保存的计划变化，与需求输入修订 {detail.data.task.requirement.revision} 分别保留。选中只是查看，确认计划和开始执行都在画布里单独操作。</p>
+          <p style={{ whiteSpace: 'pre-wrap' }}>{detail.data.task.requirement.text}</p>
+        </> : null}
+      </Drawer>
       <section className="card" aria-busy={tasksQuery.isFetching} aria-label="需求目录">
         {body}
       </section>

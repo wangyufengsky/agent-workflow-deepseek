@@ -6,6 +6,8 @@ import { Icon } from './Icon.tsx';
 import { Modal } from './Modal.tsx';
 
 export interface DirectoryPickerProps {
+  readonly title?: string;
+  readonly selectionVerb?: string;
   readonly open: boolean;
   readonly initialPath?: string;
   readonly onClose: () => void;
@@ -13,7 +15,7 @@ export interface DirectoryPickerProps {
 }
 
 /** Server-backed folder browser (browser mode); Electron uses the native dialog. */
-export function DirectoryPicker({ open, initialPath, onClose, onSelect }: DirectoryPickerProps) {
+export function DirectoryPicker({ open, initialPath, onClose, onSelect, title = '选择项目文件夹', selectionVerb = '将登记' }: DirectoryPickerProps) {
   const [path, setPath] = useState<string | undefined>(initialPath);
   const [listing, setListing] = useState<DirectoryListingResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -57,11 +59,11 @@ export function DirectoryPicker({ open, initialPath, onClose, onSelect }: Direct
   return (
     <Modal
       open={open}
-      title="选择项目文件夹"
+      title={title}
       onClose={onClose}
       footer={
         <>
-          <span className="hint grow">{listing === null ? '选择一个目录' : `将登记：${listing.path}`}</span>
+          <span className="hint grow">{listing === null ? '选择一个目录' : `${selectionVerb}：${listing.path}`}</span>
           <Button variant="ghost" onClick={onClose}>取消</Button>
           <Button variant="primary" icon="check" disabled={listing === null} disabledReason={listing === null ? '先进入一个可读取的目录' : undefined} onClick={selectCurrent}>
             选择此文件夹

@@ -1,16 +1,10 @@
+import { HomeOngoing } from './HomeOngoing.tsx';
 import { LinkButton } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { HomeCapabilities } from './HomeCapabilities.tsx';
 import { HomeFlowDemo } from './HomeFlowDemo.tsx';
 
-/**
- * 主页是设计定位的展示页：标语 + 产品窗口流程演示 + 能力卡/入口 + 收尾 CTA。
- *
- * It deliberately reads no business data (no bootstrap statistics, inbox or
- * recent-activity dashboards). The shell already owns the service-connection
- * state; tasks/inbox/requirements remain one click away in the official menu
- * and in the capability entry cards below.
- */
+/** Design homepage: real ongoing tasks followed by the explicitly labelled workflow demo. */
 export function HomePage() {
   return (
     <div className="page home">
@@ -37,6 +31,7 @@ export function HomePage() {
         </div>
       </section>
 
+      <HomeOngoing />
       <HomeFlowDemo />
       <HomeCapabilities />
     </div>

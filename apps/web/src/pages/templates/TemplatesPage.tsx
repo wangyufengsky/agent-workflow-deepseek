@@ -1,3 +1,5 @@
+import { TemplateArchivePanel } from './TemplateArchivePanel.tsx';
+import { TemplateScopeFields, TemplateBranchField, type ScopeInput } from './TemplateScopeFields.tsx';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -71,6 +73,7 @@ const TEMPLATE_GROUPS: readonly { readonly key: TemplateGroupKey; readonly label
 
 /** 服务没有模板分类字段：按名称/标识启发式归类，页面上必须注明。 */
 function templateGroupOf(template: TaskTemplate): TemplateGroupKey {
+  if (template.group) return template.group;
   const text = `${template.id} ${template.name}`.toLowerCase();
   if (/(报告|周报|汇报|摘要|report|summary|digest)/.test(text)) return 'report';
   if (/(审阅|评审|审查|复核|review|audit)/.test(text)) return 'review';
@@ -95,7 +98,7 @@ function ParameterField({ template, parameters, disabled, onChange }: {
   }
   return (
     <div className="col" style={{ gap: 16 }}>
-      {template.parameters.map((parameter, index) => {
+      {template.parameters.filter((parameter) => template.kind !== 'snapshot_review' || !['mode', 'targetRef', 'baselineRef'].includes(parameter.key)).map((parameter, index) => {
         const value = parameters[parameter.key] ?? '';
         return (
           <div key={parameter.key} className="field" style={{ margin: 0 }}>
@@ -145,6 +148,7 @@ export function TemplatesPage() {
   const [title, setTitle] = useState('');
   const [requirementText, setRequirementText] = useState('');
   const [methodId, setMethodId] = useState('');
+  const [scope, setScope] = useState<ScopeInput>({});
   const [parameters, setParameters] = useState<Record<string, string>>({});
   const [keyword, setKeyword] = useState('');
   const [state, setState] = useState<CreateState | null>(null);
@@ -173,6 +177,10 @@ export function TemplatesPage() {
   if (title.trim().length === 0) missingFields.push('任务标题');
   if (requirementText.trim().length === 0) missingFields.push('任务说明');
   if (effectiveMethodId.length === 0) missingFields.push('目录方法');
+  if (!scope.branch) missingFields.push('分支');
+  if (template?.inputs?.dates && !scope.dateRange) missingFields.push('时间范围');
+  if (template?.inputs?.source && !scope.sourcePaths?.length) missingFields.push('源码范围');
+  if (template?.inputs?.documents && !scope.documents?.length) missingFields.push('需求文档');
   if (template !== undefined) {
     for (const parameter of template.parameters) {
       if (parameter.required && (parameters[parameter.key] ?? '').trim().length === 0) missingFields.push(parameter.label);
@@ -185,6 +193,7 @@ export function TemplatesPage() {
     setTitle('');
     setRequirementText('');
     setParameters({});
+    setScope({});
   };
 
   const submit = async (requestKey = createRequestKey(), body?: CreateTaskRequest) => {
@@ -196,7 +205,7 @@ export function TemplatesPage() {
         title: title.trim(),
         requirementText: requirementText.trim(),
         methodId: effectiveMethodId,
-        template: { templateId: template.id, parameters },
+        template: { templateId: template.id, parameters, scope },
       };
     setState({ phase: 'submitting', requestKey, body: payload });
     try {
@@ -347,7 +356,8 @@ export function TemplatesPage() {
                   disabled={formLocked}
                   onClick={() => {
                     setSelectedId(item.id);
-                    setParameters({});
+                    setParameters(item.kind === 'snapshot_review' ? { mode: 'full', depth: 'full' } : {});
+                    setScope((current) => ({ branch: current.branch }));
                     setState(null);
                   }}
                 >
@@ -366,7 +376,7 @@ export function TemplatesPage() {
             </div>
           ))}
           <p className="hint" style={{ padding: '8px 12px 2px' }}>
-            分组按模板名称 / 标识启发式归类（报告 / 代码审查 / 开发）；服务未提供模板分类字段。
+            模板按服务提供的报告 / 代码审查 / 开发分类；旧自定义模板按名称归类。
           </p>
           <div style={{ padding: '10px 12px', boxShadow: 'inset 0 1px 0 var(--line)' }}>
             <LinkButton to="/start" variant="ghost" size="sm" icon="plus">
@@ -415,6 +425,7 @@ export function TemplatesPage() {
                 </Button>
               </div>
               <p className="sub" style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.65 }}>
+                {template.description ? <>{template.description}<br /></> : null}
                 模板的 {String(template.steps.length)} 个步骤由版本 {String(template.version)} 固定；创建后不能增删或改写。
               </p>
               <div className="row wrap" style={{ gap: 6, marginTop: 12 }}>
@@ -500,7 +511,7 @@ export function TemplatesPage() {
                   <div className="grow">
                     {((): ReactNode => {
                       const selectedProject = projects.find((project) => project.id === projectId);
-                      const branch = selectedProject?.defaultBranch;
+                      const branch = scope.branch ?? selectedProject?.defaultBranch;
                       return (
                         <>
                           <b>
@@ -508,9 +519,9 @@ export function TemplatesPage() {
                           </b>
                           <br />
                           {branch === undefined
-                            ? '项目没有登记默认分支；分支在准备工作区时由服务决定。'
-                            : `分支来自项目登记的默认分支（${branch}）；实际以工作区准备时冻结的基线为准。`}
-                          {' '}范围：{template.parameters.length > 0 ? '由下方模板参数表达' : '由任务说明表达'}；创建任务接口没有时间范围 / 源码范围 / 文档上传字段。
+                            ? '请选择分支后创建。'
+                            : `创建时固定分支 ${branch} 的提交，工作区使用该基线。`}
+                          {' '}分支、日期、源码与文档范围作为固定输入保存，不会自动扩大。
                         </>
                       );
                     })()}
@@ -559,6 +570,7 @@ export function TemplatesPage() {
                       disabled={formLocked}
                       onChange={(event) => {
                         setProjectId(event.target.value);
+                        setScope({});
                       }}
                     >
                       <option value="">选择项目</option>
@@ -570,25 +582,7 @@ export function TemplatesPage() {
                     </select>
                     {projects.length === 0 ? <span className="hint">服务里还没有登记项目；请先在项目页登记。</span> : null}
                   </div>
-                  <div className="field" style={{ margin: 0 }}>
-                    <label className="label" htmlFor="tpl-branch">
-                      分支
-                    </label>
-                    <select
-                      id="tpl-branch"
-                      className="select"
-                      disabled
-                      aria-label="分支"
-                      title="创建任务接口不接受分支参数；分支由工作区准备时由服务决定。"
-                    >
-                      <option>服务未提供分支选择</option>
-                    </select>
-                    <span className="hint">
-                      {projectId === '' || projects.find((item) => item.id === projectId)?.defaultBranch === undefined
-                        ? '项目未登记默认分支；实际分支在准备工作区时由服务决定。'
-                        : `项目默认分支：${projects.find((item) => item.id === projectId)?.defaultBranch ?? ''}（只读展示，创建接口不接受分支参数）`}
-                    </span>
-                  </div>
+                  <TemplateBranchField projectId={projectId} value={scope} onChange={setScope} disabled={formLocked} />
                 </div>
 
                 <div className="field">
@@ -650,7 +644,7 @@ export function TemplatesPage() {
                 </div>
 
                 <div className="field">
-                  <span className="label">模板参数（源码范围 / 需求文档等由模板参数表达）</span>
+                  <span className="label">模板额外参数</span>
                   <ParameterField
                     template={template}
                     parameters={parameters}
@@ -661,38 +655,7 @@ export function TemplatesPage() {
                   />
                 </div>
 
-                <section className="card pad" style={{ marginTop: 16, borderStyle: 'dashed' }} aria-label="设计稿范围控件（服务未提供）">
-                  <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
-                    <span className="label">时间范围</span>
-                    {['最近 7 天', '本月', '自定义', '全部历史'].map((label) => (
-                      <Button
-                        key={label}
-                        variant="ghost"
-                        size="sm"
-                        disabled
-                        disabledReason="创建任务接口没有时间范围字段；请把范围写进任务说明或模板参数。"
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                  </div>
-                  <div className="row wrap" style={{ gap: 8, marginTop: 10, alignItems: 'center' }}>
-                    <span className="label">源码范围 / 需求文档</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon="upload"
-                      disabled
-                      disabledReason="创建任务接口只接受文本需求与模板参数，没有文件上传或源码范围字段。"
-                    >
-                      上传需求文档
-                    </Button>
-                    <span className="hint">源码路径可由模板参数表达；需求文档上传没有接口。</span>
-                  </div>
-                  <p className="hint" style={{ marginTop: 8 }}>
-                    以上控件来自设计稿；服务契约没有对应字段，因此禁用并写明原因，不伪造日期换算、源码范围或文件上传。
-                  </p>
-                </section>
+                <TemplateScopeFields key={`${template.id}:${projectId}`} template={template} project={projects.find((item) => item.id === projectId)} value={scope} onChange={setScope} disabled={formLocked} />
 
                 <div className="row wrap" style={{ gap: 8, marginTop: 20, paddingTop: 16, boxShadow: 'inset 0 1px 0 var(--line)' }}>
                   <span className="hint grow">
@@ -719,14 +682,7 @@ export function TemplatesPage() {
             )}
           </section>
 
-          <div className="banner info">
-            <Icon name="info" />
-            <div className="grow">
-              <b>历史模板 / 自动化档案未接入</b>
-              <br />
-              服务未提供归档模板列表、旧模板包读取或自动化运行记录接口；因此这里只显示「由这个模板创建的任务」这一真实任务记录，不展示虚构档案或自动化历史。
-            </div>
-          </div>
+          <TemplateArchivePanel />
 
           <section className="card" aria-label="模板历史任务">
             <div className="card-head">

@@ -83,7 +83,8 @@ function TaskListBody({ tasks }: { readonly tasks: readonly TaskSummary[] }) {
 
 export function TasksPage() {
   const [limit, setLimit] = useState(50);
-  const tasksQuery = useTasks({ limit });
+  const [archived, setArchived] = useState(false);
+  const tasksQuery = useTasks({ limit, archived });
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [project, setProject] = useState('all');
@@ -247,6 +248,7 @@ export function TasksPage() {
             onChange={(event) => setKeyword(event.target.value)}
           />
         </div>
+        <Button variant="ghost" size="sm" icon="archive" onClick={() => setArchived(!archived)}>{archived ? '已归档 · 返回当前任务' : '查看已归档'}</Button>
         <SegmentedControl ariaLabel="状态" options={filterOptions} value={filter} onChange={setFilter} />
         <select className="select ctl" aria-label="项目" value={project} onChange={(event) => setProject(event.target.value)}>
           <option value="all">全部项目</option>
@@ -306,8 +308,8 @@ export function TasksPage() {
             >
               加载更多
             </Button>
-            <Button variant="ghost" size="sm" icon="archive" disabled disabledReason="任务归档与已归档列表接口未接通；当前不能查看已归档任务。">
-              查看已归档
+            <Button variant="ghost" size="sm" icon="archive" onClick={() => setArchived(!archived)}>
+              {archived ? '返回当前任务' : '查看已归档'}
             </Button>
             <Link className="btn ghost sm" to="/inbox">
               <Icon name="inbox" size="sm" />

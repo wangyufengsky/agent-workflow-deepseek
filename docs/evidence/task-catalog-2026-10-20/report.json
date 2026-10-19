@@ -1,0 +1,13 @@
+{
+  "realService": true,
+  "providerLive": false,
+  "themes": 4,
+  "homeOngoing": true,
+  "requirementReadOnlyDrawer": true,
+  "archivePersisted": true,
+  "archiveTabs": true,
+  "templateScopeCreated": true,
+  "frozenSha": "2dfe6c82a552573400e9ad6410e1252a76e8ca75",
+  "documentSha": "4f2c60c66024d7f7d10310e9241d948e56a69d3fb6e28cf9cfc05a32d4d63c88",
+  "errors": []
+}

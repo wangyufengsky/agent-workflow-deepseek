@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { TaskSummary } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, type CommandResponse, type TaskSummary } from '@agent-workflow/shared';
+import { apiPost } from '../../api/client.ts';
+import { useWorkflowCommand } from '../../api/workflow.ts';
+import { Drawer } from '../../components/Drawer.tsx';
+import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { Badge } from '../../components/Badge.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { IconButton } from '../../components/IconButton.tsx';
 import { StageCapsule } from '../../components/StageCapsule.tsx';
 import { TaskStatusBadge } from '../../components/StageBadge.tsx';
 import { formatRelativeTime } from '../../app/format.ts';
-import { taskGroup, taskHref, taskNeedText } from '../../app/taskStatus.ts';
+import { taskHref, taskNeedText } from '../../app/taskStatus.ts';
 import './tasks.css';
 
 /** One task list row (design: tasks.html .trow). Whole row opens the task/requirement canvas. */
@@ -26,7 +30,9 @@ export function TaskRow({ task }: { readonly task: TaskSummary }) {
         '聚合进度',
       ]
     : ['尚无计划步骤'];
-  const archiveAvailable = taskGroup(task) === 'closed';
+  const archiveAvailable = task.archiveAction?.allowed === true;
+  const command = useWorkflowCommand(task.id);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState<string | undefined>(undefined);
@@ -156,15 +162,21 @@ export function TaskRow({ task }: { readonly task: TaskSummary }) {
             {archiveAvailable ? (
               <>
                 <hr />
-                <button type="button" role="menuitem" disabled title="任务归档接口未接通；当前不能归档。">
+                <button type="button" role="menuitem" disabled={command.state.busy} onClick={() => { setMenuOpen(false); setConfirmArchive(true); }}>
                   <Icon name="archive" size="sm" />
-                  归档（接口未接通）
+                  {task.archivedAt ? '恢复到已结束' : '归档'}
                 </button>
               </>
             ) : null}
           </div>
         )}
       </div>
+      <span onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+        <Drawer open={confirmArchive} title={task.archivedAt ? '恢复任务？' : '归档任务？'} onClose={() => setConfirmArchive(false)} footer={<button className="btn primary" disabled={command.state.busy} onClick={() => { void command.run(async () => (await apiPost<CommandResponse<TaskSummary>>(ROUTES.taskArchive(task.id), { requestKey: createRequestKey(), archived: !task.archivedAt, confirmArchive: true })).data).then((result) => { if (result?.receipt.status === 'succeeded') setConfirmArchive(false); }); }}>{command.state.busy ? '结果待核对' : '确认'}</button>}>
+          <p>{task.title}</p><p className="hint">归档仅改变列表可见范围，原计划、执行、交付与工作区均保留，不会重新执行任务。</p>
+          {command.state.error ? <ServiceNotice error={command.state.error} /> : null}
+        </Drawer>
+      </span>
     </div>
   );
 }

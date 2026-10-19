@@ -82,6 +82,8 @@ export const MANUAL_METHOD: WorkflowMethod = {
 export const UNIT_TEST_TEMPLATE = {
   id: 'template.unit-test-development',
   name: '单元测试开发',
+  description: '补齐指定源码路径下的单元测试，并运行测试与验收。',
+  group: 'dev' as const, inputs: { source: true },
   version: 7,
   lockedAfterCreate: true as const,
   steps: [
@@ -99,7 +101,7 @@ export const UNIT_TEST_TEMPLATE = {
 } as const;
 
 export const SNAPSHOT_REVIEW_TEMPLATE = {
-  id: 'template.snapshot-code-review', name: '快照代码评审', kind: 'snapshot_review' as const, version: 1, lockedAfterCreate: true as const,
+  id: 'template.snapshot-code-review', name: '代码审查', description: '审查冻结目标版本，支持日期增量和全面审查，仅复核发现的问题。', group: 'review' as const, inputs: { dates: true, fullHistory: true }, kind: 'snapshot_review' as const, version: 1, lockedAfterCreate: true as const,
   steps: [step('snapshot.analysis', '按冻结源码分析', 'verify', '分析'), step('snapshot.verification', '独立复核候选问题', 'verify', '复核'), step('snapshot.report', '汇总并校验报告', 'delivery', '报告')],
   parameters: [
     { key: 'targetRef', label: '目标版本（默认 HEAD）', required: false },
@@ -110,6 +112,13 @@ export const SNAPSHOT_REVIEW_TEMPLATE = {
     { key: 'excludedPaths', label: '排除路径（逗号分隔）', required: false },
   ],
 };
+
+export const DESIGN_TASK_TEMPLATES: readonly import('../domain/models.ts').TaskTemplate[] = [
+  { id: 'template.weekly-contribution', name: '项目人员贡献周报', description: '分析代码贡献，生成贡献排名、项目总报告和个人周报。', group: 'report', inputs: { dates: true, output: true }, version: 10, lockedAfterCreate: true, parameters: [], steps: [step('weekly.evidence', '采集 Git 证据', 'requirement', '固定步骤'), step('weekly.report', '分析与生成报告', 'delivery', '固定步骤')] },
+  { id: 'template.history-review', name: '历史提交审查', description: '审查历史 Git 提交，追溯作者、提交者与共同作者；不判断问题在当前版本是否仍存在。', group: 'report', inputs: { dates: true }, version: 4, lockedAfterCreate: true, parameters: [], steps: [step('history.collect', '采集提交', 'requirement', '固定步骤'), step('history.review', '逐条审查', 'verify', '固定步骤'), step('history.summary', '汇总', 'delivery', '固定步骤')] },
+  { id: 'template.requirement-review', name: '需求代码评审', description: '核对分支代码的需求完整性、正确性和质量问题。', group: 'review', inputs: { documents: true, source: true }, version: 3, lockedAfterCreate: true, parameters: [], steps: [step('req.doc', '读取需求文档', 'requirement', '固定步骤'), step('req.code', '对照代码', 'verify', '固定步骤'), step('req.report', '出具评审', 'delivery', '固定步骤')] },
+  { id: 'template.detailed-design', name: '详细设计编写', description: '根据指定路径的现有代码编写详细设计、流程图和源码覆盖清单。', group: 'dev', inputs: { source: true, output: true }, version: 5, lockedAfterCreate: true, parameters: [], steps: [step('design.source', '读取源码', 'requirement', '固定步骤'), step('design.write', '编写设计', 'design', '固定步骤'), step('design.coverage', '覆盖核对', 'verify', '固定步骤')] },
+];
 
 export const UNIT_TEST_METHOD: WorkflowMethod = {
   id: 'method.unit-test-development',
@@ -176,7 +185,7 @@ export const DEFAULT_MODELS: readonly ModelProfile[] = DEFAULT_MODEL_PROFILES;
 export const DEFAULT_CATALOG: CatalogSnapshot = {
   methods: DEFAULT_METHODS,
   roles: DEFAULT_ROLES.map((role) => ({ ...role, responsibilities: [...role.responsibilities] })),
-  templates: [UNIT_TEST_TEMPLATE, SNAPSHOT_REVIEW_TEMPLATE],
+  templates: [...DESIGN_TASK_TEMPLATES, SNAPSHOT_REVIEW_TEMPLATE, UNIT_TEST_TEMPLATE],
   taskTypes: DEFAULT_TASK_TYPES.map((type) => ({ ...type })),
   modelProfiles: DEFAULT_MODELS,
 };

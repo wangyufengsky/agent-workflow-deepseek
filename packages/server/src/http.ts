@@ -452,6 +452,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(await engine.charters.confirm(request.params.id, body), requestId(request));
   });
 
+  app.get<{ Params: { id: string }; Querystring: { path: string } }>('/api/projects/:id/source-path', async (request) => envelope(await engine.projects.sourcePath(request.params.id, request.query.path), requestId(request)));
+
   // Tasks
   app.get('/api/tasks', async (request) => {
     const query = request.query as ListTasksQuery;
@@ -463,6 +465,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     reply.status(201);
     return envelope(result, requestId(request));
   });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/archive', async (request) => envelope(engine.tasks.archive(request.params.id, request.body as import('@agent-workflow/shared').TaskArchiveRequest), requestId(request)));
   app.get<{ Params: { id: string } }>('/api/tasks/:id', async (request) => envelope(engine.tasks.detail(request.params.id), requestId(request)));
   app.get<{ Params: { id: string } }>('/api/tasks/:id/detail', async (request) => envelope(engine.tasks.detail(request.params.id), requestId(request)));
   app.patch<{ Params: { id: string } }>('/api/tasks/:id', async (request) => {
@@ -917,6 +920,12 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     if (template === undefined) throw new AppError(ErrorCode.NOT_FOUND, '模板不存在');
     return envelope({ template, taskCount: engine.tasks.listByTemplate(template.id).length }, requestId(request));
   });
+  app.get('/api/templates/archive', async (request) => envelope(engine.templates.archiveView(), requestId(request)));
+  app.get('/api/templates/archive/export', async (request, reply) => {
+    const archive = engine.templates.archiveView();
+    return envelope({ format: 'v1', templates: archive.templates, rules: archive.rules.map(({ health, ...rule }) => rule) }, requestId(request));
+  });
+  app.get<{ Params: { id: string } }>('/api/templates/archive/runs/:id/verify', async (request) => envelope(engine.templates.verifyArchiveRun(request.params.id), requestId(request)));
   app.get<{ Params: { id: string } }>('/api/templates/:id/tasks', async (request) => {
     return envelope({ tasks: engine.tasks.listByTemplate(request.params.id) }, requestId(request));
   });
@@ -1180,6 +1189,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
 
   // Operations
   app.get<{ Params: { key: string } }>('/api/operations/:key', async (request) => {
+    engine.tasks.reconcileCreate(request.params.key);
     engine.recoveries.reconcileOperation(request.params.key);
     await engine.executions.reconcileOperation(request.params.key);
     await engine.knowledge.reconcileOperation(request.params.key);

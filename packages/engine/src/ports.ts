@@ -88,7 +88,7 @@ export interface GitPort {
   snapshotFile?(repoRoot: string, blobSha: string): Promise<string>;
   detect(rootPath: string): Promise<GitRepoDetection>;
   status(rootPath: string): Promise<GitRepo['status'] | undefined>;
-  listCommits(input: { readonly rootPath: string; readonly ref?: string; readonly limit?: number; readonly cursor?: string; readonly query?: string; readonly author?: string }): Promise<{ readonly commits: readonly GitCommitSummary[]; readonly nextCursor?: string }>;
+  listCommits(input: { readonly rootPath: string; readonly ref?: string; readonly limit?: number; readonly cursor?: string; readonly query?: string; readonly author?: string; readonly since?: string; readonly until?: string }): Promise<{ readonly commits: readonly GitCommitSummary[]; readonly nextCursor?: string }>;
   commitShow(rootPath: string, sha: string): Promise<GitCommit | undefined>;
   diffFiles(input: GitDiffFilesInput): Promise<readonly FileChange[]>;
   diffPage(input: { readonly repoRoot?: string; readonly worktreePath?: string; readonly baseSha: string; readonly headSha?: string; readonly path: string; readonly ignoreWhitespace?: boolean; readonly cursor?: string }): Promise<DiffPage>;

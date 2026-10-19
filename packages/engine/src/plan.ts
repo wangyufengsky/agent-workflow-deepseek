@@ -101,7 +101,7 @@ export class PlanService {
 
   #useTemplatePlan(taskId: string, templateId: string, input: UseTemplateRequest): CommandResponse<PlanResponse> {
     const task = this.#assertWritable(taskId, '按模板生成计划');
-    const template = this.#template(templateId);
+    const template = task.fixedTemplate?.contract ?? this.#template(templateId);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'plan.template.use',
@@ -208,7 +208,7 @@ export class PlanService {
         taskId,
         kind: project.gitState === 'git' ? 'git_worktree' : 'directory_copy',
         originalRootDisplay: project.rootPath,
-        baseRef: task.fixedTemplate?.snapshot?.targetSha ?? project.defaultBranch,
+        baseRef: task.fixedTemplate?.snapshot?.targetSha ?? task.fixedTemplate?.scope?.targetSha ?? project.defaultBranch,
       });
     const stage = priorExecution?.editSession?.state === 'saved' || priorExecution?.startedAt !== undefined ? TaskStage.EXECUTING : TaskStage.PREPARING;
     this.#store.tasks.update(taskId, {

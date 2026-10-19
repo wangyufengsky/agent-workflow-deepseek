@@ -181,9 +181,11 @@ export class GitCliAdapter implements GitPort {
     return branch?.stdout.trim() || 'main';
   }
 
-  async listCommits(input: { rootPath: string; ref?: string; limit?: number; cursor?: string; query?: string; author?: string }): Promise<{ commits: readonly GitCommitSummary[]; nextCursor?: string }> {
+  async listCommits(input: { rootPath: string; ref?: string; limit?: number; cursor?: string; query?: string; author?: string; since?: string; until?: string }): Promise<{ commits: readonly GitCommitSummary[]; nextCursor?: string }> {
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 200);
     const args = ['log', '--format=%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%D', `--max-count=${limit + 1}`];
+    if (input.since !== undefined) args.push(`--since-as-filter=@${Math.floor(Date.parse(input.since) / 1000)}`);
+    if (input.until !== undefined) args.push(`--until=@${Math.floor(Date.parse(input.until) / 1000)}`);
     if (input.author !== undefined) args.push(`--author=${input.author}`);
     if (input.query !== undefined) args.push(`--grep=${input.query}`);
     if (input.cursor !== undefined) args.push(`${input.cursor}^`);

@@ -1,3 +1,4 @@
+import { captureTemplateVersion, readTemplateArchive, verifyArchiveRun } from './template-archive.ts';
 import { AppError, ErrorCode, nowIso, type CommandResponse, type TaskTemplate } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { CommandService } from './operations.ts';
@@ -16,6 +17,9 @@ export class TemplateCatalogService {
     this.#commands = commands;
     this.#apply = apply;
   }
+
+  archiveView(): import('@agent-workflow/shared').TemplateArchiveCorpus { return readTemplateArchive(this.#store); }
+  verifyArchiveRun(id: string) { return verifyArchiveRun(this.#store, id); }
 
   list(): readonly TaskTemplate[] {
     return this.#store.settings.getJson<TaskTemplate[]>(KEY) ?? [];
@@ -39,6 +43,7 @@ export class TemplateCatalogService {
       target: { ref: template.id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    captureTemplateVersion(this.#store, template);
     const next = [...this.list(), template];
     this.#store.settings.putJson(KEY, next);
     this.applyEffective(this.#base);
@@ -60,6 +65,8 @@ export class TemplateCatalogService {
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    captureTemplateVersion(this.#store, existing);
+    captureTemplateVersion(this.#store, template);
     const next = this.list().map((item) => (item.id === id ? template : item));
     this.#store.settings.putJson(KEY, next);
     this.applyEffective(this.#base);
@@ -68,6 +75,8 @@ export class TemplateCatalogService {
   }
 
   archive(id: string): readonly TaskTemplate[] {
+    const current = this.list().find((item) => item.id === id);
+    if (current) captureTemplateVersion(this.#store, current, true);
     const next = this.list().filter((item) => item.id !== id);
     this.#store.settings.putJson(KEY, next);
     this.applyEffective(this.#base);

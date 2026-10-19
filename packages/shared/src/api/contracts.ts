@@ -363,7 +363,13 @@ export interface ProjectDetailResponse {
 /* Tasks                                                               */
 /* ------------------------------------------------------------------ */
 
+export interface TaskArchiveRequest extends CommandRequest {
+  readonly archived: boolean;
+  readonly confirmArchive: true;
+}
+
 export interface ListTasksQuery {
+  readonly archived?: boolean;
   readonly projectId?: string;
   readonly stage?: string;
   readonly attention?: string;
@@ -379,7 +385,7 @@ export interface CreateTaskRequest {
   readonly title: string;
   readonly requirementText: string;
   readonly methodId: string;
-  readonly template?: { readonly templateId: string; readonly parameters: Record<string, string> };
+  readonly template?: { readonly templateId: string; readonly parameters: Record<string, string>; readonly scope?: { readonly outputDirectory?: string; readonly branch?: string; readonly dateRange?: import('../domain/models.ts').TemplateTaskScope['dateRange']; readonly sourcePaths?: readonly string[]; readonly documents?: readonly { readonly name: string; readonly base64: string }[] } };
 }
 
 export interface UpdateDraftRequest {
@@ -927,6 +933,13 @@ export interface OpenCodeDetectResponse {
   readonly current: string;
   readonly scannedAt: IsoDateTime;
   readonly candidates: readonly { readonly path: string; readonly version?: string; readonly source: 'current' | 'path' | 'versions-dir' }[];
+}
+
+export interface TemplateArchiveCorpus {
+  readonly serverTime: string;
+  readonly templates: readonly { readonly id: string; readonly name: string; readonly archived: boolean; readonly versions: readonly { readonly version: number; readonly frozenAt: string; readonly sha256: string; readonly contract: TaskTemplate; readonly immutable: true }[] }[];
+  readonly rules: readonly { readonly id: string; readonly name: string; readonly projectId?: string; readonly templateRef?: string; readonly revision?: string; readonly trigger: string; readonly config: Readonly<Record<string, unknown>>; readonly health?: { readonly checkedAt: string; readonly status: string; readonly error?: string } }[];
+  readonly runs: readonly { readonly id: string; readonly ruleId?: string; readonly taskId?: string; readonly draftId?: string; readonly status: string; readonly triggeredAt: string; readonly startedAt?: string; readonly endedAt?: string; readonly error?: string; readonly evidence: Readonly<Record<string, unknown>> }[];
 }
 
 export interface TemplateDetailResponse {
@@ -1876,8 +1889,10 @@ export const ROUTES = {
   interaction: (id: string) => `/api/interactions/${encodeURIComponent(id)}`,
   interactionResolve: (id: string) => `/api/interactions/${encodeURIComponent(id)}/resolve`,
   projects: '/api/projects',
+  projectSourcePath: (id: string, path?: string) => `/api/projects/${encodeURIComponent(id)}/source-path${path === undefined ? '' : `?path=${encodeURIComponent(path)}`}`,
   project: (id: string) => `/api/projects/${encodeURIComponent(id)}`,
   tasks: '/api/tasks',
+  taskArchive: (id: string) => `/api/tasks/${encodeURIComponent(id)}/archive`,
   task: (id: string) => `/api/tasks/${encodeURIComponent(id)}`,
   taskDetail: (id: string) => `/api/tasks/${encodeURIComponent(id)}/detail`,
   toolsPolicy: '/api/tools/policy',
@@ -2004,6 +2019,9 @@ export const ROUTES = {
   catalogRoleSave: '/api/catalog/roles',
   catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,
   catalogRoleValidate: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/validate`,
+  templateArchive: '/api/templates/archive',
+  templateArchiveExport: '/api/templates/archive/export',
+  templateArchiveRun: (id: string) => `/api/templates/archive/runs/${encodeURIComponent(id)}/verify`,
   catalogTemplateImport: '/api/catalog/templates/import',
   catalogTemplateUpdate: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
   catalogTemplateArchive: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,

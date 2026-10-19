@@ -160,6 +160,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     const snapshotTask = deps.store.tasks.get(query.taskId);
     const snapshot = snapshotTask?.fixedTemplate?.snapshot;
     if (snapshot !== undefined) {
+      if (snapshotTask?.fixedTemplate?.scope?.sourcePaths.length && !snapshotTask.fixedTemplate.scope.sourceFiles?.some((file) => file.path === query.path?.replace(/^\.\//, ''))) throw new AppError(ErrorCode.FORBIDDEN, '文件不在模板冻结源码范围内');
       const unit = snapshot.units.find((item) => item.path === query.path?.replace(/^\.\//, ''));
       if (unit === undefined || unit.excludedReason !== undefined && unit.excludedReason !== '基线至目标未发生变更') throw new AppError(ErrorCode.FORBIDDEN, '文件不在当前快照的可分析范围内');
       const project = deps.store.projects.get(snapshotTask!.projectId);
@@ -170,6 +171,13 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
       const scope = requireSessionScope(request.headers['x-agent-workflow-scope']);
       if (offset === 0 && selected.length === lines.length && scope.request.metadata.attemptId !== undefined) deps.store.settings.putJson(`snapshot.read.${scope.request.metadata.attemptId}.${unit.id}`, { blobSha: unit.blobSha, readAt: nowIso(), totalLines: lines.length });
       return { path: unit.path, blobSha: unit.blobSha, targetSha: snapshot.targetSha, sourceSha: unit.deletedAtTarget ? snapshot.baselineSha : snapshot.targetSha, deletedAtTarget: unit.deletedAtTarget ?? false, sha: sha256(content), sizeBytes: Buffer.byteLength(content), totalLines: lines.length, offset, lines: selected, truncated: offset + selected.length < lines.length, readOnly: true };
+    }
+    const templateScope = snapshotTask?.fixedTemplate?.scope;
+    if (templateScope?.sourcePaths.length) {
+      const file = templateScope.sourceFiles?.find((item) => item.path === query.path?.replace(/^\.\//, ''));
+      if (!file) throw new AppError(ErrorCode.FORBIDDEN, '文件不在模板冻结源码范围内');
+      const lines = file.text.split('\n'); const offset = Math.max(0, Number(query.offset ?? 0)); const limit = Number(query.limit ?? 0); const selected = limit > 0 ? lines.slice(offset, offset + limit) : lines.slice(offset);
+      return { path: file.path, blobSha: file.blobSha, targetSha: templateScope.targetSha, sourceSha: templateScope.targetSha, sha: sha256(file.text), sizeBytes: Buffer.byteLength(file.text), totalLines: lines.length, offset, lines: selected, truncated: offset + selected.length < lines.length, readOnly: true };
     }
     const root = resolveReadRoot(deps, query.taskId);
     const absolute = safePath(root, query.path);
@@ -199,7 +207,9 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     if (query.taskId === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId');
     assertRoleResource(request, 'read', query.path ?? '.');
     const snapshot = deps.store.tasks.get(query.taskId)?.fixedTemplate?.snapshot;
-    if (snapshot !== undefined) return { root: `snapshot:${snapshot.targetSha}`, entries: snapshot.units.filter((unit) => unit.excludedReason === undefined && (query.path === undefined || query.path === '' || query.path === '.' || unit.path.startsWith(`${query.path.replace(/\/$/, '')}/`))).map((unit) => ({ path: unit.path, kind: 'file', sizeBytes: unit.sizeBytes, blobSha: unit.blobSha })), truncated: false, readOnly: true };
+    if (snapshot !== undefined) return { root: `snapshot:${snapshot.targetSha}`, entries: snapshot.units.filter((unit) => unit.excludedReason === undefined && (!deps.store.tasks.get(query.taskId!)?.fixedTemplate?.scope?.sourcePaths.length || deps.store.tasks.get(query.taskId!)?.fixedTemplate?.scope?.sourceFiles?.some((file) => file.path === unit.path)) && (query.path === undefined || query.path === '' || query.path === '.' || unit.path.startsWith(`${query.path.replace(/\/$/, '')}/`))).map((unit) => ({ path: unit.path, kind: 'file', sizeBytes: unit.sizeBytes, blobSha: unit.blobSha })), truncated: false, readOnly: true };
+    const templateScope = deps.store.tasks.get(query.taskId)?.fixedTemplate?.scope;
+    if (templateScope?.sourcePaths.length) return { root: `snapshot:${templateScope.targetSha}`, entries: (templateScope.sourceFiles ?? []).filter((file) => !query.path || query.path === '.' || file.path === query.path || file.path.startsWith(query.path.replace(/\/$/, '') + '/')).map((file) => ({ path: file.path, kind: 'file', sizeBytes: Buffer.byteLength(file.text), blobSha: file.blobSha })), truncated: false, readOnly: true };
     const root = resolveReadRoot(deps, query.taskId);
     const base = query.path === undefined || query.path === '' ? root : safePath(root, query.path);
     if (!existsSync(base)) throw new AppError(ErrorCode.NOT_FOUND, '目录不存在');
