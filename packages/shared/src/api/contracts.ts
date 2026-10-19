@@ -25,6 +25,7 @@ import type {
   OperationRecord,
   PlanNode,
   PlanRevision,
+  TokenUsage,
   PlanningPreview,
   PptWork,
   PlanningView,
@@ -220,6 +221,7 @@ export interface KnowledgeAskResponse {
   readonly citations: readonly KnowledgeCitation[];
   readonly model: string;
   readonly generatedAt: IsoDateTime;
+  readonly usage?: TokenUsage;
 }
 
 export interface KnowledgeHistoryEntry extends KnowledgeAskResponse {

@@ -9,6 +9,7 @@ import type { CommandService } from './operations.ts';
 import type { EngineContext } from './actions.ts';
 import type { OpenCodePort } from './ports.ts';
 import { listKnowledgeSources } from '../../server/src/knowledge.ts';
+import { usageFromMessages } from './token-usage.ts';
 
 export class PptService {
   readonly #store: Store;
@@ -139,7 +140,7 @@ export class PptService {
       if (result.outcome.error !== undefined && result.outcome.error !== '') throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `逐页生成失败：${result.outcome.error}`);
       const slides = extractSlides(result.outcome.assistantText ?? '');
       if (slides.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '模型输出没有可用逐页内容');
-      const updated = this.#store.pptWorks.update({ ...work, status: 'ready', slides });
+      const updated = this.#store.pptWorks.update({ ...work, status: 'ready', slides, usage: usageFromMessages(result.outcome.messages) });
       this.#commands.settle(input.requestKey, { workId: id, slides: slides.length });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
     } catch (error) {
@@ -181,7 +182,7 @@ export class PptService {
       if (result.outcome.error !== undefined && result.outcome.error !== '') throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `大纲生成失败：${result.outcome.error}`);
       const parsed = extractOutline(result.outcome.assistantText ?? '');
       if (parsed.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '模型输出没有可用大纲');
-      const updated = this.#store.pptWorks.update({ ...work, status: 'ready', outline: parsed });
+      const updated = this.#store.pptWorks.update({ ...work, status: 'ready', outline: parsed, usage: usageFromMessages(result.outcome.messages) });
       this.#commands.settle(input.requestKey, { workId: id, slides: parsed.length });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
     } catch (error) {

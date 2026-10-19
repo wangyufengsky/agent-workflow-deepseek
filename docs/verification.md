@@ -68,12 +68,12 @@ flash 模型经兼容网关返回文本 `OK`。验证发生在工具集过滤、
 
 `AGENT_WORKFLOW_LIVE=1 tests/integration/knowledge-ask-live.test.ts`：基于项目 README/docs 提问“交付流程/清理前要做什么”，
 flash 模型返回答案并给出 `README.md:3`、`README.md:4` 两条引用（服务端校验路径与行号），**PASS 31s**。
-问答结果写入本机历史（最多 30 条）；后续问题会带上最近 3 条问答作为上下文；无引用/非法引用会被服务端丢弃。
+问答结果含 usage tokens 写入本机历史；后续问题会带上最近 3 条问答作为上下文；无引用/非法引用会被服务端丢弃。live 15s PASS（usage>0）。
 
 ## 2.7 PPT 大纲生成（真实模型，PASS）
 
 `AGENT_WORKFLOW_LIVE=1 tests/integration/ppt-live.test.ts`：草稿“季度汇报/交付质量计划” → flash 模型生成 12 页大纲，
-再生成逐页标题+要点（每页 2–6 条）并落库，列表读取一致，**PASS 32s**。PPTX 文件导出已验证（真实 zip，生产 server 冒烟 55KB）；逐页高级视觉仍为基础版式。
+再生成逐页标题+要点（每页 2–6 条）并落库，usage tokens>0，列表读取一致，**PASS 29s**。PPTX 文件导出已验证（真实 zip，生产 server 冒烟 55KB）；逐页高级视觉仍为基础版式。
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 

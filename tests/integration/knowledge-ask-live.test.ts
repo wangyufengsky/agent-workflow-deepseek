@@ -33,9 +33,10 @@ test('live: knowledge Q&A answers from project docs with validated citations', {
       payload: { requestKey: requestKey('ask'), projectId, question: '本项目的交付流程是什么？清理工作区前要先做什么？' },
     });
     assert.equal(response.statusCode, 200, response.body);
-    const data = response.json().data.resource as { answer: string; citations: { path: string; line: number }[]; model: string };
+    const data = response.json().data.resource as { answer: string; citations: { path: string; line: number }[]; model: string; usage?: { total: number } };
     console.log('[knowledge-live]', JSON.stringify({ model: data.model, answer: data.answer.slice(0, 120), citations: data.citations }));
     assert.ok(data.answer.trim().length > 0);
+    assert.ok((data.usage?.total ?? 0) > 0);
     assert.ok(data.citations.length > 0);
     for (const citation of data.citations) {
       assert.ok(['README.md', 'docs.md'].includes(citation.path));

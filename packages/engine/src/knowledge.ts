@@ -17,6 +17,7 @@ import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { OpenCodePort } from './ports.ts';
 import { listKnowledgeSources } from '../../server/src/knowledge.ts';
+import { usageFromMessages } from './token-usage.ts';
 
 const MAX_DOCS = 12;
 const MAX_DOC_CHARS = 6_000;
@@ -98,6 +99,7 @@ export class KnowledgeService {
         citations,
         model: `${model.provider}/${model.model}`,
         generatedAt: nowIso(),
+        usage: usageFromMessages(result.outcome.messages),
       };
       const entry: KnowledgeHistoryEntry = { id: createId('knowledge'), ...response };
       const key = historyKey(input.projectId);

@@ -987,6 +987,7 @@ export interface PptWork {
   readonly status: PptWorkStatusValue;
   readonly outline: readonly string[];
   readonly slides: readonly PptSlide[];
+  readonly usage?: TokenUsage;
   readonly createdAt: IsoDateTime;
   readonly updatedAt: IsoDateTime;
 }

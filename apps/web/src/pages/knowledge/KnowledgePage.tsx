@@ -157,6 +157,7 @@ export function KnowledgePage() {
                 <Badge tone="ok" icon="check">回答</Badge>
                 <span className="hint mono">{askResult.model}</span>
                 <span className="hint">{new Date(askResult.generatedAt).toLocaleString('zh-CN')}</span>
+                {askResult.usage === undefined ? null : <span className="hint num">{String(askResult.usage.total)} tokens</span>}
               </div>
               <p style={{ marginTop: 10, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askResult.answer}</p>
               {askResult.citations.length === 0 ? <p className="hint">模型没有给出可验证的引用。</p> : (

@@ -350,4 +350,11 @@ ALTER TABLE reviews ADD COLUMN usage_json TEXT;
 ALTER TABLE fixes ADD COLUMN usage_json TEXT;
 `,
   },
+  {
+    version: 7,
+    name: 'ppt_usage',
+    sql: `
+ALTER TABLE ppt_works ADD COLUMN usage_json TEXT;
+`,
+  },
 ];
