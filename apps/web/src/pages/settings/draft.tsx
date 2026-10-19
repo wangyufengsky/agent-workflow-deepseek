@@ -51,7 +51,7 @@ function buildPatch(fields: readonly DraftField[]): Record<string, unknown> {
       const key = parts[index];
       if (key === undefined) continue;
       if (index === parts.length - 1) {
-        cursor[key] = field.value;
+        cursor[key] = field.path === 'git.network.allowedHttpHosts' && typeof field.value === 'string' ? field.value.split('\n').map((host) => host.trim().toLowerCase()).filter(Boolean) : field.value;
       } else {
         const existing = cursor[key];
         if (typeof existing !== 'object' || existing === null) cursor[key] = {};
@@ -107,7 +107,7 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
     },
     onSuccess: (settings) => {
       setFields({});
-      setSaveMessage({ tone: 'ok', message: '设置已保存。执行设置用于新任务/新执行；监控设置随保存更新。' });
+      setSaveMessage({ tone: 'ok', message: '设置已保存，各字段按标注的生效方式应用。' });
       if (settings !== undefined) {
         queryClient.setQueryData<BootstrapResponse | undefined>(queryKeys.bootstrap, (current) => (
           current === undefined ? current : { ...current, settings }

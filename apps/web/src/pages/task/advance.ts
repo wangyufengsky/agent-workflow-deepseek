@@ -32,6 +32,9 @@ export interface AdvanceTargets {
  */
 export function advanceTargets(plan: PlanRevision, execution: ExecutionView, fromNodeId?: string): AdvanceTargets {
   const statuses = new Map(execution.nodes.map((node) => [node.nodeId, node.status]));
+  const awaitingAcceptance = new Set([...(execution.acceptance?.pending ?? []), ...(execution.acceptance?.rejected ?? [])]);
+  const unknownAcceptance = execution.acceptance === undefined ? new Set(plan.graph.nodes.filter((node) => node.acceptance.length > 0).map((node) => node.id)) : new Set<string>();
+  const predecessorDone = (id: string) => statuses.get(id) === 'skipped' || statuses.get(id) === 'succeeded' && !awaitingAcceptance.has(id) && !unknownAcceptance.has(id);
   const directSuccessors = fromNodeId === undefined
     ? undefined
     : new Set(plan.graph.edges.filter((edge) => edge.from === fromNodeId).map((edge) => edge.to));
@@ -42,9 +45,9 @@ export function advanceTargets(plan: PlanRevision, execution: ExecutionView, fro
     const nodeStatus = statuses.get(node.id);
     if (nodeStatus !== 'pending' && nodeStatus !== 'ready') continue;
     const incoming = plan.graph.edges.filter((edge) => edge.to === node.id);
-    const blocked = incoming.some((edge) => !nodeIsDone(statuses.get(edge.from)));
+    const blocked = incoming.some((edge) => !predecessorDone(edge.from));
     if (!blocked) candidates.push(node.id);
-    else if (directSuccessors !== undefined) waiting.push(node.id);
+    else waiting.push(node.id);
   }
   return { candidates, waiting };
 }

@@ -30,3 +30,4 @@ export * from './domain/runtime-interactions.ts';
 export * from './domain/planning-interactions.ts';
 
 export * from './domain/project-evidence.ts';
+export * from './domain/model-catalog.ts';

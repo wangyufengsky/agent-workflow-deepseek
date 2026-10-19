@@ -718,7 +718,8 @@ export interface ExecutionView {
    * Human-acceptance projection derived from the plan's declared acceptance
    * criteria and the stored verdicts. `pending` = executed but not yet judged;
    * `rejected` = returned for rework. Both block completion/downstream release.
-   * Absent when no executed node has acceptance criteria (legacy behaviour).
+   * Current service always provides this projection, including empty arrays.
+   * Absent only on legacy responses; callers must not assume acceptance.
    */
   readonly acceptance?: { readonly pending: readonly PlanNodeId[]; readonly rejected: readonly PlanNodeId[] };
   readonly actions: Record<string, ActionAvailability>;

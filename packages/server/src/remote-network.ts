@@ -19,7 +19,7 @@ export function networkFetch(policy: PublishNetworkSettings): typeof fetch {
         if (bytes > 8 * 1024 * 1024) throw new AppError(ErrorCode.VALIDATION_FAILED, '远端响应超过8MiB读取上限');
         chunks.push(chunk);
       }
-      return new Response(response.status === 204 || response.status === 205 || response.status === 304 ? null : Buffer.concat(chunks), { status: response.status, statusText: response.statusText, headers: response.headers });
+      return new Response(response.status === 204 || response.status === 205 || response.status === 304 ? null : Buffer.concat(chunks), { status: response.status, statusText: response.statusText, headers: Object.fromEntries(response.headers.entries()) });
     } finally { await agent.destroy(); }
   };
 }

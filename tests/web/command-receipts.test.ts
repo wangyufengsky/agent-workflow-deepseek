@@ -74,6 +74,19 @@ test('valid envelope without receipt retains key; create project and task are tr
   await assert.rejects(request('/api/tasks', { method: 'POST', body: { requestKey: 'create-task-key' } }), /create-task-key/);
   assert.ok(pendingCommands().some((item) => item.requestKey === 'create-task-key'));
 });
+
+test('a confirmed original receipt supersedes sending while the long response is still pending', async () => {
+  let finish: ((response: Response) => void) | undefined;
+  globalThis.fetch = async (input) => String(input).includes('/operations/') ? envelope({ operation: { requestKey: 'long-ask', status: 'accepted' } }) : new Promise<Response>((resolve) => { finish = resolve; });
+  const running = request('/api/knowledge/ask', { method: 'POST', body: { requestKey: 'long-ask' } });
+  assert.equal(pendingCommands()[0]?.phase, 'sending');
+  await request('/api/operations/long-ask');
+  assert.equal(pendingCommands()[0]?.phase, 'accepted');
+  await assert.rejects(request('/api/knowledge/ask', { method: 'POST', body: { requestKey: 'duplicate' } }), /原请求已受理/);
+  finish!(envelope({ receipt: { status: 'succeeded' } }));
+  await running;
+  assert.equal(pendingCommands().length, 0);
+});
 test('failed durable storage prevents dispatch', async () => {
   const storage = globalThis.localStorage;
   let writes = 0;

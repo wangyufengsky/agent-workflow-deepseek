@@ -135,12 +135,12 @@ test('acceptance-pending nodes gate completion until every verdict is accepted',
     assert.equal((await decide(app, seeded.taskId, 'node_b', 'accept')).statusCode, 200);
     const completed = await waitFor(app, seeded.taskId, (execution) => execution?.status === 'completed', 'completion after acceptance');
     assert.match(completed.notice?.message ?? '', /完成|验收/);
-    assert.equal(completed.acceptance, undefined, 'no pending gate remains');
+    assert.deepEqual(completed.acceptance, { pending: [], rejected: [] }, 'confirmed empty gate distinguishes accepted from an unavailable verdict');
     assert.equal(app.store.tasks.get(seeded.taskId)?.attention, 'waiting_user', 'completed task waits for delivery');
     assert.ok(app.store.deliveries.byTask(seeded.taskId) !== undefined, 'completion creates the delivery record');
     const detail = await app.app.inject({ method: 'GET', url: `/api/tasks/${seeded.taskId}/detail` });
     assert.equal(detail.json().data.execution.status, 'completed');
-    assert.equal(detail.json().data.execution.acceptance, undefined);
+    assert.deepEqual(detail.json().data.execution.acceptance, { pending: [], rejected: [] });
   } finally {
     await app.close();
   }
@@ -153,7 +153,7 @@ test('plans without acceptance criteria still complete on succeeded alone (legac
     const seeded = await seedExecution(app, graph, { statuses: ['succeeded', 'succeeded'], autoAdvance: true });
     app.engine.executions.kick(seeded.taskId);
     const completed = await waitFor(app, seeded.taskId, (execution) => execution?.status === 'completed', 'legacy completion');
-    assert.equal(completed.acceptance, undefined);
+    assert.deepEqual(completed.acceptance, { pending: [], rejected: [] });
     assert.ok(app.store.deliveries.byTask(seeded.taskId) !== undefined);
   } finally {
     await app.close();

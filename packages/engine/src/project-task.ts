@@ -47,7 +47,7 @@ import {
 } from '@agent-workflow/shared';
 import { executionPolicy as frozenExecutionPolicy } from './execution-policy.ts';
 import type { Store } from '@agent-workflow/storage';
-import { READ_ONLY_RECOVERY_REASON, computeTaskActions, computeTaskAttention, planningView, readNodeAcceptance, readOnlyRecoveryError } from './actions.ts';
+import { READ_ONLY_RECOVERY_REASON, executionAcceptanceGate, computeTaskActions, computeTaskAttention, planningView, readNodeAcceptance, readOnlyRecoveryError } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { OpenCodePort, GitPort } from './ports.ts';
 import type { EngineContext } from './actions.ts';
@@ -472,13 +472,14 @@ export class TaskService {
       executionPolicy: execution === undefined ? undefined : frozenExecutionPolicy(this.#store, execution.id, this.#context.settings().execution),
       retryRejectedNodeIds: execution === undefined ? [] : execution.nodes.filter((node) => readNodeAcceptance(this.#store, execution.id, node.nodeId)?.state === 'rejected').map((node) => node.nodeId),
     });
+    const gate = execution === undefined ? undefined : executionAcceptanceGate(this.#store, execution, this.#store.plans.get(execution.planRevisionId));
     return {
       task,
       project,
       ...(task.fixedTemplate?.snapshot === undefined ? {} : { templateProgress: { snapshot: task.fixedTemplate.snapshot } }),
       plan,
       planning,
-      execution,
+      execution: execution === undefined ? undefined : { ...execution, acceptance: { pending: gate!.pending, rejected: gate!.rejected } },
       workspace,
       delivery,
       capabilities,

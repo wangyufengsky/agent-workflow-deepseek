@@ -111,7 +111,6 @@ export class ExecutionService {
   #withAcceptance(execution: ExecutionView): ExecutionView {
     const plan = this.#store.plans.get(execution.planRevisionId);
     const gate = executionAcceptanceGate(this.#store, execution, plan);
-    if (gate.pending.length === 0 && gate.rejected.length === 0) return execution;
     return { ...execution, acceptance: { pending: gate.pending, rejected: gate.rejected } };
   }
 

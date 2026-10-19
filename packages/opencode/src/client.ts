@@ -1,4 +1,5 @@
 import { createParser, type EventSourceMessage } from 'eventsource-parser';
+import type { AvailableModelCatalog, AvailableModel } from '@agent-workflow/shared';
 import type {
   OpenCodeConfigInput,
   OpenCodeEvent,
@@ -104,6 +105,20 @@ export class OpenCodeClient {
 
   config(): Promise<Record<string, unknown>> {
     return this.request('/config');
+  }
+
+  async availableModels(): Promise<AvailableModelCatalog> {
+    const result = await this.request<{ all: readonly { id: string; name: string; models: Record<string, { id?: string; name?: string; status?: string }> }[]; connected: readonly string[] }>('/provider', {}, 40000);
+    if (!Array.isArray(result?.all) || !Array.isArray(result.connected)) throw new Error('OpenCode 返回的模型目录格式无效');
+    const models: AvailableModel[] = [];
+    for (const provider of result.all) {
+      if (typeof provider.id !== 'string' || !result.connected.includes(provider.id) || !provider.models || typeof provider.models !== 'object') continue;
+      for (const [id, model] of Object.entries(provider.models as Record<string, { name?: string; status?: string }>)) {
+        if (!model || model.status === 'deprecated') continue;
+        models.push({ provider: provider.id, providerLabel: typeof provider.name === 'string' ? provider.name : provider.id, model: id, label: typeof model.name === 'string' ? model.name : id });
+      }
+    }
+    return { readAt: new Date().toISOString(), models };
   }
 
   mcpStatus(): Promise<Record<string, { status: string }>> {

@@ -77,6 +77,7 @@ export function useKnowledgeAsk(onResult: (result: KnowledgeAskResponse) => void
   useEffect(() => {
     if (pending === undefined) return;
     let disposed = false;
+    let receiptRead = false;
     let timer: ReturnType<typeof setTimeout>;
     const key = pending.input.requestKey;
     const poll = async () => {
@@ -84,6 +85,7 @@ export function useKnowledgeAsk(onResult: (result: KnowledgeAskResponse) => void
         const response = await apiGet<KnowledgeRunProgress>(`${ROUTES.knowledgeProgress(key)}?projectId=${encodeURIComponent(pending.input.projectId)}`);
         if (disposed || active.current?.input.requestKey !== key) return;
         setProgress(response.data);
+        if (!receiptRead) { receiptRead = true; await reconcile(); }
         if (['completed', 'stopped', 'failed'].includes(response.data.status)) {
           await reconcile();
           return;

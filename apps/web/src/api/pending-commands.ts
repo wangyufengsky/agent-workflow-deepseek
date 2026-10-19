@@ -8,7 +8,7 @@ export function pendingCommands(): PendingCommand[] {
   try { const raw: unknown = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
     if (Array.isArray(raw)) memory = raw.filter((v): v is PendingCommand => typeof v?.scope === 'string' && typeof v?.path === 'string' && typeof v?.requestKey === 'string');
   } catch { /* Keep in-memory locks if reading durable storage fails. */ }
-  return memory.map((item) => ({ ...item, phase: inFlight.has(item.requestKey) ? 'sending' : item.phase === 'accepted' ? 'accepted' : undefined }));
+  return memory.map((item) => ({ ...item, phase: item.phase === 'accepted' ? 'accepted' : inFlight.has(item.requestKey) ? 'sending' : undefined }));
 }
 function save(values: PendingCommand[], requireDurable = false) {
   try { localStorage.setItem(storageKey, JSON.stringify(values.map((item) => ({ ...item, phase: item.phase === 'accepted' ? 'accepted' : undefined })))); }

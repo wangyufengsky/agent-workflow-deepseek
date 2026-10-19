@@ -12,7 +12,7 @@ export function NetworkSection({ settings }: { readonly settings: PublicSettings
       let issue: string | undefined;
       if (hosts) { if ((normalized as string[]).length > 64 || (normalized as string[]).some((host) => !isPublishHttpHost(host))) issue = '每行一个主机名或主机名:端口，不含协议、路径或通配符，最多64项'; }
       else { try { const url = new URL(value); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error(); } catch { issue = '填写无凭据的完整 HTTP(S) 地址'; } }
-      draft.setField({ path, label, section: 'network', value: normalized, baseline: hosts ? baseline.split('\n').filter(Boolean) : baseline, effect: 'live', issue });
+      draft.setField({ path, label, section: 'network', value, baseline, effect: 'live', issue });
     };
     return <SettingsRow key={path} label={label} hint={hosts ? '每行一个；HTTPS无需添加，HTTP只允许明确列出的主机。' : undefined} dirty={field !== undefined} effect="live"><div className="col">{hosts ? <textarea className="textarea mono" aria-label={label} value={value} onChange={(event) => change(event.target.value)} /> : <input className="input mono" aria-label={label} value={value} onChange={(event) => change(event.target.value)} />}{field?.issue ? <span className="hint" role="alert">{field.issue}</span> : null}</div></SettingsRow>;
   };

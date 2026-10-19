@@ -6,8 +6,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NodeDetailResponse, PlanGraph } from '@agent-workflow/shared';
 import { createApplication } from '../../packages/server/src/index.ts';
+import { advanceTargets } from '../../apps/web/src/pages/task/advance.ts';
 
 type App = Awaited<ReturnType<typeof createApplication>>;
+
+test('task detail and manual advance use the actual human acceptance projection', async () => {
+  const app = await createApplication({ dataDir: mkdtempSync(join(tmpdir(), 'aw-advance-accept-')), disableOpenCode: true, disableListen: true });
+  try {
+    const seeded = await seedTask(app, { statuses: ['succeeded', 'pending'] });
+    const before = app.engine.tasks.detail(seeded.taskId);
+    assert.ok(before.execution?.acceptance?.pending.includes(seeded.nodeIds[0]!));
+    assert.equal(advanceTargets(before.plan!, before.execution!, seeded.nodeIds[0]).candidates.length, 0);
+    const accepted = await app.app.inject({ method: 'POST', url: `/api/tasks/${seeded.taskId}/nodes/${seeded.nodeIds[0]}/accept`, payload: { requestKey: requestKey('manual-accept'), confirmAccept: true } });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    const after = app.engine.tasks.detail(seeded.taskId);
+    assert.deepEqual(after.execution?.acceptance?.pending, []);
+    assert.ok(advanceTargets(after.plan!, after.execution!, seeded.nodeIds[0]).candidates.length > 0);
+    assert.equal(advanceTargets(after.plan!, { ...after.execution!, acceptance: undefined }, seeded.nodeIds[0]).candidates.length, 0, 'legacy missing verdict does not imply accepted');
+  } finally { await app.close(); }
+});
 
 function requestKey(prefix: string): string {
   return `req_${prefix}${Math.random().toString(36).slice(2, 21)}`;

@@ -813,6 +813,7 @@ export const KnowledgeRunStatus = {
   STOPPED: 'stopped', COMPLETED: 'completed', FAILED: 'failed', UNKNOWN: 'unknown',
 } as const;
 export type KnowledgeRunStatusValue = typeof KnowledgeRunStatus[keyof typeof KnowledgeRunStatus];
+export const KNOWLEDGE_RUN_STATUS_LABEL: Readonly<Record<KnowledgeRunStatusValue, string>> = { researching: '研究中', answering: '撰写中', needs_answer: '等待你的答复', stopping: '正在停止', stopped: '已停止', completed: '已完成', failed: '失败', unknown: '结果待核对' };
 /** PPT direction choices are independent of application skin. */
 export const PptVisualDirection = { RESTRAINED: 'restrained', EDITORIAL: 'editorial', CONTRAST: 'contrast' } as const;
 export type PptVisualDirectionValue = (typeof PptVisualDirection)[keyof typeof PptVisualDirection];

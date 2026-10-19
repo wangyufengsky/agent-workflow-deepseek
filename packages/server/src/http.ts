@@ -1533,6 +1533,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   // OpenCode
+  app.get('/api/opencode/models', async (request) => {
+    if (!opencodeRef.current) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '受管 OpenCode 未启用，无法读取可用模型');
+    try { return envelope(await opencodeRef.current.availableModels(), requestId(request)); }
+    catch (error) { if (error instanceof AppError) throw error; throw new AppError(ErrorCode.NETWORK_UNREACHABLE, '读取 OpenCode 可用模型失败或超过40秒，请确认运行环境后重试'); }
+  });
   app.get('/api/opencode/status', async (request) => {
     const opencode = opencodeRef.current;
     const status = opencode?.status() ?? { state: 'stopped' };

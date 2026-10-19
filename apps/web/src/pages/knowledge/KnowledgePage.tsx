@@ -962,9 +962,11 @@ export function KnowledgePage() {
       <KnowledgeResearcherDrawer
         open={researcherOpen}
         result={askResult}
+        progress={askCommand.progress && canPresent(askCommand.progress.sources) ? askCommand.progress : undefined}
+        pending={askCommand.pending}
         draft={question}
         projectName={projectName}
-        selectedSources={askResult?.sources?.selectedPaths ?? [...selectedSources]}
+        selectedSources={askResult?.sources?.selectedPaths ?? (askCommand.progress && canPresent(askCommand.progress.sources) ? askCommand.progress.sources.selectedPaths : [...selectedSources])}
         onClose={() => { setResearcherOpen(false); }}
         onOpenCitation={openCitation}
       />

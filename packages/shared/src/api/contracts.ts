@@ -2140,6 +2140,7 @@ export const ROUTES = {
   databaseProbe: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/probe`,
   databaseQuery: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/query`,
   opencodeStatus: '/api/opencode/status',
+  opencodeModels: '/api/opencode/models',
   catalogRoleInsights: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/insights`,
   catalogRolePermissionPreview: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/permission-preview`,
   catalogRoleImages: '/api/catalog/role-images',

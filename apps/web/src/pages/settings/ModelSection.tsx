@@ -13,6 +13,7 @@ import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { SettingsHeading } from './shared.tsx';
+import { ModelCatalogPicker } from './ModelCatalogPicker.tsx';
 
 const ROLE_META = [
   { id: 'planner', label: '规划' },
@@ -200,6 +201,11 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
       </div>
 
       <div className="card card-sec" aria-label="职责模型选择">
+        <ModelCatalogPicker preferred={profiles.find((profile) => profile.enabled && profile.roles.includes('planner')) ?? enabledProfiles[0]} ready={statusQuery.data?.state === 'ready'} saving={saveModels.isPending} onSelect={(model) => {
+          const existing = profiles.find((profile) => profile.provider === model.provider && profile.model === model.model);
+          const selected: ModelProfile = { ...(existing ?? newProfile()), provider: model.provider, model: model.model, label: model.label, enabled: true, roles: ROLE_META.map((role) => role.id) };
+          saveModels.mutate([...profiles.filter((profile) => profile.id !== selected.id).map((profile) => ({ ...profile, roles: [] })), selected]);
+        }} />
         <div className="row wrap" style={{ gap: 8, marginBottom: 10 }}>
           <span className="section-title grow">职责模型</span>
           <span className="hint">每个职责选择一个已启用模型；保存后用于新会话，OpenCode 默认模型在重启后生效。</span>

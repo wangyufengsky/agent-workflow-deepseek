@@ -284,6 +284,11 @@ export class OpenCodeAdapter implements OpenCodePort {
     return this.#manager.status;
   }
 
+  async availableModels() {
+    if (this.#manager.status.state !== 'ready') throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, 'OpenCode 尚未就绪，请先在运行环境启动服务');
+    return this.#manager.client.availableModels();
+  }
+
   /** For diagnostics only; never exposes provider keys. */
   async diagnostics(): Promise<{ mcp: Record<string, { status: string }>; sessions: number; totalSessions: number }> {
     if (this.#manager.status.state !== 'ready') return { mcp: {}, sessions: this.#pendingSessions, totalSessions: 0 };
