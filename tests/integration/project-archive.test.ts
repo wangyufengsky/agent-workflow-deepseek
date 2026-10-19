@@ -27,6 +27,17 @@ test('projects can be archived, hidden from the default list and restored', asyn
     assert.equal(renamed.json().data.resource.project.name, 'Renamed');
     assert.equal(renamed.json().data.resource.project.description, 'updated description');
 
+    const withSettings = await app.app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${projectId}`,
+      payload: { requestKey: requestKey('settings'), settings: { testCommand: 'npm test', gitProvider: 'github', defaultMethodId: 'method.requirement-development' } },
+    });
+    assert.equal(withSettings.statusCode, 200, withSettings.body);
+    const settings = withSettings.json().data.resource.project.settings as { testCommand?: string; gitProvider?: string; defaultMethodId?: string };
+    assert.equal(settings.testCommand, 'npm test');
+    assert.equal(settings.gitProvider, 'github');
+    assert.equal(settings.defaultMethodId, 'method.requirement-development');
+
     const archived = await app.app.inject({ method: 'PATCH', url: `/api/projects/${projectId}`, payload: { requestKey: requestKey('arch'), archived: true } });
     assert.equal(archived.statusCode, 200, archived.body);
     const defaultList = await app.app.inject({ method: 'GET', url: '/api/projects' });

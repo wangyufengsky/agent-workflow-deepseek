@@ -153,14 +153,23 @@ function ProjectCard({ project, busy, onArchive, onEdit }: { readonly project: P
 export function ProjectsPage() {
   const queryClient = useQueryClient();
   const [includeArchived, setIncludeArchived] = useState(false);
-  const [editing, setEditing] = useState<{ id: string; name: string; description: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; name: string; description: string; testCommand: string; gitProvider: '' | 'github' | 'gitlab'; defaultMethodId: string } | null>(null);
   const projectsQuery = useProjects(includeArchived);
   const projects = projectsQuery.data ?? [];
   const editProject = useMutation({
-    mutationFn: async (input: { id: string; name: string; description: string }) => {
+    mutationFn: async (input: { id: string; name: string; description: string; testCommand: string; gitProvider: '' | 'github' | 'gitlab'; defaultMethodId: string }) => {
       await request(`/api/projects/${encodeURIComponent(input.id)}`, {
         method: 'PATCH',
-        body: { requestKey: createRequestKey(), name: input.name.trim(), description: input.description.trim() },
+        body: {
+          requestKey: createRequestKey(),
+          name: input.name.trim(),
+          description: input.description.trim(),
+          settings: {
+            testCommand: input.testCommand.trim(),
+            ...(input.gitProvider === '' ? {} : { gitProvider: input.gitProvider }),
+            ...(input.defaultMethodId === '' ? {} : { defaultMethodId: input.defaultMethodId }),
+          },
+        },
       });
     },
     onSuccess: async () => {
@@ -364,7 +373,7 @@ export function ProjectsPage() {
     body = (
       <div className="grid-2">
         {filtered.map((project) => (
-          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending || editProject.isPending} onArchive={() => { archiveProject.mutate(project); }} onEdit={() => { setEditing({ id: project.id, name: project.name, description: project.description }); }} />
+          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending || editProject.isPending} onArchive={() => { archiveProject.mutate(project); }} onEdit={() => { setEditing({ id: project.id, name: project.name, description: project.description, testCommand: project.settings?.testCommand ?? '', gitProvider: project.settings?.gitProvider ?? '', defaultMethodId: project.settings?.defaultMethodId ?? '' }); }} />
         ))}
       </div>
     );
@@ -471,6 +480,19 @@ export function ProjectsPage() {
               说明
               <textarea className="textarea" value={editing.description} maxLength={2000} onChange={(event) => { setEditing({ ...editing, description: event.target.value }); }} />
             </label>
+            <label className="form-label">
+              默认测试命令（项目级）
+              <input className="input mono" value={editing.testCommand} maxLength={500} placeholder="例如 npm test" onChange={(event) => { setEditing({ ...editing, testCommand: event.target.value }); }} />
+            </label>
+            <label className="form-label">
+              Git Provider
+              <select className="select" value={editing.gitProvider} onChange={(event) => { setEditing({ ...editing, gitProvider: event.target.value as '' | 'github' | 'gitlab' }); }}>
+                <option value="">跟随全局</option>
+                <option value="github">GitHub</option>
+                <option value="gitlab">GitLab</option>
+              </select>
+            </label>
+            <p className="hint">测试命令用于节点执行/修复校验（受白名单与超时约束）；留空时跟随全局默认。</p>
           </div>
         )}
       </Modal>
