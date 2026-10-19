@@ -11,7 +11,7 @@ import {
   type TaskSummary,
 } from '@agent-workflow/shared';
 import { apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
-import { cancelExecution, resumeExecution, retryExecution } from '../../api/workflow.ts';
+import { cancelExecution, resumeExecution, retryExecution, skipExecutionNode } from '../../api/workflow.ts';
 import type { TaskDetailResponse } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
@@ -132,10 +132,12 @@ export function RecoveryPage() {
   });
   const executionNode = detail.data?.execution;
   const failedNodes = executionNode?.nodes.filter((node) => node.status === 'failed') ?? [];
+  const [skipNodeId, setSkipNodeId] = useState('');
   const executionRecovery = useMutation({
-    mutationFn: async (action: 'resume' | 'retry' | 'cancel') => {
+    mutationFn: async (action: 'resume' | 'retry' | 'cancel' | 'skip') => {
       if (action === 'resume') return resumeExecution(taskId, executionNode?.status);
       if (action === 'retry') return retryExecution(taskId, executionNode?.status);
+      if (action === 'skip') return skipExecutionNode(taskId, skipNodeId);
       return cancelExecution(taskId, executionNode?.status);
     },
     onSuccess: async (response) => {
@@ -374,6 +376,27 @@ export function RecoveryPage() {
                     </Button>
                   ) : null}
                 </div>
+                {['failed', 'stopped', 'paused'].includes(executionNode.status) ? (
+                  <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+                    <select className="select" style={{ width: 'auto', height: 30 }} value={skipNodeId} onChange={(event) => { setSkipNodeId(event.target.value); }} aria-label="选择要跳过的节点">
+                      <option value="">选择节点…</option>
+                      {executionNode.nodes.filter((node) => ['pending', 'ready', 'failed'].includes(node.status)).map((node) => (
+                        <option key={node.nodeId} value={node.nodeId}>{node.nodeId} · {node.status}</option>
+                      ))}
+                    </select>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon="stop"
+                      disabled={skipNodeId === '' || executionRecovery.isPending}
+                      onClick={() => {
+                        if (window.confirm('跳过该节点及其所有下游节点？已成功的节点不受影响，此操作不可撤销。')) executionRecovery.mutate('skip');
+                      }}
+                    >
+                      跳过节点及下游
+                    </Button>
+                  </div>
+                ) : null}
                 {failure === undefined ? null : <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>{failure}</p>}
                 {notice === undefined ? null : <p className="hint" style={{ marginTop: 8 }}>{notice}</p>}
                 <p className="hint" style={{ marginTop: 10 }}>

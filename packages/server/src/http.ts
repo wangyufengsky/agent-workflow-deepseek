@@ -7,6 +7,7 @@ import type {
   RoleSaveRequest,
   RolePublishRequest,
   RoleArchiveRequest,
+  NodeSkipRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
   CommandRequest,
@@ -300,6 +301,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/pause', async (request) => envelope(engine.executions.pause(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/resume', async (request) => envelope(engine.executions.resume(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/retry', async (request) => envelope(engine.executions.retry(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
+  app.post<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/execution/nodes/:nodeId/skip', async (request) => {
+    const body = request.body as NodeSkipRequest;
+    return envelope(engine.executions.skipNode(request.params.id, request.params.nodeId, body), requestId(request));
+  });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/cancel', async (request) => envelope(await engine.executions.cancel(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
   app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId), requestId(request)));
   app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId/attempts', async (request) => {

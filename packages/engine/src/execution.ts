@@ -4,6 +4,7 @@ import type {
   ExecutionCommandRequest,
   ExecutionResponse,
   ExecutionView,
+  NodeSkipRequest,
   ModelProfile,
   NodeStatusValue,
   PlanNode,
@@ -152,6 +153,62 @@ export class ExecutionService {
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
     this.#commands.settle(input.requestKey, { retried: failedNodes.length });
     void this.#advance(execution.id);
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
+  }
+
+  skipNode(taskId: string, nodeId: string, input: NodeSkipRequest): CommandResponse<ExecutionResponse> {
+    const task = this.#requireTask(taskId);
+    const execution = this.get(taskId);
+    if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
+    if (input?.confirmSkip !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '跳过节点需要显式确认');
+    if (!['failed', 'stopped', 'paused'].includes(execution.status)) {
+      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行未停止：先暂停/停止执行，再跳过节点', { details: { status: execution.status } });
+    }
+    const node = execution.nodes.find((item) => item.nodeId === nodeId);
+    if (node === undefined) throw new AppError(ErrorCode.NOT_FOUND, '节点不存在', { details: { nodeId } });
+    if (node.status === 'succeeded') throw new AppError(ErrorCode.VALIDATION_FAILED, '已成功的节点不能跳过');
+    if (node.status === 'running') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '节点正在执行，先停止执行再跳过');
+    if (node.status === 'cancelled') throw new AppError(ErrorCode.VALIDATION_FAILED, '节点已经被跳过');
+    const plan = this.#store.plans.get(execution.planRevisionId);
+    if (plan === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行计划不存在');
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'execution.skipNode',
+      body: { taskId, nodeId, confirmSkip: true },
+      target: { taskId, executionId: execution.id, ref: nodeId },
+    });
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
+    const skipped = new Set<string>([nodeId]);
+    const queue = [nodeId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const edge of plan.graph.edges) {
+        if (edge.from !== current || skipped.has(edge.to)) continue;
+        skipped.add(edge.to);
+        queue.push(edge.to);
+      }
+    }
+    for (const id of skipped) {
+      const target = execution.nodes.find((item) => item.nodeId === id);
+      if (target === undefined || target.status === 'succeeded' || target.status === 'running') continue;
+      this.#store.executions.updateNode(execution.id, id, {
+        status: NodeStatus.CANCELLED,
+        error: { code: 'SKIPPED', message: '用户跳过节点及下游' },
+        endedAt: nowIso(),
+        currentAttemptId: null,
+      });
+    }
+    this.#recomputeReady(execution, plan);
+    const refreshed = this.#store.executions.get(execution.id)!;
+    const failed = refreshed.nodes.filter((item) => item.status === NodeStatus.FAILED).length;
+    const unfinished = refreshed.nodes.filter((item) => !([NodeStatus.SUCCEEDED, NodeStatus.SKIPPED, NodeStatus.CANCELLED] as NodeStatusValue[]).includes(item.status)).length;
+    if (refreshed.status === 'failed' && failed === 0 && unfinished === 0) {
+      this.#completeExecution(task, refreshed);
+    } else {
+      this.#store.tasks.update(taskId, { attention: TaskAttention.NONE });
+    }
+    this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: this.get(taskId)?.status ?? refreshed.status, revision: 1 });
+    this.#commands.settle(input.requestKey, { skipped: [...skipped] });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
   }
 

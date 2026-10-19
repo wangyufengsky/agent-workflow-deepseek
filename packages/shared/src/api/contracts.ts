@@ -189,6 +189,11 @@ export interface UpdateDraftRequest {
   readonly expected?: { readonly requirementRevision?: number };
 }
 
+export interface NodeSkipRequest extends CommandRequest {
+  readonly nodeId: string;
+  readonly confirmSkip: true;
+}
+
 export interface OpenCodeDetectResponse {
   readonly current: string;
   readonly scannedAt: IsoDateTime;
@@ -814,6 +819,7 @@ export const ROUTES = {
   executionPause: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/pause`,
   executionResume: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/resume`,
   executionRetry: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/retry`,
+  executionSkipNode: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/execution/nodes/${encodeURIComponent(nodeId)}/skip`,
   executionAdvance: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/advance`,
   executionCancel: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/cancel`,
   node: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}`,

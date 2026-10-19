@@ -16,6 +16,7 @@ import {
   type ExecutionCommandRequest,
   type ExecutionResponse,
   type NodeDetail,
+  type NodeSkipRequest,
   type OperationsByKeyResponse,
   type OperationReceipt,
   type OutputFragment,
@@ -322,6 +323,12 @@ export async function resumeExecution(taskId: string, expectedStatus?: string): 
 export async function retryExecution(taskId: string, expectedStatus?: string): Promise<CommandResponse<ExecutionResponse>> {
   const body: ExecutionCommandRequest = { requestKey: createRequestKey(), expectedStatus, confirm: true };
   const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionRetry(taskId), body);
+  return response.data;
+}
+
+export async function skipExecutionNode(taskId: string, nodeId: string): Promise<CommandResponse<ExecutionResponse>> {
+  const body: NodeSkipRequest = { requestKey: createRequestKey(), nodeId, confirmSkip: true };
+  const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionSkipNode(taskId, nodeId), body);
   return response.data;
 }
 
