@@ -22,7 +22,7 @@ import type {
   UseTemplateRequest,
 } from '@agent-workflow/shared';
 import { AppError, ErrorCode, NodeManualAcceptanceState, NodeStatus, Rationale, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso } from '@agent-workflow/shared';
-import type { EngineContext } from './actions.ts';
+import { readOnlyRecoveryError, type EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
 import type { Store } from '@agent-workflow/storage';
@@ -87,7 +87,7 @@ export class PlanService {
   }
 
   useTemplate(taskId: string, input: UseTemplateRequest): CommandResponse<PlanResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '按模板生成计划');
     const fixed = task.fixedTemplate;
     if (fixed === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '这个任务不是固定模板任务');
     if (input?.confirmUseTemplate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '按模板生成计划需要显式确认');
@@ -95,7 +95,7 @@ export class PlanService {
   }
 
   #useTemplatePlan(taskId: string, templateId: string, input: UseTemplateRequest): CommandResponse<PlanResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '按模板生成计划');
     const template = this.#template(templateId);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -124,7 +124,7 @@ export class PlanService {
   }
 
   useSkeleton(taskId: string, input: UseSkeletonRequest): CommandResponse<PlanResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '生成计划骨架');
     if (task.fixedTemplate !== undefined) throw new AppError(ErrorCode.FIXED_TEMPLATE_LOCKED, '固定模板任务使用模板步骤，不能使用方法骨架');
     const method = this.#method(task);
     const { record, replayed } = this.#commands.begin({
@@ -146,7 +146,7 @@ export class PlanService {
   }
 
   confirm(taskId: string, input: ConfirmPlanRequest): CommandResponse<TaskDetailResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '确认计划');
     const plan = this.#store.plans.get(input.planRevisionId);
     if (plan === undefined || plan.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '计划不存在');
     if (plan.status !== 'unconfirmed' && plan.status !== 'draft') {
@@ -200,7 +200,7 @@ export class PlanService {
   }
 
   editBegin(taskId: string, input: EditBeginRequest): CommandResponse<PlanResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '调整执行中的计划');
     if (task.fixedTemplate !== undefined) throw new AppError(ErrorCode.FIXED_TEMPLATE_LOCKED, '该任务使用固定模板，创建后不能修改步骤；要改要求，请新建模板任务。');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
@@ -233,7 +233,7 @@ export class PlanService {
   }
 
   editSave(taskId: string, input: EditSaveRequest): CommandResponse<PlanResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '保存计划调整');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
     const { record, replayed } = this.#commands.begin({
@@ -313,7 +313,7 @@ export class PlanService {
   }
 
   editFinish(taskId: string, input: EditFinishRequest): CommandResponse<PlanResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '结束计划调整');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
     const { record, replayed } = this.#commands.begin({
@@ -346,7 +346,7 @@ export class PlanService {
    * paused instead, so the last confirmed plan stays authoritative here.
    */
   abandonEdit(taskId: string, input: PlanEditAbandonRequest): CommandResponse<PlanResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '放弃计划调整');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
     if (input?.confirmAbandon !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '放弃调整需要显式确认');
@@ -524,6 +524,13 @@ export class PlanService {
             requestKey: stored.requestKey,
           }),
     };
+  }
+
+  /** Read-only recovery drafts may be viewed, never planned/confirmed. */
+  #assertWritable(taskId: string, action: string) {
+    const task = this.#requireTask(taskId);
+    if (task.readOnly === true) throw readOnlyRecoveryError(action);
+    return task;
   }
 
   #requireTask(taskId: string) {

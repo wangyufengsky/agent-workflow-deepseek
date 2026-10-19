@@ -11,7 +11,7 @@ import type {
   TaskDelivery,
   TaskWorkspace,
 } from '@agent-workflow/shared';
-import { Rationale, TaskAttention, TaskLifecycle, TaskStage, nowIso } from '@agent-workflow/shared';
+import { AppError, ErrorCode, Rationale, TaskAttention, TaskLifecycle, TaskStage, nowIso } from '@agent-workflow/shared';
 
 export interface EngineContext {
   readonly store: import('@agent-workflow/storage').Store;
@@ -28,6 +28,48 @@ export function allowed(): ActionAvailability {
 
 export function denied(reasonCode: string, reason: string): ActionAvailability {
   return { allowed: false, reasonCode, reason };
+}
+
+/** Thrown by services when a write command targets a read-only recovery draft. */
+export function readOnlyRecoveryError(action: string): AppError {
+  return new AppError(ErrorCode.FORBIDDEN, `该任务是只读验证草稿（verify_only）：不能${action}`, {
+    details: { reason: 'RECOVERY_READ_ONLY' },
+  });
+}
+
+/** Recovery mode `verify_only` drafts are read-only by domain contract. */
+export const READ_ONLY_RECOVERY_REASON = '该任务是只读验证草稿（verify_only）：只核对父任务已有产物，不能规划、确认计划、准备工作区或执行。';
+
+/**
+ * Actions that would create or mutate plans/executions/workspaces. On a
+ * read-only recovery draft they are always denied, independent of what the
+ * project/round state would otherwise allow.
+ */
+const READ_ONLY_DENIED_ACTIONS = [
+  'generatePlan',
+  'useSkeleton',
+  'startPlanning',
+  'reconcile',
+  'previewNextRound',
+  'applyCandidate',
+  'rejectCandidate',
+  'stopPlanning',
+  'saveAnswer',
+  'confirmPlan',
+  'editPlan',
+  'adjustExecutionPlan',
+  'prepareWorkspace',
+  'startExecution',
+  'pauseExecution',
+  'resumeExecution',
+  'cancelExecution',
+  'continueExecution',
+  'deliver',
+] as const;
+
+function denyReadOnly(actions: Record<string, ActionAvailability>): void {
+  const available = denied('RECOVERY_READ_ONLY', READ_ONLY_RECOVERY_REASON);
+  for (const key of READ_ONLY_DENIED_ACTIONS) actions[key] = available;
 }
 
 export function computeTaskActions(input: {
@@ -134,6 +176,13 @@ export function computeTaskActions(input: {
       : denied(Rationale.DELIVERY_BLOCKED, '当前没有待交付的变更');
   actions.cleanupWorkspace = workspace?.state === 'ready' ? allowed() : denied(Rationale.WORKSPACE_NOT_READY, '没有可清理的工作区');
 
+  // A read-only verification draft can never start writable work, even if a
+  // stale plan/round/workspace record somehow existed for it.
+  if (task.readOnly === true) {
+    denyReadOnly(actions);
+    actions.cleanupWorkspace = denied('RECOVERY_READ_ONLY', READ_ONLY_RECOVERY_REASON);
+  }
+
   return actions;
 }
 
@@ -141,7 +190,13 @@ export function computePlanningActions(input: {
   readonly round?: PlanningRound;
   readonly opencodeReady: boolean;
   readonly budgetConfigured: boolean;
+  readonly readOnly?: boolean;
 }): Record<string, ActionAvailability> {
+  if (input.readOnly === true) {
+    const actions: Record<string, ActionAvailability> = {};
+    denyReadOnly(actions);
+    return actions;
+  }
   const round = input.round;
   const running = round?.status === 'running' || round?.status === 'queued' || round?.status === 'stopping';
   const unknown = round?.status === 'unknown' || round?.stage === 'unknown';
@@ -167,6 +222,7 @@ export function computeTaskAttention(input: {
 }): { attention: Task['attention']; reason?: string } {
   const { task, round, execution, workspace, delivery } = input;
   if (task.lifecycle !== TaskLifecycle.ACTIVE) return { attention: TaskAttention.NONE };
+  if (task.readOnly === true) return { attention: TaskAttention.WAITING_USER, reason: '只读验证草稿待人工核对' };
   if (round?.status === 'unknown' || round?.stage === 'unknown') return { attention: TaskAttention.UNKNOWN, reason: '规划结果待核对' };
   if (round?.stage === 'needs_answer') return { attention: TaskAttention.WAITING_USER, reason: '有必须答复的问题' };
   if (round?.stage === 'awaiting_review') return { attention: TaskAttention.WAITING_USER, reason: '候选待审阅' };

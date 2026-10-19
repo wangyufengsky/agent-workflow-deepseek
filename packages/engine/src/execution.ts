@@ -19,7 +19,7 @@ import type {
 } from '@agent-workflow/shared';
 import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nodeMachine, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
-import type { EngineContext } from './actions.ts';
+import { readOnlyRecoveryError, type EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { OpenCodePort } from './ports.ts';
 
@@ -65,7 +65,7 @@ export class ExecutionService {
   }
 
   start(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '开始执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建，请先确认计划');
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
@@ -96,6 +96,7 @@ export class ExecutionService {
   }
 
   pause(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
+    this.#assertWritable(taskId, '暂停执行');
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);
     if (execution === undefined || execution.status !== 'running') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有运行中的执行');
@@ -113,6 +114,7 @@ export class ExecutionService {
   }
 
   resume(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
+    this.#assertWritable(taskId, '继续执行');
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);
     if (execution === undefined || execution.status !== 'paused') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有暂停的执行');
@@ -140,7 +142,7 @@ export class ExecutionService {
    * task — the explicit `resume`/`advance` action stays the user's decision.
    */
   setAutoAdvance(taskId: string, input: ExecutionAutoAdvanceRequest): CommandResponse<ExecutionResponse> {
-    this.#requireTask(taskId);
+    this.#assertWritable(taskId, '切换自动推进');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
     if (input?.confirmChange !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '切换自动推进需要显式确认');
@@ -177,7 +179,7 @@ export class ExecutionService {
    * only after that batch finished.
    */
   advance(taskId: string, input: ExecutionAdvanceRequest): CommandResponse<ExecutionResponse> {
-    this.#requireTask(taskId);
+    this.#assertWritable(taskId, '推进执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
     if (input?.confirmAdvance !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '推进步骤需要显式确认');
@@ -243,7 +245,7 @@ export class ExecutionService {
   }
 
   retry(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '重试执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
     const failedNodes = execution.nodes.filter((node) => node.status === NodeStatus.FAILED);
@@ -282,7 +284,7 @@ export class ExecutionService {
   }
 
   skipNode(taskId: string, nodeId: string, input: NodeSkipRequest): CommandResponse<ExecutionResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '跳过执行节点');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
     if (input?.confirmSkip !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '跳过节点需要显式确认');
@@ -339,6 +341,7 @@ export class ExecutionService {
   }
 
   async cancel(taskId: string, input: ExecutionCommandRequest): Promise<CommandResponse<ExecutionResponse>> {
+    this.#assertWritable(taskId, '取消执行');
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
@@ -812,6 +815,13 @@ ${task.requirement.text}
     const task = this.#requireTask(taskId);
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
     return { execution, workspace, actions: {} };
+  }
+
+  /** Read-only recovery drafts may be read, never executed. */
+  #assertWritable(taskId: string, action: string): Task {
+    const task = this.#requireTask(taskId);
+    if (task.readOnly === true) throw readOnlyRecoveryError(action);
+    return task;
   }
 
   #requireTask(taskId: string): Task {

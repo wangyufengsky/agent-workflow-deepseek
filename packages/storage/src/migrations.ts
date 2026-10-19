@@ -383,4 +383,11 @@ CREATE TABLE IF NOT EXISTS task_acceptance (
 );
 `,
   },
+  {
+    version: 11,
+    name: 'task_read_only',
+    sql: `
+ALTER TABLE tasks ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

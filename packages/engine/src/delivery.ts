@@ -11,7 +11,7 @@ import type {
 } from '@agent-workflow/shared';
 import { AppError, ErrorCode, TaskAttention, TaskLifecycle, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
-import type { EngineContext } from './actions.ts';
+import { readOnlyRecoveryError, type EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort, RemotePort } from './ports.ts';
 import { decodeFileId, type WorkspaceService } from './workspace.ts';
@@ -50,7 +50,7 @@ export class DeliveryService {
 
   async select(taskId: string, input: DeliverySelectRequest): Promise<CommandResponse<DeliveryResponse>> {
     const delivery = this.get(taskId);
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '交付任务');
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
     if (workspace === undefined || workspace.state !== 'ready') throw new AppError(ErrorCode.WORKSPACE_NOT_READY, '工作区未准备完成');
     if (input.changesRevision !== undefined && delivery.changesRevision !== undefined && input.changesRevision !== delivery.changesRevision) {
@@ -81,7 +81,7 @@ export class DeliveryService {
   async commit(taskId: string, input: DeliveryCommitRequest): Promise<CommandResponse<DeliveryResponse>> {
     if (input?.confirmCommit !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '提交任务变更需要 confirmCommit=true 确认');
     const delivery = this.get(taskId);
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '交付任务');
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(taskId) : this.#store.workspaces.get(task.workspaceId);
     if (workspace?.displayRoot === undefined) throw new AppError(ErrorCode.WORKSPACE_NOT_READY, '工作区未准备完成');
     const { record, replayed } = this.#commands.begin({
@@ -130,7 +130,7 @@ export class DeliveryService {
   async push(taskId: string, input: DeliveryPushRequest): Promise<CommandResponse<DeliveryResponse>> {
     if (input?.confirmPush !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '推送任务分支需要 confirmPush=true 确认');
     const delivery = this.get(taskId);
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '交付任务');
     const project = this.#requireProject(task.projectId);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -164,7 +164,11 @@ export class DeliveryService {
       this.#commands.settle(input.requestKey, { remoteRef: result.remoteRef, pushedSha: result.pushedSha });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { delivery: updated!, actions: {} } };
     } catch (error) {
-      this.#commands.fail(input.requestKey, error as Error);
+      const unknown = remoteOutcomeUnknownReason(error);
+      if (unknown !== undefined) {
+        this.#recordUnknownRemoteOutcome({ taskId, delivery, requestKey: input.requestKey, operation: 'task.delivery.push', step: 'push', reason: unknown });
+      }
+      this.#recordRemoteFailure({ taskId, delivery, requestKey: input.requestKey, step: 'push' }, error);
       throw error;
     }
   }
@@ -172,7 +176,7 @@ export class DeliveryService {
   async createMergeRequest(taskId: string, input: DeliveryMergeRequestRequest): Promise<CommandResponse<DeliveryResponse>> {
     if (input?.confirmMergeRequest !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '创建合并请求需要 confirmMergeRequest=true 确认');
     const delivery = this.get(taskId);
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '交付任务');
     const project = this.#requireProject(task.projectId);
     if (this.#remote === undefined && this.#git.createMergeRequest === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前未配置 GitHub/GitLab 连接，无法创建合并请求');
     const { record, replayed } = this.#commands.begin({
@@ -207,7 +211,11 @@ export class DeliveryService {
       this.#commands.settle(input.requestKey, { iid: mr.iid, webUrl: mr.webUrl });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { delivery: updated!, actions: {} } };
     } catch (error) {
-      this.#commands.fail(input.requestKey, error as Error);
+      const unknown = remoteOutcomeUnknownReason(error);
+      if (unknown !== undefined) {
+        this.#recordUnknownRemoteOutcome({ taskId, delivery, requestKey: input.requestKey, operation: 'task.delivery.mergeRequest.create', step: 'mergeRequest', reason: unknown });
+      }
+      this.#recordRemoteFailure({ taskId, delivery, requestKey: input.requestKey, step: 'mergeRequest' }, error);
       throw error;
     }
   }
@@ -215,7 +223,7 @@ export class DeliveryService {
   async merge(taskId: string, input: DeliveryMergeRequest): Promise<CommandResponse<DeliveryResponse>> {
     if (input?.confirmMerge !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '合并任务分支需要 confirmMerge=true 确认');
     const delivery = this.get(taskId);
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '交付任务');
     const project = this.#requireProject(task.projectId);
     const commitStep = delivery.steps.find((step) => step.step === 'commit');
     const sourceSha = commitStep?.commitSha ?? input.sourceSha;
@@ -267,6 +275,66 @@ export class DeliveryService {
     }
   }
 
+  /** Read-only recovery drafts may be viewed, never delivered. */
+  #assertWritable(taskId: string, action: string) {
+    const task = this.#requireTask(taskId);
+    if (task.readOnly === true) throw readOnlyRecoveryError(action);
+    return task;
+  }
+
+  /**
+   * A remote write that timed out or got no usable answer may still have taken
+   * effect remotely. Settle the receipt UNKNOWN, mark the delivery step unknown
+   * and the projection `unknown_receipt` instead of claiming a definite failure;
+   * the caller reconciles by requestKey and nothing is retried automatically.
+   */
+  #recordUnknownRemoteOutcome(input: {
+    readonly taskId: string;
+    readonly delivery: TaskDelivery;
+    readonly requestKey: string;
+    readonly operation: string;
+    readonly step: 'push' | 'mergeRequest';
+    readonly reason: RemoteWriteUnknownReason;
+  }): never {
+    const label = input.step === 'push' ? '推送' : '创建合并请求';
+    const reasonLabel = input.reason === 'timeout' ? '请求超时' : input.reason === 'network_error' ? '网络连接失败' : '远端响应无法判定';
+    const message = `${label}结果未明（${reasonLabel}），远端可能已成功；不会自动重发，请按 requestKey 核对后再操作。`;
+    const error = new AppError(ErrorCode.RECEIPT_UNKNOWN, message, {
+      httpStatus: 409,
+      details: { requestKey: input.requestKey, operation: input.operation, outcomeUnknown: true, reason: input.reason },
+    });
+    this.#commands.fail(input.requestKey, error, true);
+    const steps = updateStep(input.delivery.steps, {
+      step: input.step,
+      state: 'unknown',
+      requestKey: input.requestKey,
+      settledAt: nowIso(),
+      error: { code: ErrorCode.RECEIPT_UNKNOWN, message },
+    });
+    const updated = this.#store.deliveries.update(input.delivery.id, { projection: 'unknown_receipt', projectionReason: message, steps });
+    this.#store.events.publish('task.delivery.updated', { taskId: input.taskId, deliveryId: input.delivery.id, revision: updated!.revision, projection: 'unknown_receipt' });
+    throw error;
+  }
+
+  /** A definite remote rejection stays a failure and blocks the delivery step. */
+  #recordRemoteFailure(
+    input: { readonly taskId: string; readonly delivery: TaskDelivery; readonly requestKey: string; readonly step: 'push' | 'mergeRequest' },
+    error: unknown,
+  ): void {
+    const message = error instanceof Error ? error.message : '远端操作失败';
+    const code = error instanceof AppError ? error.code : ErrorCode.INTERNAL_ERROR;
+    const steps = updateStep(input.delivery.steps, {
+      step: input.step,
+      state: 'failed',
+      requestKey: input.requestKey,
+      settledAt: nowIso(),
+      error: { code, message },
+    });
+    const updated = this.#store.deliveries.update(input.delivery.id, { projection: 'blocked', projectionReason: message, steps });
+    this.#store.events.publish('task.delivery.updated', { taskId: input.taskId, deliveryId: input.delivery.id, revision: updated!.revision, projection: 'blocked' });
+    this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('远端操作失败'));
+  }
+
   #requireTask(taskId: string) {
     const task = this.#store.tasks.get(taskId);
     if (task === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务不存在');
@@ -283,4 +351,34 @@ export class DeliveryService {
 function updateStep(steps: readonly DeliveryStepState[], next: DeliveryStepState): DeliveryStepState[] {
   const filtered = steps.filter((step) => step.step !== next.step);
   return [...filtered, next];
+}
+
+
+export type RemoteWriteUnknownReason = 'timeout' | 'network_error' | 'undetermined';
+
+/**
+ * Classify a remote-write error by whether the request may still have taken
+ * effect remotely. Definite business rejections (auth, non-fast-forward,
+ * conflict, 4xx payloads) stay `failed`; timeouts, network loss and an
+ * unparseable response for a write are undetermined and must settle `unknown`.
+ *
+ * The same helper is exported for the HTTP `git fetch` command (whose route
+ * lives outside this module) so a timeout is not reported as a definite failure.
+ */
+export function remoteOutcomeUnknownReason(error: unknown): RemoteWriteUnknownReason | undefined {
+  if (!(error instanceof AppError)) {
+    if (error instanceof Error && /timed out|timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|socket hang up|fetch failed/i.test(error.message)) {
+      return 'undetermined';
+    }
+    return undefined;
+  }
+  if (error.code === ErrorCode.NETWORK_UNREACHABLE) {
+    return error.details?.['reason'] === 'timeout' ? 'timeout' : 'network_error';
+  }
+  // We sent a write and could not parse the answer: the side effect is unknown.
+  if (error.code === ErrorCode.UNSUPPORTED_FORMAT) return 'undetermined';
+  // The local git CLI surfaces a killed/timed-out child as INTERNAL_ERROR without
+  // a machine-readable reason; for a remote write that is undetermined, not failed.
+  if (error.code === ErrorCode.INTERNAL_ERROR) return 'undetermined';
+  return undefined;
 }

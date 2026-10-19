@@ -55,14 +55,29 @@ import type {
   NodeAcceptRequest,
   NodeRejectRequest,
   NodeStatusValue,
+  InteractionCapabilitiesView,
+  InteractionDetail,
+  InteractionListResponse,
+  InteractionQuestion,
+  InteractionResolveAvailability,
+  InteractionResolveRequest,
+  InteractionResolveResult,
+  InteractionStateValue,
+  InteractionSummary,
+  PlanningQuestion,
+  PlanningRound,
 } from '@agent-workflow/shared';
 import {
   AppError,
   DatabaseConnectionState,
   ErrorCode,
+  InteractionKind,
+  InteractionState,
   MCP_TOOL_COUNTS_BY_TOOLSET,
   NODE_TERMINAL_STATUSES,
   NodeStatus,
+  PlanningStage,
+  TaskLifecycle,
   THEMES,
   THEME_ORDER,
   createId,
@@ -220,6 +235,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'PATCH /api/settings',
   'POST /api/settings/databases',
   'POST /api/knowledge/ask',
+  'POST /api/interactions/:id/resolve',
   'POST /api/opencode/restart',
 ]);
 
@@ -914,6 +930,52 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope({ operation, stillUnknown: operation.status === 'unknown' || operation.status === 'accepted' }, requestId(request));
   });
 
+  // Inbox interactions (待处理中心就地处理)
+  app.get('/api/interactions', async (request) => envelope(listInboxInteractions(store), requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/interactions/:id', async (request) => {
+    const parsed = parseInteractionId(request.params.id);
+    if (parsed === undefined) throw new AppError(ErrorCode.NOT_FOUND, '互动事项不存在');
+    const round = store.planning.get(parsed.roundId);
+    if (round === undefined) throw new AppError(ErrorCode.NOT_FOUND, '互动事项不存在');
+    return envelope(buildInteractionDetail(store, round, parsed.kind), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/interactions/:id/resolve', async (request) => {
+    const body = request.body as InteractionResolveRequest;
+    const parsed = parseInteractionId(request.params.id);
+    if (parsed === undefined) throw new AppError(ErrorCode.NOT_FOUND, '互动事项不存在');
+    if (body?.confirmResolve !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '提交答复需要显式确认');
+    const round = store.planning.get(parsed.roundId);
+    if (round === undefined) throw new AppError(ErrorCode.NOT_FOUND, '互动事项不存在');
+    const task = store.tasks.get(round.taskId);
+    if (task === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务不存在');
+    if (!Array.isArray(body.answers)) throw new AppError(ErrorCode.VALIDATION_FAILED, 'answers 必须是数组');
+    const state = planningRoundInteractionState(round, parsed.kind);
+    const availability = interactionResolveAvailability(parsed.kind, state);
+    // A settled replay is answered from the stored receipt even though the round
+    // (or its state) moved on; fresh submissions must satisfy availability.
+    const existing = engine.commands.get(body.requestKey);
+    if (!availability.allowed && (existing === undefined || existing.status === 'accepted')) {
+      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, availability.reason ?? '该互动事项当前不能提交', {
+        details: { interactionId: request.params.id, state, reasonCode: availability.reasonCode },
+      });
+    }
+    const answers = body.answers.map((answer, index) => {
+      if (answer === null || typeof answer !== 'object' || typeof answer.questionId !== 'string' || answer.questionId === '') {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '答复格式不合法', { details: { index } });
+      }
+      return { questionId: answer.questionId, answer: interactionAnswerText(answer) };
+    });
+    const saved = engine.planning.resolveAnswers(round.taskId, round.id, { requestKey: body.requestKey, roundId: round.id, answers });
+    const refreshedRound = store.planning.get(round.id) ?? round;
+    const refreshedTask = store.tasks.get(round.taskId) ?? task;
+    const result: InteractionResolveResult = {
+      interaction: buildInteractionDetail(store, refreshedRound, parsed.kind),
+      planning: saved.resource?.planning ?? engine.planning.planningResponse(round.taskId).planning,
+      requirementRevision: refreshedTask.requirement.revision,
+    };
+    return envelope({ receipt: saved.receipt, resource: result }, requestId(request));
+  });
+
   // Settings
   app.get('/api/settings', async (request) => {
     const settings = engine.publicSettings();
@@ -1283,6 +1345,247 @@ function requireProject(engine: Engine, projectId: string) {
   if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
   return project;
 }
+
+/* ------------------------------------------------------------------ */
+/* Inbox interactions (real planning questions / candidate / unknown)  */
+/* ------------------------------------------------------------------ */
+
+const INTERACTION_ID_PATTERN = /^int_(planning|review|reconcile)_(.+)$/;
+
+function interactionKindSegment(kind: 'planning_question' | 'planning_review' | 'planning_reconcile'): string {
+  if (kind === InteractionKind.PLANNING_QUESTION) return 'planning';
+  if (kind === InteractionKind.PLANNING_REVIEW) return 'review';
+  return 'reconcile';
+}
+
+function buildInteractionId(kind: 'planning_question' | 'planning_review' | 'planning_reconcile', roundId: string): string {
+  return `int_${interactionKindSegment(kind)}_${roundId}`;
+}
+
+function parseInteractionId(id: string): { readonly kind: 'planning_question' | 'planning_review' | 'planning_reconcile'; readonly roundId: string } | undefined {
+  const match = INTERACTION_ID_PATTERN.exec(id);
+  if (match === null) return undefined;
+  const segment = match[1];
+  const roundId = match[2];
+  if (segment === undefined || roundId === undefined || roundId === '') return undefined;
+  const kind = segment === 'planning'
+    ? InteractionKind.PLANNING_QUESTION
+    : segment === 'review'
+      ? InteractionKind.PLANNING_REVIEW
+      : InteractionKind.PLANNING_RECONCILE;
+  return { kind, roundId };
+}
+
+/**
+ * Honest capability snapshot: planning questions/review are derived from stored
+ * rounds; permissions/policy have no source in the managed OpenCode + internal
+ * MCP architecture, so the server reports them unavailable instead of inventing
+ * inbox items.
+ */
+function interactionCapabilities(): InteractionCapabilitiesView {
+  return {
+    planningQuestions: true,
+    planningReview: true,
+    permissions: false,
+    policy: false,
+    reason: '受管 OpenCode + 内部 MCP 架构下没有权限/策略请求来源；Inbox 只列真实存在的事项，不伪造 permission/policy。',
+  };
+}
+
+function questionAnswered(question: PlanningQuestion): boolean {
+  return typeof question.answer === 'string' && question.answer.trim() !== '';
+}
+
+function planningRoundIsUnknown(round: PlanningRound): boolean {
+  return round.status === 'unknown' || round.stage === PlanningStage.UNKNOWN || round.reconcile?.state === 'still_unknown';
+}
+
+function planningRoundInteractionState(round: PlanningRound, kind: 'planning_question' | 'planning_review' | 'planning_reconcile'): InteractionStateValue {
+  if (planningRoundIsUnknown(round)) return InteractionState.UNKNOWN;
+  if (kind === InteractionKind.PLANNING_RECONCILE) return InteractionState.RESOLVED;
+  if (kind === InteractionKind.PLANNING_QUESTION) {
+    const hasUnansweredRequired = round.questions.some((question) => question.required && !questionAnswered(question));
+    return round.stage === PlanningStage.NEEDS_ANSWER && hasUnansweredRequired ? InteractionState.OPEN : InteractionState.RESOLVED;
+  }
+  if (kind === InteractionKind.PLANNING_REVIEW) {
+    return round.stage === PlanningStage.AWAITING_REVIEW && round.candidate !== undefined ? InteractionState.OPEN : InteractionState.RESOLVED;
+  }
+  return InteractionState.UNKNOWN;
+}
+
+/** One item per round, in priority order: unknown reconcile > questions > review. */
+function primaryInteractionKind(round: PlanningRound): 'planning_question' | 'planning_review' | 'planning_reconcile' | undefined {
+  if (planningRoundIsUnknown(round)) return InteractionKind.PLANNING_RECONCILE;
+  if (planningRoundInteractionState(round, InteractionKind.PLANNING_QUESTION) === InteractionState.OPEN) return InteractionKind.PLANNING_QUESTION;
+  if (planningRoundInteractionState(round, InteractionKind.PLANNING_REVIEW) === InteractionState.OPEN) return InteractionKind.PLANNING_REVIEW;
+  return undefined;
+}
+
+function buildInteractionSummary(store: Store, round: PlanningRound, kind: 'planning_question' | 'planning_review' | 'planning_reconcile'): InteractionSummary | undefined {
+  const task = store.tasks.get(round.taskId);
+  if (task === undefined || task.lifecycle !== TaskLifecycle.ACTIVE) return undefined;
+  const project = store.projects.get(task.projectId);
+  const state = planningRoundInteractionState(round, kind);
+  const unansweredRequired = round.questions.filter((question) => question.required && !questionAnswered(question));
+  const title = kind === InteractionKind.PLANNING_QUESTION
+    ? '有必须答复的规划问题'
+    : kind === InteractionKind.PLANNING_REVIEW
+      ? '候选计划待审阅'
+      : '规划结果待核对';
+  const summary = kind === InteractionKind.PLANNING_QUESTION
+    ? (unansweredRequired.length > 0
+        ? `${String(unansweredRequired.length)} 个必答问题：${unansweredRequired.map((question) => question.question).join('；')}`
+        : '本轮必答问题已答复')
+    : kind === InteractionKind.PLANNING_REVIEW
+      ? round.candidate?.summary ?? '候选已生成'
+      : '只按原请求号核对，不会重新生成';
+  return {
+    id: buildInteractionId(kind, round.id),
+    kind,
+    state,
+    title,
+    summary,
+    taskId: task.id,
+    taskTitle: task.title,
+    projectId: task.projectId,
+    projectName: project?.name ?? '未知项目',
+    stepName: `规划轮次 ${String(round.ordinal)}`,
+    roundId: round.id,
+    roundOrdinal: round.ordinal,
+    createdAt: round.startedAt ?? task.updatedAt,
+    updatedAt: task.updatedAt,
+    returnTo: `/requirement/${task.id}`,
+  };
+}
+
+function buildInteractionQuestion(question: PlanningQuestion): InteractionQuestion {
+  return {
+    id: question.id,
+    title: question.question,
+    required: question.required,
+    answered: questionAnswered(question),
+    ...(questionAnswered(question) && question.answer !== undefined ? { answer: question.answer } : {}),
+    ...(question.answeredAt === undefined ? {} : { answeredAt: question.answeredAt }),
+    affectedNodeIds: [...question.affectedNodeIds],
+    inputMode: 'free_text',
+  };
+}
+
+function interactionResolveAvailability(
+  kind: 'planning_question' | 'planning_review' | 'planning_reconcile',
+  state: InteractionStateValue,
+): InteractionResolveAvailability {
+  if (kind === InteractionKind.PLANNING_QUESTION) {
+    if (state === InteractionState.OPEN) return { allowed: true, confirmField: 'confirmResolve' };
+    if (state === InteractionState.UNKNOWN) {
+      return {
+        allowed: false,
+        confirmField: 'confirmResolve',
+        reasonCode: 'INTERACTION_UNKNOWN',
+        reason: '规划轮次结果未明，只能按原请求号核对，不能在这里提交答复',
+      };
+    }
+    return {
+      allowed: false,
+      confirmField: 'confirmResolve',
+      reasonCode: 'INTERACTION_RESOLVED',
+      reason: '本轮规划问题已答复；如需修改请到需求画布保存答复',
+    };
+  }
+  if (kind === InteractionKind.PLANNING_REVIEW) {
+    return {
+      allowed: false,
+      confirmField: 'confirmResolve',
+      reasonCode: 'INTERACTION_READ_ONLY',
+      reason: '候选计划审阅请在需求画布「应用候选 / 不采用」处理（服务提供 planning.apply / planning.reject）',
+    };
+  }
+  return {
+    allowed: false,
+    confirmField: 'confirmResolve',
+    reasonCode: 'INTERACTION_READ_ONLY',
+    reason: '规划结果未明，只能按原请求号核对（GET /api/operations/:key），不会重新生成',
+  };
+}
+
+function buildInteractionDetail(store: Store, round: PlanningRound, kind: 'planning_question' | 'planning_review' | 'planning_reconcile'): InteractionDetail {
+  const summary = buildInteractionSummary(store, round, kind);
+  if (summary === undefined) throw new AppError(ErrorCode.NOT_FOUND, '互动事项不存在');
+  const task = store.tasks.get(summary.taskId);
+  if (task === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务不存在');
+  const questions = round.questions.map(buildInteractionQuestion);
+  const nodeIds = [...new Set(round.questions.flatMap((question) => question.affectedNodeIds))];
+  const candidate = round.candidate === undefined
+    ? undefined
+    : {
+        planRevisionId: round.candidate.planRevisionId,
+        summary: round.candidate.summary,
+        validationState: round.candidate.validation.structural.state === 'failed' ? 'failed' as const : 'passed' as const,
+        diffCount: round.candidate.diff.length,
+      };
+  const answeredAt = round.questions
+    .map((question) => question.answeredAt)
+    .filter((value): value is string => typeof value === 'string')
+    .sort()
+    .at(-1);
+  return {
+    ...summary,
+    source: kind === InteractionKind.PLANNING_REVIEW && round.candidate !== undefined
+      ? { type: 'planning_candidate', roundId: round.id, roundOrdinal: round.ordinal, planRevisionId: round.candidate.planRevisionId, ...(nodeIds.length === 0 ? {} : { nodeIds }) }
+      : { type: 'planning_round', roundId: round.id, roundOrdinal: round.ordinal, ...(nodeIds.length === 0 ? {} : { nodeIds }) },
+    questions,
+    ...(candidate === undefined ? {} : { candidate }),
+    degradation: {
+      options: false,
+      multiSelect: false,
+      recommendedValue: false,
+      reason: '当前规划问题模型只有单答案文本字段（PlanningQuestion.answer）；没有选项、单选/多选、推荐值数据，也不提供「拒绝回答」——规划业务问题必须明确回答。服务按真实字段降级为自由文本答复。',
+    },
+    resolve: interactionResolveAvailability(kind, summary.state),
+    ...(summary.state === InteractionState.UNKNOWN
+      ? {
+          unknown: {
+            message: kind === InteractionKind.PLANNING_RECONCILE
+              ? '规划结果未明；只能按原请求号核对（GET /api/operations/:key），不会重新生成'
+              : '规划轮次结果未明；先按原请求号核对',
+          },
+        }
+      : {}),
+    ...(summary.state === InteractionState.RESOLVED && answeredAt !== undefined ? { resolvedAt: answeredAt } : {}),
+    requirementRevision: task.requirement.revision,
+  };
+}
+
+function interactionAnswerText(answer: { readonly values?: readonly string[]; readonly other?: string }): string {
+  const parts = Array.isArray(answer.values)
+    ? answer.values.filter((value): value is string => typeof value === 'string' && value.trim() !== '').map((value) => value.trim())
+    : [];
+  if (typeof answer.other === 'string' && answer.other.trim() !== '') parts.push(answer.other.trim());
+  return parts.join('；');
+}
+
+function listInboxInteractions(store: Store): InteractionListResponse {
+  const items: InteractionSummary[] = [];
+  for (const task of store.tasks.list()) {
+    if (task.lifecycle !== TaskLifecycle.ACTIVE) continue;
+    const round = task.currentPlanningRoundId === undefined ? store.planning.latest(task.id) : store.planning.get(task.currentPlanningRoundId);
+    if (round === undefined) continue;
+    const kind = primaryInteractionKind(round);
+    if (kind === undefined) continue;
+    const summary = buildInteractionSummary(store, round, kind);
+    if (summary !== undefined) items.push(summary);
+  }
+  items.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+  return {
+    items,
+    counts: {
+      open: items.filter((item) => item.state === InteractionState.OPEN).length,
+      unknown: items.filter((item) => item.state === InteractionState.UNKNOWN).length,
+    },
+    capabilities: interactionCapabilities(),
+  };
+}
+
 
 async function buildGitRepoView(engine: Engine, projectId: string, remoteService?: RemoteService, storeOverride?: Store): Promise<Record<string, unknown>> {
   const project = requireProject(engine, projectId);

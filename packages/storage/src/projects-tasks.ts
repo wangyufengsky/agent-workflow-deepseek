@@ -150,6 +150,8 @@ export interface CreateTaskInput {
   readonly methodRevision: string;
   readonly stage?: TaskStageValue;
   readonly fixedTemplate?: FixedTemplateBinding;
+  /** Read-only recovery draft (`verify_only`); see `Task.readOnly`. */
+  readonly readOnly?: boolean;
 }
 
 export interface TaskSummaryRow {
@@ -184,14 +186,15 @@ export class TaskRepository {
       methodId: input.methodId,
       methodRevision: input.methodRevision,
       fixedTemplate: input.fixedTemplate,
+      ...(input.readOnly === true ? { readOnly: true } : {}),
       requirement,
       createdAt: at,
       updatedAt: at,
     };
     this.#db
       .prepare(
-        `INSERT INTO tasks (id, project_id, title, stage, lifecycle, attention, method_id, method_revision, fixed_template_json, requirement_json, revision, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, title, stage, lifecycle, attention, method_id, method_revision, fixed_template_json, requirement_json, read_only, revision, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       )
       .run(
         task.id,
@@ -204,6 +207,7 @@ export class TaskRepository {
         task.methodRevision,
         task.fixedTemplate === undefined ? null : jsonStringify(task.fixedTemplate),
         jsonStringify(task.requirement),
+        fromBool(task.readOnly === true),
         task.createdAt,
         task.updatedAt,
       );
@@ -232,7 +236,7 @@ export class TaskRepository {
     this.#db
       .prepare(
         `UPDATE tasks SET title = ?, stage = ?, lifecycle = ?, attention = ?, method_id = ?, method_revision = ?,
-           fixed_template_json = ?, requirement_json = ?, current_plan_revision_id = ?, current_planning_round_id = ?,
+           fixed_template_json = ?, requirement_json = ?, read_only = ?, current_plan_revision_id = ?, current_planning_round_id = ?,
            workspace_id = ?, execution_id = ?, delivery_id = ?, revision = revision + 1, updated_at = ? WHERE id = ?`,
       )
       .run(
@@ -244,6 +248,7 @@ export class TaskRepository {
         next.methodRevision,
         next.fixedTemplate === undefined ? null : jsonStringify(next.fixedTemplate),
         jsonStringify(next.requirement),
+        fromBool(next.readOnly === true),
         next.currentPlanRevisionId ?? null,
         next.currentPlanningRoundId ?? null,
         next.workspaceId ?? null,
@@ -301,6 +306,7 @@ function mapTask(row: Row): Task {
     methodId: String(row.method_id),
     methodRevision: String(row.method_revision),
     fixedTemplate: jsonParse<FixedTemplateBinding | undefined>(row.fixed_template_json as string | null, undefined),
+    ...(toBool(row.read_only) ? { readOnly: true } : {}),
     requirement: jsonParse<RequirementInput>(row.requirement_json as string, {
       text: '',
       supplements: [],

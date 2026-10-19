@@ -83,10 +83,10 @@ export interface RecoveryServiceOptions {
  *   appends a `只读验证范围` supplement that (a) states no plan/workspace/execution
  *   is created and no file is modified, and (b) enumerates the parent's attempts,
  *   verification outcomes and delivery/acceptance facts to verify. The derived
- *   task is flagged `attention: waiting_user` for the human check. Enforcing a
- *   hard read-only block on later planning/execution needs a `Task`-level
- *   read-only flag (shared contract) and is out of this task's write scope; the
- *   service creates no executable records in the meantime.
+ *   task is flagged `attention: waiting_user` for the human check and persisted
+ *   with `Task.readOnly = true`, which the action projection and the
+ *   plan/planning/execution service entry points enforce (server-side, not just
+ *   UI); it therefore has no executable path at all.
  */
 export class RecoveryService {
   readonly #store: Store;
@@ -134,6 +134,8 @@ export class RecoveryService {
         methodId: parent.methodId,
         methodRevision: parent.methodRevision,
         ...(parent.fixedTemplate === undefined ? {} : { fixedTemplate: parent.fixedTemplate }),
+        // verify_only is enforced by actions.ts + plan/planning/execution guards.
+        readOnly: input.mode === 'verify_only',
       });
       const requirement = this.#derivedRequirement(parent, input.mode, evidence, created.requirement);
       const attention = input.mode === 'verify_only' ? 'waiting_user' : 'none';
@@ -317,6 +319,11 @@ export class RecoveryService {
   }
 
   #assertRecoverable(task: Task): void {
+    if (task.readOnly === true) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '只读验证草稿只用于核对父任务产物，不能再创建恢复草稿', {
+        details: { reason: 'RECOVERY_READ_ONLY', taskId: task.id },
+      });
+    }
     const round = task.currentPlanningRoundId === undefined ? this.#store.planning.latest(task.id) : this.#store.planning.get(task.currentPlanningRoundId);
     if (round !== undefined && ['queued', 'running', 'stopping'].includes(round.status)) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '原任务仍在规划中，请先停止规划再恢复', { details: { status: round.status } });

@@ -446,6 +446,25 @@ export const InboxKind = {
 } as const;
 export type InboxKindValue = (typeof InboxKind)[keyof typeof InboxKind];
 
+/**
+ * Inbox interactions the server can actually serve. Permissions/policy are not
+ * listed because the managed-OpenCode + internal-MCP architecture has no source
+ * for them; `capabilities` reports that absence instead of inventing items.
+ */
+export const InteractionKind = {
+  PLANNING_QUESTION: 'planning_question',
+  PLANNING_REVIEW: 'planning_review',
+  PLANNING_RECONCILE: 'planning_reconcile',
+} as const;
+export type InteractionKindValue = (typeof InteractionKind)[keyof typeof InteractionKind];
+
+export const InteractionState = {
+  OPEN: 'open',
+  RESOLVED: 'resolved',
+  UNKNOWN: 'unknown',
+} as const;
+export type InteractionStateValue = (typeof InteractionState)[keyof typeof InteractionState];
+
 export const PlanGroupKind = {
   REQUIREMENT: 'requirement',
   DESIGN: 'design',

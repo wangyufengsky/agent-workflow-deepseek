@@ -32,7 +32,7 @@ import {
 import type { Store } from '@agent-workflow/storage';
 import type { OpenCodePort, OpenCodeRunResult } from './ports.ts';
 import type { CommandService } from './operations.ts';
-import type { EngineContext } from './actions.ts';
+import { readOnlyRecoveryError, type EngineContext } from './actions.ts';
 import { buildPlanningPrompt, PLANNING_SYSTEM_PROMPT, PLANNING_OUTPUT_SCHEMA } from '@agent-workflow/opencode';
 import type { SessionSink } from '@agent-workflow/opencode';
 import { candidateToGraph, diffGraphs, graphStats, methodToGraph } from './graph.ts';
@@ -136,7 +136,7 @@ export class PlanningService {
   }
 
   preview(taskId: string, request: PlanningPreviewRequest = {}): PlanningPreview {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '生成规划预览');
     if (task.fixedTemplate !== undefined) {
       throw new AppError(ErrorCode.FIXED_TEMPLATE_LOCKED, '固定模板任务不能使用 AI 规划');
     }
@@ -206,7 +206,7 @@ export class PlanningService {
   }
 
   start(taskId: string, input: PlanningStartRequest): CommandResponse<PlanningResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '开始规划');
     const previewRecord = this.#previews.get(input.previewId);
     if (previewRecord === undefined) throw new AppError(ErrorCode.STALE_TARGET, '规划预览已失效，请重新预览');
     if (Date.parse(previewRecord.preview.expiresAt) < Date.now()) {
@@ -709,7 +709,7 @@ export class PlanningService {
   }
 
   stop(taskId: string, input: PlanningStopRequest): CommandResponse<PlanningResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '停止规划');
     const round = this.#requireRound(input.roundId);
     if (round.taskId !== task.id) throw new AppError(ErrorCode.STALE_TARGET, '轮次与任务不匹配');
     if (!['running', 'queued'].includes(round.status)) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前轮次不在运行中');
@@ -757,7 +757,7 @@ export class PlanningService {
   }
 
   apply(taskId: string, input: PlanningApplyRequest): CommandResponse<PlanningResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '应用规划候选');
     const round = this.#requireRound(input.roundId);
     if (round.candidate === undefined) throw new AppError(ErrorCode.CANDIDATE_PENDING, '本轮没有可应用的候选');
     if (round.status !== 'completed') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '候选已收到，正在核对本轮结束；可以先只读审阅，暂不能应用');
@@ -813,6 +813,7 @@ export class PlanningService {
   }
 
   reject(taskId: string, input: PlanningRejectRequest): CommandResponse<PlanningResponse> {
+    this.#assertWritable(taskId, '不采用规划候选');
     const round = this.#requireRound(input.roundId);
     if (round.candidate === undefined) throw new AppError(ErrorCode.CANDIDATE_PENDING, '本轮没有可审阅的候选');
     const { record, replayed } = this.#commands.begin({
@@ -836,7 +837,7 @@ export class PlanningService {
   }
 
   saveAnswer(taskId: string, input: SaveAnswerRequest): CommandResponse<PlanningResponse> {
-    const task = this.#requireTask(taskId);
+    const task = this.#assertWritable(taskId, '保存规划答复');
     const round = this.#requireRound(input.roundId);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -869,6 +870,52 @@ export class PlanningService {
     this.#publishRound(taskId, round.id, round.status);
     this.#commands.settle(input.requestKey, { requirementRevision: requirement.revision });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.planningResponse(taskId) };
+  }
+
+  /**
+   * Strict answer submission used by the Inbox interactions endpoint.
+   *
+   * Validates against the stored round before delegating to `saveAnswer` (which
+   * owns the requirement revision, question answeredAt/By fields and the
+   * requestKey receipt): every answer must reference a question of this round,
+   * be non-empty, appear at most once, and leave no required question unanswered
+   * after merging with answers already stored. No option/rejection fields are
+   * invented — the persisted model is still the single-answer PlanningQuestion.
+   */
+  resolveAnswers(taskId: string, roundId: string, input: SaveAnswerRequest): CommandResponse<PlanningResponse> {
+    this.#requireTask(taskId);
+    const round = this.#requireRound(roundId);
+    if (round.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '规划轮次不属于该任务');
+    const answers = Array.isArray(input.answers) ? input.answers : [];
+    if (answers.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少答复');
+    const seen = new Set<string>();
+    for (const answer of answers) {
+      if (answer === null || typeof answer !== 'object' || typeof answer.questionId !== 'string' || answer.questionId === '' || typeof answer.answer !== 'string') {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '答复格式不合法');
+      }
+      const question = round.questions.find((item) => item.id === answer.questionId);
+      if (question === undefined) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '答复的问题不在本轮规划中', { details: { questionId: answer.questionId } });
+      }
+      if (seen.has(answer.questionId)) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '同一问题只能提交一次答复', { details: { questionId: answer.questionId } });
+      }
+      if (answer.answer.trim() === '') {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '答复不能为空', { details: { questionId: answer.questionId } });
+      }
+      seen.add(answer.questionId);
+    }
+    const answered = new Set(
+      round.questions
+        .filter((question) => typeof question.answer === 'string' && question.answer.trim() !== '')
+        .map((question) => question.id),
+    );
+    for (const questionId of seen) answered.add(questionId);
+    const unansweredQuestionIds = round.questions.filter((question) => question.required && !answered.has(question.id)).map((question) => question.id);
+    if (unansweredQuestionIds.length > 0) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '还有必须回答的问题未答复', { details: { unansweredQuestionIds } });
+    }
+    return this.saveAnswer(taskId, input);
   }
 
   record(taskId: string, roundId: string | undefined, afterSeq = 0, limit = 500) {
@@ -929,6 +976,13 @@ export class PlanningService {
     if (task !== undefined) {
       this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: task.stage, revision: 1 });
     }
+  }
+
+  /** Read-only recovery drafts may be read, never planned. */
+  #assertWritable(taskId: string, action: string): Task {
+    const task = this.#requireTask(taskId);
+    if (task.readOnly === true) throw readOnlyRecoveryError(action);
+    return task;
   }
 
   #requireTask(taskId: string): Task {

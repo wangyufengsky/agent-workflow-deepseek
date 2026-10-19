@@ -204,6 +204,13 @@ export interface Task {
   readonly methodId: string;
   readonly methodRevision: string;
   readonly fixedTemplate?: FixedTemplateBinding;
+  /**
+   * Read-only recovery draft (`verify_only`). Such a task exists to check the
+   * parent task's existing artifacts: planning, plan confirmation, workspace
+   * preparation and execution are refused by both the action projection and the
+   * domain services. Ordinary tasks leave this undefined/false.
+   */
+  readonly readOnly?: boolean;
   readonly requirement: RequirementInput;
   readonly currentPlanRevisionId?: PlanId;
   readonly currentPlanningRoundId?: PlanningRoundId;

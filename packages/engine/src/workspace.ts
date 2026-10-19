@@ -460,10 +460,9 @@ export class WorkspaceService {
       rmSync(target, { recursive: true, force: true });
       removed.push(target);
     }
-    // SettingsRepository has no remove API and `packages/storage` is outside this
-    // task's write scope; delete the baseline index row directly so no stale
-    // baseline record survives the cleanup.
-    this.#store.db.prepare('DELETE FROM settings WHERE key = ?').run(`${BASELINE_KEY_PREFIX}${workspace.id}`);
+    // Drop the baseline index row through the storage repository so no stale
+    // baseline record survives the cleanup (idempotent when it is already gone).
+    this.#store.settings.removeJson(`${BASELINE_KEY_PREFIX}${workspace.id}`);
     return removed;
   }
 

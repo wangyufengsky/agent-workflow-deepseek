@@ -12,6 +12,15 @@ export class SettingsRepository {
     this.#db = db;
   }
 
+  /**
+   * Removes a settings entry. Used by workspace cleanup to drop the
+   * `directory.baseline.<workspaceId>` index after the baseline directory is
+   * deleted; a missing key is a no-op so callers stay idempotent.
+   */
+  removeJson(key: string): void {
+    this.#db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+  }
+
   getJson<T>(key: string): T | undefined {
     const row = this.#db.prepare('SELECT value_json FROM settings WHERE key = ?').get(key) as { value_json: string } | undefined;
     return row === undefined ? undefined : jsonParse<T | undefined>(row.value_json, undefined);

@@ -2,10 +2,12 @@ import { Route, Routes } from 'react-router-dom';
 import { HomePage } from '../pages/home/HomePage.tsx';
 import { SettingsPage } from '../pages/settings/SettingsPage.tsx';
 import { TasksPage } from '../pages/tasks/TasksPage.tsx';
+import { RunContentPage } from '../pages/run/RunContentPage.tsx';
 import { InboxPage } from '../pages/inbox/InboxPage.tsx';
 import { RequirementsPage } from '../pages/requirements/RequirementsPage.tsx';
 import { TemplatesPage } from '../pages/templates/TemplatesPage.tsx';
 import { RolesPage } from '../pages/roles/RolesPage.tsx';
+import { RolesLegacyPage } from '../pages/roles-legacy/RolesLegacyPage.tsx';
 import { DatabasesPage } from '../pages/databases/DatabasesPage.tsx';
 import { ToolsPage } from '../pages/tools/ToolsPage.tsx';
 import { KnowledgePage } from '../pages/knowledge/KnowledgePage.tsx';
@@ -36,6 +38,7 @@ export function App() {
         <Route path="tasks" element={<TasksPage />} />
         <Route path="tasks/:taskId" element={<TaskCanvasPage />} />
         <Route path="tasks/:taskId/recovery" element={<RecoveryPage />} />
+        <Route path="runs/:taskId" element={<RunContentPage />} />
         <Route path="requirements" element={<RequirementsPage />} />
         <Route path="requirement/:requirementId" element={<RequirementCanvasPage />} />
         <Route path="start" element={<StartPage />} />
@@ -54,6 +57,7 @@ export function App() {
         <Route path="tools" element={<ToolsPage />} />
         <Route path="databases" element={<DatabasesPage />} />
         <Route path="roles" element={<RolesPage />} />
+        <Route path="roles/legacy" element={<RolesLegacyPage />} />
         <Route path="recovery" element={<RecoveryPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPlaceholder />} />

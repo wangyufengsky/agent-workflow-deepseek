@@ -1,6 +1,6 @@
 import type { IsoDateTime, RequestKey, TaskId } from '../ids.ts';
 import type { ErrorCodeValue } from '../errors.ts';
-import type { DimensionValue, NodeManualAcceptanceStateValue, SeverityValue, ThemeIdValue } from '../domain/enums.ts';
+import type { DimensionValue, InteractionKindValue, InteractionStateValue, NodeManualAcceptanceStateValue, SeverityValue, ThemeIdValue } from '../domain/enums.ts';
 import type { AppEventEnvelope } from '../domain/events.ts';
 import type {
   ActionAvailability,
@@ -132,6 +132,118 @@ export interface InboxItem {
   readonly createdAt: IsoDateTime;
   readonly returnTo: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* Inbox interactions (可交互待办)                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Honest capability snapshot of the inbox. Planning questions/review are real
+ * (they are derived from stored planning rounds); permissions/policy have no
+ * source in the managed OpenCode + internal MCP architecture, so they report
+ * `false` with a reason instead of fabricated items.
+ */
+export interface InteractionCapabilitiesView {
+  readonly planningQuestions: boolean;
+  readonly planningReview: boolean;
+  readonly permissions: boolean;
+  readonly policy: boolean;
+  readonly reason?: string;
+}
+
+export interface InteractionSummary {
+  readonly id: string;
+  readonly kind: InteractionKindValue;
+  readonly state: InteractionStateValue;
+  readonly title: string;
+  readonly summary: string;
+  readonly taskId: string;
+  readonly taskTitle: string;
+  readonly projectId: string;
+  readonly projectName: string;
+  /** Honest display label (e.g. `规划轮次 2`); not a canvas step. */
+  readonly stepName: string;
+  readonly roundId: string;
+  readonly roundOrdinal: number;
+  readonly createdAt: IsoDateTime;
+  readonly updatedAt: IsoDateTime;
+  readonly returnTo: string;
+}
+
+/**
+ * One planning question as the server actually stores it: a single free-text
+ * answer. The model has no option/multi-select/recommended-value fields, so the
+ * detail exposes `degradation` and the UI must not render fake options.
+ */
+export interface InteractionQuestion {
+  readonly id: string;
+  readonly title: string;
+  readonly required: boolean;
+  readonly answered: boolean;
+  readonly answer?: string;
+  readonly answeredAt?: IsoDateTime;
+  readonly affectedNodeIds: readonly string[];
+  readonly inputMode: 'free_text';
+}
+
+export interface InteractionResolveAvailability {
+  readonly allowed: boolean;
+  readonly confirmField: 'confirmResolve';
+  readonly reason?: string;
+  readonly reasonCode?: string;
+}
+
+export interface InteractionDetail extends InteractionSummary {
+  readonly source: {
+    readonly type: 'planning_round' | 'planning_candidate';
+    readonly roundId: string;
+    readonly roundOrdinal: number;
+    readonly planRevisionId?: string;
+    readonly nodeIds?: readonly string[];
+  };
+  readonly questions: readonly InteractionQuestion[];
+  readonly candidate?: {
+    readonly planRevisionId: string;
+    readonly summary: string;
+    readonly validationState: 'passed' | 'failed';
+    readonly diffCount: number;
+  };
+  readonly degradation: {
+    readonly options: false;
+    readonly multiSelect: false;
+    readonly recommendedValue: false;
+    readonly reason: string;
+  };
+  readonly resolve: InteractionResolveAvailability;
+  readonly unknown?: { readonly message: string };
+  readonly resolvedAt?: IsoDateTime;
+  readonly requirementRevision?: number;
+}
+
+export interface InteractionListResponse {
+  readonly items: readonly InteractionSummary[];
+  readonly counts: { readonly open: number; readonly unknown: number };
+  readonly capabilities: InteractionCapabilitiesView;
+}
+
+export interface InteractionResolveAnswer {
+  readonly questionId: string;
+  readonly values?: readonly string[];
+  readonly other?: string;
+}
+
+export interface InteractionResolveRequest extends CommandRequest {
+  readonly answers: readonly InteractionResolveAnswer[];
+  readonly confirmResolve: true;
+}
+
+export interface InteractionResolveResult {
+  readonly interaction: InteractionDetail;
+  readonly planning: PlanningView;
+  readonly requirementRevision: number;
+}
+
+export type InteractionResolveResponse = CommandResponse<InteractionResolveResult>;
 
 /* ------------------------------------------------------------------ */
 /* Projects                                                            */
@@ -1129,6 +1241,9 @@ export const ROUTES = {
   bootstrap: '/api/bootstrap',
   events: '/api/events',
   operationsByKey: (requestKey: string) => `/api/operations/${encodeURIComponent(requestKey)}`,
+  interactions: '/api/interactions',
+  interaction: (id: string) => `/api/interactions/${encodeURIComponent(id)}`,
+  interactionResolve: (id: string) => `/api/interactions/${encodeURIComponent(id)}/resolve`,
   projects: '/api/projects',
   project: (id: string) => `/api/projects/${encodeURIComponent(id)}`,
   tasks: '/api/tasks',

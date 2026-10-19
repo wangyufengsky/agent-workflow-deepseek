@@ -75,11 +75,11 @@
 
 | W2-10 | 恢复页支持 unknown：把 retry/cancel/skip 入口加入 execution unknown 状态（服务端已支持） | fe | 来自 W0-3 验收 | `apps/web/src/pages/recovery/**`、`apps/web/src/pages/task/**` | unknown 执行可从 UI 重试/跳过；有原因与回执 | done |
 | W2-11 | PPT generating 启动恢复：进程重启后不永久「生成中」 | be | 来自 W1-1 验收 | `packages/engine/src/ppt.ts`、启动恢复 | 重启后 generating → unknown/failed 可重试 | done |
-| W2-12 | 远端 fetch/写操作超时语义：前端客户端超时、服务端 UNKNOWN、可核对 | be | 来自 live fetch 探针 | `packages/git`、`packages/engine/src/delivery.ts`、`apps/web/src/api/**` | 超时不静默失败；可按 requestKey 核对；有测试 | pending |
+| W2-12 | 远端 fetch/写操作超时语义：前端客户端超时、服务端 UNKNOWN、可核对 | be | 来自 live fetch 探针 | `packages/git`、`packages/engine/src/delivery.ts`、`apps/web/src/api/**` | 超时不静默失败；可按 requestKey 核对；有测试 | done |
 | W2-13 | `viewActions` 变更回归：确认未知任务视图 404 对前端无破坏，补测试 | be-api | 来自 W0-5 验收 | `packages/server/src/http.ts`、`tests/**` | 未知任务返回 404 JSON；正常任务 actions 完整 | done |
 
-| W2-4b | verify_only 硬只读：Task 增加只读/恢复模式字段，actions/plan/planning/execution 全部校验 | be | 来自 W2-4 验收 | `shared/domain/models.ts`、`engine/{actions,plan,planning,execution}.ts` | verify_only 任务无法被规划/执行；测试覆盖 | pending |
-| W2-14 | storage 补 `removeJson`，替换清理里直接 SQL DELETE settings | be | 来自 W2-3 验收 | `packages/storage/**`、`engine/workspace.ts` | 不再绕过仓库封装；测试通过 | pending |
+| W2-4b | verify_only 硬只读：Task 增加只读/恢复模式字段，actions/plan/planning/execution 全部校验 | be | 来自 W2-4 验收 | `shared/domain/models.ts`、`engine/{actions,plan,planning,execution}.ts` | verify_only 任务无法被规划/执行；测试覆盖 | done |
+| W2-14 | storage 补 `removeJson`，替换清理里直接 SQL DELETE settings | be | 来自 W2-3 验收 | `packages/storage/**`、`engine/workspace.ts` | 不再绕过仓库封装；测试通过 | done |
 | W2-15 | abandon 恢复「调整前已暂停」：EditSession 持久化 pause 模式 | be | 来自 W2-2 验收 | `shared/domain/models.ts`、`engine/plan.ts`、`engine/execution.ts` | 原暂停任务放弃调整后仍暂停；测试覆盖 | pending |
 | W3-5a | NodeDetailPanel 增加「推进直接后继」入口 | fe | 来自 W2-1 验收 | `apps/web/src/pages/node/**` | 节点面板可推进直接后继并显示回执 | pending |
 | W4-1b | 文档同步 Wave 2（345 tests）并重写 design-coverage 为真实覆盖矩阵 | docs | 来自 W4-1a | `README.md`、`docs/remaining-work.md`、`docs/verification.md`、`docs/design-coverage.md` | 计数/状态一致；design-coverage 不再是 verification 副本 | pending |
@@ -89,12 +89,12 @@
 | ID | 任务 | 负责人 | 说明 | 状态 |
 | --- | --- | --- | --- | --- |
 | W3-1 | 项目详情 `/projects/:id` + 四页签（概览/Git 与 GitLab/文档路径/项目公约）+ 配置状态 + 公约后端 | design-pages | 设计 REVIEW §4 | in_progress |
-| W3-2 | 待处理中心就地处理：问题/权限/策略禁止/结果未明/草稿；后端 interactions 契约 | design-pages | 设计 REVIEW §11 | pending |
+| W3-2 | 待处理中心就地处理：问题/权限/策略禁止/结果未明/草稿；后端 interactions 契约 | design-pages | 设计 REVIEW §11 | done |
 | W3-3 | 角色管理四页签 + 能力/资源权限/形象/发布检查/权限预估（扩展 RoleDefinition） | design-pages | 设计 REVIEW §23 | pending |
 | W3-4 | 知识库体验：研究步骤、来源选择、流式/轮询回答、引用原文面板、研究员面板 | design-pages | 设计 REVIEW §14/B-08 | pending |
 | W3-5 | 任务画布：恢复/冻结计划/审计记录/运行内容入口、快照评审面板（B-07） | design-pages | 设计 task.html | in_progress |
 | W3-6 | PE37 大需求分组逐步细化：refineScope preview/start、未细化确认拦截 | design-pages | v5 已批准 | pending |
-| W3-7 | 缺失页：knowledge-history、ppt-works、ppt-studio、run、roles-legacy | design-pages | 先只读/空/加载/错误/未知 | in_progress |
+| W3-7 | 缺失页：knowledge-history、ppt-works、ppt-studio、run、roles-legacy | design-pages | 先只读/空/加载/错误/未知 | done |
 | W3-8 | 工作流编辑器：method CRUD/复制/归档/校验 + 前端画布编辑 | design-pages | 设计 REVIEW §6-7 | pending |
 | W3-9 | 结构缺口批次：任务列表步骤条/行菜单、开始任务三段卡/回执、模板分支/时间/文档、数据库授权项目/类型/三态、设置分区/脏保存、工具范围、需求目录抽屉 | design-pages | 设计细节 | in_progress |
 | W3-10 | 节点详情子视图：工具详情/产物阅读/引用原文/宽阅读区/补读 | design-pages | 设计 node COVERAGE | pending |
@@ -106,12 +106,17 @@
 | W3-9b | 结构缺口批次：模板分支/时间/文档、数据库授权项目/类型/三态、设置脏保存/分区、工具范围、需求目录抽屉 | design | 来自 W3-9a | 对应页面 + 必要后端 | 设计清单逐项验收 | pending |
 | W3-11 | 主页按设计对齐（产品窗口/能力卡/收尾）；品牌名 agent-workflow vs opencode-workflow 由产品确认 | design | 设计 REVIEW §3 | `apps/web/src/pages/home/**`、可能的品牌文案 | 设计结构一致或书面 de-scope | pending |
 
+| W3-12 | 修 `diffPage` 未传 headSha 时空字符串导致 `REVISION_NOT_FOUND`（changes 文件 diff 500） | be | 来自 W3-7c 验收 | `packages/server/src/adapters/git-cli.ts`、`tests/**` | changes 文件 diff 正常返回；回归测试 | pending |
+| W3-13 | `POST /api/git/repos/:id/fetch` 与 fix push 接入远端 UNKNOWN 结算（引擎已导出分类 helper） | be | 来自 W2-12 验收 | `packages/server/src/http.ts`、`review-plugin.ts`、`packages/engine/src/fix.ts` | 网络超时/不可判定不误报 failed；可核对；测试 | pending |
+| W2-4c | readOnly 任务的 planning.actions/updateDraft 守卫（投影仍走 project-task） | be | 来自 W2-4b 验收 | `packages/engine/src/project-task.ts`、`tests/**` | 只读任务所有写入口一致拒绝 | pending |
+| W3-7d | run/roles-legacy 面包屑与入口映射（navigation.ts / 角色页链接） | fe | 来自 W3-7c 验收 | `apps/web/src/app/navigation.ts`、页面链接 | 面包屑正确、可发现 | pending |
+
 ### Wave 4 · 文档与验证体系
 
 | ID | 任务 | 负责人 | 说明 | 状态 |
 | --- | --- | --- | --- | --- |
 | W4-1 | 重写 `docs/design-coverage.md`（真实覆盖矩阵），修正 README/remaining-work/verification 矛盾与计数 | docs-keeper | 不得复制 verification | done |
-| W4-2 | `docs/api.md` 按 ROUTES+服务端注册重新生成；加契约快照脚本进 verify | docs-keeper | 与 W1-10 配合 | pending |
+| W4-2 | `docs/api.md` 按 ROUTES+服务端注册重新生成；加契约快照脚本进 verify | docs-keeper | 与 W1-10 配合 | done |
 | W4-3 | 证据体系：live 日志摘要、`docs/evidence/README.md` 清单、截图更新、`test:e2e` 修复、最小 CI | docs-keeper | — | pending |
 | W4-4 | 打包：重新 dist、签名/公证、Windows/Linux 目标评估 | docs-keeper + Lead | 需要环境/凭据 | pending |
 | W4-5 | 真实 PostgreSQL/GitLab 验证 | be-workspace + Lead | 需要实例/凭据 | pending |

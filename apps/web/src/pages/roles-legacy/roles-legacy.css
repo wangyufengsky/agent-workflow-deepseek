@@ -1,0 +1,265 @@
+/* 历史角色配置：只读目录 + 修订快照 + 前端字段 diff。只用设计令牌。 */
+
+.rl-readonly {
+  margin-top: 14px;
+}
+
+.rl-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 16px;
+}
+
+@media (max-width: 1000px) {
+  .rl-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.rl-catalog {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 8px;
+  position: sticky;
+  top: 8px;
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+}
+
+.rl-search {
+  padding: 2px 4px 10px;
+}
+
+.rl-group + .rl-group {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+.rl-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 6px;
+  font-size: 12px;
+  color: var(--sub);
+}
+
+.rl-role {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: var(--ink-2);
+  text-align: left;
+  transition: background var(--t-fast);
+}
+
+.rl-role:hover {
+  background: var(--fill-3);
+}
+
+.rl-role[aria-current="true"] {
+  background: var(--fill-4);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+
+.rl-role .tile {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+
+.rl-role-name {
+  display: block;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.rl-role-purpose {
+  display: block;
+  margin-top: 2px;
+}
+
+.rl-role-meta {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+}
+
+.rl-detail {
+  min-width: 0;
+}
+
+.rl-detail .card-body {
+  padding: 18px 20px;
+}
+
+.rl-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.rl-group-card {
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.rl-text {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+}
+
+.rl-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+.rl-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.rl-list .i {
+  margin-top: 2px;
+  color: var(--sub);
+  flex: none;
+}
+
+.rl-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.rl-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.rl-rev {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  color: var(--ink-2);
+  text-align: left;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+
+.rl-rev:hover {
+  background: var(--fill-2);
+}
+
+.rl-rev[aria-current="true"] {
+  background: var(--fill-2);
+  border-color: var(--line-2);
+}
+
+.rl-rev-mark {
+  flex: none;
+  min-width: 40px;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.rl-rev-name {
+  display: block;
+  font-size: 13px;
+}
+
+.rl-rev-meta {
+  display: block;
+  margin-top: 2px;
+}
+
+.rl-snapshot {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+}
+
+.rl-compare {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  font-size: 12.5px;
+}
+
+.rl-compare th,
+.rl-compare td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--line);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.rl-compare thead th {
+  border-top: 0;
+  background: var(--fill-2);
+  font-weight: 500;
+  color: var(--sub);
+  font-size: 12px;
+}
+
+.rl-compare tbody th {
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+  width: 120px;
+}
+
+.rl-compare .rl-responsibility {
+  color: var(--ink-2);
+  max-width: 320px;
+  white-space: normal;
+}
+
+.rl-compare .rl-old {
+  background: var(--danger-fill);
+  box-shadow: inset 0 0 0 1px var(--danger-line);
+}
+
+.rl-compare .rl-new {
+  background: var(--ok-fill);
+  box-shadow: inset 0 0 0 1px var(--ok-line);
+}
+
+.rl-compare-select {
+  width: auto;
+  height: 30px;
+  font-size: 12.5px;
+}

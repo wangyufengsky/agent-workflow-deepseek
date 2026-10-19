@@ -413,3 +413,128 @@
 - **功能证据**：节点验收契约（accepted/rejected 审计叠加、actions/reasonCode、requestKey 幂等/冲突、3 个集成测试）；项目详情四页签（charter 明确未提供、不造假）；PPT 作品库/四步工作台；任务列表行菜单/聚合进度；开始任务三段卡/回执。
 - **范围审计**：设计稿未改；临时 Vite 配置已删除；`git diff --check` 通过。
 - **新登记 follow-up**：W0-4b（验收 gating）、W3-1b（charter/docPaths/GitLab 项目绑定）、W3-7c（run/roles-legacy）、W3-9b（结构缺口批次）、W3-11（主页/品牌）。
+
+### 21:08 分派 | Wave 3B
+
+- `be-api` → task-22：W3-2 Inbox 后端 interactions（列表/详情/答复；权限/策略如实降级）。
+- `design-audit` → task-23：W3-2 Inbox 前端就地处理。
+- `be-recovery` → task-24：W2-4b verify_only 只读强制 + W2-12 远端 UNKNOWN + W2-14 storage removeJson。
+- `fe-ppt` → task-25：W3-7c 运行内容阅读器 + 历史角色配置页。
+- `docs-audit` → task-26：W4-2 API 文档重生成 + 路由契约校验脚本。
+- 并行约束：be-api 独占 http.ts/contracts；be-recovery 独占 models/actions/plan/planning/execution/delivery/storage；fe-ppt 独占 App.tsx 新增两条路由。
+
+### 20:56 任务完成 | W3-2 Inbox 后端 interactions（task-22）| be-api
+
+- 负责人：`be-api`；写范围：`packages/shared/src/api/contracts.ts`、`packages/shared/src/domain/enums.ts`、`packages/engine/src/planning.ts`、`packages/server/src/http.ts`、新增 `tests/integration/interactions.test.ts`；未改 `apps/web/**`、`shared/domain/models.ts`、execution/workspace/delivery/git/storage、设计稿、`task-assignment.md`。契约已同步 Lead 与 design-audit（task-23 UI）。
+- 契约（真实字段，未造数据）：
+  - `GET /api/interactions`（`ROUTES.interactions`）→ `{items: InteractionSummary[], counts:{open,unknown}, capabilities:{planningQuestions:true, planningReview:true, permissions:false, policy:false, reason}}`。items 只列 active 任务当前规划轮的待处理事项（每轮一条，优先级 reconcile(unknown) > 待回答 > 候选审阅）；`stepName='规划轮次 N'`（真实标签，非画布步骤）。
+  - `GET /api/interactions/:id`（`ROUTES.interaction`）→ `InteractionDetail`：`kind='planning_question'|'planning_review'|'planning_reconcile'`、`state='open'|'resolved'|'unknown'`、`source{type,roundId,roundOrdinal,planRevisionId?,nodeIds?}`、`questions[]{id,title,required,answered,answer?,answeredAt?,affectedNodeIds,inputMode:'free_text'}`、`candidate{planRevisionId,summary,validationState,diffCount}`（review）、`degradation{options:false,multiSelect:false,recommendedValue:false,reason}`、`resolve{allowed,confirmField:'confirmResolve',reason?,reasonCode?}`、`unknown?`、`resolvedAt?`、`requirementRevision`。
+  - `POST /api/interactions/:id/resolve`（`ROUTES.interactionResolve`）body `{requestKey, confirmResolve:true, answers:[{questionId, values?:string[], other?:string}]}` → `{receipt, resource:{interaction, planning, requirementRevision}}`；values 多值按 `；` 合并、other 追加（模型只存单答案文本）；仅 planning_question 可提交。
+  - 错误：缺 requestKey（统一 hook）/confirmResolve/answers 非法 →400；questionId 不属于本轮/空答复/重复 questionId/必答未答全 →400（details.unansweredQuestionIds）；已答复/轮次已前进/unknown →409（reasonCode INTERACTION_RESOLVED/INTERACTION_UNKNOWN）；review/reconcile →409（INTERACTION_READ_ONLY + 去需求画布/按原请求号核对原因）；id 不存在 →404；同 key 不同 body →409 REQUEST_KEY_REUSED，同 key 同 body 重放原回执。
+- 实现要点：
+  - `PlanningService.resolveAnswers(taskId, roundId, input)`（planning.ts）：对真实 `PlanningQuestion` 做归属/非空/重复/必答完整性校验后委托既有 `saveAnswer` —— 与需求画布完全同一写入路径（requirement supplements + revision+1、questions.answer/answeredAt/answeredBy、回执 operation `requirement.answer.save`、requestKey/bodyHash），不新增伪 operation/字段。
+  - `http.ts` 新增 interactions 读模型/命令 + 统一 requestKey 校验；权限/策略类明确 `capabilities=false` + reason（受管 OpenCode + 内部 MCP 无请求来源），不返回伪造 permission/policy 项。
+  - 诚实降级：现有 `PlanningQuestion` 只有单答案文本，没有选项/单选多选/推荐值/rejection 字段 → detail 用 `inputMode:'free_text'` + `degradation.reason` 说明；**不提供拒绝回答**（规划业务问题必须明确回答，AD06；permission/policy 拒绝语义无来源）；design-audit 已确认 UI 按置灰+原因展示。
+  - review/reconcile 事项只读并提供真实指向（需求画布 planning.apply/reject、operations.by-key 核对），不伪造就地提交。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0（含并行 agent 改动）。
+  - `node --import tsx --test --test-force-exit tests/integration/interactions.test.ts` → **3 tests / 3 pass / 0 fail**（列表映射+capabilities 诚实、detail 字段/404、resolve 成功写 requirement revision 与画布一致、必答未答/未知问题/空答复 400、幂等重放/同 key 冲突 409、已答复再提交 409、review/reconcile 409）。
+  - 回归：`interactions + routes-contract + api-contract + node-acceptance + startup-recovery` → 20 pass / 0 fail。
+  - 运行中 5177 探针：`GET /api/interactions` 返回真实空列表 + capabilities（permissions/policy=false+reason）；detail 不存在 404；resolve 缺 requestKey 400。
+- 未覆盖 / 说明：
+  1. 只因当前评审数据（seeded round）测试；未跑真实模型生成的规划问题（live planning 需 `test:model`/Lead 全量）。
+  2. permission/policy/交付类事项不在 interactions：permission/policy 无来源（capabilities=false 已写实）；delivery_confirm 仍由 bootstrap.inbox/任务页处理，未映射为 interaction（避免造无 resolve 语义的项）。
+  3. interactions 无分页/cursor（Inbox 规模小，按任务 updatedAt 排序返回全部待处理项）；如需分页后续加。
+  4. `saveAnswer`（需求画布路径）保持原有宽松校验，严格校验只在 interactions resolve；两条路径写同一字段，数据一致但画布端仍依赖 UI 约束。
+  5. 未跑 `build:web`/全量 `npm test`/浏览器点击（Lead 整合范围）。
+
+### 20:58 任务完成 | W4-2（task-26）| docs/api.md 由 ROUTES + 服务端注册生成 + 契约校验脚本
+
+- 负责人：`docs-audit`；写范围：`docs/api.md`、`scripts/check-docs-routes.mjs`（新增）、`package.json`；未改产品代码/其他文档/设计稿。
+- 脚本：扫描 `packages/shared` 的 `ROUTES` + `packages/server/src` 注册路由（含 review/fix 插件、内部 MCP、OpenCode 网关），支持 `--write` 生成与默认校验；显式例外只有「单个 MR 详情 ROUTES 预留（服务端未注册，404）」与「OpenCode gateway 服务端独有」；其他死 ROUTES / 未纳入 ROUTES 的服务端路由 / 文档缺路由均非零退出；`docs/api.md` 必须与生成结果逐字一致。
+- 接入：`package.json` 新增 `docs:api`、`check:docs-routes`，并把 `check:docs-routes` 加入 `verify` 链。
+- api.md：重写为 16 个分组、242 行、147 条唯一路由（136 ROUTES keys / 133 server /api paths / 13 internal），覆盖 Wave 0–3B：execution auto-advance/advance、plan abandon、node accept/reject、knowledge history、project detail（`/api/projects/:id`）、PPT/pptx、fix 子路由、`settings/git`、`DELETE settings/databases/:id`、`fs/directories`、interactions 三条（`GET /api/interactions`、`GET /:id`、`POST /:id/resolve`）；删除「远端适配器待接线」等过期文案；每行标注回执/读口/SSE/二进制/内部端点语义。
+- 验证：`node scripts/check-docs-routes.mjs` → exit 0；`npm run check:docs-routes` → exit 0；`npm run docs:api` 后再 check 仍 exit 0（幂等）；唯一 warning 为单个 MR 契约预留。
+- 未覆盖：单个 MR 详情仍为契约预留（服务端 404，脚本显式警告）；未来新增路由会让 check 失败并要求 `npm run docs:api`；未跑全量 `npm test`/typecheck（其他 agent 正在改代码，由 Lead 整合验收）。
+
+### 20:58 任务完成 | W2-4b/W2-12/W2-14（task-24）| verify_only 只读强制、远端 UNKNOWN、storage removeJson
+
+- 负责人：`be-recovery`；写范围：`packages/shared/src/domain/models.ts`、`packages/storage/**`、`packages/engine/src/{actions,plan,planning,execution,delivery,recovery}.ts`、`packages/engine/src/workspace.ts`（仅替换 settings 删除方式，W2-14 明确要求其中一行）、`tests/integration` + `packages/storage/src/settings.test.ts`；未改 `http.ts`、`shared/api/contracts.ts`、`apps/web/**`、设计稿、`task-assignment.md`。与 be-api 的 http/contracts 并行隔离。
+- **W2-4b verify_only 硬只读（服务端，不靠 UI）**：
+  - 契约：`Task` 新增可选 `readOnly?: boolean`（见模型注释）；migration v11 `ALTER TABLE tasks ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0`（append-only，旧库启动自动升级，旧行默认可写）；`TaskRepository` create/update/map 持久化；`TaskSummary` 未加字段（project-task.ts 不在写范围，避免半接线）。
+  - `RecoveryService`：`verify_only` 创建时 `readOnly: true`；`computeTaskActions` 对该任务把所有写动作（generatePlan/useSkeleton/applyCandidate/rejectCandidate/stopPlanning/saveAnswer/confirmPlan/editPlan/adjustExecutionPlan/prepareWorkspace/start/pause/resume/cancel/continue/deliver/cleanup）统一置换为 `{allowed:false, reasonCode:'RECOVERY_READ_ONLY', reason}`；`computePlanningActions` 支持 `readOnly` 并整组拒绝；`computeTaskAttention` 对只读草稿稳定返回 `waiting_user`（不被事件清空）。只读草稿不能再作为恢复父任务（400）。
+  - 服务入口二次校验（`AppError FORBIDDEN` 403，details.reason=`RECOVERY_READ_ONLY`）：`PlanningService` preview/start/stop/apply/reject/saveAnswer（resolveAnswers 走 saveAnswer 同守卫）；`PlanService` useTemplate/useSkeleton/confirm/editBegin/editSave/editFinish/abandonEdit；`ExecutionService` start/pause/resume/setAutoAdvance/advance/retry/skipNode/cancel；`DeliveryService` select/commit/push/createMergeRequest/merge（防御性，只读任务本无 workspace）。`workspace.prepare` 无需新守卫：只读任务没有可确认计划，服务在任何磁盘操作前以 `WORKSPACE_NOT_READY` 拒绝（测试覆盖）。
+  - 测试：`recovery-readonly.test.ts` 断言 9 类写接口 403 + workspace.prepare 503、无 plan/round/workspace/execution 记录、actions 全 denied、readOnly 跨重启持久、嵌套恢复被拒、普通任务/all_stages 草稿不受影响；`packages/storage/src/settings.test.ts` 覆盖 readOnly 持久化与「旧库(v1–v10)升级后旧行可写、新行可标记」。
+- **W2-12 远端写超时/不可判定 → UNKNOWN**：
+  - `delivery.ts` 新增导出 `remoteOutcomeUnknownReason(error)`：`NETWORK_UNREACHABLE(details.reason=timeout|network_error)`→`timeout|network_error`；`UNSUPPORTED_FORMAT`（写了但响应不可解析）与 `INTERNAL_ERROR`（本地 git CLI 被 kill/超时无机器可读原因）→`undetermined`；业务错误码（PUSH_REJECTED_NON_FF / GITLAB_AUTH_FAILED / CONFLICT / MR_ALREADY_EXISTS 等）返回 undefined。
+  - `push` / `createMergeRequest` catch：不可判定 → 回执 `accepted→unknown`（`ErrorCode.RECEIPT_UNKNOWN`，httpStatus 409，details `{requestKey, operation, outcomeUnknown:true, reason}`）、delivery 步骤 `unknown`、projection `unknown_receipt`，**不标记任务 delivered、不自动重发**（同 requestKey 重放只返回已结算回执，测试断言远端调用 0 次）；业务失败 → 回执 `failed`、步骤 `failed`、projection `blocked`（明确失败仍 failed）。
+  - 测试：`remote-unknown-settlement.test.ts` 覆盖分类矩阵 + push timeout/network/CLI-killed 三种 UNKNOWN + 重放不重发 + 非 FF 仍 failed/blocked + MR timeout UNKNOWN（任务仍 active）+ MR 业务拒绝 failed。
+  - **未覆盖 / 边界**：`POST /api/git/repos/:projectId/fetch` 的结算在 `http.ts`（be-api 写范围，本次不可改），目前仍是 catch→fail；引擎已导出 `remoteOutcomeUnknownReason`，be-api 可在该路由对 NETWORK_UNREACHABLE 改结算 unknown（同 push 语义）。fix 的 push 在 `review-plugin.ts`/`fix.ts`（不在本任务写范围），也需同批接线。前端 api 超时文案属 `apps/web/src/api/**` 其他任务。
+- **W2-14 storage removeJson**：`SettingsRepository.removeJson(key)`（DELETE 单键、缺失为 no-op、幂等）；`workspace.cleanupConfirm` 的非 Git 清理不再直接 `store.db.prepare('DELETE...')`，改用仓库方法；storage 测试覆盖「只删目标键、其他键保留、重复删除幂等、删除后可重新写入」；原 clean-up 集成测试（settings 键消失断言）继续通过。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → exit 0。
+  - `node --import tsx --test --test-force-exit packages/storage/src/settings.test.ts tests/integration/{recovery-readonly,remote-unknown-settlement,recovery-modes,workspace-cleanup-nongit}.test.ts` → 17 pass / 0 fail。
+  - 回归：storage store.test + settings.test（5 pass）；integration（recovery-api、recovery-modes、workspace-cleanup-nongit、startup-recovery、ppt-startup-recovery、delivery-mr、delivery-fixroot、directory-apply-api、workspace-cleanup-blockers、task-acceptance、plan-edit-dependencies）26 pass；execution-control、node-acceptance、node-skip、review-fix-api、review-fix-recovery、server-smoke、insights 16 pass；均 0 fail。
+- 未覆盖 / 说明：
+  1. `TaskService.updateDraft`（需求原文/标题编辑，`project-task.ts` 不在写范围）仍可改只读草稿的标题/原文；不影响可执行路径，但若产品要求字面只读需后续同批加守卫。
+  2. `TaskDetail.planning.actions` 由 `project-task.ts` 的 `#planningActions` 生成（不在写范围）：只读任务在 planning 视图里 startPlanning 仍可能显示 allowed（opencode ready 时）；UI 主路径用 `capabilities.generatePlan`（已 denied）。建议后续把 `readOnly` 传入该投影。
+  3. fetch / fix push 的 UNKNOWN 结算见上（http.ts / fix.ts 不在写范围）。
+  4. 未跑全量 `npm test`/build（Lead 整合范围）；未做浏览器点击。远端超时用受控端口桩/注入错误模拟，未连真实 GitHub/GitLab 超时。
+
+### 21:55 任务完成 | W3-2（task-23）| Inbox 前端就地处理
+
+- 负责人：`design-audit`；写范围：`apps/web/src/pages/inbox/**`。新增 `interactions.ts`、`inbox.css`；重写 `InboxPage.tsx`。未改 backend/shared/App.tsx/其他页面。
+- 契约匹配（be-api task-22 最终契约）：`GET /api/interactions`（items/counts/capabilities）、`GET /api/interactions/:id`、`POST /api/interactions/:id/resolve`（requestKey + confirmResolve + answers[{questionId,values}]）；使用 shared `InteractionSummary/Detail/Question/Capabilities/ResolveRequest`，未自造字段。
+- 左 360 列表：全部/需要回答/待审阅/待核对/权限策略分段（数量来自服务；加载/错误显示「—」）；行含类型图标、标题、规划轮次/步骤、任务·项目、时间、结果待核对/有草稿徽标。
+- 右详情：来源条（任务 · 步骤/轮次 + 打开需求/任务画布）、候选信息（review）、unknown 只读横幅、resolve.allowed=false 原因；问题按服务真实 `inputMode:'free_text'` 渲染 textarea，degradation 横幅明确「选项/多选/推荐值服务未提供」，不渲染假选项；已回答计数 + 必答校验；提交走 resolve，ReceiptNotice 展示 accepted/succeeded/failed/unknown（unknown 锁定内容、仅 operations.by-key 核对；接口本身同步无 unknown，代码仍兼容）；409/400 显示服务原因。
+- 草稿：本机内存按 interaction/question 保存；切换事项时 Modal「保留草稿/放弃草稿」；失败回执保留草稿，仅 succeeded 清除。
+- 权限/策略：capabilities.permissions=false/policy=false 时显示真实 reason；权限分段展示两张范围卡（仅这一次/本次会话）与禁用按钮原因；策略禁止只读「知道了」禁用；不造权限/策略事项。
+- 保留 bootstrap.inbox 汇总：交付确认/执行失败作为「需在画布处理」入口；交互列表读取失败时回退展示全部 bootstrap 汇总并以画布打开；空/加载/错误/无项目/都处理完状态均有真实文案。
+- 拒绝回答：按 be-api 最终口径无 reject 字段，按钮置灰并显示 `detail.resolve.reason`（规划问题必须明确回答）；未实现假的二次确认。
+- 验证：`npx tsc -p tsconfig.json --noEmit` exit 0；本范围 `--noUnusedLocals --noUnusedParameters` 0；`git diff --check` 通过；无硬编码颜色。真实 5177 只读联调 `GET /api/interactions` 成功（当前 items 为空、capabilities 如实返回 reason），未提交任何写操作；按约束未跑 build:web/全量 test。
+- 未覆盖：
+  1. 当前真实数据没有 open interaction，未做 detail/resolve 的浏览器端到端点击；建议 Lead 用含待回答问题/候选/核对事项的数据做一次 UI smoke。
+  2. 契约无 reject/decision、无 options/多选/推荐；拒绝与选项控件按真实降级显示，不是缺失。
+  3. 权限/策略在受管 OpenCode + MCP 架构下无来源，只有能力说明与禁用卡，不应出现真实事项。
+  4. `planning_review`/`planning_reconcile` 只能去需求画布或核对原轮次，不在本页提交。
+
+### 21:02 任务完成 | W3-7c（task-25）| 运行内容阅读器 + 历史角色配置页
+
+- 负责人：`fe-ppt`；写范围：新增 `apps/web/src/pages/run/**`、`apps/web/src/pages/roles-legacy/**`，`apps/web/src/app/App.tsx` 仅加 2 条 import + 2 条路由（`/runs/:taskId`、`/roles/legacy`）。未改后端/shared/其他页面/导航/设计稿。Lead 提到的临时冒烟配置 `apps/web/src/pages/run/vite.smoke.config.mts` 已在验证后删除（`find apps/web/src -name 'vite.smoke*'` 为空）；`git status` 仅产品文件。
+- 新增文件：`run/RunContentPage.tsx`、`run/RunReader.tsx`、`run/run-shared.tsx`、`run/run.css`、`roles-legacy/RolesLegacyPage.tsx`、`roles-legacy/roles-legacy.css`。样式全部使用设计令牌，`grep -E "#[0-9a-f]{3,6}|rgba?\("` 为空。
+- `/runs/:taskId`（运行内容，只读）：
+  - 数据来源：`GET /api/tasks/:id/detail`（task/project/plan/execution/workspace）+ `GET /api/tasks/:id/changes` + `GET /api/tasks/:id/nodes/:nodeId`（节点摘要/尝试/输出片段）+ `GET /api/tasks/:id/changes/files/:fileId/diff`（复用现有只读 diff）。不调用任何写接口。
+  - 页头：任务名/项目/阶段/执行状态/工作区状态/计划修订 + 「回到执行画布」；统计卡：执行步骤（done/total、失败/执行中）、变更文件（数量与新增/修改/删除，失败显示真实原因）、需求覆盖（covered/total 或「服务未返回 requirementCoverage」）。
+  - 左侧导航分组「需求覆盖 / 文档 / 源码 / 单元测试」：需求覆盖来自 `plan.validation.requirementCoverage`（缺失时只列需求正文并明确不推测）；文档=非实现/测试节点；源码=实现节点+变更文件（非测试路径）；单元测试=测试节点+按路径名推导的测试文件（明确服务无绑定字段）。
+  - 阅读区：需求正文+覆盖节点跳转；节点摘要/验收条件/尝试（最多 5 次）/输出片段（模型正文、推理摘要、工具调用、服务事件，来自节点只读接口一页）/关联需求；变更文件元数据+只读 hunk diff（行号/增删/截断提示），二进制/过大文件明确不提供 diff。
+  - 状态：加载骨架、任务 404 中性提示（不展示示例产物、无操作）、读取失败 ServiceNotice、无计划空态、变更读取失败自定义告警（显示服务 message+code/requestId+重试，不误报「服务未连接」）、无节点/无输出真实空态。
+- `/roles/legacy`（历史角色配置，只读）：
+  - 数据来源：`GET /api/catalog/roles` + `GET /api/catalog/roles/:id/history` + bootstrap.catalog.methods（planningStrategy.roleId 统计流程使用）。
+  - 左侧目录：搜索、按「流程使用的角色 / 专项角色」分组、头像占位（明示不是已配置形象）；右侧：角色头（状态/修订/提示词修订）、四组只读（职责=真实 purpose+responsibilities；能力/资源权限/形象=「服务未提供」并写明契约缺失，不补造）、所属流程与位置（仅 planningStrategy.roleId，无阶段绑定字段）。
+  - 发布修订历史：快照列表（最新发布标记）、只读快照详情（明确不是历史会话快照）、两份快照字段 diff 由前端完成（名称/定位变化列 + 职责条目「有 / — / 已移除」并标注新增/移除样式与文字，不只靠颜色）、无快照/仅 1 份快照真实降级；导入配置包/发布草稿按钮禁用并写原因（导入无接口；发布只在角色管理页），提供「去角色管理」链接。
+  - 状态：目录/历史加载骨架、读取失败 ServiceNotice、空目录、搜索无结果、无发布历史提示。
+- 验证命令与结果：
+  - `npx tsc -p tsconfig.json --noEmit` → 0 error。
+  - `npx tsc -p tsconfig.json --noEmit --noUnusedLocals` 过滤本任务 3 处范围 → 0。
+  - Electron UI 冒烟 47 项断言全 PASS：
+    - 真实服务 `/runs/task_0mveps121bbwmuuiqnt`：统计 0/11+失败 1、变更读取失败真实原因、需求覆盖降级、导航 4/5/4/2=15 条、默认需求覆盖阅读、失败节点 28 段真实输出（含 "Let me start by exploring" 与工具调用）、未执行节点空态、404 中性提示且无导航。
+    - 隔离服务（临时 dataDir 内真实创建 git 项目/任务/骨架计划/确认/工作区并修改文件、发布角色两次产生 r10/r11 快照）：`/roles/legacy` 目录与分组 1/3、四组（3 组明确未提供）、无历史角色提示、开发工程师 2 份快照+diff 表（名称/定位/职责，新增/移除样式）、对比下拉、需求分析师 3 个流程使用、测试工程师无快照提示；隔离任务 `/runs/:taskId` 导航含源码/测试文件、点击文件时 diff 接口失败按真实服务错误显示（未伪造 diff）。测试数据均在临时目录，已清理。
+  - 按约束未运行 `npm run build:web`、未跑全量 `npm test`；未新增导航菜单项。
+- 发现的后端缺陷（不在本任务写范围，建议 Lead 另派）：`GET /api/tasks/:id/changes/files/:fileId/diff` 实际返回 500 `REVISION_NOT_FOUND: fatal: bad revision ''`。原因在 `packages/server/src/adapters/git-cli.ts` 的 `diffPage`：`args.push(input.baseSha, input.headSha ?? '', '--', input.path)` 在未传 headSha 时把空字符串作为 revision 传给 git（engine `workspaces.diff` 不传 headSha）。运行内容页的源码/测试文件 diff 因此只能显示真实错误与重试，无法阅读 diff；修复前该能力不可用（页面未伪造）。
+- 未覆盖 / 已知限制：
+  1. 运行内容没有专用接口：文档产物正文、批次/段落绑定、报告/测试结果、完整输出日志均无契约，页面按节点摘要/一页输出片段/变更 diff 组合并标注降级。
+  2. 测试文件与测试节点的绑定按路径名推导（服务无字段）；需求覆盖缺失时不推测。
+  3. 历史角色配置缺少能力/资源权限/形象契约与阶段绑定字段，已明确标注；导入无接口、发布在角色管理页，本页只读。
+  4. Shell 面包屑：`/runs/:taskId` 未在 navigation.ts 映射（显示「页面」），`/roles/legacy` 显示「角色管理」；navigation.ts 不在本任务写范围，页面内已有明确标题与返回入口。
+
+### 21:06 整合 | Wave 3B 验收通过
+
+- **验收范围**：W3-2 Inbox 后端+前端、W3-7c run/roles-legacy、W2-4b/W2-12/W2-14 后端加固、W4-2 API 文档与路由校验。
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **360 tests / 54 suites / 349 pass / 11 skipped / 0 fail**（55.1s）。
+- **构建**：`npm run build:web` → exit 0；`npm run build:server` → exit 0；`npm run check:docs-routes` → exit 0（docs/api.md 与 ROUTES+服务端注册一致）。
+- **运行态验收（5177）**：`GET /api/interactions` 返回真实空列表 + 诚实 capabilities（permissions/policy=false）；`/runs/:taskId`、`/roles/legacy` SPA 路由 200；节点验收/项目详情/知识历史路由可用。
+- **功能证据**：Inbox interactions（3 个集成测试，free_text 降级、权限/策略诚实降级、requestKey 回执）；verify_only 只读强制（9 类写接口 403 + migration v11）；远端超时→UNKNOWN（分类矩阵/重放不重发）；storage removeJson；run 页真实任务数据/需求覆盖/节点输出/diff（diff 500 缺陷已记录）；roles-legacy 真实目录/历史/快照 diff。
+- **发现缺陷**：`GET /api/tasks/:id/changes/files/:fileId/diff` 在未传 headSha 时 500（`git-cli.ts` 把空字符串当 revision）→ 新登记 W3-12。
+- **范围审计**：设计稿未改；临时 Vite 配置已清理；`git diff --check` 通过。
+- **新登记 follow-up**：W3-12（diff bug）、W3-13（fetch/fix push UNKNOWN）、W2-4c（readOnly 投影/updateDraft 守卫）、W3-7d（run/roles-legacy 面包屑）。
