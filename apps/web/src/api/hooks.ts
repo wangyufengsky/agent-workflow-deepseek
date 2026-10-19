@@ -73,7 +73,9 @@ export function useOpenCodeStatus() {
     refetchInterval: (query) => {
       const data = query.state.data as OpenCodeStatusResponse['status'] | undefined;
       const state = data?.state;
-      return state === 'starting' || state === 'degraded' ? 4_000 : false;
+      if (state === 'starting' || state === 'degraded') return 4_000;
+      if (state === 'ready') return 15_000;
+      return false;
     },
   });
 }
