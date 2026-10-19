@@ -41,6 +41,38 @@ test('monitoring poll interval is persisted, validated and merged into bootstrap
     const modelsAfter = (await app.app.inject({ method: 'GET', url: '/api/bootstrap' })).json().data.settings.models as { id: string; enabled: boolean }[];
     assert.equal(modelsAfter.find((model) => model.id === target.id)?.enabled, false);
 
+    const withCustom = await app.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: {
+        requestKey: requestKey('model-add'),
+        patch: {
+          models: [
+            ...modelsAfter,
+            { id: 'custom-test', label: '自定义测试模型', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: ['coder'], enabled: true },
+          ],
+        },
+      },
+    });
+    assert.equal(withCustom.statusCode, 200, withCustom.body);
+    const customModels = (await app.app.inject({ method: 'GET', url: '/api/bootstrap' })).json().data.settings.models as { id: string; roles: string[] }[];
+    assert.ok(customModels.some((model) => model.id === 'custom-test'));
+
+    const allDisabled = await app.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: { requestKey: requestKey('model-all-off'), patch: { models: customModels.map((model) => ({ ...model, enabled: false })) } },
+    });
+    assert.equal(allDisabled.statusCode, 400, allDisabled.body);
+    assert.equal(allDisabled.json().error.code, 'VALIDATION_FAILED');
+
+    const badRole = await app.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: { requestKey: requestKey('model-bad-role'), patch: { models: customModels.map((model) => (model.id === 'custom-test' ? { ...model, roles: ['unknown'] } : model)) } },
+    });
+    assert.equal(badRole.statusCode, 400, badRole.body);
+
     const toolset = await app.app.inject({
       method: 'PATCH',
       url: '/api/settings',

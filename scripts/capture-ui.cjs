@@ -222,6 +222,7 @@ async function main() {
     await capture(window, '/start', 'ui-start.png', { expect: ['开始任务'] });
     await capture(window, '/git', 'ui-git.png', { expect: ['Git'] });
     await capture(window, '/settings', 'ui-settings.png', { expect: ['设置'] });
+    await capture(window, '/settings?section=model', 'ui-settings-model.png', { expect: ['模型与执行', '职责模型', '添加模型', 'OpenCode 可执行文件'] });
     await capture(window, '/?theme=warm', 'ui-home-warm.png', { expect: ['工作区'], theme: 'warm' });
     await capture(window, '/?theme=spdb', 'ui-home-spdb.png', { expect: ['工作区'], theme: 'spdb' });
     await capture(window, '/?theme=github-white', 'ui-home-github-white.png', { expect: ['工作区'], theme: 'github-white' });

@@ -291,3 +291,10 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
   → 类型 mysql / 主机 127.0.0.1 / 端口 3306 / 库 opencode_workflow_test。
 - 用用户提供的本地 MySQL 凭据复测：服务端 `POST /settings/databases` 保存 + `POST /probe` 返回 `connected`（MySQL 9.2.0，目标库存在）；密码不写入文档。
 - 抽屉 focus 修复后，UI smoke 验证连续输入 `aaaaa` 焦点不丢，且粘贴 JDBC URL 后四个字段被正确拆分。
+
+### 第 84 轮设置页模型/OpenCode 配置（2026-10-19）
+
+- 「模型与执行」不再只读：职责模型下拉（规划/开发/审查/修复）会重分配 `roles` 并保存；支持新增/编辑模型档案（provider/model/角色/启停）；禁止停用最后一个启用模型；模型字段与角色由 `validateSettings` 校验（PATCH 非法 400）。
+- 同页可直接配置：OpenCode 可执行文件路径（保存后重启生效）、启用受管运行时、自动启动、权限模式、Agent、重启按钮；完整检测/日志仍在「服务」分区。
+- UI smoke 新增 `/settings?section=model` 断言（职责模型/添加模型/OpenCode 可执行文件），截图 `evidence/ui-settings-model.png`。
+- 服务端测试：自定义模型写入、全部停用 400、非法角色 400。

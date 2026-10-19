@@ -285,6 +285,22 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
   if (!settings.git.author.name.trim() || !settings.git.author.email.trim()) {
     issues.push({ path: 'git.author', message: '提交作者名称与邮箱不能为空' });
   }
+  const modelIds = new Set<string>();
+  const modelRoles = new Set(['planner', 'coder', 'reviewer', 'repairer']);
+  for (const model of settings.models) {
+    if (!/^[A-Za-z0-9._-]{1,80}$/.test(model.id)) issues.push({ path: `models.${model.id}.id`, message: '模型 id 不合法' });
+    if (modelIds.has(model.id)) issues.push({ path: `models.${model.id}.id`, message: '模型 id 重复' });
+    modelIds.add(model.id);
+    if (model.label.trim() === '' || model.provider.trim() === '' || model.model.trim() === '') {
+      issues.push({ path: `models.${model.id}`, message: '模型名称/provider/model 不能为空' });
+    }
+    for (const role of model.roles) {
+      if (!modelRoles.has(role)) issues.push({ path: `models.${model.id}.roles`, message: `未知模型职责 ${role}` });
+    }
+  }
+  if (settings.models.length > 0 && !settings.models.some((model) => model.enabled)) {
+    issues.push({ path: 'models', message: '至少启用一个模型' });
+  }
   for (const connection of settings.database.connections) {
     const meta = DATABASE_TYPE_META[connection.type];
     if (meta === undefined) issues.push({ path: `database.connections.${connection.id}.type`, message: '不支持的数据库类型' });

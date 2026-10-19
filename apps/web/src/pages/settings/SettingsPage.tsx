@@ -106,7 +106,7 @@ export function SettingsPage() {
         content = <ServiceSection data={data} />;
         break;
       case 'model':
-        content = <ModelSection settings={data.settings} catalog={data.catalog} />;
+        content = <ModelSection data={data} />;
         break;
       case 'git':
         content = <GitSection settings={data.settings} />;
@@ -125,7 +125,7 @@ export function SettingsPage() {
     <div className="page settings">
       <PageHeader
         title="设置"
-        lede="外观、本机服务、模型执行、Git 与数据库连接。写入能力随服务端接口逐步接通。"
+        lede="外观、本机服务、模型与 OpenCode、Git 与数据库连接；模型职责与运行时开关在这里配置。"
         actions={
           <>
             <IconButton icon="refresh" label="刷新设置" onClick={retry} />
