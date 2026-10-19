@@ -117,6 +117,8 @@ export interface ServerSettings {
 export interface MonitoringSettings {
   /** UI polling interval used only when SSE is unavailable. */
   readonly pollIntervalMs: number;
+  /** Warn in the runtime/Settings UI when active OpenCode sessions reach this number. */
+  readonly sessionAlertThreshold: number;
 }
 
 export interface AppSettings {
@@ -206,7 +208,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     pauseTimeoutMs: 15000,
     verifyCommandTimeoutMs: 300000,
   },
-  monitoring: { pollIntervalMs: 1500 },
+  monitoring: { pollIntervalMs: 1500, sessionAlertThreshold: 8 },
   delivery: {
     defaultGoal: 'create_merge_request',
     requirePushConfirmation: true,
@@ -269,6 +271,9 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
   const knownToolsets = ['workflow', 'git', 'database', 'workspace'];
   if (settings.opencode.toolsets.length === 0 || settings.opencode.toolsets.some((toolset) => !knownToolsets.includes(toolset))) {
     issues.push({ path: 'opencode.toolsets', message: '工具集需要在 workflow/git/database/workspace 中且至少启用一个' });
+  }
+  if (!Number.isInteger(settings.monitoring.sessionAlertThreshold) || settings.monitoring.sessionAlertThreshold < 1 || settings.monitoring.sessionAlertThreshold > 100) {
+    issues.push({ path: 'monitoring.sessionAlertThreshold', message: '会话告警阈值需要在 1–100 之间' });
   }
   if (!Number.isInteger(settings.monitoring.pollIntervalMs) || settings.monitoring.pollIntervalMs < 500 || settings.monitoring.pollIntervalMs > 30_000) {
     issues.push({ path: 'monitoring.pollIntervalMs', message: '轮询间隔需要在 500–30000ms 之间' });

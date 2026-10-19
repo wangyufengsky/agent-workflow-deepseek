@@ -18,6 +18,7 @@ test('monitoring poll interval is persisted, validated and merged into bootstrap
     const bootstrap = await app.app.inject({ method: 'GET', url: '/api/bootstrap' });
     assert.equal(bootstrap.statusCode, 200, bootstrap.body);
     assert.equal(bootstrap.json().data.settings.monitoring.pollIntervalMs, 1500);
+    assert.equal(bootstrap.json().data.settings.monitoring.sessionAlertThreshold, 8);
 
     const update = await app.app.inject({
       method: 'PATCH',
@@ -54,6 +55,20 @@ test('monitoring poll interval is persisted, validated and merged into bootstrap
       payload: { requestKey: requestKey('toolsbad'), patch: { opencode: { toolsets: [] } } },
     });
     assert.equal(emptyToolsets.statusCode, 400, emptyToolsets.body);
+
+    const threshold = await app.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: { requestKey: requestKey('threshold'), patch: { monitoring: { sessionAlertThreshold: 3 } } },
+    });
+    assert.equal(threshold.statusCode, 200, threshold.body);
+    assert.equal((await app.app.inject({ method: 'GET', url: '/api/bootstrap' })).json().data.settings.monitoring.sessionAlertThreshold, 3);
+    const badThreshold = await app.app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: { requestKey: requestKey('thresholdbad'), patch: { monitoring: { sessionAlertThreshold: 0 } } },
+    });
+    assert.equal(badThreshold.statusCode, 400, badThreshold.body);
 
     const invalid = await app.app.inject({
       method: 'PATCH',

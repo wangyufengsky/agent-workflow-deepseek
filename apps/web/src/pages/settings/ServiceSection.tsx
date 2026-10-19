@@ -64,6 +64,7 @@ export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
             <span>{String(settings.models.length)} 个配置 · MCP 服务 {settings.opencode.mcpServerName}</span>
           </SettingsRow>
           <PollIntervalRow value={settings.monitoring.pollIntervalMs} />
+          <SessionThresholdRow value={settings.monitoring.sessionAlertThreshold} />
         </div>
         <p className="hint" style={{ marginTop: 14 }}>
           启动配置文件由服务端持有；本页不会读取凭据、令牌或密码。
@@ -97,6 +98,37 @@ function PollIntervalRow({ value }: { readonly value: number }) {
       <span className="row wrap" style={{ gap: 8 }}>
         <input className="input" type="number" min={500} max={30000} step={100} style={{ width: 120 }} value={draft} onChange={(event) => { setDraft(event.target.value); }} aria-label="断连轮询间隔" />
         <span className="hint">ms</span>
+        <Button variant="secondary" size="sm" icon="check" disabled={mutation.isPending || draft === String(value)} onClick={() => { mutation.mutate(); }}>
+          {mutation.isPending ? '保存中…' : '保存'}
+        </Button>
+        {mutation.isError ? <span className="hint" style={{ color: 'var(--danger)' }}>{mutation.error instanceof Error ? mutation.error.message : '保存失败'}</span> : null}
+      </span>
+    </SettingsRow>
+  );
+}
+
+
+function SessionThresholdRow({ value }: { readonly value: number }) {
+  const [draft, setDraft] = useState(String(value));
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const parsed = Number(draft);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) throw new Error('会话告警阈值需要在 1–100 之间');
+      return request<unknown>('/api/settings', {
+        method: 'PATCH',
+        body: { requestKey: createRequestKey(), patch: { monitoring: { sessionAlertThreshold: parsed } } },
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
+    },
+  });
+  return (
+    <SettingsRow label="会话告警阈值" hint="活跃 OpenCode 会话达到此数量时在运行状态中告警（1–100）">
+      <span className="row wrap" style={{ gap: 8 }}>
+        <input className="input" type="number" min={1} max={100} step={1} style={{ width: 100 }} value={draft} onChange={(event) => { setDraft(event.target.value); }} aria-label="会话告警阈值" />
+        <span className="hint">个会话</span>
         <Button variant="secondary" size="sm" icon="check" disabled={mutation.isPending || draft === String(value)} onClick={() => { mutation.mutate(); }}>
           {mutation.isPending ? '保存中…' : '保存'}
         </Button>

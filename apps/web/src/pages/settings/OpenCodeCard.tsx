@@ -53,6 +53,9 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
   const [scanEnabled, setScanEnabled] = useState(false);
   const detectQuery = useOpenCodeDetect(scanEnabled);
   const currentBinary = bootstrap.data?.settings.opencode.binaryPath ?? detectQuery.data?.current ?? '';
+  const alertThreshold = bootstrap.data?.settings.monitoring.sessionAlertThreshold ?? 8;
+  const sessions = statusQuery.data?.sessions ?? 0;
+  const sessionAlert = sessions >= alertThreshold;
   const useBinary = useMutation({
     mutationFn: async (binaryPath: string) => {
       await request('/api/settings', {
@@ -156,9 +159,11 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
           <InfoRow label="并发会话">
             <span className="row wrap" style={{ gap: 8 }}>
               <span className="mono">{String(status.sessions ?? 0)} / {String(status.maxSessions ?? '—')}</span>
-              {(status.sessions ?? 0) >= (status.maxSessions ?? Number.POSITIVE_INFINITY) ? (
-                <Badge tone="danger" icon="alert">已达上限，新会话会被拒绝</Badge>
-              ) : <span className="hint">运行中的受管会话计；达到上限时服务返回 OPENCODE_SESSION_LIMIT</span>}
+              {sessionAlert ? (
+                <Badge tone={(status.sessions ?? 0) >= (status.maxSessions ?? Number.POSITIVE_INFINITY) ? 'danger' : 'warn'} icon="alert">
+                  {(status.sessions ?? 0) >= (status.maxSessions ?? Number.POSITIVE_INFINITY) ? '已达上限，新会话会被拒绝' : `已达告警阈值 ${String(alertThreshold)}`}
+                </Badge>
+              ) : <span className="hint">运行中的受管会话计；达到上限时服务返回 OPENCODE_SESSION_LIMIT；告警阈值见「服务」</span>}
             </span>
           </InfoRow>
           {status.lastError === undefined ? null : (
