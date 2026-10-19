@@ -470,3 +470,10 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - HTTP/SQLite 离线回归：`node --import tsx --test tests/integration/run-template-content.test.ts tests/integration/node-detail-read.test.ts tests/integration/snapshot-review-domain.test.ts tests/integration/ppt-assistant-export.test.ts` 13/13 通过；扩展真实本地产物/输出撤权断言后运行模板 3/3 通过。类型检查通过。这里不宣称真实模型或 GUI 撤权覆盖。
 - `npm run docs:api` 与 `npm run check:docs-routes` 通过：180 个服务端 API 路径，194 个文档唯一路径；生成器仍提示已有用途/分组缺项，未修改验收脚本规避提示。
 - 连接中断/超时提示区分读取与写入：写入只能按原请求核对，不再提示重新提交。
+
+### 2026-10-20 · 重试设置分区
+
+- 三类等待（模型限流、会话错误、验证失败）接回独立「重试等待」页，各显示初始/最长；删除执行限制里的重复区。真实配置保留毫秒存储，界面使用秒；支持设计的初始最多600秒、最长3600秒，兼容已有0秒值，服务拒绝最长小于初始。
+- 执行相关设置标为「新执行生效」，不再误称对当前冻结执行立即生效。保存只接受 succeeded 为成功，accepted/unknown 不清草稿。
+- HTTP配置、实际重试策略与模板任务回归19/19通过，typecheck/Web构建通过。CUA隔离5281服务：将模型限流改为30/300秒，切分区再刷新仍保留两项脏草稿；保存成功、刷新回读30/300且无脏标记。保存仅作用测试服务，不改用户运行实例。
+- 证据：`docs/evidence/retry-settings-2026-10-20/`。此批不宣称全主题、真实限流或UNKNOWN GUI故障注入验收。

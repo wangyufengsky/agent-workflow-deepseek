@@ -322,7 +322,7 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
   if (typeof settings.execution.timeoutEnabled !== 'boolean') issues.push({ path: 'execution.timeoutEnabled', message: '业务超时开关必须是布尔值' });
   for (const key of ['modelRateLimit', 'sessionError', 'verificationFailure'] as const) {
     const delay = settings.execution.retryDelays?.[key];
-    if (delay === undefined || !Number.isInteger(delay.initialMs) || !Number.isInteger(delay.maxMs) || delay.initialMs < 0 || delay.maxMs < delay.initialMs || delay.maxMs > 300000) issues.push({ path: `execution.retryDelays.${key}`, message: '等待时间需为 0–300000ms 整数，最长等待不得小于初始等待' });
+    if (delay === undefined || !Number.isInteger(delay.initialMs) || !Number.isInteger(delay.maxMs) || delay.initialMs < 0 || delay.initialMs > 600000 || delay.maxMs < delay.initialMs || delay.maxMs > 3600000) issues.push({ path: `execution.retryDelays.${key}`, message: '初始等待需为0–600000ms整数，最长等待不超过3600000ms且不得小于初始等待' });
   }
   if (typeof settings.execution.pauseAfterFailure !== 'boolean') issues.push({ path: 'execution.pauseAfterFailure', message: '失败后暂停必须是布尔值' });
   for (const [field, min, max] of [['nodeTimeoutMinutes', 1, 1440], ['pauseTimeoutMs', 1, 120000], ['verifyCommandTimeoutMs', 1, 7200000]] as const) {

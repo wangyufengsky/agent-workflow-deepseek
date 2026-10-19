@@ -1,38 +1,25 @@
 import type { PublicSettings } from '@agent-workflow/shared';
-import { Badge } from '../../components/Badge.tsx';
-import { Icon } from '../../components/Icon.tsx';
-import { ReadOnlyValue, SettingsHeading, SettingsRow } from './shared.tsx';
+import { DraftNumberControl, useSettingsDraft } from './draft.tsx';
+import { SettingsHeading, SettingsRow } from './shared.tsx';
 
-/**
- * 重试等待：设计稿要求按模型限流 / 会话错误 / 验证失败分别配置初始与最长等待。
- * shared settings 没有这些字段，因此只展示真实存在的规划传输重试次数，并明确其余不可用。
- */
 export function RetrySection({ settings }: { readonly settings: PublicSettings }) {
-  return (
-    <div className="sect">
-      <SettingsHeading title="重试等待" lede="设计稿要求按模型限流、会话错误与验证失败分别设置初始 / 最长等待；当前共享设置没有这些字段。" />
-      <div className="card card-sec">
-        {[
-          ['模型限流重试等待', '遇到 provider 限流时的重试等待'],
-          ['会话错误重试等待', 'OpenCode 会话异常时的重试等待'],
-          ['验证失败重试等待', '验证命令失败后的重试等待'],
-        ].map(([label, hint]) => (
-          <SettingsRow key={label} label={label} hint={hint} effect="unavailable">
-            <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
-              <input className="input" disabled placeholder="服务未提供" aria-label={`${label}（服务未提供）`} style={{ width: 140 }} />
-              <Badge tone="unknown" icon="lock">服务未提供</Badge>
-              <span className="hint">初始 / 最长等待均不可编辑</span>
-            </div>
-          </SettingsRow>
-        ))}
-        <SettingsRow label="规划传输重试次数" hint="现有 planning.transportRetries；本页只读，不纳入下方保存条。">
-          <ReadOnlyValue>{String(settings.planning.transportRetries)} 次</ReadOnlyValue>
-        </SettingsRow>
-      </div>
-      <p className="hint" style={{ marginTop: 14, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-        <Icon name="info" size="sm" />
-        页面不会为缺失字段提供可编辑控件；等共享契约补齐后再接入。
-      </p>
+  const draft = useSettingsDraft();
+  return <div className="sect">
+    <SettingsHeading title="重试等待" lede="明确选择重试后，等待从初始值逐次翻倍，不超过最长值。结果未知时先核对原操作。" />
+    <div className="card card-sec">
+      {([['modelRateLimit', '模型限流'], ['sessionError', '会话错误'], ['verificationFailure', '验证失败']] as const).map(([key, label]) => {
+        const initialPath = `execution.retryDelays.${key}.initialMs`; const maxPath = `execution.retryDelays.${key}.maxMs`;
+        const initial = draft.fields[initialPath]?.value ?? settings.execution.retryDelays[key].initialMs;
+        const maximum = draft.fields[maxPath]?.value ?? settings.execution.retryDelays[key].maxMs;
+        return <SettingsRow key={key} label={label} effect="new_execution" dirty={draft.fields[initialPath] !== undefined || draft.fields[maxPath] !== undefined}>
+          <div className="row wrap" style={{ gap: 16, alignItems: 'flex-start' }}>
+            <div className="col" style={{ gap: 4 }}><span className="hint">初始</span><DraftNumberControl compact path={initialPath} label={`${label} · 初始等待`} section="retry" baseline={settings.execution.retryDelays[key].initialMs} min={0} max={600} unit="秒" factor={1000} effect="new_execution" /></div>
+            <div className="col" style={{ gap: 4 }}><span className="hint">最长</span><DraftNumberControl compact path={maxPath} label={`${label} · 最长等待`} section="retry" baseline={settings.execution.retryDelays[key].maxMs} min={0} max={3600} unit="秒" factor={1000} effect="new_execution" /></div>
+          </div>
+          {typeof initial === 'number' && typeof maximum === 'number' && maximum < initial ? <p className="hint" role="alert" style={{ color: 'var(--danger)' }}>最长等待不能小于初始等待，保存时服务将拒绝这组值。</p> : null}
+        </SettingsRow>;
+      })}
     </div>
-  );
+    <p className="hint" style={{ marginTop: 14 }}>保存后用于新任务与新执行；已有任务保留冻结配置。0 秒表示不额外等待。</p>
+  </div>;
 }

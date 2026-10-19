@@ -1,7 +1,7 @@
 import { pendingForScope } from '../../api/pending-commands.ts';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createRequestKey, type AppSettings, type BootstrapResponse } from '@agent-workflow/shared';
+import { createRequestKey, type AppSettings, type BootstrapResponse, type OperationReceipt } from '@agent-workflow/shared';
 import { errorMessage, isApiClientError, isServiceUnavailable, request } from '../../api/client.ts';
 import { queryKeys } from '../../api/hooks.ts';
 import { SettingsRow, type SettingsEffect } from './shared.tsx';
@@ -98,15 +98,16 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
       if (dirty.some((field) => field.issue !== undefined)) {
         throw new Error('存在需要修正的设置，修正前不能保存');
       }
-      const response = await request<{ settings: AppSettings }>('/api/settings', {
+      const response = await request<{ settings: AppSettings; receipt: OperationReceipt }>('/api/settings', {
         method: 'PATCH',
         body: { requestKey: createRequestKey(), patch: buildPatch(dirty) },
       });
+      if (response.data.receipt.status !== 'succeeded') throw new Error(response.data.receipt.status === 'failed' ? '设置保存失败，修改仍保留。' : '设置保存尚未确认，请按原请求核对。');
       return response.data.settings;
     },
     onSuccess: (settings) => {
       setFields({});
-      setSaveMessage({ tone: 'ok', message: '设置已保存。执行限制用于新任务/新执行；断连轮询与会话阈值立即生效。' });
+      setSaveMessage({ tone: 'ok', message: '设置已保存。执行设置用于新任务/新执行；监控设置随保存更新。' });
       if (settings !== undefined) {
         queryClient.setQueryData<BootstrapResponse | undefined>(queryKeys.bootstrap, (current) => (
           current === undefined ? current : { ...current, settings }
@@ -169,9 +170,15 @@ export interface DraftNumberRowProps {
   /** Stored value = displayed value × factor (e.g. seconds → milliseconds). */
   readonly factor?: number;
   readonly issueMessage?: string;
+  readonly compact?: boolean;
 }
 
-export function DraftNumberRow({
+export function DraftNumberRow(props: DraftNumberRowProps) {
+  const draft = useSettingsDraft();
+  return <SettingsRow label={props.label} hint={props.hint} effect={props.effect ?? 'live'} dirty={draft.fields[props.path] !== undefined}><DraftNumberControl {...props} /></SettingsRow>;
+}
+
+export function DraftNumberControl({
   path,
   label,
   hint,
@@ -184,6 +191,7 @@ export function DraftNumberRow({
   effect = 'live',
   factor = 1,
   issueMessage,
+  compact = false,
 }: DraftNumberRowProps) {
   const draft = useSettingsDraft();
   const field = draft.fields[path];
@@ -198,7 +206,6 @@ export function DraftNumberRow({
   const issue = field?.issue;
 
   return (
-    <SettingsRow label={label} hint={hint} effect={effect} dirty={field !== undefined}>
       <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
         <input
           className="input"
@@ -209,7 +216,8 @@ export function DraftNumberRow({
           value={displayValue}
           aria-label={label}
           aria-invalid={issue === undefined ? undefined : true}
-          style={{ width: 140 }}
+          style={{ width: compact ? 112 : 140 }}
+          title={`范围 ${min}–${max} ${unit}`}
           onChange={(event) => {
             const raw = event.target.value;
             const parsed = Number(raw);
@@ -226,10 +234,9 @@ export function DraftNumberRow({
           }}
         />
         <span className="hint">{unit}</span>
-        <span className="hint">范围 {min}–{max} {unit}</span>
+        {compact ? null : <span className="hint">范围 {min}–{max} {unit}</span>}
         {issue === undefined ? null : <span className="hint" style={{ color: 'var(--danger)' }}>{issue}</span>}
       </div>
-    </SettingsRow>
   );
 }
 

@@ -39,9 +39,10 @@ export interface SettingsRowProps {
   readonly dirty?: boolean;
 }
 
-export type SettingsEffect = 'live' | 'restart' | 'saved' | 'unavailable';
+export type SettingsEffect = 'live' | 'new_execution' | 'restart' | 'saved' | 'unavailable';
 
 function EffectBadge({ effect }: { readonly effect: SettingsEffect }) {
+  if (effect === 'new_execution') return <span className="eff now"><Icon name="check" size="sm" />新执行生效</span>;
   if (effect === 'restart') {
     return (
       <span className="eff restart">
