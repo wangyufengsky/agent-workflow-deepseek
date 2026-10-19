@@ -1550,6 +1550,9 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   registerRuntimeOperationRoutes(app, store, engine, opencodeRef);
 
+  // End long-lived event streams before Fastify waits for active HTTP requests.
+  const closeEventStreams = new Set<() => void>();
+  app.addHook('preClose', async () => { for (const close of [...closeEventStreams]) close(); });
   // SSE events
   app.get<{ Querystring: { afterSeq?: string } }>('/api/events', async (request, reply) => {
     reply.hijack();
@@ -1568,13 +1571,18 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     for (const event of store.events.replay(afterSeq, 1000)) write(event);
     const unsubscribe = store.events.subscribe((event) => write(event));
     const heartbeat = setInterval(() => raw.write(': heartbeat\n\n'), 15000);
+    let closed = false;
     const close = () => {
+      if (closed) return;
+      closed = true;
+      closeEventStreams.delete(close);
       clearInterval(heartbeat);
       unsubscribe();
       raw.end();
     };
-    request.raw.on('close', close);
-    request.raw.on('error', close);
+    closeEventStreams.add(close);
+    raw.once('close', close);
+    request.raw.once('error', close);
   });
 
   // Static Web bundle (production/Electron). In development Vite serves the app.

@@ -209,8 +209,8 @@ npm run build:server
 | P05 | R07 | 公约生成、项目 GitLab、文档路径生效 | design_acceptance_inventory | in_progress | 待服务/界面验证 |
 | P06 | R08 | 快照评审模式、阶段报告、读取/下载 | role_execution_parity | in_progress | 两批已整合，真实Git/blob范围及离线调用回归通过；真实模型/专门阅读GUI待验收 |
 | P07 | R09 | 流程图编辑、并行/连线、模板/缩放/版本差异 | execution_parity | in_progress | 图编辑与执行计划重绑定已整合；真实GUI保存/历史/拖动及实际调度回归通过，完整状态待验收 |
-| P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | design_acceptance_inventory | in_progress | 真实助手候选/明确应用、原生PDF/PPTX保存/取消/文件核验已整合；三栏与三页签结构继续修复 |
-| P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | Lead | in_progress | 专门报告/批次与历史节点阅读已整合，撤权同步隐藏与报告下载鉴权回归通过；普通源码逐文件/真实测试证据仍缺，继续修复 |
+| P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | design_acceptance_inventory | in_progress | 真实助手候选/明确应用、原生PDF/PPTX保存/取消/文件核验已整合；三栏与三页签已修复；逐页生成持久状态继续 |
+| P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | Lead | in_progress | 专门报告/批次与历史节点阅读已整合，撤权同步隐藏与报告下载鉴权回归通过；新合同逐文件证据、真实5步/3项JUnit/独立复核及Run GUI已通过；多文件/异常GUI继续 |
 | P10 | R13 | 任务归档、需求抽屉、模板范围/档案、首页进行中 | design_acceptance_inventory | in_progress | 已整合归档/需求来源/模板范围/文件上传，8项定向验证通过；GUI逐态继续 |
 | P11 | R14/R15 | 工具项目/来源/单工具策略、数据库授权/读取范围 | role_execution_parity | in_progress | 45ed378已整合；离线权限/查询回归通过，真实环境与GUI待验收 |
 | P12 | R16/R17 | 运行时启动/历史、职业预估/形象/统计 | role_execution_parity + Lead | in_progress | 已整合精确职业修订预估、维护锁与持久化pending防重启；真实运行时GUI待验收 |
@@ -226,7 +226,7 @@ npm run build:server
 
 | 所属项 | 剩余实现/验收 | 当前分工 |
 | --- | --- | --- |
-| P09 | 普通源码与单测模板逐文件写作/独立复核、冻结 blob/批次绑定；真实测试命令/报告、通过失败跳过、失败用例文件关联 | role_execution_parity |
+| P09 | 已整合逐文件合同与真实5步单文件验收，3项真实JUnit、独立review及Run GUI已通过；失败/跳过/撤权由HTTP分层证明 | Lead，见p09-file-evidence与live-session-scope |
 | P14/P02/P03 | 原生运行 question/permission/policy 事件、一次/会话授权与拒绝、hard deny 只知晓、持久身份和原 key 核对 | execution_parity（数据库完成后） |
 | P14 | 规划选项/多选/推荐链本批实现，浏览器真实提交已验证；原生节点问答不能由规划问题替代 | Lead，见 inbox-choices 证据 |
 | P12 | 历史角色包导入校验、差异审阅、版本发布与 UNKNOWN 原 key；旧页仍陈旧禁用 | design_acceptance_inventory |

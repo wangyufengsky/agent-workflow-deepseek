@@ -25,10 +25,10 @@
 | P11.requirement.V/.A/.S | `/requirement/:id`；五段、PE37、候选应用确认、记录分页/callId与seq已接 | E02/E08/E19：规划/编辑/505条分页 | E01：真实规划→应用确认准备 | E19：505条/缺口/工具原位；早期模型画布图属历史 | PE/PW全状态；超限/预算/资料撤权/停止迟到/跨组/重启unknown；不可把规划主流程扩成全矩阵 |
 | P12.tasks.V/.A/.S | `/tasks`；归档恢复/结束前置、项目ID过滤分组及规划活动已接 | E10/E11：归档/同名/HTTP | — | E11：同名项目精确ID空结果 | 加载更多失败/归档与恢复/菜单禁用、planning计数与Inbox一致、步骤进度历史/空/unknown |
 | P13.task.V/.A/.S | `/tasks/:id`；真实执行控制/停止确认/调整绑定/冻结、snapshot mode/depth/units/report已接 | E02/E08/E12/E13：停止19、计划7、作用域retry33、报告权限 | E01：真实节点修改README；非snapshot专用模型验收 | E14/E15节点局部；不替代整画布 | running两并行/auto-off/waiting/stalled/claim-race/stop未知；snapshot full/light批次与报告loading/error/cancelled可读 |
-| P14.inbox.V/.A/.S | `/inbox`；规划选项及原生节点permission/question、once/session/reject/hard、持久草稿/原key已接 | E17/E20：问题/权限26定向，HTTP/SQLite | E20实际runtime健康/OpenAPI不是模型提问链 | E20：原生Chrome多选提交/unknown锁/hard只知晓 | 真实模型自然发question/permission并继续；跨attempt/撤权/重启/全页筛选状态；后台无上下文来源仍限制 |
+| P14.inbox.V/.A/.S | `/inbox`；规划选项及原生节点permission/question、once/session/reject/hard、持久草稿/原key已接 | E17/E20：问题/权限26定向，HTTP/SQLite | E26：真实模型原生question→多选/其他答复→同session结果1/1 | E20：Chrome离线unknown/hard；E26：IAB实际模型问题答复、角标同步 | 真实模型permission事件及授权后继续；跨attempt/撤权/重启/全页筛选状态；后台无上下文来源仍限制 |
 | P15.insights.V/.A/.S | `/insights`；四阶段任务计量/未知、分币、完整全集、项目/状态/质量/归档同范围已接 | E16：10项定向；205任务/混币/零 | — | E16：同名ID/归档/质量实际驳回/服务失败保留 | 全部未知/加载与错误详细对照、四主题三尺寸；E25已修正历史问题污染当前质量；未新增全状态GUI |
-| P16.templates.V/.A/.S | `/templates`；必要范围/branch/date/source/doc冻结、B06历史档案已接；旧合同不回填 | E10/E12：模板范围/历史/原key | —（新fileEvidence live在Lead进行中，不计PASS） | E11：必要参数；E25：真实归档succeeded/key/auditId | source/doc/date所有参数失败、启动unknown、created/pending-start、历史run核对失败/导出；UNKNOWN原key恢复的完整GUI故障态仍待补 |
-| P17.run.V/.A/.S | `/runs/:taskId`；专用文档/源码/单测布局、冻结输入/报告/逐文件独立复核、真实JUnit结果已接 | E12/E13：50定向，actual子进程JUnit；结果权限 | E01普通节点结果；不等于新逐文件合同live | E14原生artifact读取/保存；专用run全态未单独证明 | 批次失败/限批retry/停止/unknown、通过失败跳过文件定位、报告re-read/download撤权、输入迟到切换/宽阅读返回 |
+| P16.templates.V/.A/.S | `/templates`；必要范围/branch/date/source/doc冻结、B06历史档案已接；旧合同不回填 | E10/E12：模板范围/历史/原key | E26：v8单文件5步真实模型、3项JUnit与独立复核1/1 | E11：必要参数；E25：真实归档succeeded/key/auditId | source/doc/date所有参数失败、启动unknown、created/pending-start、历史run核对失败/导出；UNKNOWN原key恢复的完整GUI故障态仍待补 |
+| P17.run.V/.A/.S | `/runs/:taskId`；专用文档/源码/单测布局、冻结输入/报告/逐文件独立复核、真实JUnit结果已接 | E12/E13：50定向，actual子进程JUnit；结果权限 | E26：新逐文件单测合同真实5步/3测试/独立复核通过 | E14原生artifact保存；E26 Run覆盖、产物hash、实际JUnit，四主题1280×720 | 批次失败/限批retry/停止/unknown、通过失败跳过文件定位、报告re-read/download撤权、输入迟到切换/宽阅读返回 |
 | P18.runtime.V/.A/.S | `/runtime`；启动/重启、维护锁/活动session防护、真实路径/操作历史已接 | E11/E16：runtime-role HTTP；E02/E08活动阻止 | E01真实1.19 ready/idle只是运行时连通 | E11：未受管禁用与路径局部 | managed/external/offline/start-failed/unknown/read-error、restart unknown锁与原key恢复；不能按本地pending0判停稳 |
 | P19.tools.V/.A/.S | `/tools`；来源/单工具/项目三态、冻结会话策略、Skill目录/Markdown/原文已接 | E21：4项HTTP权限，旧/新会话分离 | — | E21：停用→回读、Skill空/原文/四主题/刷新同ID | 外部MCP真实授权/清单partial、来源整体确认/项目继承、write-unknown、Skill读取错误/搜索命中与返回 |
 | P20.databases.V/.A/.S | `/databases`；项目/schema/table授权、临时草稿探针、会话只读/撤权已接；planned驱动明确缺能力 | E22：45+9定向、真实关闭端口 | E01：已有MySQL真实1/1；非模型 | E22：草稿ECONNREFUSED保留输入、变更清探针、取消0连接 | 成功连接三格/重检失败、保存unknown/归档、运行中授权撤销；PG/其他驱动真实实例不可冒充MySQL通过 |
@@ -44,7 +44,7 @@
 
 | 证据ID | 原记录 / 历史身份 | 可以证明 / 不可外推 |
 |---|---|---|
-| E01 | docs/verification.md §2026-10-20追加/真实MySQL | 模型：1.19最小OK、知识/规划2项、README执行/审查/修复3项；MySQL1项；与2026-10-19 GitHub远端写历史分开。没有新GitLab或新fileEvidence模型PASS |
+| E01 | docs/verification.md §2026-10-20追加/真实MySQL | 模型：1.19最小OK、知识/规划2项、README执行/审查/修复3项；MySQL1项；与2026-10-19 GitHub远端写历史分开。没有新GitLab；新fileEvidence模型PASS见后续E26 |
 | E02 | docs/verification/2026-10-20-execution-stop.md | 19离线/HTTP；abort拒绝/UNKNOWN/idle/重启/迟到代际。未做实际provider停止GUI |
 | E03 | docs/review/knowledge-receipts-sources-2026-10-20.md | 该文件早期“来源未接/live未做”不是当前实现结论；追加记录实际流式/停止/角色抽屉，当前代码另有KnowledgeInputs冻结来源；具体live只取E01 |
 | E04 | docs/review/ppt-production-2026-10-20.md；ppt-plan-stop-2026-10-20.md | 生产/复制/版本/方案/停止。兼容隐藏Electron12图不是正式CUA；后续由E05/E06补 |
@@ -55,7 +55,7 @@
 | E09 | docs/review/project-config-consumers-2026-10-20.md | 12定向，charter只读模型端口、项目GitLab本机HTTP替身、docPaths真实prompt。旧无sessionMessages恢复限制须按现代码核对，不当永久缺口 |
 | E10 | docs/review/task-catalog-2026-10-20.md | 首页/任务归档/B15/模板完整scope与历史档案；实现/HTTP，不宣称25页GUI |
 | E11 | docs/review/p14-seven-pages-2026-10-20.md | 13定向；正式Chrome CUA项目/Start实际草稿/同名ID/取消管理/必要参数/runtime禁用/DB空态，非七页所有状态 |
-| E12 | docs/review/p09-file-evidence-2026-10-20.md | 50定向；受控真实Node子进程JUnit+HTTP；写作/复核session是离线fixture，不是新普通源码/单测合同live |
+| E12 | docs/review/p09-file-evidence-2026-10-20.md | 50定向；受控真实Node子进程JUnit+HTTP；本条写作/复核为离线fixture；后续真实模型与Run GUI见E26 |
 | E13 | docs/verification/2026-10-20-scoped-retry.md；docs/verification.md运行阅读权限追加 | 33定向只重试明确failed集合；权限过滤/报告下载精确身份；不是GUI全状态 |
 | E14 | docs/review/node-artifacts-2026-10-20.md | 原生Electron产物读取、macOS保存/取消/hash；CJS preload修复与四主题，非整个Run专页 |
 | E15 | docs/verification/2026-10-20-node-detail-read.md | HTTP/Chrome组件夹具：旧attempt/撤权清摘要与产物；工具详情引用同一身份。非真实模型与整任务GUI |
@@ -63,16 +63,17 @@
 | E17 | docs/review/inbox-choices-2026-10-20.md | 规划question选项/必答/多选/其他持久答复；不能替代节点原生问答 |
 | E18 | docs/review/workflow-usage-2026-10-20.md | 10定向；CUA真实目录使用2/当前1及准确草稿跳转；无模型调用 |
 | E19 | docs/review/planning-record-2026-10-20.md | 4定向；CUA 505记录/删除#7/加载后504、callId单卡、向上关闭跟随；fixture非模型 |
-| E20 | docs/verification/2026-10-20-runtime-inbox.md | 26定向；实际runtime健康/OpenAPI无模型；Chrome生产组件+离线port多选/unknown/hard。未真实模型自然问答 |
+| E20 | docs/verification/2026-10-20-runtime-inbox.md | 26定向；实际runtime健康/OpenAPI无模型；Chrome生产组件+离线port多选/unknown/hard。真实模型自然问答已由后续E26补证，权限事件仍保留原边界 |
 | E21 | docs/review/tools-parity-2026-10-20.md | 4HTTP会话冻结；CUA来源/单工具/Skill/主题/URL恢复；外部MCP真实授权未全验 |
 | E22 | docs/verification/2026-10-20-database-draft-scope.md | 45+9定向；关闭端口真实网络/Chrome失败保留/取消；成功MySQL独立见E01 |
 | E23 | docs/review/role-package-parity-2026-10-20.md | 25定向；Chrome+原生文件框真ZIP校验8差异→明确发布；目录绑定冻结，不算角色所有发布态 |
 | E24 | docs/verification.md §2026-10-20重试设置分区 | 19配置/等待/模板回归、CUA草稿与保存回读30/300；不是真实429或全主题 |
 | E25 | docs/review/p14-final-visible-gaps-2026-10-20.md（原90d45b9，集成818bf6c） | 11回归+正式CUA真实归档succeeded/key/auditId；当前质量仅当前执行最近复核，历史审计保留。该记录旧roles-legacy问题由29d80bf/E23覆盖，不继续列当前缺口 |
+| E26 | docs/review/live-session-scope-2026-10-20.md；p09-file-evidence-2026-10-20.md追加 | 87c0e92修复0无限时会话30秒到期和嵌套写入。真实模型原生多选/其他→IAB答复→同session提交1/1；单文件5步真实模型+3项JUnit+独立复核1/1，Run GUI覆盖/源码hash/报告已读，四主题1280×720。不是多文件、权限与全部GUI状态PASS |
 
 ## 3. 当前优先项与明确不开放
 
-1. 当前818bf6c的后台原生交互：E20明确无节点/规划上下文的knowledge/charter/review/fix原生question/permission自动拒答；知识独立来源由A后续负责。节点问答协议/GUI已通，不能外推这些后台会话也已通。真实模型自然提问→答复→继续仍缺M/G。
+1. 当前818bf6c的后台原生交互：E20明确无节点/规划上下文的knowledge/charter/review/fix原生question/permission自动拒答；知识独立来源由A后续负责。节点问答协议/GUI已通，不能外推这些后台会话也已通。真实模型节点自然提问→IAB多选及其他答复→同session提交已由E26补证；后台业务域仍按各自证据。
 2. 模板归档与当前质量已在818bf6c修复并有E25独立回归/CUA；继续补UNKNOWN重启与完整质量状态GUI，不再列现存功能缺陷。
 3. 项目原稿 projects.html:148/193 的技术栈事实尚无真实Project字段/详情投影。当前显示Git/非Git状态是真实工作区能力，不得伪造技术栈。Lead已排后续独立实现，本矩阵不提前判通过。
 4. 新普通源码/单测逐文件合同已经真实HTTP/JUnit子进程验证；其模型写作→独立复核→Run实际阅读的整体M/G仍待Lead当前live批，不得用README普通执行或离线fixture替代。

@@ -28,3 +28,14 @@
 
 - 补上旧形式的参数请求：新逐文件合同缺少 scope 时，只能从明确 targetPath 冻结真实 Git 源码；无范围拒绝创建，不能绕过证据合同。冻结模板参数同步传入实际执行提示，避免只保存但执行不消费。
 - task-catalog-parity 与 template-history 共 6 项回归通过；历史目录测试按真实 v8 范围构造，旧任务不重新冻结。新增 opt-in template-file-evidence-live 测试用于检验实际模型写作、受控 JUnit 与独立复核，并显式经过每步验收接口；实时运行结果在完成后补记，不能把测试源码视为通过证据。
+
+## 配置模型与正式 GUI 完整链路（Lead）
+
+- 首次真实运行发现新目录写入 ENOENT；第二次写入与测试通过后，独立复核暴露无超时会话在 30 秒到期。两次均保留失败，不作为通过证据。修复见 `live-session-scope-2026-10-20.md` / `87c0e92`。
+- 第三次隔离真实模型任务 `task_0mvflyxjb521o4s5zou`：读取、规划测试、写测试、运行测试、独立汇总 5 个既有步骤全部 succeeded，每步经实际节点验收接口后继续，最终 completed。`template-file-evidence-live.test.ts` 1/1 通过，退出 0；没有添加隐藏测试或复核节点。
+- 真实写作 attempt `attempt_0mvflzwf28m2ld76pjg`，产物 `test/add.test.mjs`（536 bytes，SHA-256 `111e788d721f0acbd01b11b265af64aac94ac43f513d141d82ec7cb7ac0b7ddd`）。受控 `npm test` 签发 `trun_0mvfm0nekdikk9bfann`，实际 JUnit：3 passed / 0 failed / 0 skipped，退出码0。
+- 独立复核 attempt `attempt_0mvfm0xj3dmzsmyqc74`，与 writer 不同实际 OpenCode session；服务核对同冻结 blob、同产物 hash、当前 testRunId，结论 confirmed。
+- 在保留此真实模型数据库的独立读取服务中，通过正式 IAB 打开 Run 页：覆盖1/1、五次尝试、实际计数3/0/0；展开对应写作版本，读到真实测试源码、版本与hash；测试结果页展开命令argv及真实JUnit。截图在 `docs/evidence/file-evidence-live-2026-10-20/{coverage,writer-artifact,test-results}.png`。
+- 这证明单文件最小源码单测链与阅读界面；多文件/大文件/失败/跳过/撤权/旧版本由上述离线/HTTP回归分别验证，不宣称全部模板和全部GUI状态完成。任务整体质量验收与交付仍独立，不以该测试通过替代。
+
+- Run测试结果页四主题（deepseek/warm/spdb/github-white）通过界面切换，1280×720截图已逐张检查：计数、文字/图标、两栏布局正常；本项不扩大为三尺寸全矩阵。
