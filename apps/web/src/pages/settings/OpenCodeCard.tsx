@@ -52,6 +52,7 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
   const statusQuery = useOpenCodeStatus();
   const [scanEnabled, setScanEnabled] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
+  const [manualPath, setManualPath] = useState('');
   const logsQuery = useQuery({
     queryKey: ['opencode', 'logs'],
     queryFn: async () => (await apiGet<{ path: string; lines: readonly string[]; truncated: boolean }>('/api/opencode/logs?lines=120')).data,
@@ -252,6 +253,25 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
               onClick={() => { setScanEnabled(true); void detectQuery.refetch(); }}
             >
               {detectQuery.isFetching ? '扫描中…' : '扫描本机版本'}
+            </Button>
+          </div>
+          <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+            <input
+              className="input mono"
+              style={{ flex: 1, minWidth: 220 }}
+              placeholder="手动填写可执行文件绝对路径"
+              value={manualPath}
+              onChange={(event) => { setManualPath(event.target.value); }}
+              aria-label="OpenCode 可执行路径"
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="check"
+              disabled={manualPath.trim() === '' || useBinary.isPending}
+              onClick={() => { useBinary.mutate(manualPath.trim()); }}
+            >
+              保存路径
             </Button>
           </div>
           {detectQuery.isError ? <ServiceNotice className="inline-banner" error={detectQuery.error} /> : null}
