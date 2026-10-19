@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { createRequestKey, type KnowledgeAskResponse, type KnowledgeSearchResponse, type KnowledgeSourceContentResponse, type KnowledgeSourcesResponse } from '@agent-workflow/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createRequestKey, type KnowledgeAskResponse, type KnowledgeHistoryResponse, type KnowledgeSearchResponse, type KnowledgeSourceContentResponse, type KnowledgeSourcesResponse } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -25,16 +25,26 @@ export function KnowledgePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [submittedTerm, setSubmittedTerm] = useState('');
   const [sourcePath, setSourcePath] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [askResult, setAskResult] = useState<KnowledgeAskResponse | undefined>(undefined);
+  const projectId = selectedProjectId !== '' ? selectedProjectId : (projects[0]?.id ?? '');
+  const historyQuery = useQuery({
+    queryKey: ['knowledge', 'history', projectId],
+    queryFn: async () => (await apiGet<KnowledgeHistoryResponse>(`/api/knowledge/history?projectId=${encodeURIComponent(projectId)}`)).data,
+    enabled: projectId !== '',
+    retry: false,
+  });
   const askMutation = useMutation({
     mutationFn: async () => {
       const response = await apiPost<{ receipt: { status: string }; resource: KnowledgeAskResponse }>('/api/knowledge/ask', { requestKey: createRequestKey(), projectId, question: question.trim() });
       if (response.data.receipt.status !== 'succeeded') throw new Error(`问答回执：${response.data.receipt.status}`);
       return response.data.resource;
     },
-    onSuccess: (result) => { setAskResult(result); },
+    onSuccess: (result) => {
+      setAskResult(result);
+      void queryClient.invalidateQueries({ queryKey: ['knowledge', 'history', projectId] });
+    },
   });
-  const projectId = selectedProjectId !== '' ? selectedProjectId : (projects[0]?.id ?? '');
   const contentQuery = useQuery({
     queryKey: ['knowledge', 'content', projectId, sourcePath],
     queryFn: async () => (await apiGet<KnowledgeSourceContentResponse>(`/api/knowledge/source?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(sourcePath ?? '')}`)).data,
@@ -58,7 +68,7 @@ export function KnowledgePage() {
     <div className="page">
       <PageHeader
         title="知识库"
-        lede="从代码、文档和数据库中查找依据，每个结论都能回到原文。问答基于项目文档，引用可回到原文；不保存历史。"
+        lede="从代码、文档和数据库中查找依据，每个结论都能回到原文。问答基于项目文档，引用可回到原文；历史只保存在本机。"
         actions={
           <Badge tone="ok" icon="check">
             文档问答可用
@@ -297,6 +307,37 @@ export function KnowledgePage() {
           </div>
         </div>
       </div>
+
+      <section className="card" aria-label="问答历史" style={{ marginTop: 16 }}>
+        <div className="card-head">
+          <span className="tile"><Icon name="archive" /></span>
+          <div className="grow">
+            <span className="section-title">问答历史</span>
+            <div className="hint" style={{ marginTop: 2 }}>只保存在本机设置中，最多 30 条；点击可重新查看。</div>
+          </div>
+          <Badge tone="neutral">本机</Badge>
+        </div>
+        <div className="card-body">
+          {historyQuery.data === undefined ? <p className="hint">正在读取历史…</p>
+            : historyQuery.data.entries.length === 0 ? <p className="hint">当前项目还没有问答记录。</p>
+              : (
+                <div className="list">
+                  {historyQuery.data.entries.map((entry) => (
+                    <button key={entry.id} type="button" className="list-row" onClick={() => { setAskResult(entry); }}>
+                      <span className="tile"><Icon name="sparkle" size="sm" /></span>
+                      <span className="grow" style={{ minWidth: 0, textAlign: 'left' }}>
+                        <span style={{ display: 'block', fontSize: 13 }}>{entry.question}</span>
+                        <span className="hint" style={{ display: 'block', marginTop: 2 }}>
+                          {entry.citations.length} 条引用 · {new Date(entry.generatedAt).toLocaleString('zh-CN')} · {entry.model}
+                        </span>
+                      </span>
+                      <Icon name="chevRight" size="sm" />
+                    </button>
+                  ))}
+                </div>
+              )}
+        </div>
+      </section>
 
       <Modal
         open={sourcePath !== null}

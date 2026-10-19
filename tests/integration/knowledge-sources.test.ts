@@ -60,6 +60,22 @@ test('knowledge sources lists project docs read-only and skips ignored directori
     assert.equal(ask.statusCode, 503, ask.body);
     assert.equal(ask.json().error.code, 'OPENCODE_NOT_READY');
 
+    app.store.settings.putJson(`knowledge.history.${projectId}`, [{
+      id: 'knowledge_test_1',
+      projectId,
+      question: '测试问题',
+      answer: '测试回答',
+      citations: [],
+      model: 'test/model',
+      generatedAt: new Date().toISOString(),
+    }]);
+    const history = await app.app.inject({ method: 'GET', url: `/api/knowledge/history?projectId=${projectId}` });
+    assert.equal(history.statusCode, 200, history.body);
+    assert.equal(history.json().data.entries.length, 1);
+    assert.equal(history.json().data.entries[0].answer, '测试回答');
+    const missingHistory = await app.app.inject({ method: 'GET', url: '/api/knowledge/history?projectId=prj_unknown' });
+    assert.equal(missingHistory.statusCode, 404, missingHistory.body);
+
     const missing = await app.app.inject({ method: 'GET', url: '/api/knowledge/sources' });
     assert.equal(missing.statusCode, 400, missing.body);
   } finally {

@@ -221,6 +221,14 @@ export interface KnowledgeAskResponse {
   readonly generatedAt: IsoDateTime;
 }
 
+export interface KnowledgeHistoryEntry extends KnowledgeAskResponse {
+  readonly id: string;
+}
+
+export interface KnowledgeHistoryResponse {
+  readonly entries: readonly KnowledgeHistoryEntry[];
+}
+
 export interface KnowledgeSourceContentResponse {
   readonly projectId: string;
   readonly path: string;
@@ -957,6 +965,7 @@ export const ROUTES = {
   knowledgeSearch: '/api/knowledge/search',
   knowledgeSourceContent: '/api/knowledge/source',
   knowledgeAsk: '/api/knowledge/ask',
+  knowledgeHistory: '/api/knowledge/history',
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;

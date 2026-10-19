@@ -3,10 +3,13 @@ import { join } from 'node:path';
 import {
   AppError,
   ErrorCode,
+  createId,
   nowIso,
   type CommandResponse,
   type KnowledgeAskRequest,
   type KnowledgeAskResponse,
+  type KnowledgeHistoryEntry,
+  type KnowledgeHistoryResponse,
   type ModelProfile,
 } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
@@ -95,12 +98,21 @@ export class KnowledgeService {
         model: `${model.provider}/${model.model}`,
         generatedAt: nowIso(),
       };
-      this.#commands.settle(input.requestKey, { citations: citations.length });
+      const entry: KnowledgeHistoryEntry = { id: createId('knowledge'), ...response };
+      const key = historyKey(input.projectId);
+      const history = this.#store.settings.getJson<KnowledgeHistoryEntry[]>(key) ?? [];
+      this.#store.settings.putJson(key, [entry, ...history].slice(0, 30));
+      this.#commands.settle(input.requestKey, { citations: citations.length, historyId: entry.id });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: response };
     } catch (error) {
       this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('知识问答失败'));
       throw error;
     }
+  }
+
+  history(projectId: string): KnowledgeHistoryResponse {
+    if (this.#store.projects.get(projectId) === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
+    return { entries: this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(projectId)) ?? [] };
   }
 
   #model(): ModelProfile {
@@ -148,4 +160,9 @@ function validateCitations(raw: unknown, documents: readonly { path: string; con
     citations.push({ path, line, ...(snippet === '' ? {} : { snippet }) });
   }
   return citations;
+}
+
+
+function historyKey(projectId: string): string {
+  return `knowledge.history.${projectId}`;
 }

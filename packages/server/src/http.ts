@@ -510,6 +510,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = request.body as KnowledgeAskRequest;
     return envelope(await engine.knowledge.ask(body), requestId(request));
   });
+  app.get<{ Querystring: { projectId?: string } }>('/api/knowledge/history', async (request) => {
+    const projectId = request.query.projectId ?? '';
+    if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
+    return envelope(engine.knowledge.history(projectId), requestId(request));
+  });
   app.get('/api/skills', async (request) => envelope({ skills: discoverSkills() }, requestId(request)));
   app.get('/api/insights', async (request) => envelope(engine.insights.summary(), requestId(request)));
 
