@@ -42,7 +42,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
 | server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
-| server/templates | 固定模板任务创建后可按模板查历史（只含该固定模板，普通任务不混入） |
+| server/templates | 固定模板详情/任务数/JSON 导出；按模板查历史（只含该固定模板，普通任务不混入） |
 | server/settings | 断连轮询间隔持久化/校验、模型档案启停、工具集启停（非空/合法校验）、数据库概览跳转；任务页轮询使用该设置 |
 | mcp/runtime | 工具集过滤：只注入启用前缀的工具；空/未知工具集回退默认；设置经 AGENT_WORKFLOW_TOOLSETS 注入 |
 | server/session-limit | 并发 runSession 达到 opencode.maxSessions 即拒绝并返回 OPENCODE_SESSION_LIMIT(429)；状态口暴露 sessions/maxSessions；告警阈值可配置并驱动运行状态告警 |

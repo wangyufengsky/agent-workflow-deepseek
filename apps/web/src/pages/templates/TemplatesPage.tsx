@@ -8,6 +8,7 @@ import {
   type ProjectSummary,
   type TaskDetailResponse,
   type TaskTemplate,
+  type TemplateDetailResponse,
   type TemplateTasksResponse,
 } from '@agent-workflow/shared';
 import { ApiClientError, apiGet, apiPost, errorMessage } from '../../api/client.ts';
@@ -281,7 +282,33 @@ export function TemplatesPage() {
                   创建后步骤不可修改
                 </Badge>
               </div>
-              <h2 style={{ fontSize: 20, fontWeight: 500, marginTop: 10 }}>{template.name}</h2>
+              <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
+                <h2 style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>{template.name}</h2>
+                <span className="spacer" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon="doc"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        const detail = (await apiGet<TemplateDetailResponse>(ROUTES.templateDetail(template.id))).data;
+                        const blob = new Blob([JSON.stringify(detail, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const anchor = document.createElement('a');
+                        anchor.href = url;
+                        anchor.download = `${template.id}-v${String(template.version)}.json`;
+                        anchor.click();
+                        URL.revokeObjectURL(url);
+                      } catch (error) {
+                        setState({ phase: 'failed', requestKey: createRequestKey(), body: {} as CreateTaskRequest, message: `导出失败：${errorMessage(error)}` });
+                      }
+                    })();
+                  }}
+                >
+                  导出 JSON
+                </Button>
+              </div>
               <p className="sub" style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.65 }}>
                 模板的 {String(template.steps.length)} 个步骤由版本 {String(template.version)} 固定；创建后不能增删或改写。
               </p>

@@ -56,6 +56,15 @@ test('template history lists only tasks created from that fixed template', async
     assert.equal(tasks[0]!.id, taskId);
     assert.equal(tasks[0]!.title, '单元测试任务');
 
+    const detail = await app.app.inject({ method: 'GET', url: '/api/templates/template.unit-test-development' });
+    assert.equal(detail.statusCode, 200, detail.body);
+    const detailData = detail.json().data as { template: { version: number; steps: unknown[] }; taskCount: number };
+    assert.equal(detailData.template.version, 7);
+    assert.equal(detailData.template.steps.length, 5);
+    assert.equal(detailData.taskCount, 1);
+    const missingTemplate = await app.app.inject({ method: 'GET', url: '/api/templates/template.unknown' });
+    assert.equal(missingTemplate.statusCode, 404, missingTemplate.body);
+
     const empty = await app.app.inject({ method: 'GET', url: '/api/templates/template.unknown/tasks' });
     assert.equal(empty.statusCode, 200, empty.body);
     assert.deepEqual(empty.json().data.tasks, []);

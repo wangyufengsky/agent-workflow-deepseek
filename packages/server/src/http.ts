@@ -470,6 +470,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   // Tasks created from a fixed template (read-only history)
+  app.get<{ Params: { id: string } }>('/api/templates/:id', async (request) => {
+    const template = engine.catalog.templates.find((item) => item.id === request.params.id);
+    if (template === undefined) throw new AppError(ErrorCode.NOT_FOUND, '模板不存在');
+    return envelope({ template, taskCount: engine.tasks.listByTemplate(template.id).length }, requestId(request));
+  });
   app.get<{ Params: { id: string } }>('/api/templates/:id/tasks', async (request) => {
     return envelope({ tasks: engine.tasks.listByTemplate(request.params.id) }, requestId(request));
   });

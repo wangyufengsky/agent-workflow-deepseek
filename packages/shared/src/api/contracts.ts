@@ -289,6 +289,11 @@ export interface OpenCodeDetectResponse {
   readonly candidates: readonly { readonly path: string; readonly version?: string; readonly source: 'current' | 'path' | 'versions-dir' }[];
 }
 
+export interface TemplateDetailResponse {
+  readonly template: TaskTemplate;
+  readonly taskCount: number;
+}
+
 export interface TemplateTasksResponse {
   readonly tasks: readonly TaskSummary[];
 }
@@ -944,6 +949,7 @@ export const ROUTES = {
   fixStart: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/start`,
   catalogRoles: '/api/catalog/roles',
   projectRecheck: (id: string) => `/api/projects/${encodeURIComponent(id)}/recheck`,
+  templateDetail: (id: string) => `/api/templates/${encodeURIComponent(id)}`,
   templateTasks: (id: string) => `/api/templates/${encodeURIComponent(id)}/tasks`,
   catalogRoleSave: '/api/catalog/roles',
   catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,
