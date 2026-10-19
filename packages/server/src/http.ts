@@ -8,6 +8,7 @@ import type {
   RolePublishRequest,
   RoleArchiveRequest,
   NodeSkipRequest,
+  UseTemplateRequest,
   KnowledgeAskRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
@@ -274,6 +275,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
 
   // Plan
   app.get<{ Params: { id: string } }>('/api/tasks/:id/plan', async (request) => envelope(engine.plans.view(request.params.id), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/from-template', async (request) => envelope(engine.plans.useTemplate(request.params.id, request.body as UseTemplateRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/skeleton', async (request) => envelope(engine.plans.useSkeleton(request.params.id, request.body as UseSkeletonRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/confirm', async (request) => envelope(engine.plans.confirm(request.params.id, request.body as ConfirmPlanRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/begin', async (request) => envelope(engine.plans.editBegin(request.params.id, request.body as EditBeginRequest), requestId(request)));

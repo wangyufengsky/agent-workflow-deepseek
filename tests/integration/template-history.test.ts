@@ -42,6 +42,14 @@ test('template history lists only tasks created from that fixed template', async
     assert.equal(created.statusCode, 201, created.body);
     const taskId = created.json().data.resource.task.id as string;
 
+    const fromTemplate = await app.app.inject({ method: 'POST', url: `/api/tasks/${taskId}/plan/from-template`, payload: { requestKey: requestKey('tplplan'), confirmUseTemplate: true } });
+    assert.equal(fromTemplate.statusCode, 200, fromTemplate.body);
+    const plan = fromTemplate.json().data.resource.plan as { graph: { nodes: unknown[]; edges: unknown[] }; source: string; status: string };
+    assert.equal(plan.source, 'template');
+    assert.equal(plan.status, 'unconfirmed');
+    assert.equal(plan.graph.nodes.length, 5);
+    assert.equal(plan.graph.edges.length, 4);
+
     const normal = await app.app.inject({
       method: 'POST',
       url: '/api/tasks',

@@ -464,6 +464,10 @@ export interface ConfirmPlanRequest extends CommandRequest {
   readonly confirmPlan: true;
 }
 
+export interface UseTemplateRequest extends CommandRequest {
+  readonly confirmUseTemplate: true;
+}
+
 export interface EditBeginRequest extends CommandRequest {
   readonly planRevisionId: string;
   readonly confirmPause: true;
@@ -883,6 +887,7 @@ export const ROUTES = {
   tasks: '/api/tasks',
   task: (id: string) => `/api/tasks/${encodeURIComponent(id)}`,
   taskDetail: (id: string) => `/api/tasks/${encodeURIComponent(id)}/detail`,
+  taskPlanFromTemplate: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/from-template`,
   taskRecovery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery`,
   taskRecoveries: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recoveries`,
   requirement: (id: string) => `/api/tasks/${encodeURIComponent(id)}/requirement`,

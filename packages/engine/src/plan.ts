@@ -9,6 +9,9 @@ import type {
   PlanRevision,
   TaskDetailResponse,
   UseSkeletonRequest,
+  CatalogSnapshot,
+  TaskTemplate,
+  UseTemplateRequest,
 } from '@agent-workflow/shared';
 import { AppError, ErrorCode, NodeStatus, TaskAttention, TaskStage, createId, nowIso } from '@agent-workflow/shared';
 import type { EngineContext } from './actions.ts';
@@ -24,13 +27,15 @@ export class PlanService {
   readonly #context: EngineContext;
   readonly #git: GitPort;
   readonly #tasks: () => TaskService;
+  readonly #catalog: CatalogSnapshot;
 
-  constructor(store: Store, commands: CommandService, context: EngineContext, git: GitPort, tasks: () => TaskService) {
+  constructor(store: Store, commands: CommandService, context: EngineContext, git: GitPort, tasks: () => TaskService, catalog: CatalogSnapshot) {
     this.#store = store;
     this.#commands = commands;
     this.#context = context;
     this.#git = git;
     this.#tasks = tasks;
+    this.#catalog = catalog;
   }
 
   view(taskId: string): PlanResponse {
@@ -54,6 +59,43 @@ export class PlanService {
         confirmPlan: plan !== undefined && (plan.status === 'unconfirmed' || plan.status === 'draft') ? { allowed: true } : { allowed: false, reasonCode: 'PLAN_NOT_CONFIRMED', reason: '当前没有未确认的计划' },
       },
     };
+  }
+
+  useTemplate(taskId: string, input: UseTemplateRequest): CommandResponse<PlanResponse> {
+    const task = this.#requireTask(taskId);
+    const fixed = task.fixedTemplate;
+    if (fixed === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '这个任务不是固定模板任务');
+    if (input?.confirmUseTemplate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '按模板生成计划需要显式确认');
+    return this.#useTemplatePlan(taskId, fixed.templateId, input);
+  }
+
+  #useTemplatePlan(taskId: string, templateId: string, input: UseTemplateRequest): CommandResponse<PlanResponse> {
+    const task = this.#requireTask(taskId);
+    const template = this.#template(templateId);
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'plan.template.use',
+      body: { taskId, templateId, templateVersion: template.version, confirmUseTemplate: true },
+      target: { taskId },
+    });
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    const base = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
+    const method = this.#method(task);
+    const graph = methodToGraph({
+      ...method,
+      id: template.id,
+      name: template.name,
+      revision: `template-v${String(template.version)}`,
+      requiredSteps: template.steps.map((step) => ({ ...step })),
+      refinableGroups: [],
+    });
+    const plan = this.#store.plans.create({ taskId, source: 'template', graph, status: 'unconfirmed', baseRevisionId: base?.id });
+    this.#store.tasks.update(taskId, { stage: TaskStage.CONFIRMING, attention: TaskAttention.NONE, currentPlanRevisionId: plan.id });
+    this.#store.events.publish('plan.changed', { taskId, planRevisionId: plan.id, revisionNumber: plan.revisionNumber, status: 'unconfirmed' });
+    this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: TaskStage.CONFIRMING, revision: 1 });
+    this.#commands.settle(input.requestKey, { planRevisionId: plan.id });
+    this.#tasks().recomputeAttention(taskId);
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
   }
 
   useSkeleton(taskId: string, input: UseSkeletonRequest): CommandResponse<PlanResponse> {
@@ -322,6 +364,12 @@ export class PlanService {
     const project = this.#store.projects.get(projectId);
     if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
     return project;
+  }
+
+  #template(templateId: string): TaskTemplate {
+    const template = this.#catalog.templates.find((item) => item.id === templateId);
+    if (template === undefined) throw new AppError(ErrorCode.NOT_FOUND, '固定模板不存在');
+    return template;
   }
 
   #method(task: ReturnType<Store['tasks']['get']> & object) {

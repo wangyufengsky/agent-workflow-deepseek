@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ROUTES,
   createRequestKey,
@@ -81,6 +82,9 @@ function ParameterField({ template, parameters, disabled, onChange }: {
 export function TemplatesPage() {
   const bootstrap = useBootstrap();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planError, setPlanError] = useState<string | undefined>(undefined);
   const templates = bootstrap.data?.catalog.templates ?? [];
   const methods = bootstrap.data?.catalog.methods ?? [];
   const projects: readonly ProjectSummary[] = bootstrap.data?.projects ?? [];
@@ -339,12 +343,39 @@ export function TemplatesPage() {
                   </div>
                 </div>
                 <p className="hint" style={{ marginTop: 12 }}>
-                  任务当前处于需求草稿阶段。下一步在需求 / 任务画布中确认计划 → 准备独立工作区 → 开始执行；{CREATE_LOCK_NOTE}
+                  任务当前处于需求草稿阶段。先按模板生成计划，再确认计划 → 准备独立工作区 → 开始执行；{CREATE_LOCK_NOTE}
                 </p>
+                {planError === undefined ? null : <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>生成计划失败：{planError}</p>}
                 <div className="row wrap" style={{ gap: 8, marginTop: 16 }}>
                   {state.taskId === undefined ? null : (
-                    <LinkButton to={`/requirement/${encodeURIComponent(state.taskId)}`} variant="primary" iconAfter="arrowRight">
-                      打开任务：确认计划
+                    <Button
+                      variant="primary"
+                      icon="layers"
+                      disabled={planBusy}
+                      onClick={() => {
+                        const taskId = state.taskId;
+                        if (taskId === undefined) return;
+                        setPlanBusy(true);
+                        setPlanError(undefined);
+                        void (async () => {
+                          try {
+                            await apiPost(ROUTES.taskPlanFromTemplate(taskId), { requestKey: createRequestKey(), confirmUseTemplate: true });
+                            await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+                            navigate(`/requirement/${encodeURIComponent(taskId)}`);
+                          } catch (error) {
+                            setPlanError(errorMessage(error));
+                          } finally {
+                            setPlanBusy(false);
+                          }
+                        })();
+                      }}
+                    >
+                      {planBusy ? '正在生成计划…' : '按模板生成计划'}
+                    </Button>
+                  )}
+                  {state.taskId === undefined ? null : (
+                    <LinkButton to={`/requirement/${encodeURIComponent(state.taskId)}`} variant="secondary" iconAfter="arrowRight">
+                      打开任务画布
                     </LinkButton>
                   )}
                   <LinkButton to="/tasks" variant="secondary" icon="list">
