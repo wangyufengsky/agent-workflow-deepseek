@@ -229,12 +229,12 @@ npm run build:server
 | P09 | 普通源码与单测模板逐文件写作/独立复核、冻结 blob/批次绑定；真实测试命令/报告、通过失败跳过、失败用例文件关联 | role_execution_parity |
 | P14/P02/P03 | 原生运行 question/permission/policy 事件、一次/会话授权与拒绝、hard deny 只知晓、持久身份和原 key 核对 | execution_parity（数据库完成后） |
 | P14 | 规划选项/多选/推荐链本批实现，浏览器真实提交已验证；原生节点问答不能由规划问题替代 | Lead，见 inbox-choices 证据 |
-| P12 | 历史角色包导入校验、差异审阅、版本发布与 UNKNOWN 原 key；旧页仍陈旧禁用 | 待后续实现 |
-| P13 | 独立重试等待分区连接现有 retryDelays，去除与 LimitsSection 矛盾的永久禁用 | Lead |
-| P04 | 知识历史真实会话状态、需回答、重命名归档与断点继续 | 待后续实现 |
-| P14 | 质量统计项目/状态/质量/归档筛选、整个范围聚合、执行审查修复用量、未知和真实 0 区分 | 待后续实现 |
-| P07 | 流程最近使用与真实任务链接，按 methodId/revision 保持历史身份 | 待后续实现 |
-| P08 | PPT 缩略图轨、中央单页/备注、助手/对象/检查三页签及资料抽屉 | design_acceptance_inventory |
+| P12 | 历史角色包导入校验、差异审阅、版本发布与 UNKNOWN 原 key；旧页仍陈旧禁用 | design_acceptance_inventory |
+| P13 | 独立重试等待分区已接 retryDelays、真实保存/刷新与原回执防重已验证 | Lead，见 retry-settings 证据 |
+| P04 | 知识历史真实会话状态、需回答、重命名归档与断点继续 | execution_parity，原生 Inbox 完成后接续 |
+| P14 | 质量统计项目/状态/质量/归档筛选、整个范围聚合、执行审查修复用量、未知和真实 0 区分 | role_execution_parity，P09 完成后接续 |
+| P07 | 流程最近使用、版本计数与只读规划详情已接真实数据，浏览器任务链接已验证 | Lead，见 workflow-usage 证据 |
+| P08 | PPT 三栏/三页签与资料抽屉已实现并经浏览器验证；仍需逐页生成持久状态 | design_acceptance_inventory，P12 后接续 |
 | P15 | 逐页逐态证据回填、更新旧 design-coverage 与 acceptance 矩阵，最终全仓回归和 main 推送 | Lead，尚未完成 |
 
 v5 明确排除的 PE38 边界替换、PE28 子隔离汇合以及未安装驱动、未配置外部服务可保持明确禁用；这些边界不用于豁免上述正常流程。

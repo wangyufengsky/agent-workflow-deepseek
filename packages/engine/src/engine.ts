@@ -81,6 +81,8 @@ export class Engine {
     this.methods = new MethodCatalogService({
       store: this.store,
       roleIds: () => this.catalog.roles.map((role) => role.id),
+      roles: () => this.catalog.roles,
+      planningSettings: () => this.#settings.planning,
     });
     const listMergedMethods = (): readonly import('@agent-workflow/shared').WorkflowMethod[] =>
       this.methods

@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto';
 import {
   AppError,
   DEFAULT_CATALOG,
+  DEFAULT_SETTINGS,
+  type MethodUsage,
+  type MethodPlanningSummary,
+  type AppSettings,
+  type RoleDefinition,
+  type Task,
   ErrorCode,
   createId,
   methodCycle,
@@ -66,6 +72,7 @@ export interface MethodDraftInput {
 }
 
 export interface MethodCatalogEntry {
+  readonly usage?: MethodUsage;
   readonly id: string;
   readonly name: string;
   readonly description: string;
@@ -80,6 +87,7 @@ export interface MethodCatalogEntry {
 }
 
 export interface MethodCatalogDetail extends MethodCatalogEntry {
+  readonly planningSummary?: MethodPlanningSummary;
   readonly requiredSteps: readonly MethodStepView[];
   readonly refinableGroups: readonly string[];
   readonly planningStrategy?: { readonly id: string; readonly version: string; readonly roleId: string };
@@ -128,6 +136,8 @@ export interface MethodCatalogServiceOptions {
   readonly store: Store;
   /** Effective role ids for "职业存在" validation; defaults to the live catalog. */
   readonly roleIds?: () => readonly string[];
+  readonly roles?: () => readonly RoleDefinition[];
+  readonly planningSettings?: () => AppSettings['planning'];
 }
 
 interface StoredCustomMethod {
@@ -151,9 +161,13 @@ const BUILT_IN_METHODS: readonly WorkflowMethod[] = [...DEFAULT_CATALOG.methods]
 export class MethodCatalogService {
   readonly #store: Store;
   readonly #roleIds: () => readonly string[];
+  readonly #roles: () => readonly RoleDefinition[];
+  readonly #planningSettings: () => AppSettings['planning'];
 
   constructor(options: MethodCatalogServiceOptions) {
     this.#store = options.store;
+    this.#roles = options.roles ?? (() => DEFAULT_CATALOG.roles);
+    this.#planningSettings = options.planningSettings ?? (() => DEFAULT_SETTINGS.planning);
     this.#roleIds = options.roleIds ?? (() => DEFAULT_CATALOG.roles.map((role) => role.id));
   }
 
@@ -169,25 +183,59 @@ export class MethodCatalogService {
     const entries: MethodCatalogEntry[] = [];
     if (source !== 'custom') entries.push(...BUILT_IN_METHODS.map(builtinEntry));
     if (source !== 'builtin') entries.push(...this.#customRecords().map((record) => customEntry(record)));
+    const tasks = this.#store.tasks.list();
     return entries
       .filter((entry) => includeArchived || !entry.archived)
-      .filter((entry) => needle === '' || entry.name.toLowerCase().includes(needle) || entry.description.toLowerCase().includes(needle) || entry.id.toLowerCase().includes(needle));
+      .filter((entry) => needle === '' || entry.name.toLowerCase().includes(needle) || entry.description.toLowerCase().includes(needle) || entry.id.toLowerCase().includes(needle))
+      .map((entry) => this.#withUsage(entry, tasks));
   }
 
   get(id: string): MethodCatalogDetail {
     if (typeof id !== 'string' || id === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '流程 id 不能为空');
     const builtin = BUILT_IN_METHODS.find((method) => method.id === id);
-    if (builtin !== undefined) return builtinDetail(builtin);
+    if (builtin !== undefined) return this.#readDetail(builtinDetail(builtin));
     const record = this.#customRecord(id);
     if (record === undefined) throw new AppError(ErrorCode.NOT_FOUND, '流程不存在', { details: { methodId: id } });
-    return customDetail(record);
+    return this.#readDetail(customDetail(record));
   }
 
   /** Historical snapshots are immutable and read only. Legacy versions absent from disk are not invented. */
   versions(id: string): readonly MethodCatalogDetail[] {
     const current = this.get(id);
     const history = this.#customRecord(id)?.history ?? [];
-    return [...history.map((item) => structuredClone(item)), current].sort((a, b) => a.version - b.version);
+    return [...history.map((item) => this.#readDetail(structuredClone(item))), current].sort((a, b) => a.version - b.version);
+  }
+
+  #withUsage<T extends MethodCatalogEntry>(entry: T, allTasks: readonly Task[] = this.#store.tasks.list()): T {
+    const tasks = allTasks.filter((task) => task.methodId === entry.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+    return { ...entry, usage: {
+      taskCount: tasks.length,
+      currentRevisionTaskCount: tasks.filter((task) => task.methodRevision === entry.revision).length,
+      recentTasks: tasks.slice(0, 3).map((task) => ({
+        taskId: task.id, title: task.title,
+        projectName: this.#store.projects.get(task.projectId)?.name ?? '项目已不可用',
+        methodRevision: task.methodRevision, stage: task.stage, lifecycle: task.lifecycle,
+        createdAt: task.createdAt,
+        ...(task.executionId === undefined ? {} : { executionId: task.executionId }),
+      })),
+    } };
+  }
+
+  #readDetail(detail: MethodCatalogDetail): MethodCatalogDetail {
+    const entry = this.#withUsage(detail);
+    if (detail.support !== 'ai_planning') return entry;
+    const settings = this.#planningSettings();
+    const limits = { maxDrafts: settings.maxDrafts, maxRevisions: settings.maxRevisions,
+      transportRetries: settings.transportRetries, maxNodes: settings.maxNodes,
+      maxEdges: settings.maxEdges, maxGroups: settings.maxGroups, maxDepth: settings.maxDepth };
+    const role = this.#roles().find((item) => item.id === detail.planningStrategy?.roleId);
+    const roleSummary = role === undefined ? undefined : { id: role.id, name: role.name, revision: role.revision };
+    // This digest describes the current catalog policy, not a task's frozen planning snapshot.
+    const policyHash = createHash('sha256').update(JSON.stringify({ methodId: detail.id,
+      revision: detail.revision, strategy: detail.planningStrategy, requiredSteps: detail.requiredSteps,
+      refinableGroups: detail.refinableGroups, role: roleSummary, limits })).digest('hex');
+    return { ...entry, planningSummary: { policyHash, limits, ...(roleSummary === undefined ? {} : { role: roleSummary }) } };
   }
 
   /** Merged resolution: custom ids win over a built-in with the same id (none today). */

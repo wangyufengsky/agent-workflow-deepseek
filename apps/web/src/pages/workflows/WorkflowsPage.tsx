@@ -27,6 +27,7 @@ import {
 } from './workflow-api.ts';
 import { WORKFLOW_STEP_KIND_LABEL, supportLabel } from './workflow-model.ts';
 import './workflows.css';
+import { WorkflowReadDetails } from './WorkflowReadDetails.tsx';
 
 type SourceFilter = 'all' | 'mine' | 'builtin';
 
@@ -305,6 +306,7 @@ export function WorkflowsPage() {
             </span>
             <span className="wf-row-meta hint">
               {entry.revision} · {String(entry.stepCount)} 步
+              {entry.usage === undefined ? ' · 使用次数未知' : ` · ${entry.usage.taskCount} 个任务`}
               {entry.updatedAt === undefined ? null : ` · ${formatRelativeTime(entry.updatedAt)}`}
             </span>
             <Icon name="chevRight" size="sm" />
@@ -395,7 +397,7 @@ export function WorkflowsPage() {
             </label>
           </div>
           <p className="hint" style={{ margin: '6px 0 12px' }}>
-            服务未提供「使用次数」统计字段，因此不在目录展示次数；列表按服务返回顺序。
+            使用次数包含全部版本和已归档任务；最近使用按任务创建时间排列。
           </p>
           {listBody}
         </section>
@@ -439,8 +441,9 @@ export function WorkflowsPage() {
                     <div className="eyebrow" style={{ marginBottom: 8 }}>步骤链 · {String(detail.requiredSteps.length)} 个</div>
                     <StepChain detail={detail} />
                     <p className="hint" style={{ marginTop: 8 }}>
-                      步骤链按服务有序列表展示；同一分组的连续步骤在目录里并排展示，但执行仍按顺序推进（服务没有并行分支字段）。
+                      步骤按流程定义展示；执行依赖以具体任务的已确认计划为准。
                     </p>
+                    <WorkflowReadDetails detail={detail} />
                   </>
                 )}
 

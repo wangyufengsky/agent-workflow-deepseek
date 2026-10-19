@@ -365,3 +365,47 @@ test('explicit branch roots, authored content and immutable version snapshots su
     assert.equal(reopened.validate({ draft: { ...draft, requiredSteps: [step('a', 'A', 'verify', '验收', { requires: ['b'] }), step('b', 'B', 'test', '测试')] } }).ok, false, 'implicit legacy edge participates in cycle checking');
   } finally { close(); }
 });
+
+
+test('usage counts actual task bindings across revisions and keeps historical revisions exact', () => {
+  const { service, store, close } = makeService();
+  try {
+    const created = service.create({ requestKey: createRequestKey(), draft: validDraft(), confirmCreate: true }).method;
+    assert.deepEqual(service.get(created.id).usage, { taskCount: 0, currentRevisionTaskCount: 0, recentTasks: [] });
+    const project = store.projects.create({ name: '同名项目', rootPath: '/tmp/catalog-fixture', gitState: 'not_git' });
+    const first = store.tasks.create({ projectId: project.id, title: '版本一任务', requirementText: '', methodId: created.id, methodRevision: 'r1' });
+    service.save(created.id, { requestKey: createRequestKey(), method: validDraft({ name: '版本二' }), expectedVersion: 1, confirmSave: true });
+    const second = store.tasks.create({ projectId: project.id, title: '版本二任务', requirementText: '', methodId: created.id, methodRevision: 'r2' });
+    store.tasks.update(second.id, { executionId: 'execution_fixture', stage: 'executing', lifecycle: 'completed' });
+    store.tasks.create({ projectId: project.id, title: '其他流程', requirementText: '', methodId: 'method.defect-fix', methodRevision: 'r1' });
+    const usage = service.get(created.id).usage!;
+    assert.equal(usage.taskCount, 2);
+    assert.equal(usage.currentRevisionTaskCount, 1);
+    assert.equal(usage.recentTasks.find((task) => task.taskId === first.id)?.methodRevision, 'r1');
+    assert.equal(usage.recentTasks.find((task) => task.taskId === second.id)?.executionId, 'execution_fixture');
+    assert.equal(usage.recentTasks.find((task) => task.taskId === second.id)?.lifecycle, 'completed');
+    assert.deepEqual(service.list().find((entry) => entry.id === created.id)?.usage, usage);
+    assert.equal(service.versions(created.id)[0]?.usage?.currentRevisionTaskCount, 1);
+    assert.equal(store.tasks.get(first.id)?.methodRevision, 'r1');
+  } finally { close(); }
+});
+
+test('planning read view hashes real strategy, effective role revision and current limits', () => {
+  const { store, close } = makeService();
+  try {
+    let maximum = 20;
+    const service = new MethodCatalogService({ store, planningSettings: () => ({
+      maxDrafts: 1, maxRevisions: 1, transportRetries: 0, maxNodes: maximum, maxEdges: 40,
+      maxGroups: 8, maxDepth: 3, perDispatchLimitMinutes: 10, timeLimitMinutes: 20,
+      budgetLimit: 10, currency: 'CNY', previewTtlMinutes: 10, recordRetentionDays: 30,
+    }) });
+    const before = service.get('method.requirement-development').planningSummary!;
+    assert.equal(before.limits.maxNodes, 20);
+    assert.equal(before.role?.id, 'role.requirement-analyst');
+    assert.match(before.policyHash, /^[a-f0-9]{64}$/);
+    assert.equal(service.get('method.requirement-development').planningSummary?.policyHash, before.policyHash);
+    maximum = 30;
+    assert.notEqual(service.get('method.requirement-development').planningSummary?.policyHash, before.policyHash);
+    assert.equal(service.get('method.requirement-development').planningSummary?.limits.maxNodes, 30);
+  } finally { close(); }
+});

@@ -1052,7 +1052,30 @@ export interface MethodValidationResult {
   readonly checks: readonly MethodValidationCheck[];
 }
 
+export interface MethodUsage {
+  /** Counts tasks across all revisions, including archived tasks. */
+  readonly taskCount: number;
+  readonly currentRevisionTaskCount: number;
+  readonly recentTasks: readonly {
+    readonly taskId: string;
+    readonly title: string;
+    readonly projectName: string;
+    readonly methodRevision: string;
+    readonly stage: TaskStageValue;
+    readonly lifecycle: TaskLifecycleValue;
+    readonly createdAt: IsoDateTime;
+    readonly executionId?: string;
+  }[];
+}
+
+export interface MethodPlanningSummary {
+  readonly policyHash: string;
+  readonly role?: { readonly id: string; readonly name: string; readonly revision: string };
+  readonly limits: Pick<AppSettings['planning'], 'maxDrafts' | 'maxRevisions' | 'transportRetries' | 'maxNodes' | 'maxEdges' | 'maxGroups' | 'maxDepth'>;
+}
+
 export interface MethodCatalogEntry {
+  readonly usage?: MethodUsage;
   readonly id: string;
   readonly name: string;
   readonly description: string;
@@ -1067,6 +1090,7 @@ export interface MethodCatalogEntry {
 }
 
 export interface MethodCatalogDetail extends MethodCatalogEntry {
+  readonly planningSummary?: MethodPlanningSummary;
   readonly requiredSteps: readonly MethodStepDefinition[];
   readonly refinableGroups: readonly string[];
   readonly planningStrategy?: { readonly id: string; readonly version: string; readonly roleId: string };

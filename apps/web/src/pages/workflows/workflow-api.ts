@@ -1,5 +1,9 @@
 import {
   ROUTES,
+  TaskStage,
+  TaskLifecycle,
+  type MethodUsage,
+  type MethodPlanningSummary,
   type MethodCatalogDetail,
   type MethodCatalogEntry,
   type MethodStepDefinition,
@@ -92,12 +96,39 @@ function normalizeStep(raw: unknown): MethodStepDefinition | undefined {
   };
 }
 
+function normalizeUsage(raw: unknown): MethodUsage | undefined {
+  const usage = recordOf(raw);
+  if (usage === undefined || !Number.isInteger(usage.taskCount) || Number(usage.taskCount) < 0
+    || !Number.isInteger(usage.currentRevisionTaskCount) || Number(usage.currentRevisionTaskCount) < 0
+    || !Array.isArray(usage.recentTasks)) return undefined;
+  const tasks = usage.recentTasks.map(recordOf);
+  if (tasks.some((task) => task === undefined || !['taskId', 'title', 'projectName', 'methodRevision', 'createdAt'].every((key) => typeof task[key] === 'string')
+    || !Object.values(TaskStage).some((stage) => stage === task.stage)
+    || !Object.values(TaskLifecycle).some((state) => state === task.lifecycle)
+    || (task.executionId !== undefined && typeof task.executionId !== 'string'))) return undefined;
+  return { taskCount: Number(usage.taskCount), currentRevisionTaskCount: Number(usage.currentRevisionTaskCount),
+    recentTasks: tasks as unknown as MethodUsage['recentTasks'] };
+}
+
+function normalizePlanningSummary(raw: unknown): MethodPlanningSummary | undefined {
+  const value = recordOf(raw);
+  const limits = recordOf(value?.limits);
+  if (typeof value?.policyHash !== 'string' || !/^[a-f0-9]{64}$/.test(value.policyHash) || limits === undefined
+    || !['maxDrafts', 'maxRevisions', 'transportRetries', 'maxNodes', 'maxEdges', 'maxGroups', 'maxDepth'].every((key) => Number.isInteger(limits[key]) && Number(limits[key]) >= 0)) return undefined;
+  const role = recordOf(value.role);
+  return { policyHash: value.policyHash, limits: limits as unknown as MethodPlanningSummary['limits'],
+    ...(role !== undefined && ['id', 'name', 'revision'].every((key) => typeof role[key] === 'string')
+      ? { role: { id: String(role.id), name: String(role.name), revision: String(role.revision) } } : {}) };
+}
+
 export function normalizeDetail(raw: unknown): WorkflowCatalogDetail | undefined {
   const method = recordOf(raw);
   if (method === undefined || typeof method.id !== 'string' || typeof method.name !== 'string') return undefined;
   const steps = Array.isArray(method.requiredSteps) ? method.requiredSteps.map(normalizeStep).filter((step): step is WorkflowStepView => step !== undefined) : [];
   const strategy = recordOf(method.planningStrategy);
   return {
+    ...(normalizeUsage(method.usage) === undefined ? {} : { usage: normalizeUsage(method.usage)! }),
+    ...(normalizePlanningSummary(method.planningSummary) === undefined ? {} : { planningSummary: normalizePlanningSummary(method.planningSummary)! }),
     id: method.id,
     name: method.name,
     description: typeof method.description === 'string' ? method.description : '',
@@ -127,6 +158,7 @@ function normalizeEntry(raw: unknown): WorkflowCatalogEntry | undefined {
   const item = recordOf(raw);
   if (item === undefined || typeof item.id !== 'string' || typeof item.name !== 'string') return undefined;
   return {
+    ...(normalizeUsage(item.usage) === undefined ? {} : { usage: normalizeUsage(item.usage)! }),
     id: item.id,
     name: item.name,
     description: typeof item.description === 'string' ? item.description : '',
