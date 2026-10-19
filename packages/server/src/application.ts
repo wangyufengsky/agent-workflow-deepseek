@@ -153,6 +153,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
         startupTimeoutMs: baseSettings.opencode.startupTimeoutMs,
         shutdownTimeoutMs: baseSettings.opencode.shutdownTimeoutMs,
         mcpServerName: baseSettings.opencode.mcpServerName,
+        maxSessions: baseSettings.opencode.maxSessions,
         mcpCommand: mcp.command,
         mcpEnvironment: {
           AGENT_WORKFLOW_INTERNAL_URL: url,

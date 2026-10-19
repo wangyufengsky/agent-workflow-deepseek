@@ -609,6 +609,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
           startedAt: status.startedAt,
           lastError: status.lastError,
           gateway: deps.gateway?.stats() ?? { enabled: false, requests: 0, normalized: 0 },
+          sessions: diagnostics?.sessions ?? 0,
+          maxSessions: setting.opencode.maxSessions,
         },
       },
       requestId(request),

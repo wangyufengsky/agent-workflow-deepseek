@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { AppError, ErrorCode } from '@agent-workflow/shared';
 import { createApplication } from '../../packages/server/src/index.ts';
 
 function requestKey(prefix: string): string {
@@ -13,6 +14,7 @@ test('monitoring poll interval is persisted, validated and merged into bootstrap
   const dataDir = mkdtempSync(join(tmpdir(), 'aw-settings-'));
   const app = await createApplication({ dataDir, disableOpenCode: true, disableListen: true });
   try {
+    assert.equal(new AppError(ErrorCode.OPENCODE_SESSION_LIMIT, 'limit').httpStatus, 429);
     const bootstrap = await app.app.inject({ method: 'GET', url: '/api/bootstrap' });
     assert.equal(bootstrap.statusCode, 200, bootstrap.body);
     assert.equal(bootstrap.json().data.settings.monitoring.pollIntervalMs, 1500);

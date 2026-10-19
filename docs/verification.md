@@ -45,6 +45,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/templates | 固定模板任务创建后可按模板查历史（只含该固定模板，普通任务不混入） |
 | server/settings | 断连轮询间隔持久化/校验、模型档案启停、工具集启停（非空/合法校验）、数据库概览跳转；任务页轮询使用该设置 |
 | mcp/runtime | 工具集过滤：只注入启用前缀的工具；空/未知工具集回退默认；设置经 AGENT_WORKFLOW_TOOLSETS 注入 |
+| server/session-limit | 并发 runSession 达到 opencode.maxSessions 即拒绝并返回 OPENCODE_SESSION_LIMIT(429)；状态口暴露 sessions/maxSessions |
 | server/opencode-detect | PATH / ~/.opencode/versions 扫描、候选 --version 探测、当前 binary 标记；不改设置 |
 | server/node-skip | 跳过节点及全部下游 → cancelled；上游/无关节点不变；回执与操作登记 |
 | server/cleanup | 清理预览对执行中/规划中/交付中/工作区忙给出 blockers；确认拒绝 blockers 与过期预览；清理后状态 cleaned |

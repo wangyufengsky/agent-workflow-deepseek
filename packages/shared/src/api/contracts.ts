@@ -756,6 +756,8 @@ export interface OpenCodeStatusResponse {
     readonly mcp: { readonly name: string; readonly connected: boolean; readonly tools: number };
     readonly startedAt?: IsoDateTime;
     readonly lastError?: string;
+    readonly sessions?: number;
+    readonly maxSessions?: number;
   };
 }
 

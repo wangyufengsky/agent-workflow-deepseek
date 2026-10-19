@@ -70,6 +70,7 @@ export const ErrorCode = {
   MCP_NOT_AVAILABLE: 'MCP_NOT_AVAILABLE',
   OPENCODE_NOT_READY: 'OPENCODE_NOT_READY',
   OPENCODE_PROVIDER_FAILED: 'OPENCODE_PROVIDER_FAILED',
+  OPENCODE_SESSION_LIMIT: 'OPENCODE_SESSION_LIMIT',
   MODEL_NOT_CONFIGURED: 'MODEL_NOT_CONFIGURED',
   MODEL_BUDGET_EXCEEDED: 'MODEL_BUDGET_EXCEEDED',
 } as const;
@@ -151,6 +152,8 @@ export function defaultStatus(code: ErrorCodeValue): number {
     case ErrorCode.WORKSPACE_NOT_READY:
     case ErrorCode.WORKSPACE_PREPARE_FAILED:
       return 503;
+    case ErrorCode.OPENCODE_SESSION_LIMIT:
+      return 429;
     case ErrorCode.BUDGET_EXCEEDED:
     case ErrorCode.MODEL_BUDGET_EXCEEDED:
       return 429;

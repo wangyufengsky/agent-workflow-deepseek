@@ -17,6 +17,7 @@ export interface OpenCodeAdapterOptions {
   readonly mcpServerName: string;
   readonly mcpCommand: readonly string[];
   readonly mcpEnvironment: Record<string, string>;
+  readonly maxSessions: number;
   readonly model: ModelProfile;
   readonly defaultAgent: string;
   readonly logPath: string;
@@ -55,6 +56,7 @@ export function workspacePermission(): unknown[] {
 export class OpenCodeAdapter implements OpenCodePort {
   readonly #manager: OpenCodeManager;
   readonly #options: OpenCodeAdapterOptions;
+  #activeSessions = 0;
   #starting: Promise<void> | undefined;
 
   constructor(options: OpenCodeAdapterOptions) {
@@ -123,6 +125,13 @@ export class OpenCodeAdapter implements OpenCodePort {
 
   async runSession(request: OpenCodeRunRequest): Promise<OpenCodeRunResult> {
     await this.ensureReady();
+    if (this.#activeSessions >= this.#options.maxSessions) {
+      throw new AppError(ErrorCode.OPENCODE_SESSION_LIMIT, `受管 OpenCode 并发会话已达上限（${String(this.#options.maxSessions)}），请稍后重试或调高设置`, {
+        details: { maxSessions: this.#options.maxSessions, activeSessions: this.#activeSessions },
+      });
+    }
+    this.#activeSessions += 1;
+    try {
     const client = this.#manager.client;
     const session = await client.createSession({
       title: `${request.kind} · ${request.metadata.taskId ?? request.metadata.projectId ?? ''}`.slice(0, 120),
@@ -152,6 +161,9 @@ export class OpenCodeAdapter implements OpenCodePort {
       },
     );
     return { sessionId: session.id, outcome };
+    } finally {
+      this.#activeSessions = Math.max(0, this.#activeSessions - 1);
+    }
   }
 
   async abortSession(sessionId: string): Promise<void> {
