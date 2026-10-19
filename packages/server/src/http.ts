@@ -1229,6 +1229,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return workflowMutation(body.requestKey, 'catalog.method.archive', { id: request.params.id }, { ref: request.params.id }, () => engine.methods.archive(request.params.id, { requestKey: body.requestKey, confirmArchive: true }));
   });
 
+  app.get<{Params:{id:string};Querystring:{mode?:string}}>('/api/tasks/:id/recovery/preview',async(request)=>envelope(engine.recoveries.preview(request.params.id,request.query.mode as RecoveryCreateRequest['mode']),requestId(request)));
+
   // Task recovery (derived draft only; the parent task is never mutated)
   app.post<{ Params: { id: string } }>('/api/tasks/:id/recovery', async (request) => {
     const body = request.body as RecoveryCreateRequest;

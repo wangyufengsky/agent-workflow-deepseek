@@ -1261,7 +1261,19 @@ export interface RoleCatalogResponse {
   readonly actions: Record<string, ActionAvailability>;
 }
 
+export interface RecoveryPreview {
+  readonly parentTaskId: string;
+  readonly mode: RecoveryModeValue;
+  readonly sourceRevision: string;
+  readonly allowed: boolean;
+  readonly reason?: string;
+  readonly sourcePlanId?: string;
+  readonly workspace: string;
+  readonly stages: readonly { readonly id: string; readonly title: string; readonly status: string; readonly action: 'copy' | 'context' | 'verify' }[];
+}
+
 export interface RecoveryCreateRequest extends CommandRequest {
+  readonly expectedSourceRevision?: string;
   readonly mode: RecoveryModeValue;
   readonly confirmCreate: true;
   readonly note?: string;
@@ -2008,6 +2020,7 @@ export const ROUTES = {
   taskArtifact: (id: string, attemptId: string, artifactId: string) => `/api/tasks/${encodeURIComponent(id)}/attempts/${encodeURIComponent(attemptId)}/artifacts/${encodeURIComponent(artifactId)}`,
   taskRunContent: (id: string) => `/api/tasks/${encodeURIComponent(id)}/run-content`,
   taskPlanFromTemplate: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/from-template`,
+  taskRecoveryPreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery/preview`,
   taskRecovery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery`,
   taskRecoveries: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recoveries`,
   requirement: (id: string) => `/api/tasks/${encodeURIComponent(id)}/requirement`,

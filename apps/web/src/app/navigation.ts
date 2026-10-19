@@ -80,6 +80,7 @@ export interface Crumb {
 export function breadcrumbsFor(pathname: string): readonly Crumb[] {
   if (pathname === '/') return [{ label: '主页' }];
   if (pathname === '/start') return [{ label: '开始任务' }];
+  if(pathname==='/recovery'||/^\/tasks\/[^/]+\/recovery$/.test(pathname))return [{label:'任务列表',to:'/tasks'},{label:'任务恢复'}];
   if (pathname.startsWith('/tasks/')) {
     return [{ label: '任务列表', to: '/tasks' }, { label: '任务画布' }];
   }

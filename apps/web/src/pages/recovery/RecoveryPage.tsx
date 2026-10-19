@@ -1,7 +1,14 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, useSyncExternalStore, useEffect, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
+  ROUTES,
+  type RecoveryPreview,
+  type CommandResponse,
+  type OperationsByKeyResponse,
+  type OperationReceipt,
+  NODE_STATUS_LABEL,
+  type ExecutionView,
   EXECUTION_STATUS_LABEL,
   TASK_ATTENTION_LABEL,
   TaskAttention,
@@ -23,6 +30,8 @@ import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { Modal } from '../../components/Modal.tsx';
+import { pendingCommands, subscribePending } from '../../api/pending-commands.ts';
 import { StageCapsule } from '../../components/StageCapsule.tsx';
 
 type RecoveryMode = 'from_failed_stage' | 'all_stages' | 'verify_only';
@@ -50,7 +59,7 @@ const MODES: readonly { readonly id: RecoveryMode; readonly title: string; reado
 
 const RECOVERY_REQUIRES_TASK_REASON = '先从左侧选择一个需要恢复的任务，再创建派生草稿。';
 
-function TaskContext({ task }: { readonly task: TaskSummary }) {
+function TaskContext({ task, execution, stages }: { readonly task: TaskSummary; readonly execution?: ExecutionView; readonly stages?: RecoveryPreview['stages'] }) {
   const status = deriveTaskStatus(task);
   return (
     <section className="card solid" aria-label="失败上下文">
@@ -84,7 +93,7 @@ function TaskContext({ task }: { readonly task: TaskSummary }) {
           <dt>阶段</dt>
           <dd>{status.label}</dd>
           <dt>执行进度</dt>
-          <dd>{taskProgressText(task)}</dd>
+          <dd>{execution?`${execution.nodes.filter(node=>node.status==='succeeded').length} / ${execution.nodes.length} 步`:taskProgressText(task)}</dd>
           <dt>需要处理</dt>
           <dd>{TASK_ATTENTION_LABEL[task.attention] === '' ? '—' : TASK_ATTENTION_LABEL[task.attention]}</dd>
           <dt>任务</dt>
@@ -93,9 +102,11 @@ function TaskContext({ task }: { readonly task: TaskSummary }) {
         <div className="banner info" style={{ marginTop: 14 }}>
           <Icon name="info" />
           <div className="grow">
-            失败原因、尝试次数与阶段明细来自任务画布；本页只读取任务摘要，不补写失败记录。
+            本页只读原任务；恢复不会改写原执行与证据。
           </div>
         </div>
+        {stages?.length?<section aria-label="原任务阶段" style={{marginTop:14}}>{stages.map(stage=><div className="row wrap" key={stage.id} style={{padding:'8px 0'}}><span className="grow">{stage.title}</span><Badge icon={stage.status==='failed'?'alert':stage.status==='succeeded'?'check':'clock'} tone={stage.status==='failed'?'fail':stage.status==='succeeded'?'done':'idle'}>{NODE_STATUS_LABEL[stage.status as keyof typeof NODE_STATUS_LABEL]??stage.status}</Badge></div>)}</section>:null}
+        {execution?.nodes.filter(node=>node.error).map(node=><p key={node.nodeId} className="hint" role="note">{node.nodeId}：{node.error?.message}</p>)}
         <div className="row wrap" style={{ gap: 8, marginTop: 14 }}>
           <LinkButton to={taskHref(task)} variant="secondary" size="sm" icon="arrowLeft">
             返回原任务
@@ -108,11 +119,11 @@ function TaskContext({ task }: { readonly task: TaskSummary }) {
 
 export function RecoveryPage() {
   const params = useParams<{ taskId?: string }>();
-  const [search] = useSearchParams();
-  const navigate = useNavigate();
+  const [search,setSearch] = useSearchParams();
   const queryClient = useQueryClient();
   const bootstrap = useBootstrap();
-  const [mode, setMode] = useState<RecoveryMode>('from_failed_stage');
+  const mode:RecoveryMode=MODES.some(item=>item.id===search.get('mode'))?search.get('mode') as RecoveryMode:'from_failed_stage';
+  const setMode=(value:RecoveryMode)=>{const next=new URLSearchParams(search);next.set('mode',value);setSearch(next);};
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const [failure, setFailure] = useState<string | undefined>(undefined);
 
@@ -168,25 +179,21 @@ export function RecoveryPage() {
       setFailure(isServiceUnavailable(error) ? '服务未连接，命令未提交。' : errorMessage(error));
     },
   });
-  const createRecovery = useMutation({
-    mutationFn: async () => {
-      const payload: RecoveryCreateRequest = { requestKey: createRequestKey(), mode, confirmCreate: true };
-      return (await apiPost<RecoveryCreateResponse>(`/api/tasks/${encodeURIComponent(taskId)}/recovery`, payload)).data;
-    },
-    onSuccess: async (created) => {
-      setFailure(undefined);
-      setNotice(`已创建派生草稿：${created.task.title}`);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
-        queryClient.invalidateQueries({ queryKey: ['recovery', 'history', taskId] }),
-      ]);
-      navigate(`/requirement/${created.task.id}`);
-    },
-    onError: (error) => {
-      setNotice(undefined);
-      setFailure(isServiceUnavailable(error) ? '服务未连接，未创建派生草稿。' : errorMessage(error));
-    },
+  const [confirm,setConfirm]=useState(false);
+  const [receipt,setReceipt]=useState<OperationReceipt>();
+  const [createdTaskId,setCreatedTaskId]=useState<string>();
+  useEffect(()=>{setConfirm(false);setReceipt(undefined);setCreatedTaskId(undefined);setFailure(undefined);setNotice(undefined);},[taskId]);
+  const pendingIdentity=useSyncExternalStore(subscribePending,()=>pendingCommands().filter(item=>item.path===ROUTES.taskRecovery(taskId)).map(item=>item.requestKey).join(','),()=> '');
+  const pendingKey=pendingIdentity.split(',').filter(Boolean)[0];
+  const preview=useQuery({queryKey:['recovery','preview',taskId,mode],queryFn:async()=>(await apiGet<RecoveryPreview>(`${ROUTES.taskRecoveryPreview(taskId)}?mode=${mode}`)).data,enabled:taskId.length>0,retry:false});
+  const refreshRecovery=async()=>{await Promise.all([queryClient.invalidateQueries({queryKey:['bootstrap']}),queryClient.invalidateQueries({queryKey:['recovery','history',taskId]}),queryClient.invalidateQueries({queryKey:['recovery','preview',taskId]})]);};
+  const verifyOriginal=async()=>{if(!pendingKey&&!receipt)return;try{const response=await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(pendingKey??receipt!.requestKey));const record=response.data.operation;setReceipt(record);if(record.status==='succeeded'){setCreatedTaskId(typeof record.outcome?.taskId==='string'?record.outcome.taskId:undefined);setNotice('恢复草稿已创建，未开始执行');}else if(record.status==='failed')setFailure(record.error?.message??'恢复创建失败');else setNotice('原恢复结果尚未结清；只核对原请求，不自动重发。');await refreshRecovery();}catch(error){setFailure(errorMessage(error));}};
+  const createRecovery=useMutation({
+    mutationFn:async()=>{if(!preview.data?.allowed)throw new Error(preview.data?.reason??'请先读取恢复差异');const payload:RecoveryCreateRequest={requestKey:createRequestKey(),mode,expectedSourceRevision:preview.data.sourceRevision,confirmCreate:true};return(await apiPost<CommandResponse<RecoveryCreateResponse>>(ROUTES.taskRecovery(taskId),payload)).data;},
+    onSuccess:async(created)=>{setConfirm(false);setReceipt(created.receipt);setFailure(undefined);if(created.receipt.status==='succeeded'&&created.resource){setCreatedTaskId(created.resource.task.id);setNotice('恢复草稿已创建，未开始执行；请打开草稿审阅确认。');}else setNotice('恢复请求已受理，结果以原请求回执为准；不会自动重发。');await refreshRecovery();},
+    onError:async(error)=>{setConfirm(false);setNotice(undefined);setFailure(errorMessage(error));await preview.refetch();},
   });
+  const createBlocked=createRecovery.isPending||Boolean(pendingKey)||!preview.data?.allowed||preview.isFetching||preview.isError||detail.isLoading||detail.isError;
   const candidates = useMemo(
     () => tasks.filter((item) => item.attention !== TaskAttention.NONE),
     [tasks],
@@ -275,7 +282,7 @@ export function RecoveryPage() {
     body = (
       <div className="col" style={{ gap: 16 }}>
         <div className="grid-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', alignItems: 'start' }}>
-          <TaskContext task={task} />
+          <TaskContext task={task} execution={executionNode} stages={preview.data?.stages} />
           <section className="card solid" aria-label="恢复草稿设置">
             <div className="card-head">
               <span className="tile">
@@ -307,6 +314,7 @@ export function RecoveryPage() {
                       role="radio"
                       aria-checked={checked}
                       className="card"
+                      disabled={createRecovery.isPending || Boolean(pendingKey)}
                       onClick={() => {
                         setMode(item.id);
                       }}
@@ -340,7 +348,13 @@ export function RecoveryPage() {
               <p className="hint" style={{ marginTop: 14, lineHeight: 1.7 }}>
                 <b>只创建草稿，不会开始执行。</b>草稿准备好后，到任务页单独开始；创建前由服务端核对原任务已停止、你有权限。
               </p>
-              <Button variant="primary" icon="layers" disabled={createRecovery.isPending} onClick={() => createRecovery.mutate()} style={{ marginTop: 12 }}>
+              <section aria-label="恢复差异预览" className="card pad" style={{marginTop:14}}>
+                <b>恢复差异预览</b>{preview.isError?<ServiceNotice error={preview.error} onRetry={()=>void preview.refetch()}/>:preview.isLoading?<p>正在读取冻结阶段与工作区…</p>:preview.data?<><p className="hint">来源冻结计划：{preview.data.sourcePlanId??'无冻结计划'} · {preview.data.workspace}</p>{preview.data.stages.map(stage=><div className="row wrap" key={stage.id}><span className="grow">{stage.title}</span><Badge icon={stage.action==='verify'?'eye':stage.action==='copy'?'layers':'lock'} tone={stage.action==='copy'?'accent':'idle'}>{stage.action==='copy'?'复制到草稿':stage.action==='verify'?'只核对，不修改':'只保留既有上下文'}</Badge><span>{NODE_STATUS_LABEL[stage.status as keyof typeof NODE_STATUS_LABEL]??stage.status}</span></div>)}{!preview.data.allowed?<p role="alert">{preview.data.reason}</p>:null}</>:null}
+              </section>
+              {pendingKey?<div className="banner unknown"><Icon name="help"/><div>原恢复操作尚未结清，请先核对。<br/>原请求号 {pendingKey}</div><Button onClick={()=>void verifyOriginal()}>核对原操作</Button></div>:null}
+              {receipt?<p role="status">原请求号 {receipt.requestKey} · {receipt.status}</p>:null}
+              {createdTaskId?<LinkButton to={`/tasks/${encodeURIComponent(createdTaskId)}`} icon="arrowRight">打开草稿</LinkButton>:null}
+              <Button variant="primary" icon="layers" disabled={createBlocked} disabledReason={pendingKey?'原恢复结果待核对':preview.data?.reason??'先读取完整恢复差异'} onClick={() => setConfirm(true)} style={{ marginTop: 12 }}>
                 {createRecovery.isPending ? '正在创建…' : '创建恢复草稿'}
               </Button>
               {failure === undefined ? null : <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>{failure}</p>}
@@ -404,7 +418,7 @@ export function RecoveryPage() {
                 )}
                 <div className="row wrap" style={{ gap: 8 }}>
                   {executionNode.status === 'paused' ? (
-                    <Button variant="secondary" size="sm" icon="play" disabled={executionRecovery.isPending || resumeAction?.allowed === false} disabledReason={executionRecovery.isPending ? '正在提交命令，等待服务回执…' : resumeAction?.reason} onClick={() => executionRecovery.mutate('resume')}>
+                    <Button variant="secondary" size="sm" icon="play" disabled={Boolean(pendingKey) || executionRecovery.isPending || resumeAction?.allowed === false} disabledReason={executionRecovery.isPending ? '正在提交命令，等待服务回执…' : resumeAction?.reason} onClick={() => executionRecovery.mutate('resume')}>
                       继续执行
                     </Button>
                   ) : null}
@@ -413,7 +427,7 @@ export function RecoveryPage() {
                       variant="primary"
                       size="sm"
                       icon="refresh"
-                      disabled={executionRecovery.isPending || retryAction?.allowed === false || (retryAction === undefined && failedNodes.length === 0)}
+                      disabled={Boolean(pendingKey) || executionRecovery.isPending || retryAction?.allowed === false || (retryAction === undefined && failedNodes.length === 0)}
                       disabledReason={
                         executionRecovery.isPending
                           ? '正在提交命令，等待服务回执…'
@@ -429,7 +443,7 @@ export function RecoveryPage() {
                       variant="secondary"
                       size="sm"
                       icon="stop"
-                      disabled={executionRecovery.isPending}
+                      disabled={Boolean(pendingKey) || executionRecovery.isPending}
                       disabledReason="正在提交命令，等待服务回执…"
                       onClick={() => executionRecovery.mutate('cancel')}
                     >
@@ -443,7 +457,7 @@ export function RecoveryPage() {
                       className="select"
                       style={{ width: 'auto', height: 30 }}
                       value={skipNodeId}
-                      disabled={executionRecovery.isPending}
+                      disabled={Boolean(pendingKey) || executionRecovery.isPending}
                       onChange={(event) => {
                         setSkipNodeId(event.target.value);
                       }}
@@ -458,7 +472,7 @@ export function RecoveryPage() {
                       variant="secondary"
                       size="sm"
                       icon="stop"
-                      disabled={skipNodeId === '' || executionRecovery.isPending}
+                      disabled={Boolean(pendingKey) || skipNodeId === '' || executionRecovery.isPending}
                       disabledReason={
                         executionRecovery.isPending
                           ? '正在提交命令，等待服务回执…'
@@ -504,7 +518,7 @@ export function RecoveryPage() {
             </Badge>
           </div>
           <div className="card-body">
-            {history.data === undefined ? (
+            {history.isError ? <ServiceNotice error={history.error} onRetry={()=>void history.refetch()}/> : history.data === undefined ? (
               <p className="hint">正在读取恢复记录…</p>
             ) : history.data.recoveries.length === 0 ? (
               <EmptyState compact icon="archive" title="还没有派生草稿" description="创建恢复草稿后，这里会列出派生任务；原任务保持不变。" />
@@ -516,7 +530,7 @@ export function RecoveryPage() {
                     <span className="grow" style={{ minWidth: 0 }}>
                       <span style={{ display: 'block', fontSize: 13.5 }}>{record.title}</span>
                       <span className="hint" style={{ display: 'block', marginTop: 2 }}>
-                        {record.mode} · {new Date(record.createdAt).toLocaleString('zh-CN')}
+                        {MODES.find(item=>item.id===record.mode)?.title??record.mode} · {new Date(record.createdAt).toLocaleString('zh-CN')}
                       </span>
                     </span>
                     <Badge tone="neutral">{record.stage}</Badge>
@@ -528,13 +542,7 @@ export function RecoveryPage() {
           </div>
         </section>
 
-        <div className="banner info">
-          <Icon name="info" />
-          <div className="grow">
-            本页路径约定：<span className="mono">/recovery?taskId=…</span> 或 <span className="mono">/tasks/:taskId/recovery</span>。
-            恢复只生成草稿，不会自动开始规划或执行。
-          </div>
-        </div>
+
       </div>
     );
   } else {
@@ -553,6 +561,7 @@ export function RecoveryPage() {
         }
       />
       {body}
+      <Modal open={confirm} title="确认创建恢复草稿？" onClose={()=>{if(!createRecovery.isPending)setConfirm(false);}} footer={<><Button variant="ghost" onClick={()=>setConfirm(false)} disabled={createRecovery.isPending}>取消</Button><Button disabled={createBlocked} onClick={()=>createRecovery.mutate()}>确认创建</Button></>}><p>{MODES.find(item=>item.id===mode)?.title}：{preview.data?.workspace}</p><p>按刚读取的冻结阶段与文件修订创建；原任务和执行证据保持不变。草稿不会自动开始，需打开草稿另行审阅确认。</p></Modal>
     </div>
   );
 }

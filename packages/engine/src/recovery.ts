@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readNodeAcceptance } from './actions.ts';
-import { createRecoveryWorkspace } from './recovery-workspace.ts';
+import { createRecoveryWorkspace, recoveryTreeRevision } from './recovery-workspace.ts';
 import type { GitPort } from './ports.ts';
 import { executionPolicy, executionSettingsKey } from './execution-policy.ts';
 import {
@@ -27,6 +29,7 @@ import {
   type ExecutionView,
   type PlanningRound,
   type RecoveryCreateRequest,
+  type RecoveryPreview,
   type RecoveryCreateResponse,
   type RecoveryHistoryResponse,
   type RecoveryModeValue,
@@ -90,19 +93,37 @@ export class RecoveryService {
     this.#git = options.git;
   }
 
+  preview(parentTaskId:string, mode:RecoveryModeValue):RecoveryPreview {
+    if(!RECOVERY_MODES.includes(mode))throw new AppError(ErrorCode.VALIDATION_FAILED,'恢复方式不合法');
+    const parent=this.#requireTask(parentTaskId), evidence=this.#evidence(parent);
+    const source=evidence.execution?this.#store.plans.get(evidence.execution.planRevisionId):parent.currentPlanRevisionId?this.#store.plans.get(parent.currentPlanRevisionId):this.#store.plans.latest(parent.id);
+    const workspace=parent.workspaceId?this.#store.workspaces.get(parent.workspaceId):this.#store.workspaces.byTask(parent.id);
+    let reason:string|undefined,tree:string|undefined;
+    try {this.#assertRecoverable(parent);this.#assertModePreconditions(parent,mode,evidence);if(this.#store.operations.listPending().some(operation=>operation.operation==='task.recovery.create'&&operation.target.taskId===parentTaskId))throw new AppError(ErrorCode.OPERATION_IN_PROGRESS,'原恢复结果尚未结清，请先核对原请求号');}
+    catch(error){reason=error instanceof Error?error.message:'恢复上下文不可用';}
+    try {if(mode!=='verify_only'&&workspace){if(workspace.state!=='ready'||!workspace.displayRoot||!existsSync(workspace.displayRoot))throw new AppError(ErrorCode.WORKSPACE_NOT_READY,'原任务工作区不可读');tree=recoveryTreeRevision(workspace.displayRoot);if(workspace.kind!=='git_worktree'){const baseline=this.#store.settings.getJson<{baselineRoot:string}>(`directory.baseline.${workspace.id}`)?.baselineRoot;if(!baseline||!existsSync(baseline))throw new AppError(ErrorCode.WORKSPACE_NOT_READY,'原任务目录基线缺失');tree+=recoveryTreeRevision(baseline);}}}
+    catch(error){reason=error instanceof Error?error.message:'恢复上下文不可用';}
+    const retained=new Set(evidence.execution?.nodes.filter(node=>!['succeeded','skipped'].includes(node.status)||(node.status==='succeeded'&&source?.graph.nodes.find(item=>item.id===node.nodeId)?.acceptance.length!==0&&readNodeAcceptance(this.#store,evidence.execution!.id,node.nodeId)?.state!=='accepted')).map(node=>node.nodeId)??source?.graph.nodes.map(node=>node.id)??[]);
+    for(let changed=true;changed;){changed=false;for(const edge of source?.graph.edges??[])if(retained.has(edge.from)&&!retained.has(edge.to)){retained.add(edge.to);changed=true;}}
+    if(mode==='from_failed_stage'&&source&&retained.size===0)reason='没有失败或后续阶段可恢复；请选择只读验证或复制全部阶段';
+    const sourceRevision=createHash('sha256').update(JSON.stringify({parent,evidence,source,workspace,tree})).digest('hex');
+    return {parentTaskId,mode,sourceRevision,allowed:reason===undefined,...(reason?{reason}:{}),sourcePlanId:source?.id,workspace:mode==='verify_only'?'只读取原任务证据；不创建可写工作区':workspace?mode==='all_stages'?'新独立工作区，使用原始基线':'新独立工作区，保留原现场和未提交产物':'未准备工作区；只复制现有需求和计划',stages:(source?.graph.nodes??[]).map(node=>({id:node.id,title:node.title,status:evidence.execution?.nodes.find(item=>item.nodeId===node.id)?.status??'pending',action:mode==='verify_only'?'verify':mode==='all_stages'||retained.has(node.id)?'copy':'context'}))};
+  }
+
   async create(parentTaskId: string, input: RecoveryCreateRequest): Promise<CommandResponse<RecoveryCreateResponse>> {
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '恢复请求体不合法');
     if (typeof input.requestKey !== 'string' || input.requestKey.length < 8) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 requestKey');
     if (input.confirmCreate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '需要显式确认创建恢复草稿');
     if (!RECOVERY_MODES.includes(input.mode)) throw new AppError(ErrorCode.VALIDATION_FAILED, '恢复方式不合法');
     const note = typeof input.note === 'string' ? input.note.trim().slice(0, MAX_NOTE) : '';
-    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.recovery.create', body: { parentTaskId, mode: input.mode, note } }, (record) => {
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.recovery.create', body: { parentTaskId, mode: input.mode, note, ...(input.expectedSourceRevision?{expectedSourceRevision:input.expectedSourceRevision}:{}) } }, (record) => {
       const derivedTaskId = typeof record.outcome?.taskId === 'string' ? record.outcome.taskId : this.#store.tasks.list().find((task) => this.#store.settings.getJson<{ requestKey: string }>(`${RECOVERY_KEY_PREFIX}${task.id}`)?.requestKey === input.requestKey)?.id;
       const task = derivedTaskId === undefined ? undefined : this.#store.tasks.get(derivedTaskId);
       const recovery = task === undefined ? undefined : this.#record(task.id);
       return task === undefined || recovery === undefined ? undefined : { task, recovery };
     });
     if (originalReceipt !== undefined) return originalReceipt;
+    if(input.expectedSourceRevision!==undefined){const preview=this.preview(parentTaskId,input.mode);if(preview.sourceRevision!==input.expectedSourceRevision)throw new AppError(ErrorCode.STALE_TARGET,'原任务或文件已变化，请重新读取恢复差异');if(!preview.allowed)throw new AppError(ErrorCode.HUMAN_REVIEW_REQUIRED,preview.reason??'不能恢复');}
     const parent = this.#requireTask(parentTaskId);
     this.#assertRecoverable(parent);
     const evidence = this.#evidence(parent);
@@ -113,7 +134,7 @@ export class RecoveryService {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'task.recovery.create',
-      body: { parentTaskId, mode: input.mode, note },
+      body: { parentTaskId, mode: input.mode, note, ...(input.expectedSourceRevision?{expectedSourceRevision:input.expectedSourceRevision}:{}) },
       target: { taskId: parentTaskId },
     });
     if (replayed) return { receipt: this.#commands.toReceipt(record) };
@@ -136,6 +157,7 @@ export class RecoveryService {
       const requirement = this.#derivedRequirement(parent, input.mode, evidence, created.requirement);
       const plan = input.mode === 'verify_only' ? undefined : this.#copyPlan(parent, created.id, input.mode, evidence);
       const workspace = plan === undefined ? undefined : await createRecoveryWorkspace(this.#store, this.#git, parent.id, created.id, input.mode as 'from_failed_stage' | 'all_stages');
+      if(input.expectedSourceRevision!==undefined && this.preview(parentTaskId,input.mode).sourceRevision!==input.expectedSourceRevision)throw new AppError(ErrorCode.STALE_TARGET,'原任务或文件在快照期间变化，已创建现场保留，请重新核对');
       const attention = input.mode === 'verify_only' ? 'waiting_user' : 'none';
       const updated = this.#store.tasks.update(created.id, {
         ...(requirement === undefined ? {} : { requirement }),
