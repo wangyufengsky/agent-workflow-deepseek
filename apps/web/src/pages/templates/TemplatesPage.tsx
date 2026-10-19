@@ -92,6 +92,8 @@ export function TemplatesPage() {
   const [jsonEditor, setJsonEditor] = useState<{ id: string; text: string } | null>(null);
   const [jsonError, setJsonError] = useState<string | undefined>(undefined);
   const [jsonBusy, setJsonBusy] = useState(false);
+  const [visualEditor, setVisualEditor] = useState<{ id: string; name: string; steps: { key: string; title: string; kind: 'implementation' | 'test' | 'delivery'; group: string }[] } | null>(null);
+  const [visualError, setVisualError] = useState<string | undefined>(undefined);
   const templates = bootstrap.data?.catalog.templates ?? [];
   const methods = bootstrap.data?.catalog.methods ?? [];
   const projects: readonly ProjectSummary[] = bootstrap.data?.projects ?? [];
@@ -625,17 +627,30 @@ export function TemplatesPage() {
             {importBusy ? '导入中…' : '导入模板 JSON'}
           </Button>
           {template !== undefined && template.id.startsWith('template.custom.') ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon="edit"
-              onClick={() => {
-                setJsonError(undefined);
-                setJsonEditor({ id: template.id, text: JSON.stringify({ ...template, version: template.version + 1 }, null, 2) });
-              }}
-            >
-              编辑模板
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon="edit"
+                onClick={() => {
+                  setVisualError(undefined);
+                  setVisualEditor({ id: template.id, name: template.name, steps: template.steps.map((step) => ({ key: step.key, title: step.title, kind: step.kind === 'test' ? 'test' as const : step.kind === 'delivery' ? 'delivery' as const : 'implementation' as const, group: step.group })) });
+                }}
+              >
+                可视化编辑
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon="terminal"
+                onClick={() => {
+                  setJsonError(undefined);
+                  setJsonEditor({ id: template.id, text: JSON.stringify({ ...template, version: template.version + 1 }, null, 2) });
+                }}
+              >
+                编辑 JSON
+              </Button>
+            </>
           ) : null}
           <div className="input-wrap" style={{ width: 220 }}>
             <Icon name="search" />
