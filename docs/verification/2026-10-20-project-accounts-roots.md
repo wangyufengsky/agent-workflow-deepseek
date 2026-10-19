@@ -27,9 +27,9 @@
 
 独立应用服务5537；Web5533，后用新Vite5534复看最新前端。所有账号均为临时夹具字符串；不使用真实个人账号。
 
-1. 项目页选择独立GitLab令牌，点击验证，显示原key succeeded、1分支可读且版本仍0；截图 `/tmp/project-account-candidate.png`。
-2. 单独保存升至版本1，凭据输入清空；Git页点击「获取远端更新」，实际git.fetch原key完成，新增origin/main；截图 `/tmp/project-account-fetch.png`。
-3. 最新前端重新进入项目，版本1与密钥已保存保持，输入仅「已保存·留空不修改」；空输入验证继续成功，截图 `/tmp/project-account-saved.png`。错误候选验证清空旧成功内容并保留输入，界面按保守客户端语义先待核对/锁定；点击全局原操作核对后解除锁，不自动重新验证。
-4. 设置页输入两个允许目录（真实保留换行），保存设置；原范围外既有项目仍显示。范围外新登记返回服务FORBIDDEN，输入保留，截图 `/tmp/project-root-denied.png`；改为允许目录后真实登记成功，列表同时保留原项目。
+1. 项目页选择独立GitLab令牌，点击验证，显示原key succeeded、1分支可读且版本仍0；截图 `docs/evidence/project-accounts-2026-10-20/project-account-candidate.png`。
+2. 单独保存升至版本1，凭据输入清空；Git页点击「获取远端更新」，实际git.fetch原key完成，新增origin/main；截图 `docs/evidence/project-accounts-2026-10-20/project-account-fetch.png`。
+3. 最新前端重新进入项目，版本1与密钥已保存保持，输入仅「已保存·留空不修改」；空输入验证继续成功，截图 `docs/evidence/project-accounts-2026-10-20/project-account-saved.png`。错误候选验证清空旧成功内容并保留输入，界面按保守客户端语义先待核对/锁定；点击全局原操作核对后解除锁，不自动重新验证。
+4. 设置页输入两个允许目录（真实保留换行），保存设置；原范围外既有项目仍显示。范围外新登记返回服务FORBIDDEN，输入保留，截图 `docs/evidence/project-accounts-2026-10-20/project-root-denied.png`；改为允许目录后真实登记成功，列表同时保留原项目。
 
 未覆盖：真实外部GitHub/GitLab账号、真实外部推送/MR、代理和非回环网络、真实模型；四主题/窄屏/全部UNKNOWN跨服务重启GUI、密码模式GUI（密码传输已由实际本地H覆盖）。这些均不得因本批H/G成功而升级通过。
