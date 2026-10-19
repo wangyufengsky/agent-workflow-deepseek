@@ -1123,3 +1123,10 @@
 - **最终功能验收**：W3-5b 任务画布「⋯」四入口（冻结/审计/快照评审 B-07/运行内容）+ HTTP 回执（5 测试）；W3-4b 知识研究步骤/工具轨迹时间线（真实执行、非流式，5 测试）；W4-1g 文档收口（README/remaining-work/verification/design-coverage：25 页 ✅3/🟡22/⛔0，剩余仅 blocked/发布/设计降级）。
 - **全部功能任务状态**：任务分派文档中除 W4-5/W2-5（真实 PG/GitLab，blocked 外部环境）与 W4-6（推送，执行中）外均为 done。
 - **下一步**：提交最终改动 → 合并远端初始 main → 推送 `main` → `git ls-remote` 核对；W4-5/W2-5 保持 blocked，W4-4 打包未签名/未公证为发布前置。
+
+### 22:20 完成 | W4-6 推送到 GitHub main
+
+- 合并远端初始 main（`8a3d1a3 Initial commit`，LICENSE/README）→ 本地合并提交 `c87f45c`（保留本项目 README，引入 LICENSE）。
+- 本地分支重命名 `master` → `main`，`git push -u origin main` **成功**（`8a3d1a3..c87f45c`）；远端地址 https://github.com/wangyufengsky/agent-workflow-deepseek。
+- 核对：本地 HEAD 与 `git ls-remote origin main` 均为 `c87f45c7939572f2d2d7729089956e48503bd990`（MATCH）；远端包含 apps/packages/docs/evidence/CI 等全部内容。
+- 遗留（非代码缺口）：W4-5/W2-5 真实 PostgreSQL/GitLab 验证仍 blocked（本机无实例/凭据，未伪造 PASS）；W4-4 打包产物未签名/未公证、无 dmg/跨平台/自动更新。均记录于 README/remaining-work/packaging。

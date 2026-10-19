@@ -141,7 +141,7 @@
 | W4-4 | 打包：重新 dist、签名/公证、Windows/Linux 目标评估 | docs-keeper + Lead | 需要环境/凭据 | done |
 | W4-5 | 真实 PostgreSQL/GitLab 验证 | be-workspace + Lead | 需要实例/凭据 | blocked（本机无 PG/GitLab 实例/凭据） |
 
-| W4-6 | 全部任务完成后推送 main：添加 origin，合并远端初始提交（如需要），推送本地历史到 `https://github.com/wangyufengsky/agent-workflow-deepseek` 的 main 分支并核对 | Lead | 全部任务 done | git remote/origin、main 分支 | 远端 main 包含本次全部提交；`git ls-remote` 与本地 HEAD 一致；推送结果记录 execution-log | in_progress |
+| W4-6 | 全部任务完成后推送 main：添加 origin，合并远端初始提交（如需要），推送本地历史到 `https://github.com/wangyufengsky/agent-workflow-deepseek` 的 main 分支并核对 | Lead | 全部任务 done | git remote/origin、main 分支 | 远端 main 包含本次全部提交；`git ls-remote` 与本地 HEAD 一致；推送结果记录 execution-log | done |
 
 ## 4. 波次与并行策略
 
