@@ -41,6 +41,7 @@ import type { DatabaseService } from '@agent-workflow/database';
 import type { RemoteService } from './remote.ts';
 import { fileIdFor } from './adapters/git-cli.ts';
 import { detectOpenCodeBinaries } from './opencode-detect.ts';
+import { discoverSkills } from './skills.ts';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
@@ -466,6 +467,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   // Role catalog drafts / publishing (global config)
+  app.get('/api/skills', async (request) => envelope({ skills: discoverSkills() }, requestId(request)));
   app.get('/api/insights', async (request) => envelope(engine.insights.summary(), requestId(request)));
 
   app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));

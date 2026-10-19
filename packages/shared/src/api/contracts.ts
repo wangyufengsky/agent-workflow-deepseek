@@ -194,6 +194,18 @@ export interface NodeSkipRequest extends CommandRequest {
   readonly confirmSkip: true;
 }
 
+export interface SkillInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly path: string;
+  readonly source: string;
+}
+
+export interface SkillsResponse {
+  readonly skills: readonly SkillInfo[];
+}
+
 export interface InsightsResponse {
   readonly generatedAt: IsoDateTime;
   readonly tasks: { readonly total: number; readonly active: number; readonly completed: number; readonly cancelled: number; readonly attention: number };
@@ -879,6 +891,7 @@ export const ROUTES = {
   opencodeRestart: '/api/opencode/restart',
   opencodeDetect: '/api/opencode/detect',
   insights: '/api/insights',
+  skills: '/api/skills',
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;

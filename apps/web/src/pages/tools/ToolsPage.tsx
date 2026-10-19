@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createRequestKey } from '@agent-workflow/shared';
-import { errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createRequestKey, type SkillsResponse } from '@agent-workflow/shared';
+import { apiGet, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useBootstrap, useOpenCodeStatus } from '../../api/hooks.ts';
 import { MANAGED_MCP_TOOLS, MCP_TOOLSETS, TOOL_ACCESS_LABEL, toolsOfToolset, type ManagedToolMeta } from '../../api/catalog.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
@@ -15,7 +15,6 @@ import { formatRelativeTime } from '../../app/format.ts';
 type ToolsTab = 'tools' | 'skills';
 
 const TOGGLE_BLOCKED_REASON = '单个工具开关未开放；按工具集启停并重启受管 OpenCode 后生效。';
-const SKILL_BLOCKED_REASON = 'Skill 目录接口尚未接通：服务端没有 /api/skills，页面不列出示例 Skill。';
 
 const TOOLSET_ICON: Record<string, IconName> = {
   workflow: 'flow',
@@ -187,19 +186,57 @@ function ToolsView() {
 }
 
 function SkillsView() {
+  const query = useQuery({
+    queryKey: ['skills'],
+    queryFn: async () => (await apiGet<SkillsResponse>('/api/skills')).data,
+    retry: false,
+  });
+  if (query.isLoading) return <p className="hint">正在读取 Skill 目录…</p>;
+  if (query.isError) {
+    return <ServiceNotice error={query.error} onRetry={() => { void query.refetch(); }} />;
+  }
+  const skills = query.data?.skills ?? [];
   return (
     <div className="col" style={{ gap: 16 }}>
-      <EmptyState
-        icon="wand"
-        title="Skill 目录尚未接通"
-        description="OpenCode 会从项目与本机目录发现 Skill，但服务端还没有提供 Skill 列表与正文读取接口。这里不展示示例 Skill，也不允许安装或修改。"
-        action={
-          <Button variant="secondary" size="sm" icon="refresh" disabled disabledReason={SKILL_BLOCKED_REASON}>
-            读取 Skill 目录
-          </Button>
-        }
-      />
-      <PendingBackendNotice message="需要的服务端能力：GET /api/skills（名称、说明、路径、正文只读）以及 Skill 启用状态。建议由 Lead 在契约与 server 中补齐后再接通本页。" />
+      {skills.length === 0 ? (
+        <EmptyState
+          icon="wand"
+          title="没有发现 Skill"
+          description="服务端只读扫描 ~/.claude/skills 与 ~/.agents/skills；当前目录中没有 SKILL.md。本页不展示示例 Skill，也不允许安装或修改。"
+          action={
+            <Button variant="secondary" size="sm" icon="refresh" onClick={() => { void query.refetch(); }}>
+              重新读取
+            </Button>
+          }
+        />
+      ) : (
+        <section className="card">
+          <div className="card-head">
+            <span className="tile"><Icon name="wand" /></span>
+            <div className="grow">
+              <span className="section-title">本机 Skill</span>
+              <div className="hint" style={{ marginTop: 2 }}>共 {String(skills.length)} 个，只读扫描；不安装、不修改、不执行。</div>
+            </div>
+            <Button variant="secondary" size="sm" icon="refresh" onClick={() => { void query.refetch(); }}>重新读取</Button>
+          </div>
+          <div style={{ padding: '4px 6px 8px' }}>
+            {skills.map((skill) => (
+              <div key={skill.id} className="list-row" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                <span className="tile" style={{ marginTop: 2 }}><Icon name="wand" size="sm" /></span>
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="row wrap" style={{ gap: 8 }}>
+                    <span className="mono" style={{ fontSize: 13 }}>{skill.name}</span>
+                    <Badge outline>只读</Badge>
+                  </div>
+                  <div style={{ fontSize: 13, marginTop: 3 }}>{skill.description === '' ? '没有描述' : skill.description}</div>
+                  <div className="hint mono" style={{ marginTop: 3, wordBreak: 'break-all' }}>{skill.path}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      <p className="hint">Skill 正文与启用状态由 OpenCode 自身管理；本页只展示服务端扫描到的 SKILL.md 名称与描述。</p>
     </div>
   );
 }
@@ -224,7 +261,7 @@ export function ToolsPage() {
     <div className="page">
       <PageHeader
         title="工具与 Skill"
-        lede="查看受管 OpenCode 可用的内部工具与 Skill。工具清单来自服务端静态注册；开关与 Skill 目录尚未接通，本页只读。"
+        lede="查看受管 OpenCode 可用的内部工具与 Skill。工具清单来自服务端静态注册，按工具集启停；Skill 目录来自本机只读扫描。"
         actions={
           <Button
             variant="secondary"
@@ -244,7 +281,7 @@ export function ToolsPage() {
           工具 <span className="hint num">{String(MANAGED_MCP_TOOLS.length)}</span>
         </button>
         <button type="button" className="tab" role="tab" aria-selected={tab === 'skills'} onClick={() => { setTab('skills'); }}>
-          Skill <span className="hint num">未接通</span>
+          Skill <span className="hint num">只读</span>
         </button>
       </div>
 
