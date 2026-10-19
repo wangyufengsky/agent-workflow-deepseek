@@ -4,6 +4,7 @@ import {
   DEFAULT_CATALOG,
   ErrorCode,
   createId,
+  methodCycle,
   nowIso,
   type MethodStepDefinition,
   type NodeKindValue,
@@ -28,11 +29,8 @@ import type { Store } from '@agent-workflow/storage';
  * A save that quotes a stale `expectedVersion` is rejected with CONFLICT and the
  * current version — the editor shows "已被更新为版本 N" and offers "导出我的修改".
  *
- * Step extensions: the shared `MethodStepDefinition` has no dependency/role
- * fields yet, so this module reads optional `roleId` / `requires` properties in a
- * forward-compatible way (they survive persistence and are validated when
- * present). `requires` is only used for dependency/cycle validation; execution
- * still follows the ordered step list.
+ * Steps preserve authored content and explicit predecessor edges. Omitted
+ * predecessors retain ordered legacy behavior; [] creates an independent root.
  */
 
 const CUSTOM_KEY = 'catalog.methods.custom';
@@ -54,7 +52,7 @@ const SUPPORT_VALUES: readonly TaskMethodSupportValue[] = ['ai_planning', 'skele
 export type MethodStepView = MethodStepDefinition & {
   /** Role that owns this step ("谁来做"); must exist when present. */
   readonly roleId?: string;
-  /** Optional explicit dependencies used only for dependency/cycle validation. */
+  /** Explicit predecessors used by validation and graph compilation. */
   readonly requires?: readonly string[];
 };
 
@@ -133,6 +131,7 @@ export interface MethodCatalogServiceOptions {
 }
 
 interface StoredCustomMethod {
+  readonly history?: readonly MethodCatalogDetail[];
   readonly method: WorkflowMethod;
   readonly version: number;
   readonly archived: boolean;
@@ -182,6 +181,13 @@ export class MethodCatalogService {
     const record = this.#customRecord(id);
     if (record === undefined) throw new AppError(ErrorCode.NOT_FOUND, '流程不存在', { details: { methodId: id } });
     return customDetail(record);
+  }
+
+  /** Historical snapshots are immutable and read only. Legacy versions absent from disk are not invented. */
+  versions(id: string): readonly MethodCatalogDetail[] {
+    const current = this.get(id);
+    const history = this.#customRecord(id)?.history ?? [];
+    return [...history.map((item) => structuredClone(item)), current].sort((a, b) => a.version - b.version);
   }
 
   /** Merged resolution: custom ids win over a built-in with the same id (none today). */
@@ -252,6 +258,16 @@ export class MethodCatalogService {
       if (typeof step.group !== 'string' || step.group.trim() === '' || step.group.length > MAX_GROUP_LABEL) {
         push('STEP_GROUP_INVALID', `步骤「${key || '?'}」分组不合法`, { field: 'requiredSteps', stepKey: key });
       }
+      if (step.requires !== undefined && (!Array.isArray(step.requires) || step.requires.length > MAX_STEPS || step.requires.some((key: unknown) => typeof key !== 'string'))) {
+        push('STEP_DEPENDENCY_INVALID', `步骤「${key}」依赖必须为步骤键数组`, { field: 'requiredSteps', stepKey: key });
+      }
+      if ((step.summary !== undefined && (typeof step.summary !== 'string' || step.summary.length > 10000))
+        || (step.acceptance !== undefined && (!Array.isArray(step.acceptance) || step.acceptance.length > 50 || step.acceptance.some((x: unknown) => typeof x !== 'string' || x.length > 2000)))
+        || (step.inputs !== undefined && (!Array.isArray(step.inputs) || step.inputs.length > 50 || step.inputs.some((x: NonNullable<MethodStepDefinition['inputs']>[number]) => !x || typeof x.name !== 'string' || x.name.length > 2000 || !['requirement', 'upstream', 'artifact', 'manual'].includes(x.source))))
+        || (step.outputs !== undefined && (!Array.isArray(step.outputs) || step.outputs.length > 50 || step.outputs.some((x: NonNullable<MethodStepDefinition['outputs']>[number]) => !x || typeof x.name !== 'string' || x.name.length > 2000 || !['artifact', 'evidence', 'summary'].includes(x.kind))))
+        || (step.position !== undefined && (!Number.isFinite(step.position.x) || !Number.isFinite(step.position.y) || Math.abs(step.position.x) > 100000 || Math.abs(step.position.y) > 100000))) {
+        push('STEP_CONTENT_INVALID', `步骤「${key}」内容或位置不合法`, { field: 'requiredSteps', stepKey: key });
+      }
       if (!NODE_KINDS.includes(step.kind)) {
         push('STEP_KIND_INVALID', `步骤「${key || '?'}」类型不合法`, { field: 'requiredSteps', stepKey: key });
       }
@@ -296,11 +312,11 @@ export class MethodCatalogService {
 
     // 环路校验: forward-compatible `requires` dependency edges.
     for (const step of steps) {
-      for (const dependency of step.requires ?? []) {
+      for (const dependency of Array.isArray(step.requires) ? step.requires : []) {
         if (!keys.has(dependency)) push('STEP_DEPENDENCY_UNKNOWN', `步骤「${step.key}」依赖不存在的步骤「${dependency}」`, { field: 'requiredSteps', stepKey: step.key });
       }
     }
-    const cycle = findStepCycle(steps);
+    const cycle = problems.some((item) => item.code === 'STEP_DEPENDENCY_INVALID') ? undefined : methodCycle(steps);
     if (cycle !== undefined) push('METHOD_CYCLE', `步骤依赖存在环路：${cycle.join(' → ')}`, { field: 'requiredSteps' });
 
     return finish(problems);
@@ -343,7 +359,7 @@ export class MethodCatalogService {
     if (!validation.ok) throw new AppError(ErrorCode.VALIDATION_FAILED, '流程定义未通过检查', { details: { problems: validation.problems } });
     const version = record.version + 1;
     const method = this.#canonicalMethod(input.method, id, version);
-    const updated: StoredCustomMethod = { ...record, method, version, updatedAt: nowIso(), ...(record.copiedFrom === undefined ? {} : { copiedFrom: record.copiedFrom }) };
+    const updated: StoredCustomMethod = { ...record, history: [...(record.history ?? []), customDetail(record)], method, version, updatedAt: nowIso(), ...(record.copiedFrom === undefined ? {} : { copiedFrom: record.copiedFrom }) };
     const records = this.#customRecords().map((item) => (item.method.id === id ? updated : item));
     this.#store.settings.putJson(CUSTOM_KEY, records);
     const result: MethodMutationResult = { requestKey: input.requestKey, replayed: false, method: customDetail(updated) };
@@ -398,6 +414,7 @@ export class MethodCatalogService {
     const version = record.version + 1;
     const updated: StoredCustomMethod = {
       ...record,
+      history: [...(record.history ?? []), customDetail(record)],
       version,
       archived: true,
       updatedAt: nowIso(),
@@ -448,7 +465,12 @@ export class MethodCatalogService {
       group: step.group.trim(),
       ...(step.optional === true ? { optional: true } : {}),
       ...(step.roleId === undefined ? {} : { roleId: step.roleId }),
-      ...(step.requires === undefined || step.requires.length === 0 ? {} : { requires: [...new Set(step.requires)] }),
+      ...(step.summary === undefined ? {} : { summary: step.summary }),
+      ...(step.inputs === undefined ? {} : { inputs: structuredClone(step.inputs) }),
+      ...(step.outputs === undefined ? {} : { outputs: structuredClone(step.outputs) }),
+      ...(step.acceptance === undefined ? {} : { acceptance: [...step.acceptance] }),
+      ...(step.position === undefined ? {} : { position: { ...step.position } }),
+      ...(step.requires === undefined ? {} : { requires: [...new Set(step.requires)] }),
     }));
     return {
       id,
@@ -509,34 +531,6 @@ function finish(problems: readonly MethodValidationProblem[]): MethodValidationR
   return { ok: problems.length === 0, problems: [...problems], checks };
 }
 
-function findStepCycle(steps: readonly MethodStepView[]): string[] | undefined {
-  const adjacency = new Map<string, string[]>();
-  for (const step of steps) adjacency.set(step.key, [...(step.requires ?? [])]);
-  const state = new Map<string, 0 | 1 | 2>();
-  const stack: string[] = [];
-  const visit = (key: string): string[] | undefined => {
-    const current = state.get(key) ?? 0;
-    if (current === 1) {
-      const start = stack.indexOf(key);
-      return [...stack.slice(Math.max(0, start)), key];
-    }
-    if (current === 2) return undefined;
-    state.set(key, 1);
-    stack.push(key);
-    for (const next of adjacency.get(key) ?? []) {
-      const cycle = visit(next);
-      if (cycle !== undefined) return cycle;
-    }
-    stack.pop();
-    state.set(key, 2);
-    return undefined;
-  };
-  for (const step of steps) {
-    const cycle = visit(step.key);
-    if (cycle !== undefined) return cycle;
-  }
-  return undefined;
-}
 
 function normalizeStoredCollection(raw: unknown): readonly StoredCustomMethod[] {
   const entries = Array.isArray(raw)
@@ -581,6 +575,11 @@ function normalizeStoredRecord(raw: unknown): StoredCustomMethod | undefined {
       group: typeof step['group'] === 'string' ? step['group'] : '实现',
       ...(step['optional'] === true ? { optional: true } : {}),
       ...(typeof step['roleId'] === 'string' ? { roleId: step['roleId'] } : {}),
+      ...(typeof step['summary'] === 'string' ? { summary: step['summary'] } : {}),
+      ...(Array.isArray(step['inputs']) ? { inputs: step['inputs'] as MethodStepDefinition['inputs'] } : {}),
+      ...(Array.isArray(step['outputs']) ? { outputs: step['outputs'] as MethodStepDefinition['outputs'] } : {}),
+      ...(Array.isArray(step['acceptance']) ? { acceptance: step['acceptance'].filter((x): x is string => typeof x === 'string') } : {}),
+      ...(typeof step['position'] === 'object' && step['position'] !== null ? { position: step['position'] as { x: number; y: number } } : {}),
       ...(Array.isArray(step['requires']) ? { requires: step['requires'].filter((value): value is string => typeof value === 'string') } : {}),
     }))
     .filter((step) => step.key !== '');
@@ -606,6 +605,7 @@ function normalizeStoredRecord(raw: unknown): StoredCustomMethod | undefined {
     method,
     version,
     archived: candidate['archived'] === true,
+    history: Array.isArray(candidate['history']) ? candidate['history'].filter((item): item is MethodCatalogDetail => item !== null && typeof item === 'object' && typeof item.id === 'string' && Number.isInteger(item.version) && Array.isArray(item.requiredSteps)).map((item) => structuredClone(item)) : [],
     ...(copiedFrom === undefined ? {} : { copiedFrom }),
     createdAt,
     updatedAt,
@@ -677,7 +677,12 @@ function cloneSteps(steps: readonly MethodStepView[]): MethodStepView[] {
     group: step.group,
     ...(step.optional === true ? { optional: true } : {}),
     ...(step.roleId === undefined ? {} : { roleId: step.roleId }),
-    ...(step.requires === undefined || step.requires.length === 0 ? {} : { requires: [...step.requires] }),
+    ...(step.summary === undefined ? {} : { summary: step.summary }),
+    ...(step.inputs === undefined ? {} : { inputs: structuredClone(step.inputs) }),
+    ...(step.outputs === undefined ? {} : { outputs: structuredClone(step.outputs) }),
+    ...(step.acceptance === undefined ? {} : { acceptance: [...step.acceptance] }),
+    ...(step.position === undefined ? {} : { position: { ...step.position } }),
+    ...(step.requires === undefined ? {} : { requires: [...step.requires] }),
   }));
 }
 

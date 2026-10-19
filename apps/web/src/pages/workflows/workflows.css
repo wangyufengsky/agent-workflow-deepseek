@@ -407,3 +407,16 @@
   line-height: 1.7;
   color: var(--ink-2);
 }
+
+.wfe-graph-container { min-width: 0; padding: 12px; }
+.wfe-graph-tools { gap: 8px; padding-bottom: 8px; }
+.wfe-graph-surface { height: min(58vh, 560px); min-height: 320px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+.wfe-flow-node { width: 220px; color: var(--ink) !important; background: var(--raised) !important; border-color: var(--line) !important; text-align: left !important; }
+.wfe-flow-node.selected { outline: 2px solid var(--accent); }
+.wfe-flow-node.added { border-color: var(--ok) !important; }
+.wfe-flow-node.modified { border-color: var(--accent) !important; }
+.wfe-connection-insert { position: absolute; pointer-events: all; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 50%; background: var(--raised); color: var(--ink); cursor: pointer; }
+.wfe-graph-surface .react-flow__edge-path { stroke: var(--line-2); }
+.wfe-graph-surface .react-flow__controls-button { background: var(--raised); color: var(--ink); border-color: var(--line); fill: currentColor; }
+.wfe-graph-surface .react-flow__handle { background: var(--accent); }
+.wfe-graph-surface .react-flow__attribution { background: var(--raised); color: var(--ink); }

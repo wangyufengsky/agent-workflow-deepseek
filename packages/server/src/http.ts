@@ -1105,6 +1105,9 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/workflows/:id/instantiate', async (request) => {
     return envelope({ ...engine.methods.instantiate(request.params.id) }, requestId(request));
   });
+  app.get<{ Params: { id: string } }>('/api/workflows/:id/versions', async (request) => {
+    return envelope({ versions: engine.methods.versions(request.params.id) }, requestId(request));
+  });
   app.get<{ Params: { id: string } }>('/api/workflows/:id', async (request) => {
     return envelope({ method: engine.methods.get(request.params.id) }, requestId(request));
   });

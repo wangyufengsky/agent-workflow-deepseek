@@ -97,3 +97,40 @@ test('validatePlanningCandidate rejects cycles, missing steps and write collisio
   });
   assert.ok(collisionResult.problems.some((problem) => problem.code === 'WRITE_COLLISION'));
 });
+
+test('method compilation uses explicit predecessors, branch roots, authored content and role choices', () => {
+  const graph = methodToGraph({ ...method, requiredSteps: [
+    { key: 'a', title: 'A', kind: 'implementation', group: '实现', requires: [], roleId: 'role.reviewer', summary: '职责', inputs: [{ name: '输入', source: 'manual' }], outputs: [{ name: '输出', kind: 'summary' }], acceptance: ['验收'], position: { x: 4, y: 8 } },
+    { key: 'b', title: 'B', kind: 'test', group: '测试', requires: [] },
+    { key: 'join', title: 'C', kind: 'verify', group: '验收', requires: ['a', 'b'] },
+  ] });
+  const key = (id: string) => graph.nodes.find((node) => node.id === id)!.key;
+  assert.deepEqual(graph.edges.map((edge) => `${key(edge.from)}->${key(edge.to)}`).sort(), ['a->join', 'b->join']);
+  assert.equal(graph.nodes[0]!.roleId, 'role.reviewer');
+  assert.equal(graph.nodes[0]!.summary, '职责');
+  assert.deepEqual(graph.nodes[0]!.acceptance, ['验收']);
+  assert.deepEqual(graph.nodes[0]!.position, { x: 4, y: 8 });
+});
+
+
+test('AI candidates retain explicit workflow predecessor constraints, allowing intermediate steps', () => {
+  const candidate = candidateFor(['a', 'middle', 'b']);
+  const input = { candidate, requiredSteps: [{ key: 'a', kind: 'implementation' as const, group: '实现', requires: [] }, { key: 'b', kind: 'implementation' as const, group: '实现', requires: ['a'] }], refinableGroups: [], limits: { maxNodes: 40, maxEdges: 80, maxGroups: 8, maxDepth: 12 } };
+  assert.equal(validatePlanningCandidate(input).structural, 'passed');
+  const disconnected = validatePlanningCandidate({ ...input, candidate: { ...candidate, edges: [] } });
+  assert.ok(disconnected.problems.some((item) => item.code === 'METHOD_DEPENDENCY_MISSING'));
+  assert.equal(disconnected.checks.find((item) => item.id === 'V1')!.state, 'failed');
+});
+
+
+test('AI cannot silently serialize an explicit parallel root; additions need mapped input or human review', () => {
+  const base = candidateFor(['a', 'b']);
+  const input = { candidate: base, requiredSteps: [{ key: 'a', kind: 'implementation' as const, group: '实现', requires: [] }, { key: 'b', kind: 'implementation' as const, group: '实现', requires: [] }], refinableGroups: [], limits: { maxNodes: 40, maxEdges: 80, maxGroups: 8, maxDepth: 12 } };
+  assert.ok(validatePlanningCandidate(input).problems.some((item) => item.code === 'METHOD_DEPENDENCY_UNJUSTIFIED'));
+  const mapped = { ...base, nodes: base.nodes.map((node) => node.key === 'b' ? { ...node, inputs: [{ name: 'A产物', source: 'upstream' as const, fromKey: 'a' }] } : node), edges: [{ fromKey: 'a', toKey: 'b', kind: 'data' as const, label: 'B读取A生成的产物' }] };
+  assert.equal(validatePlanningCandidate({ ...input, candidate: mapped }).structural, 'passed');
+  const declaredOrder = { ...base, edges: [{ fromKey: 'a', toKey: 'b', kind: 'order' as const, label: '用户需确认先审阅A再处理B' }], humanDecisions: [{ title: '确认改变并行配置', detail: '原本并行的A/B改为先后执行，由用户决定是否采纳', nodeKeys: ['b'] }] };
+  const validation = validatePlanningCandidate({ ...input, candidate: declaredOrder });
+  assert.equal(validation.structural, 'passed');
+  assert.equal(validation.humanDecisions.length, 1);
+});

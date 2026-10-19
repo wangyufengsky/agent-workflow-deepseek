@@ -1988,6 +1988,7 @@ export const ROUTES = {
   templateTasks: (id: string) => `/api/templates/${encodeURIComponent(id)}/tasks`,
   workflows: '/api/workflows',
   workflow: (id: string) => `/api/workflows/${encodeURIComponent(id)}`,
+  workflowVersions: (id: string) => `/api/workflows/${encodeURIComponent(id)}/versions`,
   workflowCopy: (id: string) => `/api/workflows/${encodeURIComponent(id)}/copy`,
   workflowValidate: '/api/workflows/validate',
   workflowInstantiate: (id: string) => `/api/workflows/${encodeURIComponent(id)}/instantiate`,

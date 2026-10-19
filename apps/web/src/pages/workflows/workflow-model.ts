@@ -1,4 +1,4 @@
-import { createId, type NodeKindValue, type TaskMethodSupportValue } from '@agent-workflow/shared';
+import { createId, methodCycle, type NodeKindValue, type TaskMethodSupportValue } from '@agent-workflow/shared';
 import type { WorkflowCatalogDetail, WorkflowDraft, WorkflowStepView, WorkflowValidationProblem } from './workflow-api.ts';
 
 export const WORKFLOW_STEP_KIND_LABEL: Record<NodeKindValue, string> = {
@@ -19,6 +19,7 @@ export function draftFromDetail(detail: WorkflowCatalogDetail): WorkflowDraft {
     description: detail.description,
     support: detail.support,
     requiredSteps: detail.requiredSteps.map((step) => ({
+      ...structuredClone(step),
       key: step.key,
       title: step.title,
       kind: step.kind,
@@ -122,6 +123,8 @@ export function localProblems(draft: WorkflowDraft, roleIds: readonly string[]):
       if (dependency === step.key) push('METHOD_CYCLE', `步骤「${step.title || step.key}」不能依赖自己`, { stepKey: step.key, canLocate: true });
     }
   }
+  const cycle = methodCycle(draft.requiredSteps);
+  if (cycle !== undefined) push('METHOD_CYCLE', `步骤依赖存在环路：${cycle.join(' → ')}`, { stepKey: cycle[0], canLocate: true });
   return problems;
 }
 
@@ -131,13 +134,14 @@ export function draftToSaveBody(draft: WorkflowDraft): WorkflowDraft {
     description: draft.description,
     support: draft.support,
     requiredSteps: draft.requiredSteps.map((step) => ({
+      ...structuredClone(step),
       key: step.key,
       title: step.title.trim(),
       kind: step.kind,
       group: step.group.trim(),
       ...(step.optional === true ? { optional: true } : {}),
       ...(step.roleId === undefined || step.roleId === '' ? {} : { roleId: step.roleId }),
-      ...(step.requires === undefined || step.requires.length === 0 ? {} : { requires: step.requires }),
+      ...(step.requires === undefined ? {} : { requires: step.requires }),
     })),
     refinableGroups: draft.refinableGroups,
     ...(draft.planningStrategy === undefined ? {} : { planningStrategy: draft.planningStrategy }),

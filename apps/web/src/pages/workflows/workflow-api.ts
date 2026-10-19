@@ -77,6 +77,11 @@ function normalizeStep(raw: unknown): MethodStepDefinition | undefined {
   const validKind = kind === 'requirement' || kind === 'design' || kind === 'implementation' || kind === 'test' || kind === 'verify' || kind === 'delivery' || kind === 'system';
   if (!validKind) return undefined;
   return {
+    ...(typeof step.summary === 'string' ? { summary: step.summary } : {}),
+    ...(Array.isArray(step.inputs) ? { inputs: step.inputs as MethodStepDefinition['inputs'] } : {}),
+    ...(Array.isArray(step.outputs) ? { outputs: step.outputs as MethodStepDefinition['outputs'] } : {}),
+    ...(Array.isArray(step.acceptance) ? { acceptance: step.acceptance.filter((x): x is string => typeof x === 'string') } : {}),
+    ...(typeof step.position === 'object' && step.position !== null ? { position: step.position as { x: number; y: number } } : {}),
     key: step.key,
     title: step.title,
     kind,

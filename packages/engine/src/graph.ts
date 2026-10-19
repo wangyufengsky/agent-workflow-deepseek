@@ -8,7 +8,7 @@ import type {
   PlanningCandidatePayload,
   WorkflowMethod,
 } from '@agent-workflow/shared';
-import { createId } from '@agent-workflow/shared';
+import { createId, methodDependencies } from '@agent-workflow/shared';
 
 const GROUP_ORDER = ['需求', '设计', '实现', '测试', '验收', '交付'];
 
@@ -57,22 +57,22 @@ export function methodToGraph(method: WorkflowMethod): PlanGraph {
       title: step.title,
       kind: step.kind,
       groupId: groups[groupIndex.get(group) ?? 0]?.id ?? 'group.0',
-      summary: `${step.title}（方法骨架步骤）`,
-      inputs: [],
-      outputs: [{ name: `${step.title}产物`, kind: 'artifact' }],
-      acceptance: [`${step.title}完成，且有可核对的证据`],
+      summary: step.summary ?? `${step.title}（方法骨架步骤）`,
+      inputs: step.inputs ?? [],
+      outputs: step.outputs ?? [{ name: `${step.title}产物`, kind: 'artifact' }],
+      acceptance: step.acceptance ?? [`${step.title}完成，且有可核对的证据`],
       resources: { read: [], write: [] },
       roleId: step.roleId ?? (step.kind === 'test' ? 'role.tester' : step.kind === 'verify' ? 'role.reviewer' : 'role.developer'),
       templateRevision: `${method.id}@${method.revision}`,
-      position: positionFor(groupIndex.get(group) ?? 0, indexInGroup),
+      position: step.position ?? positionFor(groupIndex.get(group) ?? 0, indexInGroup),
     };
   });
   const edges: PlanEdge[] = [];
-  for (let index = 1; index < nodes.length; index++) {
-    const from = nodes[index - 1];
-    const to = nodes[index];
-    if (from === undefined || to === undefined) continue;
-    edges.push({ id: createId('pe'), from: from.id, to: to.id, kind: 'order', label: '先后' });
+  for (const [index, to] of nodes.entries()) {
+    for (const key of methodDependencies(method.requiredSteps, index)) {
+      const from = nodes.find((node) => node.key === key);
+      if (from !== undefined) edges.push({ id: createId('pe'), from: from.id, to: to.id, kind: 'order', label: '先后' });
+    }
   }
   return { nodes, edges, groups };
 }

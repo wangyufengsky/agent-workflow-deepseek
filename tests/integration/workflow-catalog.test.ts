@@ -214,3 +214,29 @@ test('W3-8c: workflow catalog CRUD, receipts, versions, validation and archive',
     await app.close();
   }
 });
+
+test('workflow versions and saved parallel predecessors compile through real task materialization', async () => {
+  const { app, projectId } = await setup();
+  try {
+    const draft = { name: '并行HTTP流程', support: 'skeleton_only', requiredSteps: [
+      { key: 'a', title: 'A', kind: 'implementation', group: '实现', requires: [], roleId: 'role.developer', summary: '明确职责', acceptance: ['可核对'] },
+      { key: 'b', title: 'B', kind: 'test', group: '测试', requires: [], roleId: 'role.tester' },
+      { key: 'join', title: '验收', kind: 'verify', group: '验收', requires: ['a', 'b'], roleId: 'role.reviewer' },
+    ] };
+    const created = await app.app.inject({ method: 'POST', url: '/api/workflows', payload: { requestKey: requestKey('parallel'), draft, confirmCreate: true } });
+    assert.equal(created.statusCode, 200, created.body);
+    const method = created.json().data.resource.method;
+    const saved = await app.app.inject({ method: 'PATCH', url: `/api/workflows/${method.id}`, payload: { requestKey: requestKey('parallel-save'), method: { ...draft, description: '新版' }, expectedVersion: 1, confirmSave: true } });
+    assert.equal(saved.statusCode, 200, saved.body);
+    const versions = await app.app.inject({ method: 'GET', url: `/api/workflows/${method.id}/versions` });
+    assert.deepEqual(versions.json().data.versions.map((item: { version: number }) => item.version), [1, 2]);
+    const task = app.engine.tasks.create({ requestKey: requestKey('parallel-task'), projectId, title: '并行计划', requirementText: '离线图编译验证', methodId: method.id });
+    const taskId = (task.resource as { task: { id: string } }).task.id;
+    const plan = app.engine.plans.useSkeleton(taskId, { requestKey: requestKey('parallel-plan'), confirmUseSkeleton: true });
+    const graph = app.store.plans.get(app.store.tasks.get(taskId)!.currentPlanRevisionId!)!.graph;
+    const key = (id: string) => graph.nodes.find((node) => node.id === id)!.key;
+    assert.deepEqual(graph.edges.map((edge) => `${key(edge.from)}->${key(edge.to)}`).sort(), ['a->join', 'b->join']);
+    assert.equal(graph.nodes[0]!.summary, '明确职责');
+    assert.ok(plan);
+  } finally { await app.close(); }
+});

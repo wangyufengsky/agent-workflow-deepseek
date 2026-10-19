@@ -145,7 +145,7 @@ export interface PlanningPromptInput {
   readonly projectRoot: string;
   readonly methodName: string;
   readonly methodRevision: string;
-  readonly requiredSteps: readonly { readonly key: string; readonly title: string; readonly kind: string; readonly group: string }[];
+  readonly requiredSteps: readonly { readonly key: string; readonly title: string; readonly kind: string; readonly group: string; readonly requires?: readonly string[]; readonly summary?: string; readonly acceptance?: readonly string[] }[];
   readonly refinableGroups: readonly string[];
   readonly supplements: readonly string[];
   readonly previousRoundSummary?: string;
@@ -169,7 +169,7 @@ export const PLANNING_SYSTEM_PROMPT = `你是「需求分析师（规划职责�
 5. 提交成功后立即停止，不要再解释或重复输出。工具返回校验错误时，按 problems 修正后重新提交（最多 3 次）。`;
 
 export function buildPlanningPrompt(input: PlanningPromptInput): string {
-  const steps = input.requiredSteps.map((step) => `- ${step.key}（${step.title}，${step.kind}，分组：${step.group}）`).join('\n');
+  const steps = input.requiredSteps.map((step) => `- ${step.key}（${step.title}，${step.kind}，分组：${step.group}）${step.requires === undefined ? '' : `；已配置前驱：${step.requires.length === 0 ? '无（可并行就绪）' : step.requires.join('、')}`}；职责：${step.summary ?? '按步骤目标细化'}；验收：${(step.acceptance ?? []).join('；')}`).join('\n');
   const supplements = input.supplements.length === 0 ? '（无）' : input.supplements.map((text, index) => `补充 ${index + 1}：${text}`).join('\n');
   const answers = input.answers.length === 0 ? '（无）' : input.answers.map((pair) => `Q: ${pair.question}\nA: ${pair.answer}`).join('\n\n');
   return `# 任务
@@ -195,6 +195,7 @@ ${input.methodName} · ${input.methodRevision}
 ${steps}
 可细化分组：${input.refinableGroups.join('、')}
 规划策略：${input.strategyVersion}
+已配置的前驱关系必须保留（可插入中间步骤）。不得无依据把并行根重新串行；新增前驱需在edge.label解释原因，data依赖必须提供inputs.upstream/fromKey映射，resource依赖必须有重叠资源声明。仅为顺序偏好而改变已配置依赖时，必须在既有humanDecisions中说明改变原因与目标节点，供候选审阅；理由属于模型陈述，不是服务事实。
 
 # 规模限制
 最多 ${input.limits.maxNodes} 个步骤、${input.limits.maxEdges} 条依赖、${input.limits.maxGroups} 个分组、深度 ≤ ${input.limits.maxDepth}。

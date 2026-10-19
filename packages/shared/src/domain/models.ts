@@ -131,8 +131,13 @@ export interface MethodStepDefinition {
   readonly optional?: boolean;
   /** Custom-method editor: role that owns this step ("谁来做"). */
   readonly roleId?: string;
-  /** Custom-method editor: explicit step dependencies used for cycle validation. */
+  /** Custom-method editor: explicit predecessors; missing preserves legacy sequence, [] means no predecessor. */
   readonly requires?: readonly string[];
+  readonly summary?: string;
+  readonly inputs?: readonly PlanNodeInputRef[];
+  readonly outputs?: readonly PlanNodeOutputRef[];
+  readonly acceptance?: readonly string[];
+  readonly position?: { readonly x: number; readonly y: number };
 }
 
 export interface WorkflowMethod {

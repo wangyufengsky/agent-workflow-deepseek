@@ -264,3 +264,5 @@
 | POST | `/api/workflows/:id/copy` | （待补说明：workflowCopy） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/workflows/:id/instantiate` | （待补说明：workflowInstantiate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/workflows/validate` | （待补说明：workflowValidate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+
+| GET | `/api/workflows/:id/versions` | 读取实际持久化的流程版本快照；旧版缺失历史不补造 | 只读 |

@@ -339,3 +339,29 @@ test('legacy settings JSON (raw methods or wrapped collections) is normalized an
     close();
   }
 });
+
+test('explicit branch roots, authored content and immutable version snapshots survive persistence', () => {
+  const { service, store, close } = makeService();
+  try {
+    const draft = validDraft({ requiredSteps: [
+      step('a', 'A', 'implementation', '实现', { requires: [], roleId: 'role.developer', summary: '真实职责', inputs: [{ name: '需求', source: 'requirement' }], outputs: [{ name: '代码', kind: 'artifact' }], acceptance: ['通过检查'], position: { x: 42, y: 84 } }),
+      step('b', 'B', 'test', '测试', { requires: [], roleId: 'role.tester' }),
+      step('join', '验收', 'verify', '验收', { requires: ['a', 'b'], roleId: 'role.reviewer' }),
+    ] });
+    const created = service.create({ requestKey: createRequestKey(), draft, confirmCreate: true }).method;
+    const next = { ...draft, requiredSteps: draft.requiredSteps.map((item) => item.key === 'a' ? { ...item, summary: '修订职责' } : item) };
+    const key = createRequestKey();
+    service.save(created.id, { requestKey: key, method: next, expectedVersion: 1, confirmSave: true });
+    service.save(created.id, { requestKey: key, method: next, expectedVersion: 1, confirmSave: true });
+    const reopened = new MethodCatalogService({ store });
+    const versions = reopened.versions(created.id);
+    assert.deepEqual(versions.map((item) => item.version), [1, 2]);
+    assert.equal(versions[0]!.requiredSteps[0]!.summary, '真实职责');
+    assert.equal(versions[1]!.requiredSteps[0]!.summary, '修订职责');
+    assert.deepEqual(reopened.instantiate(created.id).method.requiredSteps[0]!.requires, []);
+    assert.deepEqual(reopened.instantiate(created.id).method.requiredSteps[0]!.position, { x: 42, y: 84 });
+    const { method } = reopened.instantiate(created.id);
+    assert.deepEqual(method.requiredSteps[2]!.requires, ['a', 'b']);
+    assert.equal(reopened.validate({ draft: { ...draft, requiredSteps: [step('a', 'A', 'verify', '验收', { requires: ['b'] }), step('b', 'B', 'test', '测试')] } }).ok, false, 'implicit legacy edge participates in cycle checking');
+  } finally { close(); }
+});

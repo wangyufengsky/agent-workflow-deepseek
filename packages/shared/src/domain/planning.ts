@@ -67,7 +67,7 @@ export interface PlanningCandidateHumanDecision {
 
 export interface PlanningValidationInput {
   readonly candidate: PlanningCandidatePayload;
-  readonly requiredSteps: readonly { readonly key: string; readonly title?: string; readonly kind: NodeKindValue; readonly group: string; readonly optional?: boolean }[];
+  readonly requiredSteps: readonly { readonly key: string; readonly title?: string; readonly kind: NodeKindValue; readonly group: string; readonly optional?: boolean; readonly requires?: readonly string[] }[];
   readonly refinableGroups: readonly string[];
   readonly limits: { readonly maxNodes: number; readonly maxEdges: number; readonly maxGroups: number; readonly maxDepth: number };
 }
@@ -152,6 +152,42 @@ export function validatePlanningCandidate(input: PlanningValidationInput): Plann
     if (!requiredKeys.has(step.key)) push('MISSING_STEP', '缺少必经步骤', `方法要求步骤 ${step.key}（${step.title ?? step.key}）`);
   }
 
+  // Explicit editor dependencies are hard method constraints; an AI candidate
+  // may insert steps between endpoints but cannot remove their ordering.
+  const successors = new Map<string, string[]>();
+  for (const edge of candidate.edges) successors.set(edge.fromKey, [...(successors.get(edge.fromKey) ?? []), edge.toKey]);
+  const reaches = (from: string, to: string, seen = new Set<string>()): boolean => {
+    if (from === to) return true;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    return (successors.get(from) ?? []).some((next) => reaches(next, to, seen));
+  };
+  for (const step of input.requiredSteps) {
+    if (!requiredKeys.has(step.key)) continue;
+    for (const dependency of step.requires ?? []) {
+      if (!requiredKeys.has(dependency)) continue; // Missing mandatory steps are reported above; omitted optional steps add no edge.
+      if (!reaches(dependency, step.key)) push('METHOD_DEPENDENCY_MISSING', '流程前驱依赖被移除', `${dependency} 必须先于 ${step.key} 完成`, step.key);
+    }
+  }
+
+  for (const step of input.requiredSteps) {
+    if (step.requires === undefined) continue;
+    for (const edge of candidate.edges.filter((item) => item.toKey === step.key)) {
+      if (step.requires.some((dependency) => dependency === edge.fromKey || reaches(dependency, edge.fromKey))) continue;
+      const from = candidate.nodes.find((item) => item.key === edge.fromKey);
+      const to = candidate.nodes.find((item) => item.key === edge.toKey);
+      const mappedInput = edge.kind === 'data' && to?.inputs?.some((item) => item.source === 'upstream' && item.fromKey === edge.fromKey);
+      const sameResource = (left: { kind: string; label: string }, right: { kind: string; label: string }) => left.kind === right.kind && left.label === right.label;
+      const resourceBasis = edge.kind === 'resource' && (
+        from?.resources?.write?.some((left) => [...(to?.resources?.read ?? []), ...(to?.resources?.write ?? [])].some((right) => sameResource(left, right)))
+        || to?.resources?.write?.some((left) => [...(from?.resources?.read ?? []), ...(from?.resources?.write ?? [])].some((right) => sameResource(left, right))));
+      const reviewedOrder = edge.kind === 'order' && candidate.humanDecisions?.some((decision) => decision.nodeKeys?.includes(step.key) && decision.detail.trim().length > 0);
+      if (!edge.label?.trim() || (!mappedInput && !resourceBasis && !reviewedOrder)) {
+        push('METHOD_DEPENDENCY_UNJUSTIFIED', '新增流程前驱缺少依据', `${edge.fromKey} → ${step.key} 改变了已配置的前驱；需给出输入映射/资源依据，或明确列入需人工判断的顺序调整`, step.key);
+      }
+    }
+  }
+
   const writeOwners = new Map<string, string[]>();
   for (const node of candidate.nodes) {
     for (const resource of node.resources?.write ?? []) {
@@ -187,7 +223,7 @@ export function validatePlanningCandidate(input: PlanningValidationInput): Plann
 
   const coverage = buildCoverage(input.requiredSteps, candidate);
   const checks = [
-    { id: 'V1', label: '必经步骤齐全', state: problems.some((p) => p.code === 'MISSING_STEP') ? 'failed' : 'passed' },
+    { id: 'V1', label: '必经步骤齐全', state: problems.some((p) => p.code === 'MISSING_STEP' || p.code === 'METHOD_DEPENDENCY_MISSING' || p.code === 'METHOD_DEPENDENCY_UNJUSTIFIED') ? 'failed' : 'passed' },
     { id: 'V2', label: '步骤键唯一', state: problems.some((p) => p.code === 'DUPLICATE_KEY') ? 'failed' : 'passed' },
     { id: 'V3', label: '依赖引用有效', state: problems.some((p) => p.code.startsWith('UNKNOWN_EDGE')) ? 'failed' : 'passed' },
     { id: 'V4', label: '无自依赖', state: problems.some((p) => p.code === 'SELF_EDGE') ? 'failed' : 'passed' },

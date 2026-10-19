@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ROUTES, createRequestKey, type RoleDefinition, type WorkflowMethod } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, type WorkflowMethod } from '@agent-workflow/shared';
 import { ApiClientError, apiGet, errorMessage, isServiceUnavailable } from '../../api/client.ts';
 import { useBootstrap } from '../../api/hooks.ts';
 import { formatAbsoluteTime } from '../../app/format.ts';
@@ -35,16 +35,10 @@ import {
   newStep,
   type LocalProblem,
 } from './workflow-model.ts';
+import { WorkflowGraphCanvas } from './WorkflowGraphCanvas.tsx';
+import { addWorkflowStep, removeWorkflowStep, connectWorkflowSteps, workflowDifferences, workflowLayout } from './workflow-graph.ts';
+import { explicitMethodSteps } from '@agent-workflow/shared';
 import './workflows.css';
-
-const NODE_W = 212;
-const NODE_H = 118;
-const NODE_GAP = 64;
-const START_W = 92;
-const END_W = 92;
-const CANVAS_TOP = 56;
-const START_LEFT = 8;
-const STEPS_LEFT = START_LEFT + START_W + 44;
 
 type SavePhase = 'idle' | 'saving' | 'saved' | 'failed' | 'unknown' | 'conflict';
 
@@ -53,57 +47,6 @@ interface SaveState {
   readonly requestKey?: string;
   readonly message?: string;
   readonly currentVersion?: number;
-}
-
-function roleName(roles: readonly RoleDefinition[], roleId: string | undefined): string | undefined {
-  if (roleId === undefined) return undefined;
-  return roles.find((role) => role.id === roleId)?.name;
-}
-
-function CanvasNode({ step, x, index, selected, readonly, roleLabel, onSelect, onInsertAfter }: {
-  readonly step: WorkflowStepView;
-  readonly x: number;
-  readonly index: number;
-  readonly selected: boolean;
-  readonly readonly: boolean;
-  readonly roleLabel?: string;
-  readonly onSelect: () => void;
-  readonly onInsertAfter: () => void;
-}) {
-  return (
-    <div className="wfe-node-wrap" id={`wfe-node-${step.key}`} style={{ left: x, top: CANVAS_TOP, width: NODE_W }}>
-      <button
-        type="button"
-        className="wfe-node"
-        aria-pressed={selected}
-        onClick={onSelect}
-        style={{ height: NODE_H }}
-      >
-        <span className="wfe-node-head">
-          <span className="wfe-node-index mono">{String(index + 1).padStart(2, '0')}</span>
-          <span className="wfe-node-title ellipsis" title={step.title}>{step.title}</span>
-        </span>
-        <span className="wfe-node-role">
-          {step.roleId === undefined ? (
-            <Badge tone="warn" icon="help">未指定职业</Badge>
-          ) : (
-            <span className="hint ellipsis">职业：{roleLabel ?? step.roleId}</span>
-          )}
-        </span>
-        <span className="wfe-node-meta hint">
-          {WORKFLOW_STEP_KIND_LABEL[step.kind]} · {step.group}
-          {step.optional === true ? ' · 可选' : ''}
-        </span>
-      </button>
-      {readonly ? null : (
-        <div className="wfe-node-actions">
-          <Button variant="ghost" size="sm" icon="plus" onClick={onInsertAfter}>
-            下一步
-          </Button>
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function WorkflowEditorPage() {
@@ -117,7 +60,10 @@ export function WorkflowEditorPage() {
     enabled: id !== '',
     retry: false,
   });
+  const versionsQuery = useQuery({ queryKey: ['workflow', 'versions', id, detailQuery.data?.version], queryFn: async () => (await apiGet<{ versions: readonly WorkflowCatalogDetail[] }>(ROUTES.workflowVersions(id))).data.versions, enabled: id !== '', retry: false });
   const roles = bootstrap.data?.catalog.roles ?? [];
+  const roleNames = useMemo(() => new Map(roles.map((role) => [role.id, role.name])), [roles]);
+  const executionRoles = roles.filter((role) => !(bootstrap.data?.catalog.methods ?? []).some((method) => method.planningStrategy?.roleId === role.id));
   const roleIds = useMemo(() => roles.map((role) => role.id), [roles]);
 
   const fallbackDetail = useMemo(() => {
@@ -148,6 +94,12 @@ export function WorkflowEditorPage() {
   const [copyError, setCopyError] = useState<string | undefined>(undefined);
   const [copyBusy, setCopyBusy] = useState(false);
   const [conflictOpen, setConflictOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [comparisonVersion, setComparisonVersion] = useState<number | undefined>();
+  const [connectTarget, setConnectTarget] = useState('');
+  const [graphError, setGraphError] = useState<string | undefined>();
   const [lookupMessage, setLookupMessage] = useState<string | undefined>(undefined);
   const loadedMarker = useRef('');
   const editingOnce = useRef(false);
@@ -187,6 +139,7 @@ export function WorkflowEditorPage() {
   }, []);
 
   const undo = useCallback(() => {
+    if (!canEdit) return;
     setHistory((items) => {
       if (items.length === 0) return items;
       const previous = items[items.length - 1];
@@ -197,9 +150,10 @@ export function WorkflowEditorPage() {
       });
       return items.slice(0, -1);
     });
-  }, []);
+  }, [canEdit]);
 
   const redo = useCallback(() => {
+    if (!canEdit) return;
     setFuture((items) => {
       if (items.length === 0) return items;
       const next = items[items.length - 1];
@@ -210,7 +164,7 @@ export function WorkflowEditorPage() {
       });
       return items.slice(0, -1);
     });
-  }, []);
+  }, [canEdit]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
@@ -258,7 +212,7 @@ export function WorkflowEditorPage() {
             description={
               detailQuery.error !== null && !unavailable
                 ? `读取流程失败：${errorMessage(detailQuery.error)}`
-                : '没有找到这个流程；如果这是自定义流程，后端的 /api/workflows 写入/详情接口可能尚未接通（W3-8c 进行中）。页面不展示示例流程。'
+                : '没有找到这个流程；如果这是自定义流程，后端的 /api/workflows 写入/详情接口可能尚未接通（服务当前不可用）。页面不展示示例流程。'
             }
             action={
               <LinkButton variant="secondary" size="sm" icon="arrowLeft" to="/workflows">
@@ -295,14 +249,9 @@ export function WorkflowEditorPage() {
 
   const insertStepAt = (index: number): void => {
     if (draft === null || !canEdit) return;
-    let position = Math.max(0, Math.min(index, draft.requiredSteps.length));
-    const last = draft.requiredSteps[position];
-    if (position >= draft.requiredSteps.length && last !== undefined && (last.kind === 'delivery' || last.kind === 'verify')) {
-      position = draft.requiredSteps.length - 1;
-    }
     const step = newStep(draft.requiredSteps, '新步骤');
-    const steps = [...draft.requiredSteps.slice(0, position), step, ...draft.requiredSteps.slice(position)];
-    commit({ ...draft, requiredSteps: steps });
+    const anchor = draft.requiredSteps[Math.max(0, index - 1)]?.key;
+    commit({ ...draft, requiredSteps: addWorkflowStep(draft.requiredSteps, step, index === 0 ? undefined : anchor) });
     setSelectedKey(step.key);
     setPanelOpen(true);
   };
@@ -314,7 +263,8 @@ export function WorkflowEditorPage() {
 
   const removeSelected = (): void => {
     if (draft === null || selectedStep === undefined) return;
-    commit({ ...draft, requiredSteps: draft.requiredSteps.filter((step) => step.key !== selectedStep.key) });
+    const steps = removeWorkflowStep(draft.requiredSteps, selectedStep.key);
+    commit({ ...draft, requiredSteps: steps, refinableGroups: draft.refinableGroups.filter((group) => steps.some((step) => step.group === group)) });
     setSelectedKey(null);
     setPanelOpen(false);
     setDeleteOpen(false);
@@ -363,7 +313,7 @@ export function WorkflowEditorPage() {
       return;
     }
     if (fallbackMode) {
-      setSaveState({ phase: 'failed', message: '后端 /api/workflows 写入接口尚未接通（W3-8c 进行中），本次修改没有提交。' });
+      setSaveState({ phase: 'failed', message: '后端 /api/workflows 写入接口尚未接通（服务当前不可用），本次修改没有提交。' });
       return;
     }
     const requestKey = createRequestKey();
@@ -454,9 +404,21 @@ export function WorkflowEditorPage() {
     navigate('/workflows');
   };
 
-  const canvasWidth = STEPS_LEFT + draft.requiredSteps.length * (NODE_W + NODE_GAP) + 40 + END_W;
-  const endX = STEPS_LEFT + draft.requiredSteps.length * (NODE_W + NODE_GAP) + 14;
-  const stepX = (index: number): number => STEPS_LEFT + index * (NODE_W + NODE_GAP);
+  const connect = (from: string, to: string): void => {
+    if (!canEdit) return;
+    const steps = connectWorkflowSteps(draft.requiredSteps, from, to);
+    if (steps === undefined) { setGraphError('这条连线会造成环路，或端点不存在；修改未应用。'); return; }
+    commit({ ...draft, requiredSteps: steps }); setGraphError(undefined);
+  };
+  const parallel = (): void => {
+    if (!canEdit || selectedStep === undefined) return;
+    const step = newStep(draft.requiredSteps, '并行步骤');
+    commit({ ...draft, requiredSteps: addWorkflowStep(draft.requiredSteps, step, selectedStep.key, 'parallel') });
+    setSelectedKey(step.key);
+  };
+  const comparison = versionsQuery.data?.find((item) => item.version === comparisonVersion);
+  const comparisonSteps = comparison?.requiredSteps ?? baseline?.requiredSteps ?? [];
+  const differences = workflowDifferences(comparisonSteps, draft.requiredSteps);
 
   const banner =
     saveState.phase === 'unknown' ? (
@@ -601,7 +563,7 @@ export function WorkflowEditorPage() {
             size="sm"
             icon="copy"
             disabled={fallbackMode || copyBusy}
-            disabledReason={fallbackMode ? '接口未接通，无法复制；请等待 W3-8c 接线' : copyBusy ? '正在复制…' : undefined}
+            disabledReason={fallbackMode ? '接口未接通，无法复制；请先恢复服务连接' : copyBusy ? '正在复制…' : undefined}
             onClick={() => {
               setCopyName(`${detail.name} 副本`);
               setCopyError(undefined);
@@ -628,108 +590,31 @@ export function WorkflowEditorPage() {
         <div className="banner warn" style={{ marginBottom: 12 }}>
           <Icon name="info" />
           <div className="grow">
-            `/api/workflows` 详情/写入接口尚未接通（W3-8c 进行中）；当前以目录快照只读展示内置流程。复制、保存、检查接口调用会明确报错，不伪造成功。
+            `/api/workflows` 详情/写入接口尚未接通（服务当前不可用）；当前以目录快照只读展示内置流程。复制、保存、检查接口调用会明确报错，不伪造成功。
           </div>
         </div>
       ) : null}
 
       {banner === null ? null : <div style={{ marginBottom: 12 }}>{banner}</div>}
 
+      <div className="row wrap" style={{ gap: 8, marginBottom: 10 }}>
+        <Button variant="secondary" size="sm" icon="plus" disabled={!canEdit} disabledReason={readonly ? '只读流程，请复制后修改' : locked ? '保存未结算，暂不能修改' : undefined} onClick={() => { setTemplatesOpen(true); }}>从步骤模板添加</Button>
+        <select className="select" style={{ width: 'auto', minWidth: 200, maxWidth: '100%' }} aria-label="选择流程步骤" value={selectedKey ?? ''} onChange={(event) => { if (event.target.value !== '') { setSelectedKey(event.target.value); setPanelOpen(true); } }}><option value="">选择步骤查看或编辑…</option>{draft.requiredSteps.map((step) => <option key={step.key} value={step.key}>{step.title}</option>)}</select>
+        <Button variant="ghost" size="sm" icon="eye" onClick={() => { setDiffOpen(true); }}>查看本地修改对照 · {differences.length}</Button>
+      </div>
+      {graphError === undefined ? null : <div className="banner danger" role="alert"><Icon name="alert" />{graphError}</div>}
       <div className="wfe-canvas-card" aria-label="流程画布">
-        <div className="wfe-canvas-scroll">
-          <div className="wfe-canvas" style={{ width: Math.max(canvasWidth, 720) }}>
-            <svg className="wfe-edges" width={Math.max(canvasWidth, 720)} height={260} aria-hidden="true">
-              <line x1={START_LEFT + START_W} y1={CANVAS_TOP + NODE_H / 2} x2={STEPS_LEFT} y2={CANVAS_TOP + NODE_H / 2} />
-              {draft.requiredSteps.map((step, index) => (
-                <line
-                  key={`${step.key}-line`}
-                  x1={stepX(index) + NODE_W}
-                  y1={CANVAS_TOP + NODE_H / 2}
-                  x2={index === draft.requiredSteps.length - 1 ? endX : stepX(index + 1)}
-                  y2={CANVAS_TOP + NODE_H / 2}
-                />
-              ))}
-            </svg>
-
-            <div className="wfe-system-node" style={{ left: START_LEFT, top: CANVAS_TOP + NODE_H / 2 - 18 }}>
-              <Icon name="play" size="sm" />
-              开始
-            </div>
-
-            {draft.requiredSteps.map((step, index) => (
-              <CanvasNode
-                key={step.key}
-                step={step}
-                x={stepX(index)}
-                index={index}
-                selected={selectedKey === step.key}
-                readonly={!canEdit}
-                roleLabel={roleName(roles, step.roleId)}
-                onSelect={() => {
-                  setSelectedKey(step.key);
-                  setPanelOpen(true);
-                }}
-                onInsertAfter={() => {
-                  insertStepAt(index + 1);
-                }}
-              />
-            ))}
-
-            {draft.requiredSteps.length > 0
-              ? draft.requiredSteps.map((step, index) =>
-                  index < draft.requiredSteps.length - 1 && canEdit ? (
-                    <button
-                      key={`${step.key}-insert`}
-                      type="button"
-                      className="wfe-edge-plus"
-                      aria-label={`在第 ${String(index + 1)} 步与第 ${String(index + 2)} 步之间插入`}
-                      style={{ left: stepX(index) + NODE_W + 16, top: CANVAS_TOP + NODE_H / 2 - 12 }}
-                      onClick={() => {
-                        insertStepAt(index + 1);
-                      }}
-                    >
-                      <Icon name="plus" size="sm" />
-                    </button>
-                  ) : null,
-                )
-              : null}
-
-            <div className="wfe-system-node" style={{ left: endX, top: CANVAS_TOP + NODE_H / 2 - 18 }}>
-              <Icon name="check" size="sm" />
-              交付
-            </div>
-
-            {draft.requiredSteps.length === 0 ? (
-              <div className="wfe-empty">
-                <span className="tile">
-                  <Icon name="flow" />
-                </span>
-                <b>从第一步开始</b>
-                <p className="hint">流程由一串步骤组成；服务端要求至少保留一个交付或验收步骤。</p>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon="plus"
-                  disabled={!canEdit}
-                  disabledReason={readonly ? '内置流程只读，请复制后修改' : undefined}
-                  onClick={() => {
-                    insertStepAt(0);
-                  }}
-                >
-                  添加第一步
-                </Button>
-              </div>
-            ) : null}
-
-            <div className="wfe-count">
-              {String(draft.requiredSteps.length)} 个步骤 · {String(draft.requiredSteps.length + 1)} 条连线
-            </div>
-          </div>
-        </div>
-        <p className="hint wfe-canvas-note">
-          画布按有序步骤链排列（服务模型没有并行分支字段，执行按步骤顺序推进）；「并行 / 连接到」不可用，已用按钮原因说明。
-          职业来自角色目录；未指定职业的步骤会阻止保存（前端规则）。
-        </p>
+        <WorkflowGraphCanvas steps={draft.requiredSteps} roleNames={roleNames} baseline={comparisonSteps} selected={selectedKey} readonly={!canEdit}
+          onSelect={(key) => { setSelectedKey(key); setPanelOpen(true); }} onConnect={connect}
+          onDisconnect={(from, to) => { if (canEdit) commit({ ...draft, requiredSteps: explicitMethodSteps(draft.requiredSteps).map((step) => step.key === to ? { ...step, requires: step.requires!.filter((key) => key !== from) } : step) }); }}
+          onInsert={(from, to) => {
+            if (!canEdit) return;
+            const step = { ...newStep(draft.requiredSteps, '新步骤'), requires: [from] };
+            commit({ ...draft, requiredSteps: [...explicitMethodSteps(draft.requiredSteps).map((item) => item.key === to ? { ...item, requires: item.requires!.map((key) => key === from ? step.key : key) } : item), step] });
+            setSelectedKey(step.key); setPanelOpen(true);
+          }}
+          onLayout={(positions) => { if (canEdit) commit({ ...draft, requiredSteps: draft.requiredSteps.map((step) => ({ ...step, position: positions.get(step.key)! })) }); }}
+          onPosition={(key, position) => { if (canEdit) commit({ ...draft, requiredSteps: draft.requiredSteps.map((step) => step.key === key ? { ...step, position } : step) }); }} />
       </div>
 
       {checkOpen && serverValidation !== null ? (
@@ -798,12 +683,6 @@ export function WorkflowEditorPage() {
       >
         {selectedStep === undefined ? null : (
           <div className="col" style={{ gap: 16 }} id={`wfe-step-${selectedStep.key}`}>
-            <div className="banner info">
-              <Icon name="info" />
-              <div className="grow">
-                服务只提供步骤名称 / 类型 / 分组 / 职业 / 可选 / 依赖字段；设计稿的「这一步做什么 / 产出与验收」没有对应契约，本面板不伪造这些内容。
-              </div>
-            </div>
             <div className="field" style={{ margin: 0 }}>
               <label className="label" htmlFor="wfe-step-title">步骤名称</label>
               <input
@@ -827,12 +706,15 @@ export function WorkflowEditorPage() {
                 }}
               >
                 <option value="">未指定职业</option>
-                {roles.map((role) => (
+                {executionRoles.map((role) => (
                   <option key={role.id} value={role.id}>{role.name}</option>
                 ))}
               </select>
               <span className="hint">职业来自角色目录；服务会校验存在的职业。未指定职业会阻止保存（前端规则）。</span>
             </div>
+            <div className="field"><label className="label" htmlFor="wfe-step-summary">这一步做什么</label><textarea id="wfe-step-summary" className="textarea" value={selectedStep.summary ?? ''} readOnly={!canEdit} onChange={(event) => { updateStep({ summary: event.target.value }); }} /></div>
+            <div className="field"><label className="label" htmlFor="wfe-step-outputs">产出（每行一项，执行后才有实际产物）</label><textarea id="wfe-step-outputs" className="textarea" value={(selectedStep.outputs ?? []).map((item) => item.name).join('\n')} readOnly={!canEdit} onChange={(event) => { updateStep({ outputs: event.target.value.split('\n').filter(Boolean).map((name) => ({ name, kind: 'artifact' })) }); }} /></div>
+            <div className="field"><label className="label" htmlFor="wfe-step-acceptance">验收标准（每行一项）</label><textarea id="wfe-step-acceptance" className="textarea" value={(selectedStep.acceptance ?? []).join('\n')} readOnly={!canEdit} onChange={(event) => { updateStep({ acceptance: event.target.value.split('\n').filter(Boolean) }); }} /></div>
             <div className="grid-2" style={{ gap: 12 }}>
               <div className="field" style={{ margin: 0 }}>
                 <label className="label" htmlFor="wfe-step-kind">步骤类型</label>
@@ -862,7 +744,7 @@ export function WorkflowEditorPage() {
             <div className="field" style={{ margin: 0 }}>
               <span className="label">之后</span>
               <div className="col" style={{ gap: 6 }}>
-                {draft.requiredSteps.slice(selectedIndex + 1, selectedIndex + 2).map((next) => (
+                {explicitMethodSteps(draft.requiredSteps).filter((step) => step.requires!.includes(selectedStep.key)).map((next) => (
                   <span key={next.key} className="chip" style={{ justifyContent: 'flex-start' }}>
                     <Icon name="arrowRight" size="sm" />
                     {next.title}
@@ -871,22 +753,24 @@ export function WorkflowEditorPage() {
                 {selectedIndex === draft.requiredSteps.length - 1 ? <span className="hint">这是最后一步；执行完成后到达「交付」。</span> : null}
               </div>
               <p className="hint" style={{ marginTop: 6 }}>
-                流程按有序步骤执行，服务没有并行分支字段；「添加并行步骤 / 连接到…」不可用（按钮会禁用并说明原因）。
+                连线就是实际前驱依赖；多个后继同时就绪，汇合节点等待所有前驱通过验收。
               </p>
               {canEdit ? (
                 <div className="row wrap" style={{ gap: 8, marginTop: 8 }}>
                   <Button variant="secondary" size="sm" icon="plus" onClick={() => { insertStepAt(selectedIndex + 1); }}>
                     添加下一步
                   </Button>
-                  <Button variant="ghost" size="sm" icon="split" disabled disabledReason="服务模型只有有序步骤列表，没有并行分支字段；并行步骤无法保存。">
+                  <Button variant="ghost" size="sm" icon="split" onClick={parallel}>
                     添加并行步骤
                   </Button>
-                  <Button variant="ghost" size="sm" icon="link" disabled disabledReason="服务没有任意连线字段；执行按步骤顺序推进，requires 只用于依赖检查。">
-                    连接到…
-                  </Button>
+                  <select className="select" aria-label="连接目标步骤" value={connectTarget} onChange={(event) => { setConnectTarget(event.target.value); }}><option value="">连接到…</option>{draft.requiredSteps.filter((step) => step.key !== selectedStep.key).map((step) => <option key={step.key} value={step.key}>{step.title}</option>)}</select>
+                  <Button variant="ghost" size="sm" icon="link" disabled={connectTarget === ''} disabledReason={connectTarget === '' ? '先选择目标步骤' : undefined} onClick={() => { connect(selectedStep.key, connectTarget); }}>添加连线</Button>
+
                 </div>
               ) : null}
             </div>
+            <div className="field"><label className="label" htmlFor="wfe-step-inputs">输入映射（每行一项）</label><textarea id="wfe-step-inputs" className="textarea" value={(selectedStep.inputs ?? []).map((item) => item.name).join('\n')} readOnly={!canEdit} onChange={(event) => { updateStep({ inputs: event.target.value.split('\n').filter(Boolean).map((name) => ({ name, source: 'manual' })) }); }} /></div>
+            <div className="row wrap" style={{ gap: 8 }}><span className="hint">布局位置（可代替拖动）</span>{(['x', 'y'] as const).map((axis) => <label key={axis}>{axis}<input className="input" aria-label={`步骤位置 ${axis}`} type="number" readOnly={!canEdit} value={(selectedStep.position ?? workflowLayout(draft.requiredSteps).get(selectedStep.key))?.[axis] ?? 0} onChange={(event) => { if (Number.isFinite(event.target.valueAsNumber)) updateStep({ position: { ...(selectedStep.position ?? workflowLayout(draft.requiredSteps).get(selectedStep.key) ?? { x: 0, y: 0 }), [axis]: event.target.valueAsNumber } }); }} /></label>)}</div>
             <details className="wfe-advanced">
               <summary>
                 <Icon name="chevRight" size="sm" />
@@ -907,10 +791,10 @@ export function WorkflowEditorPage() {
                   </span>
                 </label>
                 <div>
-                  <span className="label">依赖（requires，仅用于检查依赖/环路）</span>
+                  <span className="label">前驱步骤（全部完成并通过验收后才就绪）</span>
                   <div className="col" style={{ gap: 4, marginTop: 6 }}>
                     {draft.requiredSteps.filter((step) => step.key !== selectedStep.key).map((step) => {
-                      const checked = (selectedStep.requires ?? []).includes(step.key);
+                      const checked = (explicitMethodSteps(draft.requiredSteps).find((item) => item.key === selectedStep.key)?.requires ?? []).includes(step.key);
                       return (
                         <label key={step.key} className="check">
                           <input
@@ -918,10 +802,13 @@ export function WorkflowEditorPage() {
                             checked={checked}
                             disabled={!canEdit}
                             onChange={(event) => {
-                              const current = new Set(selectedStep.requires ?? []);
+                              const current = new Set(explicitMethodSteps(draft.requiredSteps).find((item) => item.key === selectedStep.key)?.requires ?? []);
                               if (event.target.checked) current.add(step.key);
                               else current.delete(step.key);
-                              updateStep(current.size === 0 ? { requires: undefined } : { requires: [...current] });
+                              const next = draft.requiredSteps.map((item) => item.key === selectedStep.key ? { ...item, requires: [...current] } : item);
+                              const issues = localProblems({ ...draft, requiredSteps: next }, roleIds);
+                              if (issues.some((issue) => issue.code === 'METHOD_CYCLE')) setGraphError('依赖会形成环路，修改未应用');
+                              else { commit({ ...draft, requiredSteps: next }); setGraphError(undefined); }
                             }}
                           />
                           <span style={{ fontSize: 13 }}>{step.title}</span>
@@ -936,6 +823,21 @@ export function WorkflowEditorPage() {
         )}
       </Drawer>
 
+      <Drawer open={templatesOpen} title="添加步骤 · 来自服务流程目录" size="lg" onClose={() => { setTemplatesOpen(false); }}>
+        <input className="input" aria-label="搜索步骤模板" value={templateSearch} onChange={(event) => { setTemplateSearch(event.target.value); }} />
+        <p className="hint">将模板的职责、输入、产出及验收复制到所选步骤之后；不共享实例状态。</p>
+        {(bootstrap.data?.catalog.methods ?? []).flatMap((method) => method.requiredSteps.map((template) => ({ template, method }))).filter(({ template }) => template.title.includes(templateSearch)).map(({ template, method }) => <div className="card pad" key={`${method.id}:${template.key}`}><b>{template.title}</b><p className="hint">{method.name} {method.revision} · {template.kind}</p><p>{template.summary ?? template.title}</p><Button variant="secondary" size="sm" disabled={!canEdit} disabledReason={!canEdit ? '当前流程不可修改' : undefined} onClick={() => {
+          const step = { ...structuredClone(template), key: newStep(draft.requiredSteps, template.title).key, position: undefined };
+          commit({ ...draft, requiredSteps: addWorkflowStep(draft.requiredSteps, step, selectedKey ?? undefined) }); setSelectedKey(step.key); setTemplatesOpen(false); setPanelOpen(true);
+        }}>添加这一步</Button></div>)}
+      </Drawer>
+      <Modal open={diffOpen} title={`草稿与流程版本对照`} onClose={() => { setDiffOpen(false); }} footer={<Button variant="ghost" onClick={() => { setDiffOpen(false); }}>关闭</Button>}>
+        <label className="label" htmlFor="wfe-diff-version">对照版本</label><select id="wfe-diff-version" className="select" value={comparisonVersion ?? detail.version} onChange={(event) => { setComparisonVersion(Number(event.target.value)); }}>{(versionsQuery.data ?? [detail]).map((version) => <option key={version.version} value={version.version}>{version.name} · 版本 {version.version}</option>)}</select>
+        {versionsQuery.isError ? <p className="error-text">历史读取失败：{errorMessage(versionsQuery.error)}</p> : <p className="hint">只显示服务实际保存的版本；旧版缺失的历史不会补造。</p>}
+        {comparison !== undefined && (comparison.name !== draft.name || comparison.description !== draft.description) ? <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify({ before: { name: comparison.name, description: comparison.description }, after: { name: draft.name, description: draft.description } }, null, 2)}</pre> : null}
+        {differences.length === 0 ? <p>步骤与依赖没有变化。</p> : differences.map((difference) => <div className="card pad" key={difference.key}><Badge icon={difference.kind === 'added' ? 'plus' : difference.kind === 'removed' ? 'trash' : 'edit'}>{difference.kind === 'added' ? '新增' : difference.kind === 'removed' ? '删除' : '修改'}</Badge> {difference.title}<p className="hint">{difference.fields.join(' · ')}</p><pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify({ before: comparisonSteps.find((item) => item.key === difference.key), after: draft.requiredSteps.find((item) => item.key === difference.key) }, null, 2)}</pre></div>)}
+      </Modal>
+
       <Modal
         open={deleteOpen}
         title="删除这一步？"
@@ -947,7 +849,7 @@ export function WorkflowEditorPage() {
           </>
         }
       >
-        <p>“{selectedStep?.title ?? ''}”会从有序步骤链中移除，前后步骤按顺序自动衔接。删除只影响这份草稿，保存前都可以撤销。</p>
+        <p>“{selectedStep?.title ?? ''}”会从依赖图中移除，后继会接回这一步的所有前驱。删除只影响这份草稿，保存前都可以撤销。</p>
       </Modal>
 
       <Modal
