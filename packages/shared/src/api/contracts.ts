@@ -423,6 +423,19 @@ export interface RoleCatalogEntry extends RoleDefinition {
   readonly updatedAt?: IsoDateTime;
 }
 
+export interface RoleRevisionSnapshot {
+  readonly revision: string;
+  readonly name: string;
+  readonly purpose: string;
+  readonly responsibilities: readonly string[];
+  readonly publishedAt: IsoDateTime;
+}
+
+export interface RoleHistoryResponse {
+  readonly roleId: string;
+  readonly history: readonly RoleRevisionSnapshot[];
+}
+
 export interface RoleCatalogResponse {
   readonly roles: readonly RoleCatalogEntry[];
   readonly actions: Record<string, ActionAvailability>;
@@ -1075,6 +1088,7 @@ export const ROUTES = {
   catalogTemplateImport: '/api/catalog/templates/import',
   catalogTemplateUpdate: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
   catalogTemplateArchive: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
+  catalogRoleHistory: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/history`,
   catalogRoleArchive: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/archive`,
   fixMerge: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}/merge`,
   settings: '/api/settings',

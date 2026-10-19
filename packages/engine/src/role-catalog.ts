@@ -206,6 +206,12 @@ export class RoleCatalogService {
       };
       records[index] = published;
       this.#saveRecords(records);
+      const historyKey = `catalog.role.history.${id}`;
+      const previousHistory = this.#store.settings.getJson<readonly { revision: string; name: string; purpose: string; responsibilities: readonly string[]; publishedAt: string }[]>(historyKey) ?? [];
+      this.#store.settings.putJson(historyKey, [
+        { revision, name: published.name, purpose: published.purpose, responsibilities: published.responsibilities, publishedAt: published.publishedAt ?? nowIso() },
+        ...previousHistory.filter((item) => item.revision !== revision),
+      ].slice(0, 20));
       this.applyEffective();
       this.#commands.settle(input.requestKey, { roleId: id, revision });
       this.#publish('role.published', id);
@@ -214,6 +220,15 @@ export class RoleCatalogService {
       this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('发布职业失败'));
       throw error;
     }
+  }
+
+  history(roleId: string): { roleId: string; history: readonly { revision: string; name: string; purpose: string; responsibilities: readonly string[]; publishedAt: string }[] } {
+    const id = normalizeId(roleId);
+    if (!BUILT_IN_ROLES.some((role) => role.id === id) && !this.#records().some((record) => record.id === id)) {
+      throw new AppError(ErrorCode.NOT_FOUND, '职业不存在', { details: { roleId: id } });
+    }
+    const history = this.#store.settings.getJson<readonly { revision: string; name: string; purpose: string; responsibilities: readonly string[]; publishedAt: string }[]>(`catalog.role.history.${id}`) ?? [];
+    return { roleId: id, history };
   }
 
   archive(roleId: string, input: RoleArchiveRequest): CommandResponse<RoleCatalogResponse> {

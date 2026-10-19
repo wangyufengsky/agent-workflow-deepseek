@@ -41,6 +41,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/push-mr | 本地 bare 远端 push 创建/非快进拒绝；GitHub/GitLab REST 创建 MR（stub）→ delivered/lifecycle completed |
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
+| server/roles-history | 每次发布记录修订快照（最多 20），按角色读取；未知角色 404 |
 | server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
 | server/ppt | 草稿 CRUD/大纲编辑/文本+图片附件/四主题 PPTX/Markdown 导出；真实模型大纲与逐页（live PASS） |
 | server/templates | 固定模板详情/导出；自定义模板导入/可视化编辑新版本（旧任务冻结旧版本）/归档；按模板生成计划/历史 |

@@ -630,6 +630,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/catalog/roles/:id/history', async (request) => envelope(engine.roleCatalog.history(request.params.id), requestId(request)));
   app.post('/api/catalog/roles', async (request) => {
     const body = request.body as RoleSaveRequest;
     return envelope(await engine.roleCatalog.save(body), requestId(request));

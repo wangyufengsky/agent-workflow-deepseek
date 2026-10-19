@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { RoleCatalogEntry, RoleDefinition } from '@agent-workflow/shared';
-import { errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { ROUTES, type RoleCatalogEntry, type RoleDefinition, type RoleHistoryResponse } from '@agent-workflow/shared';
+import { apiGet, errorMessage, isServiceUnavailable } from '../../api/client.ts';
 import { archiveRole, fetchRoleCatalog, publishRole, saveRoleDraft } from '../../api/catalog-editor.ts';
 import { Modal } from '../../components/Modal.tsx';
 import { useBootstrap } from '../../api/hooks.ts';
@@ -132,6 +132,8 @@ export function RolesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ roleId?: string; name: string; purpose: string; responsibilities: string } | null>(null);
   const [failure, setFailure] = useState<string | undefined>(undefined);
+  const [history, setHistory] = useState<RoleHistoryResponse | null>(null);
+  const [historyError, setHistoryError] = useState<string | undefined>(undefined);
   const invalidate = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['catalog', 'roles'] }),
@@ -306,6 +308,25 @@ export function RolesPage() {
         footer={
           <>
             <Button variant="ghost" onClick={() => { setEditor(null); }}>取消</Button>
+            {editor?.roleId === undefined ? null : (
+              <Button
+                variant="ghost"
+                icon="archive"
+                onClick={() => {
+                  if (editor?.roleId === undefined) return;
+                  setHistoryError(undefined);
+                  void (async () => {
+                    try {
+                      setHistory((await apiGet<RoleHistoryResponse>(ROUTES.catalogRoleHistory(editor.roleId!))).data);
+                    } catch (error) {
+                      setHistoryError(errorMessage(error));
+                    }
+                  })();
+                }}
+              >
+                历史版本
+              </Button>
+            )}
             <span className="spacer" />
             <Button
               variant="primary"
@@ -336,6 +357,27 @@ export function RolesPage() {
           </div>
         )}
       </Modal>
+
+      <Modal open={history !== null} title="职业发布历史" onClose={() => { setHistory(null); }} footer={<Button variant="ghost" onClick={() => { setHistory(null); }}>关闭</Button>}>
+        {history === null ? null : (
+          <div className="col" style={{ gap: 12 }}>
+            <p className="hint">每发布一次记录一个修订快照；最多保留 20 个，只读。</p>
+            {history.history.length === 0 ? <p className="hint">还没有发布记录。</p> : history.history.map((entry) => (
+              <div key={entry.revision} className="card pad">
+                <div className="row wrap" style={{ gap: 8 }}>
+                  <Badge outline>{entry.revision}</Badge>
+                  <span className="hint">{new Date(entry.publishedAt).toLocaleString('zh-CN')}</span>
+                  <span className="spacer" />
+                  <span className="hint">{entry.name}</span>
+                </div>
+                <p className="hint" style={{ marginTop: 6 }}>{entry.purpose}</p>
+                <div className="hint" style={{ marginTop: 4 }}>{entry.responsibilities.map((item, index) => <div key={`${entry.revision}-${String(index)}`}>· {item}</div>)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+      {historyError === undefined ? null : <p className="hint" style={{ marginTop: 12, color: 'var(--danger)' }}>{historyError}</p>}
     </div>
   );
 }
