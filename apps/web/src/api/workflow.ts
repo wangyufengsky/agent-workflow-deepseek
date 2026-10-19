@@ -1,3 +1,4 @@
+import { pendingForScope, subscribePending } from './pending-commands.ts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useBootstrap } from './hooks.ts';
@@ -690,19 +691,24 @@ const IDLE_COMMAND: WorkflowCommandState = { busy: false, error: undefined, rece
  * re-reads the authoritative task read models.
  */
 export function useWorkflowCommand(taskId: string): WorkflowCommandRunner {
-  const [state, setState] = useState<WorkflowCommandState>(IDLE_COMMAND);
+  const [state, setState] = useState<WorkflowCommandState>(() => ({ ...IDLE_COMMAND, busy: pendingForScope(`/api/tasks/${taskId}`) !== undefined }));
   const refresh = useWorkflowRefresh(taskId);
+  const scope = `/api/tasks/${taskId}`;
+  useEffect(() => subscribePending(() => {
+    setState((current) => ({ ...current, busy: pendingForScope(scope) !== undefined }));
+    if (pendingForScope(scope) === undefined) void refresh();
+  }), [scope]);
 
   const run = useCallback(
     async <T,>(operation: () => Promise<CommandResponse<T>>): Promise<CommandResponse<T> | undefined> => {
       setState({ busy: true, error: undefined, receipt: undefined });
       try {
         const response = await operation();
-        setState({ busy: false, error: undefined, receipt: response.receipt });
+        setState({ busy: pendingForScope(scope) !== undefined, error: undefined, receipt: response.receipt });
         await refresh();
         return response;
       } catch (error) {
-        setState({ busy: false, error, receipt: undefined });
+        setState({ busy: pendingForScope(scope) !== undefined, error, receipt: undefined });
         // A rejected command can still have changed service state (e.g. an edit
         // save that hit a claim race). Re-read the authoritative models.
         await refresh();
@@ -713,7 +719,7 @@ export function useWorkflowCommand(taskId: string): WorkflowCommandRunner {
   );
 
   const reset = useCallback(() => {
-    setState(IDLE_COMMAND);
+    if (pendingForScope(scope) === undefined) setState(IDLE_COMMAND);
   }, []);
 
   return { state, run, reset };

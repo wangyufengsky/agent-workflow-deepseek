@@ -1,3 +1,4 @@
+import { commandScope, pendingCommands, pendingForScope, rememberCommand, settleCommand } from './pending-commands.ts';
 import {
   ROUTES,
   EventType,
@@ -92,10 +93,10 @@ function isEnvelope(value: unknown): value is ApiEnvelope<unknown> {
  * - classifies connection failures/timeouts as `unavailable`/`timeout` so the UI
  *   can show the explicit「服务未连接」state instead of fabricating data.
  */
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
+async function performRequest<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
   const controller = new AbortController();
   let timedOut = false;
-  const timer = window.setTimeout(() => {
+  const timer = globalThis.setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -103,6 +104,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   options.signal?.addEventListener('abort', onExternalAbort);
 
   let response: Response;
+  let rawText: string;
   try {
     response = await fetch(path, {
       method: options.method ?? 'GET',
@@ -115,6 +117,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       signal: controller.signal,
       credentials: 'same-origin',
     });
+    rawText = await response.text();
   } catch (error) {
     if (timedOut) {
       throw new ApiClientError({
@@ -130,11 +133,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       retryable: true,
     });
   } finally {
-    window.clearTimeout(timer);
+    globalThis.clearTimeout(timer);
     options.signal?.removeEventListener('abort', onExternalAbort);
   }
 
-  const rawText = await response.text();
   let payload: unknown = null;
   if (rawText.length > 0) {
     try {
@@ -176,6 +178,36 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     });
   }
   return payload as ApiEnvelope<T>;
+}
+
+/** A missing response to a write is not proof that the write failed. */
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
+  const scope = commandScope(path);
+  const body = options.body as { requestKey?: unknown } | undefined;
+  const key = typeof body?.requestKey === 'string' ? body.requestKey : undefined;
+  const tracked = scope !== undefined && key !== undefined && options.method !== undefined && options.method !== 'GET';
+  if (tracked) {
+    const pending = pendingCommands().find((v) => v.scope === scope && (v.phase !== 'accepted' || v.path === path));
+    if (pending !== undefined) throw new ApiClientError({ kind: 'protocol', message: `操作结果待核对，请核对原请求号 ${pending.requestKey}，不会重复提交。`, details: { requestKey: pending.requestKey } });
+    rememberCommand({ scope, path, requestKey: key });
+  }
+  try {
+    const response = await performRequest<T>(path, options);
+    const data = response.data as { receipt?: { status?: string }; operation?: { requestKey: string; status: string } };
+    if (tracked && data?.receipt?.status === 'accepted') rememberCommand({ scope, path, requestKey: key, phase: 'accepted' });
+    if (tracked && data?.receipt?.status !== 'accepted' && data?.receipt?.status !== 'unknown') settleCommand(key);
+    if (options.method === undefined || options.method === 'GET') {
+      const operation = data?.operation;
+      if (operation !== undefined && (operation.status === 'succeeded' || operation.status === 'failed')) settleCommand(operation.requestKey);
+    }
+    return response;
+  } catch (error) {
+    // Structured client rejection proves no operation was accepted. A server error,
+    // unreadable success body, or transport failure may follow a committed write.
+    if (tracked && error instanceof ApiClientError && error.kind === 'http' && error.status !== null && error.status < 500 && error.code !== null && !/UNKNOWN|IN_PROGRESS/.test(error.code)) settleCommand(key);
+    if (tracked && pendingForScope(scope) !== undefined) throw new ApiClientError({ kind: 'protocol', message: `结果待核对：${errorMessage(error)} 原请求号 ${key}。`, details: { requestKey: key } });
+    throw error;
+  }
 }
 
 export function apiGet<T>(path: string, options: Omit<RequestOptions, 'method' | 'body'> = {}): Promise<ApiEnvelope<T>> {

@@ -50,7 +50,7 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     assert.equal((attached.json().data.resource.attachments as unknown[]).length, 1);
     const duplicateAttachment = await app.app.inject({ method: 'POST', url: `/api/ppt/works/${id}/attachments`, payload: { requestKey: requestKey('att2'), name: 'notes.md', content: 'x', confirmAttach: true } });
     assert.equal(duplicateAttachment.statusCode, 409, duplicateAttachment.body);
-    const detached = await app.app.inject({ method: 'DELETE', url: `/api/ppt/works/${id}/attachments/${encodeURIComponent('notes.md')}` });
+    const detached = await app.app.inject({ method: 'DELETE', url: `/api/ppt/works/${id}/attachments/${encodeURIComponent('notes.md')}`, payload: { requestKey: requestKey('detach') } });
     assert.equal(detached.statusCode, 200, detached.body);
     assert.equal((detached.json().data.resource.attachments as unknown[]).length, 0);
 
@@ -74,10 +74,14 @@ test('PPT work drafts can be created, listed and deleted', async () => {
     assert.equal(generateSlides.statusCode, 503, generateSlides.body);
     assert.equal(generate.json().error.code, 'OPENCODE_NOT_READY');
 
-    const deleted = await app.app.inject({ method: 'DELETE', url: `/api/ppt/works/${id}` });
+    const deleteKey = requestKey('delete');
+    const deleted = await app.app.inject({ method: 'DELETE', url: `/api/ppt/works/${id}`, payload: { requestKey: deleteKey } });
+    assert.equal(deleted.json().data.receipt.requestKey, deleteKey);
+    const lookup = await app.app.inject({ method: 'GET', url: `/api/operations/${deleteKey}` });
+    assert.equal(lookup.json().data.operation.status, 'succeeded');
     assert.equal(deleted.statusCode, 200, deleted.body);
     assert.equal(deleted.json().data.resource.length, 0);
-    const missing = await app.app.inject({ method: 'DELETE', url: `/api/ppt/works/${id}` });
+    const missing = await app.app.inject({ method: 'DELETE', url: `/api/ppt/works/${id}`, payload: { requestKey: requestKey('missing') } });
     assert.equal(missing.statusCode, 404, missing.body);
   } finally {
     await app.close();

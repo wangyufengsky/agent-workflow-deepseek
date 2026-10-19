@@ -1,3 +1,4 @@
+import { PendingCommands } from '../components/PendingCommands.tsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { DisplayMode, THEMES, type DisplayModeValue } from '@agent-workflow/shared';
@@ -194,7 +195,7 @@ export function Shell() {
         ) : null}
 
         <div className="content" ref={contentRef}>
-          <Outlet />
+          <PendingCommands /><Outlet />
         </div>
       </div>
     </div>

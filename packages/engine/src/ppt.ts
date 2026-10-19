@@ -163,11 +163,12 @@ export class PptService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
   }
 
-  detach(id: string, name: string): CommandResponse<PptWork> {
+  detach(id: string, name: string, requestKey: string): CommandResponse<PptWork> {
+    if (!requestKey) throw new AppError(ErrorCode.VALIDATION_FAILED, '移除附件需要客户端请求号');
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
     if (!work.attachments.some((attachment) => attachment.name === name)) throw new AppError(ErrorCode.NOT_FOUND, '附件不存在');
-    const requestKey = `req_ppt_detach_${id}_${String(Date.now())}`.slice(0, 60);
+
     const { replayed } = this.#commands.begin({ requestKey, operation: 'ppt.attachment.remove', body: { workId: id, name }, target: { ref: id } });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
     const updated = this.#store.pptWorks.update({ ...work, attachments: work.attachments.filter((attachment) => attachment.name !== name) });
@@ -294,10 +295,11 @@ export class PptService {
     }).filter((text) => text !== '');
   }
 
-  delete(id: string): CommandResponse<readonly PptWork[]> {
+  delete(id: string, requestKey: string): CommandResponse<readonly PptWork[]> {
+    if (!requestKey) throw new AppError(ErrorCode.VALIDATION_FAILED, '删除作品需要客户端请求号');
     const work = this.#store.pptWorks.get(id);
     if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
-    const requestKey = `req_ppt_delete_${id}_${String(Date.now())}`.slice(0, 60);
+
     const { record, replayed } = this.#commands.begin({
       requestKey,
       operation: 'ppt.work.delete',

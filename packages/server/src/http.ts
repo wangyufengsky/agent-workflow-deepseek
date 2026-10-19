@@ -940,7 +940,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = request.body as PptAttachmentRequest;
     return envelope(engine.ppt.attach(request.params.id, body), requestId(request));
   });
-  app.delete<{ Params: { id: string; name: string } }>('/api/ppt/works/:id/attachments/:name', async (request) => envelope(engine.ppt.detach(request.params.id, decodeURIComponent(request.params.name)), requestId(request)));
+  app.delete<{ Params: { id: string; name: string } }>('/api/ppt/works/:id/attachments/:name', async (request) => envelope(engine.ppt.detach(request.params.id, decodeURIComponent(request.params.name), (request.body as { requestKey: string } | undefined)?.requestKey ?? ''), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/ppt/works/:id/generate-slides', async (request) => {
     const body = request.body as PptWorkGenerateContentRequest;
     return envelope(await engine.ppt.generateSlides(request.params.id, body), requestId(request));
@@ -953,7 +953,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = request.body as PptWorkGenerateRequest;
     return envelope(await engine.ppt.generate(request.params.id, body), requestId(request));
   });
-  app.delete<{ Params: { id: string } }>('/api/ppt/works/:id', async (request) => envelope(engine.ppt.delete(request.params.id), requestId(request)));
+  app.delete<{ Params: { id: string } }>('/api/ppt/works/:id', async (request) => envelope(engine.ppt.delete(request.params.id, (request.body as { requestKey: string } | undefined)?.requestKey ?? ''), requestId(request)));
   app.post('/api/knowledge/ask', async (request) => {
     const body = request.body as KnowledgeAskRequest;
     return envelope(await engine.knowledge.ask(body), requestId(request));

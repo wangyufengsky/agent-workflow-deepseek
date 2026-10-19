@@ -1,10 +1,15 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { pendingForScope } from '../../api/pending-commands.ts';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createRequestKey, type AppSettings, type BootstrapResponse } from '@agent-workflow/shared';
 import { errorMessage, isApiClientError, isServiceUnavailable, request } from '../../api/client.ts';
 import { queryKeys } from '../../api/hooks.ts';
 import { SettingsRow, type SettingsEffect } from './shared.tsx';
 
+const draftStorageKey = 'agent-workflow.settings-draft.v1';
+function restoredFields(): Record<string, DraftField> {
+  try { return JSON.parse(sessionStorage.getItem(draftStorageKey) ?? '{}') as Record<string, DraftField>; } catch { return {}; }
+}
 type DraftValue = string | number | boolean;
 
 export interface DraftField {
@@ -59,9 +64,14 @@ function buildPatch(fields: readonly DraftField[]): Record<string, unknown> {
 
 export function SettingsDraftProvider({ children }: { readonly children: ReactNode }) {
   const queryClient = useQueryClient();
-  const [fields, setFields] = useState<Record<string, DraftField>>({});
+  const [fields, setFields] = useState<Record<string, DraftField>>(restoredFields);
   const [saveMessage, setSaveMessage] = useState<SaveMessage | undefined>(undefined);
 
+  useEffect(() => {
+    // These draft rows contain execution/monitoring limits, never credential inputs.
+    const safeFields = Object.fromEntries(Object.entries(fields).filter(([path]) => path.startsWith('execution.') || path.startsWith('monitoring.')));
+    try { sessionStorage.setItem(draftStorageKey, JSON.stringify(safeFields)); } catch { /* current draft remains in memory */ }
+  }, [fields]);
   const setField = (field: DraftField) => {
     setSaveMessage(undefined);
     setFields((current) => {
@@ -76,6 +86,7 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
   };
 
   const discard = () => {
+    if (pendingForScope('/api/settings') !== undefined) return;
     setFields({});
     setSaveMessage(undefined);
   };
@@ -104,13 +115,13 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings });
     },
     onError: (error) => {
-      if (isApiClientError(error) && error.kind === 'timeout') {
-        setSaveMessage({ tone: 'unknown', message: '保存结果未明：请求超时。请刷新设置核对是否已写入，不要直接重复提交。' });
+      if (pendingForScope('/api/settings') !== undefined) {
+        setSaveMessage({ tone: 'unknown', message: '保存结果未明：请使用上方“核对原操作”。核对前保留修改并禁止再次保存。' });
         return;
       }
       setSaveMessage({
         tone: 'danger',
-        message: isServiceUnavailable(error) ? '服务未连接，设置未保存。' : errorMessage(error),
+        message: isServiceUnavailable(error) ? '服务未连接，保存未获确认。' : errorMessage(error),
       });
     },
   });
@@ -129,7 +140,7 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
       setField,
       discard,
       save: () => {
-        if (dirtyFields.length === 0 || saveMutation.isPending) return;
+        if (dirtyFields.length === 0 || saveMutation.isPending || pendingForScope('/api/settings') !== undefined) return;
         saveMutation.mutate();
       },
     };

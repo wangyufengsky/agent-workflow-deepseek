@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ROUTES,
+  createRequestKey,
   type CommandResponse,
   type OperationReceipt,
   type OperationsByKeyResponse,
@@ -37,7 +38,7 @@ const WORKS_QUERY_KEY = ['ppt', 'works'] as const;
 type PptView = 'works' | 'workbench';
 
 /** 执行写命令并取出服务回执；未知/失败由调用方按回执状态展示。 */
-async function executePptCommand(command: PptCommand): Promise<OperationReceipt> {
+async function executePptCommand(command: PptCommand, requestKey: string): Promise<OperationReceipt> {
   switch (command.kind) {
     case 'create': {
       const response = await apiPost<CommandResponse<readonly PptWork[]>>(ROUTES.pptWorks, command.body, { timeoutMs: 20_000 });
@@ -49,7 +50,7 @@ async function executePptCommand(command: PptCommand): Promise<OperationReceipt>
     }
     case 'detach': {
       const response = await request<CommandResponse<PptWork>>(ROUTES.pptWorkAttachment(command.workId, command.name), {
-        method: 'DELETE',
+        method: 'DELETE', body: { requestKey },
       });
       return response.data.receipt;
     }
@@ -73,7 +74,7 @@ async function executePptCommand(command: PptCommand): Promise<OperationReceipt>
       return response.data.receipt;
     }
     case 'delete': {
-      const response = await request<CommandResponse<readonly PptWork[]>>(ROUTES.pptWork(command.workId), { method: 'DELETE' });
+      const response = await request<CommandResponse<readonly PptWork[]>>(ROUTES.pptWork(command.workId), { method: 'DELETE', body: { requestKey } });
       return response.data.receipt;
     }
   }
@@ -118,9 +119,9 @@ export function PptPage() {
     setBusyKind(command.kind);
     setReceipt(null);
     const label = PPT_COMMAND_LABEL[command.kind];
-    const requestKey = pptCommandRequestKey(command);
+    const requestKey = pptCommandRequestKey(command) ?? createRequestKey();
     try {
-      const rawReceipt = await executePptCommand(command);
+      const rawReceipt = await executePptCommand(command, requestKey);
       const receiptView = toPptReceipt(rawReceipt);
       const outcome: PptCommandOutcome = receiptView.status;
       let signalMessage: string | undefined;
