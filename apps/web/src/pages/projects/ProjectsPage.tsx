@@ -409,6 +409,7 @@ export function ProjectsPage() {
       />
 
       {editProject.isError ? <p className="hint" style={{ marginBottom: 12, color: 'var(--danger)' }}>{errorMessage(editProject.error)}</p> : null}
+      {recheckProject.isError ? <p className="hint" style={{ marginBottom: 12, color: 'var(--danger)' }}>重新检测失败：{errorMessage(recheckProject.error)}</p> : null}
       {notice === null ? null : (
         <div className="banner ok" role="status" style={{ marginBottom: 14 }}>
           <Icon name="check" />
