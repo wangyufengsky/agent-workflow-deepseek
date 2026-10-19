@@ -1,11 +1,11 @@
 # 设计一致性验收矩阵 · 2026-10-20
 
-这是新增验收证据，不替代编号需求。基线为审查报告所指 `55c389f` 及本分支静态代码；不包含任何本轮 GUI、真实模型或远端写入 PASS。设计只读；本文件不修改产品范围。
+当前整理基线为 **818bf6c**（文档工作区由54b9c4c创建，补核Lead已集成提交），保留初次审查 `55c389f` 的状态ID/来源身份。此批只整理现有 docs/review 与 docs/verification 证据，没有新运行GUI/模型/远端写；不是把旧审查全部升级PASS。设计只读，状态原名保留。归档与质量后续90d45b9已集成818bf6c，保持原证据身份E25。
 
 ## 判定与执行方法
 
 - 优先级：合集 README v5 与 supplement-v5 > supplement-v4 > planning/delivery/git/node 补充稿 > originals/main。历史备份不用于覆盖最新版。
-- 页面存在、文本断言、单元测试、API 通过、原型截图均不能替代实际产品 GUI 一致性。所有下列条目默认 **未验收**；“已知缺口”来自 2026-10-20 只读审查和当前覆盖矩阵，非每条均动态复现。
+- 页面存在、文本断言、单元测试、API 通过、原型截图均不能替代实际产品 GUI 一致性。逐状态条目默认 **未完整验收**；已获局部证据只回填到对应身份/层，不覆盖未测的V/S/R/K。旧501/无接口等已由当前实现替代，不继续当现存缺陷。
 - V：四主题 deepseek/warm/spdb/github-white，1440×900、1280×800、1024×768，以同状态设计截图逐区核对排版/宽高/间距/颜色令牌/字号/文本/图标/溢出。移除设计辅助控制条后比较产品区；品牌按已有 agent-workflow 决策。
 - A：真实服务驱动操作，记录输入、可用操作及原因、requestKey、accepted/终态回执与实际副作用。模型结果必须来自配置模型；不能复制设计数据当运行事实。
 - S：逐条注入加载/空/缺权限配置/漂移冲突/明确失败/取消保留/部分效果/UNKNOWN/成功；断线保留最后事实，恢复补读去重，未知只查询原操作。
@@ -13,37 +13,67 @@
 - K：键盘Tab/方向键/Enter/Esc、焦点限制与归还、图标+文字、禁用原因可读、减少动态。
 - 每条完成须补：实现commit、服务/故障数据、主题尺寸截图、交互记录、实际副作用证据、未覆盖项。服务未提供的“诚实降级”仍为设计缺口；设计本来明确缺能力态则按该态验收。
 
-## 25 页验收入口
+## 25 页验收入口 · 当前分层回填
 
-每行三个独立 ID：`.V` 验结构和视觉、`.A` 验所列操作闭环、`.S` 验该页设计状态与返回。通用S不凭空添加动作；具体状态以源码控件与下表注册状态为准。
+每页保留P01–P25的.V/.A/.S身份；I实现/H服务或受控测试/M真实模型外部/G正式CUA相互独立。完整状态未测不得写PASS；原注册状态/行号在下方保留。具体证据见E索引。
 
-| ID前缀 | 设计文件（相对设计根目录） | 具体结构与操作验收目标 | 当前已知差异/风险 | 方式与尚未验证 |
-|---|---|---|---|---|
-| P01.home.V/.A/.S | `originals/main/pages/home.html` | Hero、目标入口、能力卡、进行中单卡、需要处理入口 | 进行中卡尚未实现；示例流程必须明确演示身份 | V+A+S+R+K；全部未逐态验证 |
-| P02.projects.V/.A/.S | `originals/main/pages/projects.html` | 项目网格/登记抽屉、详情四页签、公约生成/停止/确认/历史、文档路径、GitLab覆盖 | 公约生成501；项目配置保存未贯通执行；版本恢复待核对 | V+A+S+R+K；全部未逐态验证 |
-| P03.knowledge.V/.A/.S | `originals/main/pages/knowledge.html` | 项目与代码/文档/数据库来源、研究员面板、研究进度、停止/继续、工具时间线、角色证据、引用原文 | 来源勾选未传服务；非流式；停止/继续与项目许可未闭环 | V+A+S+R+K；全部未逐态验证 |
-| P04.knowledge-history.V/.A/.S | `originals/main/pages/knowledge-history.html` | 日期分组、项目搜索、状态与引用摘要、返回原会话继续追问 | 状态字段缺失；重命名/归档/删除需逐动作与设计核对 | V+A+S+R+K；全部未逐态验证 |
-| P05.ppt.V/.A/.S | `originals/main/pages/ppt.html` | 输入需求/附件、最近作品、简报收集、进入作品库/工作台 | 作品链路已有；简报五项、视觉方向缺契约 | V+A+S+R+K；全部未逐态验证 |
-| P06.ppt-works.V/.A/.S | `originals/main/pages/ppt-works.html` | 作品网格/列表、搜索/状态过滤、真实封面、复制/归档/版本 | 封面是示意；复制/归档/版本无接口 | V+A+S+R+K；全部未逐态验证 |
-| P07.ppt-studio.V/.A/.S | `originals/main/pages/ppt-studio.html` | 讨论/设计/制作检查/导出四步、大纲、三个方向、逐页画面、手动文字编辑、版本与资料 | 简报五项/方向/逐页检查缺；实际对象编辑能力待核验 | V+A+S+R+K；全部未逐态验证 |
-| P08.start.V/.A/.S | `originals/main/pages/start.html；最新版 originals/planning/start.html` | 项目/目标/方法三段、选择抽屉、方法版本/必经/细化范围、只形成草稿 | 选择仍为卡片；不支持规划方法与普通方法需逐态核对 | V+A+S+R+K；全部未逐态验证 |
-| P09.workflows.V/.A/.S | `originals/main/pages/workflows.html` | 内置/我的/归档目录、搜索、详情步骤图、复制/归档、AI规划只读节 | 使用统计缺；v5规划职责返回链需验证 | V+A+S+R+K；全部未逐态验证 |
-| P10.workflow-editor.V/.A/.S | `originals/main/pages/workflow-editor.html` | 画布平移缩放、步骤/连接编辑、模板抽屉、检查定位、差异对照、保存冲突保留修改 | 有序链替代编排；平移缩放/模板抽屉/视觉diff缺 | V+A+S+R+K；全部未逐态验证 |
-| P11.requirement.V/.A/.S | `originals/main/pages/requirement.html；最新版 originals/planning/requirement.html` | 五段胶囊、规划状态条、图层/分组、右侧分阶段页签、记录/检查/版本/工作区 | 有主流程；完整PE与PW状态未逐条实测，不能按主流程PASS | V+A+S+R+K；全部未逐态验证 |
-| P12.tasks.V/.A/.S | `originals/main/pages/tasks.html` | 状态筛选/搜索、聚合与步骤进度、规划阶段/最近活动、行菜单、归档列表 | 归档未接通；逐步状态缺；规划事项计数需同待处理一致 | V+A+S+R+K；全部未逐态验证 |
-| P13.task.V/.A/.S | `originals/main/pages/task.html；最新版 originals/delivery/task.html` | 统一任务画布、来源与工作区chip、自动推进、整体/直接后继推进、调整、审批、验收、快照报告 | 报告available=false；停止未知缺陷已探针复现；调整模式与领取竞态需专项 | V+A+S+R+K；全部未逐态验证 |
-| P14.inbox.V/.A/.S | `originals/main/pages/inbox.html` | 分类与计数、事项列表/详情、单选多选/推荐/自由答复、拒绝确认、未提交草稿 | 仅free_text降级；选项/权限策略缺；unknown核对需覆盖 | V+A+S+R+K；全部未逐态验证 |
-| P15.insights.V/.A/.S | `originals/main/pages/insights.html` | 项目/任务状态/归档筛选、质量与用量汇总、详情与返回 | 部分筛选缺；统计是否可回溯实际来源待核验 | V+A+S+R+K；全部未逐态验证 |
-| P16.templates.V/.A/.S | `originals/main/pages/templates.html` | 模板分组、运行说明、项目分支/时间/源码/需求范围、固定步骤预览、B06历史档案 | 范围字段与历史档案缺；固定模板锁不可按名称判断 | V+A+S+R+K；全部未逐态验证 |
-| P17.run.V/.A/.S | `originals/main/pages/run.html` | 批次/步骤列表、报告/测试/文件/完整日志、引用定位、宽阅读与返回 | 已有run-content口未采用；报告/测试文件绑定缺 | V+A+S+R+K；全部未逐态验证 |
-| P18.runtime.V/.A/.S | `originals/main/pages/runtime.html` | OpenCode/服务/归属/MCP卡、启动/重启确认、最近操作/历史、外部进程与失败 | 启动与历史未接；重启称暂停但执行协调未证实 | V+A+S+R+K；全部未逐态验证 |
-| P19.tools.V/.A/.S | `originals/main/pages/tools.html` | 来源分组、工具/Skill切换、详情Markdown、全局/项目范围、单工具策略、来源停用/安装状态 | 仅toolset启停；项目/单工具/外部MCP/安装状态缺 | V+A+S+R+K；全部未逐态验证 |
-| P20.databases.V/.A/.S | `originals/main/pages/databases.html` | 连接列表/编辑、三格探针、schema表范围、项目授权、会话只读、归档确认 | 多schema/表级/项目/会话授权缺；部分驱动计划中 | V+A+S+R+K；全部未逐态验证 |
-| P21.roles.V/.A/.S | `originals/main/pages/roles.html` | 四页签、指令/模型/时限/资源/能力/形象、发布检查/回执/版本差异、规划职责只读 | 角色配置尚未落实执行；权限预估/形象目录/步骤统计缺 | V+A+S+R+K；全部未逐态验证 |
-| P22.settings.V/.A/.S | `originals/main/pages/settings.html` | 分区导航、分区脏状态/保存/放弃、模型/Git/限制/重试/监控、离开确认 | 部分限制未被引擎采用；超时不能直接断言未保存 | V+A+S+R+K；全部未逐态验证 |
-| P23.recovery.V/.A/.S | `originals/main/pages/recovery.html` | 父任务失败事实、三种恢复方式、差异预览、派生草稿、准备与开始分离、只核对模式 | 只创建需求草稿；未复制执行计划/工作区/阶段上下文 | V+A+S+R+K；全部未逐态验证 |
-| P24.requirements.V/.A/.S | `originals/main/pages/requirements.html` | 项目/阶段筛选、需求列表/加载、B15详情抽屉、计划修订说明、回同任务 | 详情抽屉与修订说明缺 | V+A+S+R+K；全部未逐态验证 |
-| P25.roles-legacy.V/.A/.S | `originals/main/pages/roles-legacy.html` | 目录/分组、版本选择、静态配置/发布差异、导入/替换/放弃确认、面包屑 | 能力资源形象降级；导入/阶段绑定字段缺 | V+A+S+R+K；全部未逐态验证 |
+| # / 页面 | 路由与当前实现（I） | 服务/HTTP（H） | 模型/真实外部（M） | 正式GUI（G） | 仍缺的具体GUI状态 / 当前限制 |
+|---|---|---|---|---|---|
+| P01.home.V/.A/.S | `/ · HomePage`；进行中单卡、真实最近任务及动作已接；不再列单卡缺失 | E10；task-catalog HTTP | — | E11：浏览器首页局部观察 | 有任务/无任务/读取失败/需处理分流；四主题×三尺寸、键盘与返回 |
+| P02.projects.V/.A/.S | `/projects、/projects/:id`；公约真实生成/停止/原key、项目GitLab消费者/docPaths已接；网格/取消管理确认 | E09/E11：12+13定向 | —（公约端口测试不算live） | E11：同名目录登记/非Git重检/取消管理 | 公约none/running/ready/unknown、生成重启恢复、项目GitLab真实endpoint、权限拒绝；技术栈真实投影仍缺 |
+| P03.knowledge.V/.A/.S | `/knowledge`；多来源选择、独立原文/联网许可、冻结model/role/source、真实增量/停止继续及原key恢复已接 | E03：离线/HTTP；knowledge-inputs相关代码已在基线 | E01：真实问答+精确引用2项中的知识项 | E03：来源/研究员抽屉实现；无完整重建后状态证据 | 代码/文档/DB选择、联网失败/撤权、stopped→continue、重启原会话取结果；原生追问由A继续，不能写已全通 |
+| P04.knowledge-history.V/.A/.S | `/knowledge/history`；真实状态、日期/搜索、原会话回读及追问身份已接；设计无强制重命名删除动作 | E03：按key结果/历史控制流 | E01仅知识问答，非整页历史验收 | 未找到本轮独立正式GUI记录 | 历史空/断裂/需回答/被撤权、返回原会话/原问题、同项目与跨项目身份、搜索与返回 |
+| P05.ppt.V/.A/.S | `/ppt`；五项简报、附件、三个方向、真实作品/生成已接 | E04/E05/E06：生产/停止/助手HTTP | E05：真实单页助手候选17秒后原key取回 | E05原生CUA；E06浏览器工作台 | 首页五项简报全部状态、模型自然澄清、附件失败/未知生成；不能以助手单页PASS代整份生成 |
+| P06.ppt-works.V/.A/.S | `/ppt作品库`；真实SVG封面、复制/归档/恢复/修订已接；不再称无接口 | E04/E05：复制/归档/版本与回执 | — | E04兼容Electron图不算CUA；E06浏览器局部 | 作品库loading/error/empty、分页/筛选、复制unknown、归档恢复和取消、原生文件返回 |
+| P07.ppt-studio.V/.A/.S | `/ppt工作台`；三栏逐页、对象属性、七模块方案、候选审阅应用与PDF/PPTX已接 | E04/E05/E06：19/20项定向 | E05单页真实候选→应用r3→r4 | E05原生保存/取消/PDF hash；E06四主题CUA对象/备注/抽屉 | 整份助手/方案真实模型、stop失败/idle未知、版本409及draft恢复全矩阵、Windows/Linux导出 |
+| P08.start.V/.A/.S | `/start`；最近3项目/常用3流程+搜索抽屉、当前版本核对、只建草稿 | E11：过期版本/原key HTTP | E01规划不等于开始页全态 | E11：选项目/流程→实际草稿回执 | 版本reading/flow-error、project-error、submit/unknown/handoff-error；三尺寸键盘/取消保留 |
+| P09.workflows.V/.A/.S | `/workflows`；目录/历史/真实使用记录、规划职责策略只读节已接 | E07/E18：目录/版本/跨修订统计 | — | E18：真实目录总2/当前1→精确草稿 | 详情loading/error、more-error、复制/归档取消及unknown、规划职责返回定位 |
+| P10.workflow-editor.V/.A/.S | `/workflows/:id/edit`；真实requires图、并行/连边、拖动/缩放/模板抽屉、版本视觉diff已接 | E07：图/保存/冻结与HTTP；非模型 | — | E07：四主题浏览器、布局保存截图 | 409本地草稿对照、unknown跨刷新、unbound/empty、撤销键盘、PE28/PE38禁用原因全态 |
+| P11.requirement.V/.A/.S | `/requirement/:id`；五段、PE37、候选应用确认、记录分页/callId与seq已接 | E02/E08/E19：规划/编辑/505条分页 | E01：真实规划→应用确认准备 | E19：505条/缺口/工具原位；早期模型画布图属历史 | PE/PW全状态；超限/预算/资料撤权/停止迟到/跨组/重启unknown；不可把规划主流程扩成全矩阵 |
+| P12.tasks.V/.A/.S | `/tasks`；归档恢复/结束前置、项目ID过滤分组及规划活动已接 | E10/E11：归档/同名/HTTP | — | E11：同名项目精确ID空结果 | 加载更多失败/归档与恢复/菜单禁用、planning计数与Inbox一致、步骤进度历史/空/unknown |
+| P13.task.V/.A/.S | `/tasks/:id`；真实执行控制/停止确认/调整绑定/冻结、snapshot mode/depth/units/report已接 | E02/E08/E12/E13：停止19、计划7、作用域retry33、报告权限 | E01：真实节点修改README；非snapshot专用模型验收 | E14/E15节点局部；不替代整画布 | running两并行/auto-off/waiting/stalled/claim-race/stop未知；snapshot full/light批次与报告loading/error/cancelled可读 |
+| P14.inbox.V/.A/.S | `/inbox`；规划选项及原生节点permission/question、once/session/reject/hard、持久草稿/原key已接 | E17/E20：问题/权限26定向，HTTP/SQLite | E20实际runtime健康/OpenAPI不是模型提问链 | E20：原生Chrome多选提交/unknown锁/hard只知晓 | 真实模型自然发question/permission并继续；跨attempt/撤权/重启/全页筛选状态；后台无上下文来源仍限制 |
+| P15.insights.V/.A/.S | `/insights`；四阶段任务计量/未知、分币、完整全集、项目/状态/质量/归档同范围已接 | E16：10项定向；205任务/混币/零 | — | E16：同名ID/归档/质量实际驳回/服务失败保留 | 全部未知/加载与错误详细对照、四主题三尺寸；E25已修正历史问题污染当前质量；未新增全状态GUI |
+| P16.templates.V/.A/.S | `/templates`；必要范围/branch/date/source/doc冻结、B06历史档案已接；旧合同不回填 | E10/E12：模板范围/历史/原key | —（新fileEvidence live在Lead进行中，不计PASS） | E11：必要参数；E25：真实归档succeeded/key/auditId | source/doc/date所有参数失败、启动unknown、created/pending-start、历史run核对失败/导出；UNKNOWN原key恢复的完整GUI故障态仍待补 |
+| P17.run.V/.A/.S | `/runs/:taskId`；专用文档/源码/单测布局、冻结输入/报告/逐文件独立复核、真实JUnit结果已接 | E12/E13：50定向，actual子进程JUnit；结果权限 | E01普通节点结果；不等于新逐文件合同live | E14原生artifact读取/保存；专用run全态未单独证明 | 批次失败/限批retry/停止/unknown、通过失败跳过文件定位、报告re-read/download撤权、输入迟到切换/宽阅读返回 |
+| P18.runtime.V/.A/.S | `/runtime`；启动/重启、维护锁/活动session防护、真实路径/操作历史已接 | E11/E16：runtime-role HTTP；E02/E08活动阻止 | E01真实1.19 ready/idle只是运行时连通 | E11：未受管禁用与路径局部 | managed/external/offline/start-failed/unknown/read-error、restart unknown锁与原key恢复；不能按本地pending0判停稳 |
+| P19.tools.V/.A/.S | `/tools`；来源/单工具/项目三态、冻结会话策略、Skill目录/Markdown/原文已接 | E21：4项HTTP权限，旧/新会话分离 | — | E21：停用→回读、Skill空/原文/四主题/刷新同ID | 外部MCP真实授权/清单partial、来源整体确认/项目继承、write-unknown、Skill读取错误/搜索命中与返回 |
+| P20.databases.V/.A/.S | `/databases`；项目/schema/table授权、临时草稿探针、会话只读/撤权已接；planned驱动明确缺能力 | E22：45+9定向、真实关闭端口 | E01：已有MySQL真实1/1；非模型 | E22：草稿ECONNREFUSED保留输入、变更清探针、取消0连接 | 成功连接三格/重检失败、保存unknown/归档、运行中授权撤销；PG/其他驱动真实实例不可冒充MySQL通过 |
+| P21.roles.V/.A/.S | `/roles`；发布快照真正控制模型/时限/指令/工具资源；权限预估/形象/使用统计已接 | E23/E16：角色/冻结/原key/统计 | E01真实执行不等于全部角色配置live | E23包页CUA可打开精确roleId；角色页四tab未全态 | 编辑草稿取消/发布unknown/restore冲突、B02/B03完整界面与真实资源拒绝、形象目录/统计空与读取失败 |
+| P22.settings.V/.A/.S | `/settings`；分区脏状态/原key、业务限制与分类等待真正冻结生效、模型/Git真实配置 | E08/E24：19项配置/等待/模板、冻结policy | E01使用实际模型配置；非配置全态 | E24：30/300草稿跨分区/刷新/保存回读 | Git+普通同时脏/保存unknown、离开确认取消、模型读取失败/限额、重试真实429/会话错误、四主题键盘 |
+| P23.recovery.V/.A/.S | `/recovery、/tasks/:id/recovery`；三模式派生冻结计划/真实工作区快照、只核对硬只读及策略继承已接 | E08：真实Git/目录恢复与policy回归 | — | 早期恢复截图仅历史；本轮无独立正式CUA | 三模式差异预览→确认→准备→开始、unknown阻止、父旧结果只读、重启后lineage与原key；真实模型并行仍缺 |
+| P24.requirements.V/.A/.S | `/requirements`；B15只读详情/需求输入修订与计划号已接 | E10：需求/目录/冻结HTTP | — | E10未给完整B15正式GUI状态 | 抽屉loading/error、长需求/搜索空/项目切换、返回原任务及历史计划原文不能混入当前需求 |
+| P25.roles-legacy.V/.A/.S | `/roles/legacy`；JSON/ZIP只读校验→差异审阅→发布绑定，四tab及完整角色字段已接 | E23：25定向、CRC/路径/回滚/绑定原key | — | E23：原生文件选择真实ZIP、8差异→勾选→发布r1 | import-invalid/nodiff/replace/back-confirm/publish-unknown全态；角色归档被绑定阻止/错误与跨刷新草稿 |
+
+## 可追溯证据索引
+
+| 证据ID | 原记录 / 历史身份 | 可以证明 / 不可外推 |
+|---|---|---|
+| E01 | docs/verification.md §2026-10-20追加/真实MySQL | 模型：1.19最小OK、知识/规划2项、README执行/审查/修复3项；MySQL1项；与2026-10-19 GitHub远端写历史分开。没有新GitLab或新fileEvidence模型PASS |
+| E02 | docs/verification/2026-10-20-execution-stop.md | 19离线/HTTP；abort拒绝/UNKNOWN/idle/重启/迟到代际。未做实际provider停止GUI |
+| E03 | docs/review/knowledge-receipts-sources-2026-10-20.md | 该文件早期“来源未接/live未做”不是当前实现结论；追加记录实际流式/停止/角色抽屉，当前代码另有KnowledgeInputs冻结来源；具体live只取E01 |
+| E04 | docs/review/ppt-production-2026-10-20.md；ppt-plan-stop-2026-10-20.md | 生产/复制/版本/方案/停止。兼容隐藏Electron12图不是正式CUA；后续由E05/E06补 |
+| E05 | docs/review/ppt-assistant-pdf-2026-10-20.md | 原生CUA真实单页助手proposal→r4、原key17秒取回、原生PDF5页/3页hash与取消、四主题；不是整份/全部停止状态 |
+| E06 | docs/review/ppt-studio-layout-2026-10-20.md | 20定向；浏览器CUA选页/对象/备注/72字号溢出→修复16/页签/抽屉，4主题1512×790 |
+| E07 | docs/verification/2026-10-20-workflow-editor.md | 真实图依赖/版本差异；浏览器四主题与布局保存，不证明真实模型规划 |
+| E08 | docs/verification/2026-10-20-plan-edit-binding.md；2026-10-20-recovery-execution-policy.md；2026-10-20-execution-business-limits.md | 计划同execution绑定/恢复工作区/冻结调度及业务限制；离线端口不等于provider并行 |
+| E09 | docs/review/project-config-consumers-2026-10-20.md | 12定向，charter只读模型端口、项目GitLab本机HTTP替身、docPaths真实prompt。旧无sessionMessages恢复限制须按现代码核对，不当永久缺口 |
+| E10 | docs/review/task-catalog-2026-10-20.md | 首页/任务归档/B15/模板完整scope与历史档案；实现/HTTP，不宣称25页GUI |
+| E11 | docs/review/p14-seven-pages-2026-10-20.md | 13定向；正式Chrome CUA项目/Start实际草稿/同名ID/取消管理/必要参数/runtime禁用/DB空态，非七页所有状态 |
+| E12 | docs/review/p09-file-evidence-2026-10-20.md | 50定向；受控真实Node子进程JUnit+HTTP；写作/复核session是离线fixture，不是新普通源码/单测合同live |
+| E13 | docs/verification/2026-10-20-scoped-retry.md；docs/verification.md运行阅读权限追加 | 33定向只重试明确failed集合；权限过滤/报告下载精确身份；不是GUI全状态 |
+| E14 | docs/review/node-artifacts-2026-10-20.md | 原生Electron产物读取、macOS保存/取消/hash；CJS preload修复与四主题，非整个Run专页 |
+| E15 | docs/verification/2026-10-20-node-detail-read.md | HTTP/Chrome组件夹具：旧attempt/撤权清摘要与产物；工具详情引用同一身份。非真实模型与整任务GUI |
+| E16 | docs/review/p14-insights-2026-10-20.md | 10定向/205任务；CUA真实筛选、人工驳回与失败保留。a5c50af集成29f5083；当前质量修正原90d45b9已集成818bf6c，见E25 |
+| E17 | docs/review/inbox-choices-2026-10-20.md | 规划question选项/必答/多选/其他持久答复；不能替代节点原生问答 |
+| E18 | docs/review/workflow-usage-2026-10-20.md | 10定向；CUA真实目录使用2/当前1及准确草稿跳转；无模型调用 |
+| E19 | docs/review/planning-record-2026-10-20.md | 4定向；CUA 505记录/删除#7/加载后504、callId单卡、向上关闭跟随；fixture非模型 |
+| E20 | docs/verification/2026-10-20-runtime-inbox.md | 26定向；实际runtime健康/OpenAPI无模型；Chrome生产组件+离线port多选/unknown/hard。未真实模型自然问答 |
+| E21 | docs/review/tools-parity-2026-10-20.md | 4HTTP会话冻结；CUA来源/单工具/Skill/主题/URL恢复；外部MCP真实授权未全验 |
+| E22 | docs/verification/2026-10-20-database-draft-scope.md | 45+9定向；关闭端口真实网络/Chrome失败保留/取消；成功MySQL独立见E01 |
+| E23 | docs/review/role-package-parity-2026-10-20.md | 25定向；Chrome+原生文件框真ZIP校验8差异→明确发布；目录绑定冻结，不算角色所有发布态 |
+| E24 | docs/verification.md §2026-10-20重试设置分区 | 19配置/等待/模板回归、CUA草稿与保存回读30/300；不是真实429或全主题 |
+| E25 | docs/review/p14-final-visible-gaps-2026-10-20.md（原90d45b9，集成818bf6c） | 11回归+正式CUA真实归档succeeded/key/auditId；当前质量仅当前执行最近复核，历史审计保留。该记录旧roles-legacy问题由29d80bf/E23覆盖，不继续列当前缺口 |
 
 ## 全状态逐项登记
 
@@ -347,11 +377,11 @@
 | MAIN.inbox.empty | `originals/main/pages/inbox.html:150` | 都处理完了 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.inbox.loading | `originals/main/pages/inbox.html:150` | 加载中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.inbox.error | `originals/main/pages/inbox.html:150` | 读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.insights.content | `originals/main/pages/insights.html:109` | 列表 + 明细 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.insights.content | `originals/main/pages/insights.html:109` | 列表 + 明细 | H/G局部：E16项目ID/归档/实际驳回→质量筛选与卡片同步；E25当前质量与历史审计已分离。 |
 | MAIN.insights.list | `originals/main/pages/insights.html:109` | 列表 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.insights.unknown-usage | `originals/main/pages/insights.html:109` | 用量全部未知 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.insights.loading | `originals/main/pages/insights.html:109` | 加载中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.insights.error | `originals/main/pages/insights.html:109` | 读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.insights.error | `originals/main/pages/insights.html:109` | 读取失败 | G局部：E16关闭自己的服务，刷新失败保留筛选与旧快照；未全主题/三尺寸。 |
 | MAIN.knowledge-history.list | `originals/main/pages/knowledge-history.html:77` | 列表 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.knowledge-history.need | `originals/main/pages/knowledge-history.html:77` | 筛选：需要回答 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.knowledge-history.loading | `originals/main/pages/knowledge-history.html:77` | 加载中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
@@ -402,13 +432,13 @@
 | MAIN.ppt.files | `originals/main/pages/ppt.html:81` | 已添加资料 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.ppt.submitting | `originals/main/pages/ppt.html:81` | 正在创建 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.ppt.error | `originals/main/pages/ppt.html:81` | 创建失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.projects.list | `originals/main/pages/projects.html:303` | 列表 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.projects.list | `originals/main/pages/projects.html:303` | 列表 | G局部：E11正式CUA真实同名项目与截断目录；技术栈事实尚缺。 |
 | MAIN.projects.list-loading | `originals/main/pages/projects.html:303` | 列表 · 加载中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.projects.list-error | `originals/main/pages/projects.html:303` | 列表 · 读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.projects.list-empty | `originals/main/pages/projects.html:303` | 列表 · 无项目 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.projects.register | `originals/main/pages/projects.html:304` | 登记项目（抽屉） | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.projects.reg-unknown | `originals/main/pages/projects.html:304` | 登记结果未明 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.projects.unmanage | `originals/main/pages/projects.html:304` | 取消管理确认 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.projects.unmanage | `originals/main/pages/projects.html:304` | 取消管理确认 | G局部：E11正式CUA确认取消管理→真实归档回读；不是全主题/失败/UNKNOWN验收。 |
 | MAIN.projects.detail | `originals/main/pages/projects.html:305` | 详情 · 概览 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.projects.detail-git | `originals/main/pages/projects.html:305` | 详情 · Git 账号 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.projects.detail-git-custom | `originals/main/pages/projects.html:305` | 详情 · Git 单独配置 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
@@ -475,7 +505,7 @@
 | MAIN.roles-legacy.compare | `originals/main/pages/roles-legacy.html:282` | 版本比较 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.roles-legacy.pending | `originals/main/pages/roles-legacy.html:283` | 有未发布的配置包 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.roles-legacy.import-validating | `originals/main/pages/roles-legacy.html:283` | 导入 · 校验中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.roles-legacy.import-ok | `originals/main/pages/roles-legacy.html:283` | 导入 · 校验通过待核对 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.roles-legacy.import-ok | `originals/main/pages/roles-legacy.html:283` | 导入 · 校验通过待核对 | H/G局部：E23真ZIP经原生文件框上传、8处差异勾选后发布r1；不是所有replace/unknown状态。 |
 | MAIN.roles-legacy.import-invalid | `originals/main/pages/roles-legacy.html:283` | 导入 · 校验未通过 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.roles-legacy.import-nodiff | `originals/main/pages/roles-legacy.html:283` | 导入 · 无字段差异不能发布 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.roles-legacy.import-replace | `originals/main/pages/roles-legacy.html:284` | 替换配置包确认 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
@@ -542,13 +572,13 @@
 | MAIN.settings.limits-off | `originals/main/pages/settings.html:224` | 补充 · 执行限制（超时关闭） | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.settings.limits-on | `originals/main/pages/settings.html:224` | 补充 · 执行限制（超时开启） | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.start.ready | `originals/main/pages/start.html:220` | 空白 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.start.filled | `originals/main/pages/start.html:220` | 已填写 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.start.filled | `originals/main/pages/start.html:220` | 已填写 | G局部：E11项目/流程搜索抽屉与已填写；版本失败等仍缺。 |
 | MAIN.start.reading | `originals/main/pages/start.html:220` | 核对流程版本中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.start.flow-error | `originals/main/pages/start.html:220` | 流程版本读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.start.project-error | `originals/main/pages/start.html:220` | 项目列表读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.start.submitting | `originals/main/pages/start.html:221` | 提交中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.start.unknown | `originals/main/pages/start.html:221` | 结果未明（锁定） | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.start.accepted | `originals/main/pages/start.html:221` | 草稿已形成 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.start.accepted | `originals/main/pages/start.html:221` | 草稿已形成 | H/G局部：E11选真实项目/流程后实际形成草稿并显示回执；不是unknown/handoff-error。 |
 | MAIN.start.handoff-error | `originals/main/pages/start.html:221` | 已形成但打开失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.task.running | `originals/main/pages/task.html:387` | 执行中（两步并行） | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.task.auto-off | `originals/main/pages/task.html:387` | 自动推进关闭 · 可推进 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
@@ -573,7 +603,7 @@
 | MAIN.task.snap-report-error | `originals/main/pages/task.html:394` | 补充 · 快照评审 · 阶段报告读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.task.snap-cancelled | `originals/main/pages/task.html:395` | 补充 · 快照评审 · 已取消仍可读阶段报告 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.tasks.ready | `originals/main/pages/tasks.html:116` | 日常 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.tasks.grouped | `originals/main/pages/tasks.html:116` | 按项目分组 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.tasks.grouped | `originals/main/pages/tasks.html:116` | 按项目分组 | G局部：E11同名项目按ID选择空结果；仅此分组/身份场景。 |
 | MAIN.tasks.loading | `originals/main/pages/tasks.html:116` | 加载中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.tasks.error | `originals/main/pages/tasks.html:116` | 读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.tasks.empty | `originals/main/pages/tasks.html:116` | 没有任务 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
@@ -594,16 +624,16 @@
 | MAIN.templates.arc-loading | `originals/main/pages/templates.html:154` | 补充 · 历史档案 · 读取中 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.templates.arc-error | `originals/main/pages/templates.html:154` | 补充 · 历史档案 · 读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.templates.arc-empty | `originals/main/pages/templates.html:154` | 补充 · 历史档案 · 空归档 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.tools.tools | `originals/main/pages/tools.html:232` | 工具 · 全局默认 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.tools.tools | `originals/main/pages/tools.html:232` | 工具 · 全局默认 | H/G局部：E21单工具停用真实回读、旧会话保持/新会话拒绝HTTP；不是所有来源故障。 |
 | MAIN.tools.project | `originals/main/pages/tools.html:232` | 工具 · 项目设置 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.tools.partial | `originals/main/pages/tools.html:232` | 工具清单不完整 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.tools.write-unknown | `originals/main/pages/tools.html:232` | 修改结果未明 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.tools.skills | `originals/main/pages/tools.html:232` | Skill 阅读 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.tools.skills | `originals/main/pages/tools.html:232` | Skill 阅读 | G局部：E21目录/Markdown/空正文/四主题和URL恢复；完整Skill错误态仍缺。 |
 | MAIN.tools.skill-error | `originals/main/pages/tools.html:232` | Skill 读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.tools.skill-raw | `originals/main/pages/tools.html:233` | 补充 · Skill 原文 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.tools.skill-raw | `originals/main/pages/tools.html:233` | 补充 · Skill 原文 | G局部：E21完整原文与行号阅读；键盘/搜索返回仍缺。 |
 | MAIN.tools.skill-empty | `originals/main/pages/tools.html:233` | 补充 · Skill 正文为空 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.tools.skill-read-fail | `originals/main/pages/tools.html:233` | 补充 · Skill 文档读取失败 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.workflow-editor.ready | `originals/main/pages/workflow-editor.html:198` | 我的流程 · 已保存 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.workflow-editor.ready | `originals/main/pages/workflow-editor.html:198` | 我的流程 · 已保存 | H/G局部：E07浏览器拖动、布局保存回执、四主题截图；409/unknown仍缺。 |
 | MAIN.workflow-editor.dirty | `originals/main/pages/workflow-editor.html:198` | 有未保存修改 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.workflow-editor.unbound | `originals/main/pages/workflow-editor.html:198` | 有步骤未指定职业 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.workflow-editor.empty | `originals/main/pages/workflow-editor.html:198` | 新流程 · 空 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
@@ -620,7 +650,7 @@
 | MAIN.workflows.copy | `originals/main/pages/workflows.html:146` | 复制对话框 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.workflows.archive | `originals/main/pages/workflows.html:146` | 归档确认 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
 | MAIN.workflows.op-unknown | `originals/main/pages/workflows.html:146` | 复制结果未明 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
-| MAIN.workflows.detail-planning | `originals/main/pages/workflows.html:146` | v5 · 支持 AI 规划的流程详情 | V+A+S+R+K；未逐态验证，页面级差异见P表 |
+| MAIN.workflows.detail-planning | `originals/main/pages/workflows.html:146` | v5 · 支持 AI 规划的流程详情 | H/G局部：E18真实使用统计2/当前1及准确草稿跳转；规划职责返回全态仍缺。 |
 
 ## 明确不开放与不可误实现
 
@@ -632,23 +662,28 @@
 | LIMIT.Q6Q9 | supplement-v5 §2/§3/§5 | 不新增站内/系统完成提醒、顶层规划中心；任务列表和待处理规划计数一致；规划职责/策略目录只读，不出现在业务“谁来做”。 |
 | LIMIT.NODE | node/COVERAGE 原型做不到或刻意不做 | 历史区域无重新执行/重放命令入口；公开推理摘要仅能力真实提供时显示；无可信总量不显示百分比。 |
 
-## 容易被现有覆盖矩阵漏掉的横切验收
+## 横切验收 · 已实现不等于全态验收
 
-| ID | 必须具体证明的行为 | 现有证据缺口 |
+| ID | 当前实现 / 服务证据 | 仍缺的实际证据 |
 |---|---|---|
-| X01 | 停止accepted、进程停稳、账目结清三事实分开；迟到候选仅审计 | R01探针：abort失败却stopped/succeeded，不能以视觉禁用掩盖 |
-| X02 | 同key在accepted/终态/响应丢失后均仅派发一次；UNKNOWN保留原key与输入 | R04并发重复模型调用，R05多页丢key；每个写入口均需验证 |
-| X03 | 切节点/项目/尝试后旧请求晚到不串页；撤权清除敏感已读内容 | 目前未覆盖真实异步竞争、权限撤销路径 |
-| X04 | 工具生命周期callId原位更新；记录seq去重/缺口；阅读跟随与历史只读 | 静态时间线与完成后整包返回不能证明流式交互 |
-| X05 | 结果结束≠验收通过≠等待交付≠已交付；历史结果绑定策略与修订 | 报告/产物元数据不证明正文与历史版本一致 |
-| X06 | 固定模板按origin锁；确认→准备→开始；普通任务调整恢复原开/关/暂停模式 | 不能按模板名称或按钮存在判通过 |
-| X07 | 非Git三方比较：原始基线/独立副本/当前原目录；逐文件冲突不覆盖；UNKNOWN不再应用 | 后端测试与真实GUI文件选择/宿主回执证据需合并 |
-| X08 | Git提交/hook/推送认证/MR已存在/远端分支移动/合并冲突/unknown按原操作核对 | 工作台截图不能证明真实远端写入；需独立授权与实际结果 |
-| X09 | 编辑器本地草稿在409、离开/取消、重读比对中保留；布局修改不触发语义重确认 | 有序链CRUD不等于图形编排/视觉差异 |
-| X10 | 角色指令/模型/时限/能力/资源、项目路径/Git配置、执行限制真正驱动派发 | R02/R03/R07/R19保存成功不能作为生效证据 |
+| X01 | E02停止accepted/停稳/结账分离，abort拒绝/hang保持UNKNOWN、旧代结果不污染新attempt | 真实provider停止确认、超时/idle核对和原生GUI迟到状态；旧R01缺陷已有回归，不能仍写当前必现 |
+| X02 | E02/E12/E13与command-replay文档覆盖原keyaccepted/终态/丢响应控制；公共pending跨刷新 | 全部写入口的正式GUI丢响应、重启核对；E25模板原回执已整合，跨刷新故障GUI仍缺 |
+| X03 | E15节点/产物/引用撤权清理、Run读模型权限已接 | 其他页资料/工具/报告打开中的撤权和跨身份迟到的完整CUA竞态 |
+| X04 | E19实际seq分页去重/缺口、callId原位与阅读跟随CUA | 真实模型自然工具流+断线恢复与长记录的完整四主题/键盘 |
+| X05 | E12逐文件写作/独立review、JUnit真命令；E14产物原生hash保存 | 新合同真实模型整链与Run专页所有测试/报告状态；旧历史缺合同不能回填 |
+| X06 | E10模板scope/contract冻结；E08同execution重确认与恢复原模式 | 模板确认→准备→开始、调整冲突/未知/原模式跨刷新正式GUI |
+| X07 | 既有directory-apply真实三方比较与本地文件回归，E01保留历史 | 当前版本GUI逐文件冲突/UNKNOWN/取消返回/宿主保存与原目录哈希成组证据 |
+| X08 | E01保留2026-10-19GitHub真实写历史；当前GitLab项目endpoint本机HTTP替身E09 | 新GitLab实际配置、hook/认证/远端移动/MR已存在/unknown；不新造远端PASS |
+| X09 | E07图requires/平移缩放/视觉版本差异及保存布局CUA已接 | 409/离开取消/unknown草稿/撤销与只布局变更全态 |
+| X10 | 角色冻结、项目docPaths/GitLab消费者、执行策略冻结/时限回归E08/E09/E23 | 真实模型资源拒绝/时限、真实项目GitLab与文档产出；后台原生交互无上下文范围仍受限 |
 
 ## 本轮证据与剩余工作
 
-本轮仅文档提取与静态审查归并；没有运行产品、修改设计稿、调用模型或远端写入。状态表原条目登记数：`planning/STATES.md` 50；`delivery/STATES.md` 70；`git/STATES.md` 49；`node/COVERAGE.md` 60；`supplement-v4/STATES-v4.md` 32；`supplement-v5/STATES-v5.md` 6。这些是来源行数，不是去重产品状态数量，也不是PASS数。
+本轮只核对文档与静态当前实现，未运行产品/模型/远端写。保留来源登记数：planning50、delivery70、git49、node60、v4补充32、v5补充6及主稿296条显式状态；这些不是去重产品状态数，更不是PASS数。注册表外的条件交互仍需由对应HTML逐项展开。
 
-优先修复 X01/X02/X10 后，按 P01–P25 和逐状态表执行完整 GUI 回归。主稿另登记 296 条显式注册状态；注册表外条件交互的 Pxx.S 必须从对应 HTML 事件处理逐项展开并补证；本矩阵不声称已经穷尽主稿所有内嵌交互。全状态验收完成前，不得恢复“全部功能完成/唯一外部阻塞/视觉可选”的完成口径。
+- 当前实际功能优先：后台knowledge/charter/review/fix原生交互范围(E20，A继续知识)；归档与当前质量修复已由E25证明，不再列未实现；项目技术栈真实事实投影缺口（projects.html:148/193）。已向Lead报告，只改本两份文档。
+- 当前高优先证据：新sourceEvidence普通源码/单测真实模型写作→独立review→测试→Run阅读；实际模型原生question/permission→人工答复→继续。Lead在做的live不预填结果。
+- GUI按P表具体状态补证；已有单页主流程/四主题截图不替代所有加载/失败/未知/撤权/冲突/取消返回及三尺寸键盘。完整状态矩阵之前，不恢复“全部功能完成/唯一外部阻塞/视觉可选”。
+- 历史Wave全仓数字和2026-10-19模型/远端写仍可追溯，但只证明原基线。当前整理没有全仓新测试，未用文档编辑制造新PASS。
+
+文档一致性检查：与54b9c4c原登记逐项对比，563条状态ID/来源/设计意图均保留；仅13条有明确记录的状态追加局部GUI证据（不是13条完整PASS）。两份当前页表均恰为25行，git diff --check通过；本批没有重新运行产品测试。
