@@ -186,3 +186,10 @@ npm run build:server
 | 2026-10-19 | 采用「共享工作区 + 文件所有权隔离」而非每任务 Git worktree | 当前为 Lead 直接整合；任务量大，worktree 合并成本高；用写范围 + Lead 全量验收控制风险 |
 | 2026-10-19 | 先修 P0，再清理假接通，再补设计能力，最后统一文档 | 避免把假状态写进文档；P0 会影响后续所有验收 |
 | 2026-10-19 | 节点验收默认「实现」而非「移除」 | README 主打、设计节点面板要求唯一主动作；移除会破坏产品叙事 |
+
+## 8. 结项说明（2026-10-19）
+
+- 全部可执行任务已 `done`；实现、整合、验收与推送均完成，远端 `main` HEAD 与本地一致。
+- 仅两项保留 `blocked`，原因是**本机没有真实环境/凭据**，不是代码未实现：
+  - **W2-5 / W4-5**：真实 GitLab 写与真实 PostgreSQL 联调。需用户提供 `GITLAB_TEST_BASE_URL`、`GITLAB_TEST_API_URL`、`GITLAB_TEST_TOKEN`、`GITLAB_TEST_PROJECT` 或 `WF_PG_URL`、`WF_PG_USER`、`WF_PG_PASSWORD`；拿到后按 `docs/packaging.md` §7 与现有集成测试补齐即可复核，当前不以桩结果冒充 PASS。
+- 发布类遗留：macOS 未签名/未公证、无 dmg/Windows/Linux、自动更新未实现；详见 [docs/packaging.md](packaging.md)。
