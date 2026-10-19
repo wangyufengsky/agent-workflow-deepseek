@@ -1,3 +1,6 @@
+import { useState } from 'react';
+import { AttemptOutput } from './AttemptOutput.tsx';
+import { CitationSourceView } from '../node/CitationSourceView.tsx';
 import { ArtifactDetailView } from '../node/ArtifactDetailView.tsx';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -22,7 +25,6 @@ import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import {
   CHANGE_STATUS_LABEL,
   CHANGE_STATUS_TONE,
-  FRAGMENT_CATEGORY_LABEL,
   NODE_KIND_LABEL,
   NODE_STATUS_TONE,
   type RunSelection,
@@ -153,7 +155,9 @@ function NodePane({ taskId, plan, execution, nodeId }: {
   const node: PlanNode | undefined = plan?.graph.nodes.find((item) => item.id === nodeId);
   const executionState = execution?.nodes.find((item) => item.nodeId === nodeId);
   const detailQuery = useNodeDetail(taskId, nodeId);
-  const detail = detailQuery.data;
+  const detail = detailQuery.error ? undefined : detailQuery.data;
+  const [selectedAttemptId, setSelectedAttemptId] = useState<string | undefined>();
+  const selectedAttempt = detail?.attempts.find((attempt) => attempt.id === selectedAttemptId) ?? detail?.currentAttempt ?? detail?.attempts[0];
   const status = executionState?.status ?? 'pending';
 
   return (
@@ -259,42 +263,10 @@ function NodePane({ taskId, plan, execution, nodeId }: {
           )}
 
           <div><h3>文件产物</h3>{detail.attempts.some((attempt) => (attempt.result?.artifacts.length ?? 0) > 0) ? detail.attempts.map((attempt) => attempt.result?.artifacts.map((artifact) => <details key={artifact.id}><summary>{artifact.name} · 第{attempt.ordinal}次尝试</summary><ArtifactDetailView taskId={taskId} artifact={artifact} attemptLabel={`第${attempt.ordinal}次尝试`} /></details>)) : <p className="hint">尚未提交文件产物。</p>}</div>
-          <div>
-            <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-              <span className="eyebrow">输出片段</span>
-              <span className="hint num">{detail.output.fragments.length}</span>
-              <span className="spacer" />
-              {detail.output.nextSeq > 0 ? <span className="hint">服务返回的片段水位：{String(detail.output.nextSeq)}</span> : null}
-            </div>
-            {detail.output.fragments.length === 0 ? (
-              <EmptyState icon="terminal" title="没有输出片段" description="该节点没有产出正文、推理摘要或工具记录；这是服务的真实结果。" compact />
-            ) : (
-              <div className="run-fragments">
-                {detail.output.fragments.map((fragment) => (
-                  <div className="run-fragment" key={fragment.fragmentId}>
-                    <div className="run-frag-head">
-                      <Badge tone={fragment.category === 'tool_activity' ? 'accent' : fragment.category === 'service_event' ? 'idle' : 'neutral'}>
-                        {FRAGMENT_CATEGORY_LABEL[fragment.category]}
-                      </Badge>
-                      {fragment.recordedAt === undefined ? null : <span className="hint">{formatAbsoluteTime(fragment.recordedAt)}</span>}
-                      {fragment.toolCallRef === undefined ? null : (
-                        <span className="hint mono">
-                          {fragment.toolCallRef.callId} · {fragment.toolCallRef.status}
-                        </span>
-                      )}
-                      {fragment.eventKind === undefined ? null : <span className="hint mono">{fragment.eventKind}</span>}
-                    </div>
-                    {fragment.text === undefined || fragment.text === '' ? null : (
-                      <p className="run-frag-text">{fragment.text}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="hint" style={{ marginTop: 8 }}>
-              输出来自节点只读接口返回的一页片段；完整运行日志/报告没有专用阅读接口，本页不伪造缺失片段。
-            </p>
-          </div>
+          {selectedAttempt ? <>
+            <label>阅读尝试<select className="input" value={selectedAttempt.id} onChange={(event) => setSelectedAttemptId(event.target.value)}>{detail.attempts.map((attempt) => <option key={attempt.id} value={attempt.id}>第 {attempt.ordinal} 次 · {NODE_STATUS_LABEL[attempt.status]}</option>)}</select></label>
+            <AttemptOutput key={`${taskId}:${nodeId}:${selectedAttempt.id}`} taskId={taskId} nodeId={nodeId} attemptId={selectedAttempt.id} ordinal={selectedAttempt.ordinal} />
+          </> : null}
 
           {detail.requirementLinks.length > 0 ? (
             <div>
@@ -303,9 +275,7 @@ function NodePane({ taskId, plan, execution, nodeId }: {
               </div>
               <div className="col" style={{ gap: 6 }}>
                 {detail.requirementLinks.map((link) => (
-                  <p key={link.entryId} className="hint" style={{ margin: 0 }}>
-                    {link.label}：{link.text}
-                  </p>
+                  <details key={link.entryId}><summary>{link.label}</summary><CitationSourceView taskId={taskId} nodeId={nodeId} link={link} /></details>
                 ))}
               </div>
             </div>

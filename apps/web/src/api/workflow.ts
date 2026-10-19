@@ -1,6 +1,6 @@
 import { pendingForScope, subscribePending } from './pending-commands.ts';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useBootstrap } from './hooks.ts';
 import {
   ROUTES,
@@ -23,7 +23,7 @@ import {
   type NodeSkipRequest,
   type OperationsByKeyResponse,
   type OperationReceipt,
-  type OutputFragment,
+  type NodeOutputResponse,
   type PlanEditAbandonRequest,
   type PlanResponse,
   type PlanRevision,
@@ -79,13 +79,7 @@ export interface ReconcileResponse {
 }
 
 /** `/api/tasks/:id/nodes/:nodeId/output` fragment page. */
-export interface NodeOutputResponse {
-  readonly taskId: string;
-  readonly nodeId: string;
-  readonly attemptId?: string;
-  readonly fragments: readonly OutputFragment[];
-  readonly terminal: boolean;
-}
+export type { NodeOutputResponse } from '@agent-workflow/shared';
 
 export async function fetchTaskDetail(taskId: string): Promise<TaskDetailResponse> {
   const response = await apiGet<TaskDetailResponse>(ROUTES.taskDetail(taskId));
@@ -541,13 +535,21 @@ export function useNodeOutput(
   attemptId: string | undefined,
   refetchInterval: PollInterval = false,
 ) {
-  return useQuery({
-    queryKey: workflowKeys.nodeOutput(taskId ?? '', nodeId ?? '', attemptId),
-    queryFn: () => fetchNodeOutput(taskId!, nodeId!, { attemptId }),
-    enabled: taskId !== undefined && nodeId !== undefined && nodeId.length > 0,
+  const query = useInfiniteQuery({
+    queryKey: [...workflowKeys.nodeOutput(taskId ?? '', nodeId ?? '', attemptId), 'pages'],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const result = await fetchNodeOutput(taskId!, nodeId!, { attemptId, afterSeq: pageParam });
+      if (result.taskId !== taskId || result.nodeId !== nodeId || (attemptId !== undefined && result.attemptId !== attemptId)) throw new Error('输出身份不一致，请重新读取');
+      return result;
+    },
+    getNextPageParam: (page) => page.hasMore ? page.nextSeq : undefined,
+    enabled: taskId !== undefined && nodeId !== undefined && nodeId.length > 0 && attemptId !== undefined,
     refetchInterval,
     staleTime: 800,
   });
+  const latest = query.data?.pages.at(-1);
+  return { ...query, data: latest === undefined ? undefined : { ...latest, fragments: query.data!.pages.flatMap((page) => page.fragments) } };
 }
 
 /** Invalidate every workflow query of one task after a command or a stream event. */

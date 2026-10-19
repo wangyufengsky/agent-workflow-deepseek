@@ -195,10 +195,9 @@ test('W0-5: node output terminal follows the settled attempt instead of a consta
     assert.equal(running.statusCode, 200, running.body);
     assert.equal((running.json().data as { terminal: boolean }).terminal, false);
 
-    // Without an execution there is nothing to stream, so it is not terminal.
+    // Unknown task identities cannot be used as aliases for another attempt.
     const unknownTask = await app.app.inject({ method: 'GET', url: '/api/tasks/task_missing/nodes/node_a/output' });
-    assert.equal(unknownTask.statusCode, 200, unknownTask.body);
-    assert.equal((unknownTask.json().data as { terminal: boolean }).terminal, false);
+    assert.equal(unknownTask.statusCode, 404, unknownTask.body);
   } finally {
     await app.close();
   }
@@ -227,6 +226,8 @@ async function createFakeHarness(): Promise<FakeHarness> {
   let databaseStates: readonly 'connected'[] = [];
   const status = { state: 'ready' as const, version: '1.19.0', host: '127.0.0.1', port: 4096, pid: 4242, startedAt: nowIso() };
   const adapter = {
+    beginMaintenance: () => () => undefined,
+    verifyMaintenanceIdle: async () => undefined,
     status: () => status,
     stop: async () => {
       stopCount += 1;

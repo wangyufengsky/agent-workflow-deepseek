@@ -170,7 +170,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
     if (selectedAttemptIdResolved === undefined) return detail.attempts[0];
     return detail.attempts.find((attempt) => attempt.id === selectedAttemptIdResolved) ?? (currentAttempt?.id === selectedAttemptIdResolved ? currentAttempt : undefined);
   }, [currentAttempt, detail, selectedAttemptIdResolved]);
-  const fragments = outputQuery.data?.fragments ?? (selectedAttemptIdResolved === currentAttempt?.id ? detail?.output.fragments : undefined) ?? [];
+  const fragments = outputQuery.error ? [] : outputQuery.data?.fragments ?? (selectedAttemptIdResolved === currentAttempt?.id ? detail?.output.fragments : undefined) ?? [];
   const feed = toolFeed(fragments);
   const attemptLabel =
     selectedAttempt === undefined
@@ -481,7 +481,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                   setFollowing(atBottom);
                 }}
               >
-                {fragments.length === 0 ? (
+                {outputQuery.error ? <ServiceNotice error={outputQuery.error} onRetry={() => { void outputQuery.refetch(); }} /> : fragments.length === 0 ? (
                   <EmptyState compact icon="terminal" title="还没有执行记录" description="服务返回空记录；这里不会补写演示正文。" />
                 ) : (
                   feed.map((fragment) => (
@@ -537,6 +537,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                   ))
                 )}
               </div>
+              {outputQuery.hasNextPage ? <Button disabled={outputQuery.isFetchingNextPage} disabledReason="正在读取下一段" onClick={() => { void outputQuery.fetchNextPage(); }}>{outputQuery.isFetchingNextPage ? '读取中…' : '继续读取记录'}</Button> : null}
               <div className="follow">
                 <span className="muted">跟随最新</span>
                 <button
@@ -850,7 +851,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
         </Modal>
 
         {attemptsQuery.isError ? <p className="hint">尝试列表读取失败；不会用当前尝试顶替历史。</p> : null}
-        {outputQuery.isError ? <p className="hint">执行记录读取失败；已显示已持久化的片段，重连后会补读。</p> : null}
+        {outputQuery.isError ? <p className="hint">执行记录读取失败；重新读取后继续查看。</p> : null}
       </div>
     </aside>
   );

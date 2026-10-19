@@ -205,17 +205,17 @@ npm run build:server
 | P01 | R01 | 停止确认、迟到回调、停止失败 UNKNOWN、只读核对 | execution_parity | in_progress | 待故障回归与实际界面 |
 | P02 | R02/R03 | 职业继承、修订冻结、指令/模型/时限/资源权限执行 | role_execution_parity | in_progress | 待派发与权限验证 |
 | P03 | R04/R05 | 幂等及全前端丢回执锁定/恢复 | Lead + design_acceptance_inventory | in_progress | 待断线/重复请求回归 |
-| P04 | R06 | 知识来源、实时研究、停止/继续、会话管理 | Lead | in_progress | 待全状态闭环 |
+| P04 | R06 | 知识来源、实时研究、停止/继续、会话管理 | role_execution_parity + Lead | in_progress | 冻结代码/文档/数据库/网络来源与原会话恢复已整合；许可/模型UI与全状态验收继续 |
 | P05 | R07 | 公约生成、项目 GitLab、文档路径生效 | design_acceptance_inventory | in_progress | 待服务/界面验证 |
-| P06 | R08 | 快照评审模式、阶段报告、读取/下载 | role_execution_parity | in_progress | 独立分支实现中；尚未整合 |
-| P07 | R09 | 流程图编辑、并行/连线、模板/缩放/版本差异 | 未分派 | pending | PE28/PE38 仍遵守设计禁用 |
+| P06 | R08 | 快照评审模式、阶段报告、读取/下载 | role_execution_parity | in_progress | 两批已整合，真实Git/blob范围及离线调用回归通过；真实模型/专门阅读GUI待验收 |
+| P07 | R09 | 流程图编辑、并行/连线、模板/缩放/版本差异 | execution_parity | in_progress | 图编辑与执行计划重绑定已整合；真实GUI保存/历史/拖动及实际调度回归通过，完整状态待验收 |
 | P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | design_acceptance_inventory | in_progress | d3c356f第一批已整合；方案/对象编辑与真实停止继续补齐 |
-| P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | Lead | in_progress | 文件快照/真实预览下载、工具证据与运行分类接通；GUI/完整中间态待验收 |
-| P10 | R13 | 任务归档、需求抽屉、模板范围/档案、首页进行中 | 未分派 | pending | — |
+| P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | Lead | in_progress | 文件快照、原生导出、工具证据、精确引用及分页已接通；运行内容专门报告/批次布局仍不符设计，继续修复 |
+| P10 | R13 | 任务归档、需求抽屉、模板范围/档案、首页进行中 | design_acceptance_inventory | in_progress | 独立分支真实范围/归档/文档上传回归中，待整合 |
 | P11 | R14/R15 | 工具项目/来源/单工具策略、数据库授权/读取范围 | role_execution_parity | in_progress | 45ed378已整合；离线权限/查询回归通过，真实环境与GUI待验收 |
-| P12 | R16/R17 | 运行时启动/历史、职业预估/形象/统计 | 未分派 | pending | — |
+| P12 | R16/R17 | 运行时启动/历史、职业预估/形象/统计 | role_execution_parity + Lead | in_progress | 已整合精确职业修订预估、维护锁与持久化pending防重启；真实运行时GUI待验收 |
 | P13 | R18/R19 | 恢复执行上下文、执行限制/重试/并发 | execution_parity | in_progress | e35ce79已整合；业务时限/重试等待/停稳证据第二批处理中 |
 | P14 | 全部 | 25 页与 planning/delivery/git/node 全设计状态验收矩阵 | design_acceptance_inventory | in_progress | 矩阵已提取，逐项验收待完成 |
-| P15 | R20 | 四主题/布局/操作/异常状态回归、文档证据、合并推送 main | Lead | pending | 所有功能包完成后执行 |
+| P15 | R20 | 四主题/布局/操作/异常状态回归、文档证据、合并推送 main | Lead | in_progress | 原生preload修复，产物保存/取消与哈希实证、四主题截图；完整矩阵未通过，尚未推送 |
 
 每项实现、离线验证、真实服务验证、GUI 验证分别留证。任何未证明项维持未完成；真实环境缺口单列，不冒充已通过。

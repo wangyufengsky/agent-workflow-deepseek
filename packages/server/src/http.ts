@@ -699,12 +699,15 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const execution = engine.executions.get(request.params.id);
     const node = execution?.nodes.find((item) => item.nodeId === request.params.nodeId);
     const attemptId = request.query.attemptId ?? node?.currentAttemptId;
-    const fragments = attemptId === undefined ? [] : store.executions.listOutput(attemptId, Number(request.query.afterSeq ?? 0));
-    // Terminal is the real node/attempt end state, not a constant: a running
-    // attempt keeps streaming, a settled one never appends again.
     const attempt = attemptId === undefined ? undefined : store.executions.getAttempt(attemptId);
-    const terminal = isTerminalOutputStatus(attempt?.status ?? node?.status);
-    return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attemptId, fragments, terminal }, requestId(request));
+    if (execution === undefined || node === undefined || (attemptId !== undefined && (attempt === undefined || attempt.executionId !== execution.id || attempt.nodeId !== node.nodeId))) throw new AppError(ErrorCode.NOT_FOUND, '该任务节点没有对应的执行尝试');
+    if (attempt?.readability.output === 'forbidden') throw new AppError(ErrorCode.FORBIDDEN, '你没有查看这次尝试记录的权限');
+    const afterSeq = Number(request.query.afterSeq ?? 0);
+    if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '片段游标不合法');
+    const page = attemptId === undefined ? [] : store.executions.listOutput(attemptId, afterSeq, 501);
+    const fragments = page.slice(0, 500).map((fragment) => attempt?.readability.tools === 'forbidden' ? { ...fragment, toolEvidence: undefined } : fragment);
+    const terminal = isTerminalOutputStatus(attempt?.status ?? node.status);
+    return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attemptId, fragments, terminal, nextSeq: fragments.at(-1)?.seq ?? afterSeq, hasMore: page.length > 500 }, requestId(request));
   });
 
   // Delivery

@@ -42,6 +42,16 @@ test('artifact HTTP binds task, attempt and version; serves immutable preview an
     const plan = app.store.plans.create({ taskId: task.id, source: 'manual', graph, status: 'confirmed' });
     const execution = app.store.executions.create({ taskId: task.id, planRevisionId: plan.id, graph, autoAdvance: false });
     const attempt = app.store.executions.createAttempt({ executionId: execution.id, nodeId: 'n1', ordinal: 1 });
+    for (let seq = 1; seq <= 502; seq++) app.store.executions.appendOutput({ attemptId: attempt.id, seq: seq + 10, fragment: { fragmentId: `text-${seq}`, seq: seq + 10, category: 'model_text', text: `记录${seq}` } });
+    const outputUrl = ROUTES.nodeOutput(task.id, 'n1') + `?attemptId=${attempt.id}`;
+    const output = (await app.app.inject({ method: 'GET', url: outputUrl })).json().data;
+    assert.equal(output.fragments.length, 500); assert.equal(output.hasMore, true);
+    const remaining = (await app.app.inject({ method: 'GET', url: `${outputUrl}&afterSeq=${output.nextSeq}` })).json().data;
+    assert.equal(remaining.fragments.length, 2); assert.equal(remaining.hasMore, false);
+    assert.equal(remaining.fragments.at(-1).text, '记录502');
+    assert.equal((await app.app.inject({ method: 'GET', url: ROUTES.nodeOutput(other.id, 'n1') + `?attemptId=${attempt.id}` })).statusCode, 404);
+    assert.equal((await app.app.inject({ method: 'GET', url: ROUTES.nodeOutput(task.id, 'other-node') + `?attemptId=${attempt.id}` })).statusCode, 404);
+    assert.equal((await app.app.inject({ method: 'GET', url: `${outputUrl}&afterSeq=-1` })).statusCode, 400);
     app.store.executions.appendOutput({ attemptId: attempt.id, seq: 1, fragment: { fragmentId: 'call-1', seq: 1, category: 'tool_activity', toolCallRef: { callId: 'c1', status: 'running', source: 'opencode' }, toolEvidence: { name: 'read', input: '{"path":"a"}', redacted: true, truncated: false } } });
     app.store.executions.appendOutput({ attemptId: attempt.id, seq: 2, fragment: { fragmentId: 'call-2', seq: 2, category: 'tool_activity', toolCallRef: { callId: 'c1', status: 'completed', source: 'opencode' }, toolEvidence: { name: 'read', output: 'a'.repeat(20000), redacted: false, truncated: false } } });
     assert.equal(app.store.executions.listOutput(attempt.id)[1]!.toolEvidence?.input, '{"path":"a"}', 'final event retains persisted input');

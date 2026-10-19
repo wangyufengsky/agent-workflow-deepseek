@@ -2075,3 +2075,9 @@ export interface KnowledgePermissions {
 export interface KnowledgePermissionUpdate extends CommandRequest {
   readonly originalRead?: boolean; readonly publicSearch?: boolean;
 }
+
+export interface NodeOutputResponse {
+  readonly taskId: string; readonly nodeId: string; readonly attemptId?: string;
+  readonly fragments: readonly import('../domain/models.ts').OutputFragment[];
+  readonly terminal: boolean; readonly nextSeq: number; readonly hasMore: boolean;
+}
