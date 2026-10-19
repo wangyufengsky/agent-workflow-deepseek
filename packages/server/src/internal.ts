@@ -228,7 +228,12 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     if (!matched) {
       throw new AppError(ErrorCode.COMMAND_NOT_ALLOWED, '命令不在允许列表内', { details: { allowed } });
     }
-    const result = await runCommand(argv, root, Math.min(body.timeoutMs ?? 60000, 300000));
+    if (body.timeoutMs !== undefined && (!Number.isInteger(body.timeoutMs) || body.timeoutMs < 1)) throw new AppError(ErrorCode.VALIDATION_FAILED, '命令超时必须是正整数毫秒');
+    const task = deps.store.tasks.get(body.taskId);
+    const frozen = task?.executionId === undefined ? undefined : deps.store.settings.getJson<{ verifyCommandTimeoutMs: number }>(`execution.settings.${task.executionId}`);
+    const fix = deps.store.settings.getJson<{ verifyCommandTimeoutMs?: number }>(`fix.worktree.${body.taskId}`);
+    const limit = frozen?.verifyCommandTimeoutMs ?? fix?.verifyCommandTimeoutMs ?? deps.engine.settings.execution.verifyCommandTimeoutMs;
+    const result = await runCommand(argv, root, Math.min(body.timeoutMs ?? limit, limit));
     return result;
   }));
 }

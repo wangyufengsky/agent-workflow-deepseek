@@ -87,7 +87,9 @@ export interface PlanningSettings {
 export interface ExecutionSettings {
   readonly autoAdvanceByDefault: boolean;
   readonly maxConcurrentNodes: number;
+  /** Total attempts per node, including the first dispatch. No automatic retry. */
   readonly maxAttempts: number;
+  readonly pauseAfterFailure: boolean;
   readonly nodeTimeoutMinutes: number;
   readonly pauseTimeoutMs: number;
   readonly verifyCommandTimeoutMs: number;
@@ -204,6 +206,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoAdvanceByDefault: true,
     maxConcurrentNodes: 1,
     maxAttempts: 3,
+    pauseAfterFailure: true,
     nodeTimeoutMinutes: 30,
     pauseTimeoutMs: 15000,
     verifyCommandTimeoutMs: 300000,
@@ -281,7 +284,13 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
   if (settings.planning.maxRevisions < 0 || settings.planning.maxRevisions > 1) {
     issues.push({ path: 'planning.maxRevisions', message: '有界修订最多 1 次（MVP 决定）' });
   }
-  if (settings.execution.maxConcurrentNodes < 1) issues.push({ path: 'execution.maxConcurrentNodes', message: '至少允许 1 个节点执行' });
+  if (!Number.isInteger(settings.execution.maxConcurrentNodes) || settings.execution.maxConcurrentNodes < 1 || settings.execution.maxConcurrentNodes > 16) issues.push({ path: 'execution.maxConcurrentNodes', message: '并发节点数需要在 1–16 之间' });
+  if (!Number.isInteger(settings.execution.maxAttempts) || settings.execution.maxAttempts < 1 || settings.execution.maxAttempts > 10) issues.push({ path: 'execution.maxAttempts', message: '单节点总尝试上限需要在 1–10 之间，含首次执行' });
+  if (typeof settings.execution.pauseAfterFailure !== 'boolean') issues.push({ path: 'execution.pauseAfterFailure', message: '失败后暂停必须是布尔值' });
+  for (const [field, min, max] of [['nodeTimeoutMinutes', 1, 1440], ['pauseTimeoutMs', 1, 120000], ['verifyCommandTimeoutMs', 1, 7200000]] as const) {
+    const value = settings.execution[field];
+    if (!Number.isInteger(value) || value < min || value > max) issues.push({ path: `execution.${field}`, message: `需要在 ${min}–${max} 之间的整数` });
+  }
   if (!settings.git.author.name.trim() || !settings.git.author.email.trim()) {
     issues.push({ path: 'git.author', message: '提交作者名称与邮箱不能为空' });
   }

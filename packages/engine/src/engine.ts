@@ -124,7 +124,7 @@ export class Engine {
     this.charters = new CharterService(this.store, this.commands, this.ports.opencode, this.context);
     this.extras = new TaskExtrasService({ store: this.store, templates: () => this.catalog.templates });
     this.inbox = new InboxService(this.store, this.tasks);
-    this.recoveries = new RecoveryService({ store: this.store, commands: this.commands });
+    this.recoveries = new RecoveryService({ store: this.store, commands: this.commands, git: this.ports.git });
     this.planning = new PlanningService(this.store, this.commands, this.context, this.ports.opencode, () => this.tasks, this.catalog);
     this.plans = new PlanService(this.store, this.commands, this.context, this.ports.git, () => this.tasks, this.catalog, () => this.executions);
     this.workspaces = new WorkspaceService(this.store, this.commands, this.context, this.ports.git);
@@ -160,6 +160,7 @@ export class Engine {
         failures.push({ scope, message: error instanceof Error ? error.message : String(error) });
       }
     };
+    run('recovery', () => { this.recoveries.recoverOnStartup(); return []; }, () => {});
     let executions = 0;
     let planningRounds = 0;
     let workspaces = 0;

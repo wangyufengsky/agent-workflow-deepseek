@@ -1,3 +1,4 @@
+import { executionPolicy } from './execution-policy.ts';
 import type {
   ActionAvailability,
   CommandResponse,
@@ -188,6 +189,7 @@ export class PlanService {
         graph: plan.graph,
         autoAdvance: settings.execution.autoAdvanceByDefault,
       });
+    executionPolicy(this.#store, execution.id, this.#store.settings.getJson<import('@agent-workflow/shared').ExecutionSettings>(`recovery.execution-settings.${taskId}`) ?? this.#store.settings.getJson<import('@agent-workflow/shared').ExecutionSettings>(`task.execution-settings.${taskId}`) ?? settings.execution);
     const workspace =
       this.#store.workspaces.byTask(taskId) ??
       this.#store.workspaces.create({

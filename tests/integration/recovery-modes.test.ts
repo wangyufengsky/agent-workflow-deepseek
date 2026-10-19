@@ -9,8 +9,8 @@ import { createApplication, type RunningApplication } from '../../packages/serve
 /**
  * W2-4: the three recovery modes must produce real, defensible differences in
  * the derived draft (requirement context, attention and what may follow), not
- * just a different title. Executions/plans/workspaces are never copied and are
- * never created by recovery itself.
+ * just a different title. Writable modes copy frozen plans into unconfirmed
+ * drafts; executable records remain behind the explicit confirmation boundary.
  */
 
 interface ParentFixture {
@@ -144,7 +144,9 @@ test('recovery modes differ in inherited context, attention and follow-up action
     assert.equal(verifyTask.attention, 'waiting_user');
 
     for (const taskId of [fromTask.id, allTask.id, verifyTask.id]) {
-      assert.equal(app.store.plans.list(taskId).length, 0, `${taskId} has no plan`);
+      const plans = app.store.plans.list(taskId);
+      assert.equal(plans.length, taskId === verifyTask.id ? 0 : 1);
+      if (plans[0] !== undefined) assert.equal(plans[0].status, 'unconfirmed');
       assert.equal(app.store.executions.byTask(taskId), undefined, `${taskId} has no execution`);
       assert.equal(app.store.workspaces.byTask(taskId), undefined, `${taskId} has no workspace`);
     }
@@ -153,7 +155,7 @@ test('recovery modes differ in inherited context, attention and follow-up action
     assert.equal(verifyCapabilities.startExecution?.allowed, false);
     assert.equal(verifyCapabilities.prepareWorkspace?.allowed, false);
     const fromCapabilities = app.engine.tasks.detail(fromTask.id).capabilities;
-    assert.equal(fromCapabilities.startExecution?.allowed, false, 'no mode creates an executable draft');
+    assert.equal(fromCapabilities.startExecution?.allowed, false, 'copied plans still require explicit confirmation and workspace preparation');
 
     // History exposes all three modes; replaying a requestKey stays idempotent.
     const history = await app.app.inject({ method: 'GET', url: `/api/tasks/${parent.taskId}/recoveries` });

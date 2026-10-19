@@ -278,6 +278,7 @@ export class WorkspaceService {
     const planning = task.currentPlanningRoundId === undefined ? this.#store.planning.latest(taskId) : this.#store.planning.get(task.currentPlanningRoundId);
     const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(taskId) : this.#store.deliveries.get(task.deliveryId);
     const blockers: { kind: string; label: string; ref?: string }[] = [];
+    if (this.#store.settings.getJson(`task.recovery-source-lock.${taskId}`) !== undefined) blockers.push({ kind: 'recovery_snapshot', label: '原任务正在生成恢复快照，不能清理来源工作区' });
     if (workspace.state === 'preparing' || workspace.state === 'cleaning') {
       blockers.push({ kind: 'workspace_busy', label: `工作区正在${workspace.state === 'preparing' ? '准备' : '清理'}，不能重复清理` });
     }

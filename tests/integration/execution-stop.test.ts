@@ -118,6 +118,7 @@ test('retry after confirmed stop preserves future nodes and isolates old idle / 
   const secondAttempt = f.engine.executions.get(f.task.id)!.nodes[0]!.currentAttemptId!;
   assert.notEqual(secondAttempt, firstAttempt);
   assert.equal(f.requests.length, 2);
+  assert.equal(f.engine.executions.get(f.task.id)?.endedAt, undefined, 'retry clears the old stop timestamp');
   f.acknowledge(); // late acknowledgement of the old timed-out abort
   f.finish(0); // old loop must neither finish the new node nor delete its loop
   f.requests[0]!.sink.onTextDelta?.('late output', { messageId: 'old', partId: 'old' });

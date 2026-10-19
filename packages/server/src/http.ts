@@ -1140,6 +1140,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
 
   // Operations
   app.get<{ Params: { key: string } }>('/api/operations/:key', async (request) => {
+    engine.recoveries.reconcileOperation(request.params.key);
     await engine.executions.reconcileOperation(request.params.key);
     await engine.knowledge.reconcileOperation(request.params.key);
     await engine.charters.reconcileOperation(request.params.key);

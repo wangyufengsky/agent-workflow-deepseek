@@ -574,8 +574,8 @@ export function TaskCanvasPage() {
                 variant="secondary"
                 size="sm"
                 icon="refresh"
-                disabled={command.state.busy}
-                disabledReason="正在提交，等待服务回执…"
+                disabled={command.state.busy || actions.retryExecution?.allowed === false}
+                disabledReason={command.state.busy ? '正在提交，等待服务回执…' : actions.retryExecution?.reason}
                 onClick={runRetryRejected}
               >
                 按原配置重试失败 / 被退回步骤

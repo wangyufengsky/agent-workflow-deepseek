@@ -76,6 +76,7 @@ export interface StoredFixWorktree {
   readonly createdAt: string;
   readonly startRequestKey?: string;
   readonly stopRequestKey?: string;
+  readonly verifyCommandTimeoutMs?: number;
 }
 
 /** Server-owned restore capability (the engine Git port has no restore method). */
@@ -292,6 +293,7 @@ export class FixService {
         baseSha: base.tipSha,
         createdAt: nowIso(),
         startRequestKey: input.requestKey,
+        verifyCommandTimeoutMs: settings.execution.verifyCommandTimeoutMs,
       } satisfies StoredFixWorktree);
     } catch (error) {
       this.#pendingStarts.delete(guardKey);
@@ -797,7 +799,7 @@ export class FixService {
     if (mapping === undefined) return { state: 'error', summary: '修复工作区不存在，无法执行校验命令' };
     const args = splitCommandLine(command);
     if (args.length === 0) return { state: 'error', summary: '校验命令为空或无法解析' };
-    const timeout = Math.min(this.#context.settings().git.commandTimeoutMs, 180_000);
+    const timeout = mapping.verifyCommandTimeoutMs ?? this.#context.settings().execution.verifyCommandTimeoutMs;
     const started = Date.now();
     try {
       const result = await runProcess(args, mapping.path, timeout);

@@ -66,7 +66,7 @@ function TaskContext({ task }: { readonly task: TaskSummary }) {
             </Badge>
           </div>
           <div className="hint" style={{ marginTop: 2 }}>
-            原任务、执行证据与失败记录保持不变；恢复只生成派生草稿。
+            原任务、执行证据与失败记录保持不变；恢复复制冻结阶段和独立工作区快照，等待确认。
           </div>
         </div>
       </div>
@@ -136,6 +136,8 @@ export function RecoveryPage() {
   const skippableNodes = executionNode?.nodes.filter((node) => ['pending', 'ready', 'failed'].includes(node.status)) ?? [];
   const executionStatus = executionNode?.status;
   const unknownExecution = executionStatus === 'unknown';
+  const retryAction = detail.data?.capabilities.retryExecution;
+  const resumeAction = detail.data?.capabilities.resumeExecution;
   const [skipNodeId, setSkipNodeId] = useState('');
   const executionRecovery = useMutation({
     mutationFn: async (action: 'resume' | 'retry' | 'cancel' | 'skip') => {
@@ -292,7 +294,7 @@ export function RecoveryPage() {
                 <div className="grow">
                   <b>只创建派生草稿</b>
                   <br />
-                  原任务、执行证据与失败记录保持不变；草稿创建后在需求画布中重新规划。
+                  原任务、执行证据与失败记录保持不变；草稿复制已有冻结计划；请审阅确认后再开始。
                 </div>
               </div>
               <div role="radiogroup" aria-label="恢复方式" className="col" style={{ gap: 10 }}>
@@ -354,7 +356,7 @@ export function RecoveryPage() {
               <span className="section-title">执行恢复</span>
               <div className="hint" style={{ marginTop: 2 }}>
                 {executionNode === undefined
-                  ? '这个任务还没有执行记录；恢复草稿创建后重新规划即可。'
+                  ? '这个任务还没有执行记录；有冻结计划时复制到待确认草稿，无计划时保留需求上下文。'
                   : `执行状态 ${EXECUTION_STATUS_LABEL[executionNode.status]} · 失败步骤 ${String(failedNodes.length)} 个${unknownExecution ? ' · 待核对' : ''}`}
               </div>
             </div>
@@ -375,7 +377,7 @@ export function RecoveryPage() {
                     <div className="grow">
                       <b>执行状态待核对（unknown）</b>
                       <br />
-                      启动恢复把进程中断时在跑的步骤标记为失败，执行进入待核对。可以按原配置重试失败步骤、跳过节点（含下游）或取消执行并保留工作区；重试会创建新的 attempt，不会改动已成功的步骤。
+                      进程中断不证明远端会话已停止。请按原请求号核对；停止确认前不能创建可写恢复或重试活动步骤。
                     </div>
                     <div className="actions">
                       <Button
@@ -402,7 +404,7 @@ export function RecoveryPage() {
                 )}
                 <div className="row wrap" style={{ gap: 8 }}>
                   {executionNode.status === 'paused' ? (
-                    <Button variant="secondary" size="sm" icon="play" disabled={executionRecovery.isPending} disabledReason="正在提交命令，等待服务回执…" onClick={() => executionRecovery.mutate('resume')}>
+                    <Button variant="secondary" size="sm" icon="play" disabled={executionRecovery.isPending || resumeAction?.allowed === false} disabledReason={executionRecovery.isPending ? '正在提交命令，等待服务回执…' : resumeAction?.reason} onClick={() => executionRecovery.mutate('resume')}>
                       继续执行
                     </Button>
                   ) : null}
@@ -411,11 +413,11 @@ export function RecoveryPage() {
                       variant="primary"
                       size="sm"
                       icon="refresh"
-                      disabled={executionRecovery.isPending || failedNodes.length === 0}
+                      disabled={executionRecovery.isPending || retryAction?.allowed === false || (retryAction === undefined && failedNodes.length === 0)}
                       disabledReason={
                         executionRecovery.isPending
                           ? '正在提交命令，等待服务回执…'
-                          : '当前没有失败步骤可按原配置重试'
+                          : retryAction?.reason ?? '当前没有失败步骤可按原配置重试'
                       }
                       onClick={() => executionRecovery.mutate('retry')}
                     >

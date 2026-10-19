@@ -3,6 +3,7 @@ import type {
   AppSettings,
   DeliveryProjectionValue,
   ExecutionView,
+  ExecutionSettings,
   PlanNode,
   PlanRevision,
   PlanningRound,
@@ -146,6 +147,7 @@ const READ_ONLY_DENIED_ACTIONS = [
   'startExecution',
   'pauseExecution',
   'resumeExecution',
+  'retryExecution',
   'cancelExecution',
   'continueExecution',
   'deliver',
@@ -166,6 +168,8 @@ export function computeTaskActions(input: {
   readonly opencodeReady: boolean;
   readonly planningBudgetConfigured: boolean;
   readonly gitlabConfigured: boolean;
+  readonly executionPolicy?: ExecutionSettings;
+  readonly retryRejectedNodeIds?: readonly string[];
 }): Record<string, ActionAvailability> {
   const { task, plan, round, execution, workspace, delivery } = input;
   const fixed = task.fixedTemplate !== undefined;
@@ -243,7 +247,15 @@ export function computeTaskActions(input: {
         !workspaceReady ? '准备成功前不能开始执行' : !planConfirmed ? '计划尚未确认' : `当前执行状态为 ${execution?.status ?? '未知'}，不能开始`,
       );
   actions.pauseExecution = execution?.status === 'running' ? allowed() : denied(Rationale.OPERATION_IN_PROGRESS, '当前没有运行中的执行');
-  actions.resumeExecution = execution?.status === 'paused' ? allowed() : denied(Rationale.OPERATION_IN_PROGRESS, '当前没有暂停的执行');
+  const retryNodes = execution?.nodes.filter((node) => node.status === 'failed' || input.retryRejectedNodeIds?.includes(node.nodeId)) ?? [];
+  const attemptsExhausted = retryNodes.some((node) => node.attemptCount >= (input.executionPolicy?.maxAttempts ?? 3));
+  const activeNodes = execution?.nodes.some((node) => node.status === 'running' || node.status === 'unknown') ?? false;
+  actions.retryExecution = execution !== undefined && ['failed', 'stopped', 'paused', 'unknown'].includes(execution.status) && !activeNodes && (retryNodes.length > 0 || (execution.status === 'stopped' && execution.nodes.some((node) => node.status === 'pending' || node.status === 'ready'))) && !attemptsExhausted
+    ? allowed()
+    : denied(Rationale.OPERATION_IN_PROGRESS, activeNodes || execution?.status === 'unknown' ? '仍有活动或未知步骤，请先只读核对停稳' : attemptsExhausted ? `已达到单节点总尝试上限（${input.executionPolicy?.maxAttempts ?? 3} 次，含首次）；请创建恢复任务` : '当前没有可按原配置重试的失败或退回步骤');
+  actions.resumeExecution = execution?.status === 'paused' && !(retryNodes.length > 0 && input.executionPolicy?.pauseAfterFailure === true)
+    ? allowed()
+    : denied(Rationale.OPERATION_IN_PROGRESS, retryNodes.length > 0 ? '先处理失败或退回步骤，再继续执行' : '当前没有暂停的执行');
   actions.cancelExecution = execution !== undefined && (execution.status === 'running' || execution.status === 'paused' || execution.status === 'pausing')
     ? allowed()
     : denied(Rationale.OPERATION_IN_PROGRESS, '当前没有可取消的执行');

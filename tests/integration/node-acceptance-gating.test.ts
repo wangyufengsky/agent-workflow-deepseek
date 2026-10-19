@@ -203,7 +203,7 @@ test('a pending upstream verdict blocks manual advance; rejecting enables retry'
     assert.equal(readNodeAcceptance(app.store, rejectedSeed.executionId, 'node_x'), undefined, 'retry clears the rejected verdict');
     // With no workspace the retried node fails deterministically; the execution
     // must not magically complete.
-    await waitFor(app, rejectedSeed.taskId, (execution) => execution?.status === 'failed', 'rejected node fails without a workspace');
+    await waitFor(app, rejectedSeed.taskId, (execution) => execution?.status === 'paused' && execution.nodes.some((node) => node.nodeId === 'node_x' && node.status === 'failed'), 'rejected node fails without a workspace and pauses per policy');
   } finally {
     await app.close();
   }

@@ -1,3 +1,7 @@
+import { readNodeAcceptance } from './actions.ts';
+import { createRecoveryWorkspace } from './recovery-workspace.ts';
+import type { GitPort } from './ports.ts';
+import { executionSettingsKey } from './execution-policy.ts';
 import {
   AppError,
   DELIVERY_PROJECTION_LABEL,
@@ -15,6 +19,8 @@ import {
   isOperationKind,
   nowIso,
   type Attempt,
+  type ExecutionSettings,
+  type PlanGraph,
   type CommandResponse,
   type ExecutionNodeState,
   type ExecutionView,
@@ -58,6 +64,7 @@ interface RecoveryEvidence {
 export interface RecoveryServiceOptions {
   readonly store: Store;
   readonly commands: CommandService;
+  readonly git: GitPort;
 }
 
 /**
@@ -65,39 +72,24 @@ export interface RecoveryServiceOptions {
  * parent task, its execution evidence or its delivery records; the lineage is
  * stored next to the derived task and exposed as a read-only history.
  *
- * Mode semantics (W2-4) are real task-field differences, not just a title. The
- * engine cannot copy an execution/plan/workspace (documented gap), so each mode
- * differs in what requirement context the derived draft carries, in its
- * attention state and in whether it is a writable draft or a read-only
- * verification draft. Plans/workspaces/executions are never created here.
- *
- * - `from_failed_stage`: copies the requirement text, existing supplements and
- *   the parent's requirement entries, then appends a `恢复上下文` supplement with
- *   the failed stage/nodes/round/delivery evidence. The next planning pass sees
- *   where the parent failed and continues with the accumulated context.
- * - `all_stages`: copies only the requirement text, method and frozen
- *   method/template binding; no supplements/answers/execution evidence are
- *   inherited, so the derived task restarts from the requirement phase.
- * - `verify_only`: read-only verification draft. Requires the parent to have
- *   settled execution attempts; copies the requirement plus existing context and
- *   appends a `只读验证范围` supplement that (a) states no plan/workspace/execution
- *   is created and no file is modified, and (b) enumerates the parent's attempts,
- *   verification outcomes and delivery/acceptance facts to verify. The derived
- *   task is flagged `attention: waiting_user` for the human check and persisted
- *   with `Task.readOnly = true`, which the action projection and the
- *   plan/planning/execution service entry points enforce (server-side, not just
- *   UI); it therefore has no executable path at all.
+ * Writable recovery copies the frozen plan into an unconfirmed revision and,
+ * when available, snapshots the parent's settled workspace to a new owned path.
+ * from_failed_stage retains failed/downstream nodes and prior successful output
+ * as read-only source context. all_stages restarts the full frozen graph from its
+ * baseline. verify_only stays a read-only evidence draft with no executable path.
  */
 export class RecoveryService {
   readonly #store: Store;
   readonly #commands: CommandService;
+  readonly #git: GitPort;
 
   constructor(options: RecoveryServiceOptions) {
     this.#store = options.store;
     this.#commands = options.commands;
+    this.#git = options.git;
   }
 
-  create(parentTaskId: string, input: RecoveryCreateRequest): CommandResponse<RecoveryCreateResponse> {
+  async create(parentTaskId: string, input: RecoveryCreateRequest): Promise<CommandResponse<RecoveryCreateResponse>> {
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '恢复请求体不合法');
     if (typeof input.requestKey !== 'string' || input.requestKey.length < 8) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 requestKey');
     if (input.confirmCreate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '需要显式确认创建恢复草稿');
@@ -107,6 +99,8 @@ export class RecoveryService {
     this.#assertRecoverable(parent);
     const evidence = this.#evidence(parent);
     this.#assertModePreconditions(parent, input.mode, evidence);
+    const otherUnknown = this.#store.operations.listPending().find((operation) => operation.operation === 'task.recovery.create' && operation.target.taskId === parentTaskId && operation.requestKey !== input.requestKey);
+    if (otherUnknown !== undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '上次恢复结果未明，请按原请求号核对后再创建', { details: { requestKey: otherUnknown.requestKey } });
 
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -118,7 +112,7 @@ export class RecoveryService {
       if (record.status === 'accepted') {
         throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号的恢复草稿正在创建；请按 requestKey 核对回执');
       }
-      const derivedTaskId = typeof record.outcome?.taskId === 'string' ? record.outcome.taskId : undefined;
+      const derivedTaskId = typeof record.outcome?.taskId === 'string' ? record.outcome.taskId : this.#store.tasks.list().find((task) => this.#store.settings.getJson<{ requestKey: string }>(`${RECOVERY_KEY_PREFIX}${task.id}`)?.requestKey === input.requestKey)?.id;
       const derived = derivedTaskId === undefined ? undefined : this.#store.tasks.get(derivedTaskId);
       if (derived === undefined) {
         throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '恢复回执存在但派生任务不可读；请按 requestKey 核对');
@@ -126,6 +120,7 @@ export class RecoveryService {
       return { receipt: this.#commands.toReceipt(record), resource: { task: derived, recovery: this.#record(derived.id)! } };
     }
 
+    this.#store.settings.putJson(`task.recovery-source-lock.${parent.id}`, { requestKey: input.requestKey });
     try {
       const created = this.#store.tasks.create({
         projectId: parent.projectId,
@@ -137,11 +132,18 @@ export class RecoveryService {
         // verify_only is enforced by actions.ts + plan/planning/execution guards.
         readOnly: input.mode === 'verify_only',
       });
+      this.#store.settings.putJson(`${RECOVERY_KEY_PREFIX}${created.id}`, { taskId: created.id, parentTaskId, mode: input.mode, title: created.title, stage: created.stage, lifecycle: created.lifecycle, createdAt: nowIso(), requestKey: input.requestKey, ready: false });
+      const parentPolicy = this.#store.settings.getJson<ExecutionSettings>(evidence.execution === undefined ? `task.execution-settings.${parent.id}` : executionSettingsKey(evidence.execution.id)) ?? this.#store.settings.getJson<ExecutionSettings>(`task.execution-settings.${parent.id}`);
+      if (parentPolicy !== undefined) this.#store.settings.putJson(`task.execution-settings.${created.id}`, parentPolicy);
       const requirement = this.#derivedRequirement(parent, input.mode, evidence, created.requirement);
+      const plan = input.mode === 'verify_only' ? undefined : this.#copyPlan(parent, created.id, input.mode, evidence);
+      const workspace = plan === undefined ? undefined : await createRecoveryWorkspace(this.#store, this.#git, parent.id, created.id, input.mode as 'from_failed_stage' | 'all_stages');
       const attention = input.mode === 'verify_only' ? 'waiting_user' : 'none';
       const updated = this.#store.tasks.update(created.id, {
         ...(requirement === undefined ? {} : { requirement }),
         attention,
+        ...(plan === undefined ? {} : { currentPlanRevisionId: plan.id, stage: 'confirming' as const }),
+        ...(workspace === undefined ? {} : { workspaceId: workspace.id }),
       });
       const derived = updated ?? created;
       const recovery: RecoveryRecord = {
@@ -156,12 +158,17 @@ export class RecoveryService {
       this.#store.settings.putJson(`${RECOVERY_KEY_PREFIX}${derived.id}`, {
         ...recovery,
         requestKey: input.requestKey,
+        ready: true,
         note,
         parentRequirementRevision: parent.requirement.revision,
         // Writable-vs-read-only intent is part of the recorded mode evidence; the
         // HTTP contract only exposes `mode`, so this stays an audit record.
         writableSession: input.mode !== 'verify_only',
-        copiedScope: copiedScope(input.mode),
+        copiedScope: plan === undefined ? copiedScope(input.mode) : 'frozen_plan+independent_workspace+prior_stage_context',
+        sourcePlanRevisionId: parent.currentPlanRevisionId,
+        copiedPlanRevisionId: plan?.id,
+        sourceWorkspaceId: parent.workspaceId,
+        copiedWorkspaceId: workspace?.id,
         parentStage: parent.stage,
         parentAttention: parent.attention,
         ...(requirement === undefined ? {} : { requirementRevision: requirement.revision }),
@@ -181,6 +188,29 @@ export class RecoveryService {
     } catch (error) {
       this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('创建恢复草稿失败'));
       throw error;
+    } finally {
+      this.#store.settings.removeJson(`task.recovery-source-lock.${parent.id}`);
+    }
+  }
+
+  /** A local snapshot process cannot survive service restart; retain partial files and UNKNOWN receipts. */
+  recoverOnStartup(): void {
+    for (const operation of this.#store.operations.listPending()) {
+      if (operation.operation !== 'task.recovery.create') continue;
+      if (operation.target.taskId !== undefined) this.#store.settings.removeJson(`task.recovery-source-lock.${operation.target.taskId}`);
+      if (operation.status === 'accepted') this.#commands.fail(operation.requestKey, new AppError(ErrorCode.INTERNAL_ERROR, '服务重启，恢复快照结果待核对；保留已创建现场，不自动重建'), true);
+    }
+  }
+
+  reconcileOperation(requestKey: string): void {
+    const operation = this.#commands.get(requestKey);
+    if (operation?.operation !== 'task.recovery.create' || !['accepted', 'unknown'].includes(operation.status)) return;
+    for (const task of this.#store.tasks.list()) {
+      const record = this.#store.settings.getJson<RecoveryRecord & { requestKey: string; ready?: boolean }>(`${RECOVERY_KEY_PREFIX}${task.id}`);
+      if (record?.requestKey === requestKey && record.ready === true) {
+        this.#commands.settle(requestKey, { taskId: task.id, parentTaskId: record.parentTaskId, mode: record.mode, reconciled: true });
+        return;
+      }
     }
   }
 
@@ -224,8 +254,34 @@ export class RecoveryService {
     return { execution, attempts, failedNodes, planningRound, delivery, acceptance, workspaceState: workspace?.state };
   }
 
+  #copyPlan(parent: Task, taskId: string, mode: 'from_failed_stage' | 'all_stages', evidence: RecoveryEvidence) {
+    const source = evidence.execution === undefined
+      ? (parent.currentPlanRevisionId === undefined ? this.#store.plans.latest(parent.id) : this.#store.plans.get(parent.currentPlanRevisionId))
+      : this.#store.plans.get(evidence.execution.planRevisionId);
+    if (source === undefined) return undefined;
+    let graph: PlanGraph = structuredClone(source.graph);
+    if (mode === 'from_failed_stage' && evidence.execution !== undefined) {
+      const retained = new Set(evidence.execution.nodes.filter((node) => !['succeeded', 'skipped'].includes(node.status) || (node.status === 'succeeded' && source.graph.nodes.find((item) => item.id === node.nodeId)?.acceptance.length !== 0 && readNodeAcceptance(this.#store, evidence.execution!.id, node.nodeId)?.state !== 'accepted')).map((node) => node.nodeId));
+      // A failed predecessor invalidates even a previously successful successor.
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const edge of graph.edges) if (retained.has(edge.from) && !retained.has(edge.to)) { retained.add(edge.to); changed = true; }
+      }
+      if (retained.size === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '没有失败或后续阶段可恢复；可选择只读验证或复制全部阶段');
+      const nodes = graph.nodes.filter((node) => retained.has(node.id));
+      const groups = new Set(nodes.map((node) => node.groupId));
+      graph = { ...graph, nodes, edges: graph.edges.filter((edge) => retained.has(edge.from) && retained.has(edge.to)), groups: graph.groups.filter((group) => groups.has(group.id)) };
+    }
+    const policy = evidence.execution === undefined ? undefined : this.#store.settings.getJson<ExecutionSettings>(executionSettingsKey(evidence.execution.id));
+    if (policy !== undefined) this.#store.settings.putJson(`recovery.execution-settings.${taskId}`, policy);
+    return this.#store.plans.create({ taskId, source: 'edit', baseRevisionId: source.id, graph, status: 'unconfirmed', diff: graph.nodes.map((node) => ({ nodeId: node.id, nodeKey: node.key, title: node.title, groupId: node.groupId, kind: 'unchanged', summary: '复制原任务冻结阶段，保留职业与输入配置；请重新确认' })) });
+  }
+
   #assertModePreconditions(parent: Task, mode: RecoveryModeValue, evidence: RecoveryEvidence): void {
-    if (mode !== 'verify_only') return;
+    if (mode !== 'verify_only') {
+      if (evidence.execution?.status === 'unknown' || evidence.execution?.nodes.some((node) => node.status === 'running' || node.status === 'unknown') || evidence.planningRound?.status === 'unknown' || evidence.delivery?.projection === 'unknown_receipt') throw new AppError(ErrorCode.HUMAN_REVIEW_REQUIRED, '原任务仍有活动或未知结果，先只读核对停稳后才能创建可写恢复');
+      return;
+    }
     const settledAttempts = evidence.attempts.filter((attempt) => attempt.status === 'succeeded' || attempt.status === 'failed');
     if (evidence.execution === undefined || settledAttempts.length === 0) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '只读验证需要原任务已有执行尝试或验证结果；当前没有可核对的产物', {
@@ -286,7 +342,10 @@ export class RecoveryService {
     if (evidence.acceptance !== undefined) {
       lines.push(`人工验收：${evidence.acceptance.verdict === 'accepted' ? '已通过' : '未通过'}${evidence.acceptance.note === undefined ? '' : `；${clip(evidence.acceptance.note, 160)}`}`);
     }
-    lines.push('此前阶段的需求、答复与判断作为本轮上下文保留；计划需要重新生成并确认后才可执行。');
+    for (const attempt of evidence.attempts.filter((item) => item.status === 'succeeded').slice(0, 20)) {
+      lines.push(`沿用只读上下文：原尝试 ${attempt.id} / ${attempt.nodeId}；${clip(attempt.result?.summary ?? '完成结果无正文', 300)}；产物 ${attempt.result?.artifacts.map((artifact) => artifact.id).join('、') ?? '无'}。`);
+    }
+    lines.push('已有冻结计划时复制失败及后续阶段，成功前序的产物从独立工作区快照沿用；重新审阅确认复制计划后才可执行，不自动重新规划。');
     return clip(lines.join('\n'), MAX_EVIDENCE);
   }
 
@@ -319,6 +378,7 @@ export class RecoveryService {
   }
 
   #assertRecoverable(task: Task): void {
+    if (this.#store.settings.getJson(`task.recovery-source-lock.${task.id}`) !== undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '原任务正在创建恢复快照，请先核对原操作');
     if (task.readOnly === true) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '只读验证草稿只用于核对父任务产物，不能再创建恢复草稿', {
         details: { reason: 'RECOVERY_READ_ONLY', taskId: task.id },

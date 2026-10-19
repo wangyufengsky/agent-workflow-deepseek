@@ -37,8 +37,9 @@ import {
   nowIso,
   unresolvedPlanScopes,
 } from '@agent-workflow/shared';
+import { executionSettingsKey } from './execution-policy.ts';
 import type { Store } from '@agent-workflow/storage';
-import { READ_ONLY_RECOVERY_REASON, computeTaskActions, computeTaskAttention, planningView, readOnlyRecoveryError } from './actions.ts';
+import { READ_ONLY_RECOVERY_REASON, computeTaskActions, computeTaskAttention, planningView, readNodeAcceptance, readOnlyRecoveryError } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { OpenCodePort, GitPort } from './ports.ts';
 import type { EngineContext } from './actions.ts';
@@ -273,6 +274,7 @@ export class TaskService {
         stage: TaskStage.DRAFT,
         fixedTemplate,
       });
+      this.#store.settings.putJson(`task.execution-settings.${task.id}`, structuredClone(this.#context.settings().execution));
       this.#store.events.publish('task.changed', { taskId: task.id, projectId: task.projectId, stage: task.stage, revision: 1 });
       this.#commands.settle(input.requestKey, { taskId: task.id });
       const refreshed = this.#commands.get(input.requestKey)!;
@@ -345,6 +347,8 @@ export class TaskService {
       opencodeReady: this.#context.opencodeReady(),
       planningBudgetConfigured: this.#context.planningBudgetConfigured(),
       gitlabConfigured: this.#context.gitlabConfigured(),
+      executionPolicy: execution === undefined ? undefined : this.#store.settings.getJson<import('@agent-workflow/shared').ExecutionSettings>(executionSettingsKey(execution.id)) ?? this.#context.settings().execution,
+      retryRejectedNodeIds: execution === undefined ? [] : execution.nodes.filter((node) => readNodeAcceptance(this.#store, execution.id, node.nodeId)?.state === 'rejected').map((node) => node.nodeId),
     });
     return {
       task,

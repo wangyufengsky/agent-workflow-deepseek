@@ -1,4 +1,5 @@
 import { projectDocumentInstructions } from './project-documents.ts';
+import { canShareWorkspace, executionPolicy } from './execution-policy.ts';
 import type {
   AttemptResult,
   CommandResponse,
@@ -33,6 +34,14 @@ import type { CommandService } from './operations.ts';
 import { roleModel } from './role-runtime.ts';
 import type { OpenCodePort } from './ports.ts';
 
+interface StopContext {
+  readonly requestKey: string;
+  confirmed: boolean;
+  settled: boolean;
+  readonly attemptIds: readonly string[];
+  readonly confirmedAttempts: Set<string>;
+}
+
 interface ResultWaiter {
   resolve(result: AttemptResult): void;
 }
@@ -61,9 +70,9 @@ export class ExecutionService {
   readonly #opencode: OpenCodePort;
   readonly #resultWaiters = new Map<string, ResultWaiter>();
   readonly #loops = new Map<string, symbol>();
-  readonly #activeSessions = new Map<string, string>();
+  readonly #activeSessions = new Map<string, Map<string, string>>();
   readonly #idleAttempts = new Set<string>();
-  readonly #stops = new Map<string, { requestKey: string; confirmed: boolean; settled: boolean; attemptId?: string }>();
+  readonly #stops = new Map<string, StopContext>();
 
   constructor(store: Store, commands: CommandService, context: EngineContext, opencode: OpenCodePort) {
     this.#store = store;
@@ -109,8 +118,11 @@ export class ExecutionService {
     const updated = this.#store.executions.update(execution.id, {
       status: 'running',
       startedAt: execution.startedAt ?? nowIso(),
-      notice: undefined,
+      notice: null,
+      pause: null,
+      endedAt: null,
     });
+    executionPolicy(this.#store, execution.id, this.#context.settings().execution);
     this.#store.tasks.update(taskId, { stage: TaskStage.EXECUTING, attention: TaskAttention.NONE, executionId: execution.id });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
     this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: TaskStage.EXECUTING, revision: 1 });
@@ -142,6 +154,7 @@ export class ExecutionService {
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);
     if (execution === undefined || execution.status !== 'paused') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有暂停的执行');
+    if (execution.nodes.some((node) => node.status === NodeStatus.FAILED) && executionPolicy(this.#store, execution.id, this.#context.settings().execution).pauseAfterFailure) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '先重试或处理失败步骤，再继续执行');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'execution.resume',
@@ -149,7 +162,7 @@ export class ExecutionService {
       target: { taskId, executionId: execution.id },
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
-    this.#store.executions.update(execution.id, { status: 'running', notice: undefined });
+    this.#store.executions.update(execution.id, { status: 'running', notice: null, pause: null, endedAt: null });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
     this.#commands.settle(input.requestKey, { resumed: true });
     void this.#advance(execution.id);
@@ -296,6 +309,9 @@ export class ExecutionService {
     if (!['failed', 'stopped', 'paused', 'unknown'].includes(execution.status)) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行仍在运行，先暂停/取消后再重试', { details: { status: execution.status } });
     }
+    const policy = executionPolicy(this.#store, execution.id, this.#context.settings().execution);
+    const exhausted = [...failedNodes, ...rejectedNodes].filter((node) => node.attemptCount >= policy.maxAttempts);
+    if (exhausted.length > 0) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '步骤尝试次数已用完（含首次执行）；请创建恢复任务', { details: { nodeIds: exhausted.map((node) => node.nodeId), maxAttempts: policy.maxAttempts } });
     const retriedNodeIds = [...failedNodes.map((node) => node.nodeId), ...rejectedNodes.map((node) => node.nodeId)];
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -318,7 +334,8 @@ export class ExecutionService {
     for (const node of rejectedNodes) clearNodeAcceptance(this.#store, execution.id, node.nodeId);
     this.#store.executions.update(execution.id, {
       status: 'running',
-      endedAt: undefined,
+      endedAt: null,
+      pause: null,
       notice: { kind: 'paused', message: `按原配置重试 ${String(failedNodes.length)} 个失败步骤${rejectedNodes.length === 0 ? '' : `、${String(rejectedNodes.length)} 个被退回步骤`}` },
     });
     this.#store.tasks.update(taskId, { attention: TaskAttention.NONE });
@@ -434,31 +451,28 @@ export class ExecutionService {
       this.#commands.fail(input.requestKey, new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行无法重复停止；请核对原请求号'));
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
     }
-    const stop = { requestKey: input.requestKey, confirmed: false, settled: false, attemptId: execution.nodes.find((node) => node.status === NodeStatus.RUNNING)?.currentAttemptId };
+    const stop: StopContext = { requestKey: input.requestKey, confirmed: false, settled: false, attemptIds: execution.nodes.filter((node) => node.status === NodeStatus.RUNNING).flatMap((node) => node.currentAttemptId === undefined ? [] : [node.currentAttemptId]), confirmedAttempts: new Set() };
     this.#stops.set(execution.id, stop);
     this.#store.executions.update(execution.id, { status: 'stopping' });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'stopping', revision: 1 });
-    const sessionId = this.#activeSessions.get(execution.id);
-    if (!this.#loops.has(execution.id) || (stop.attemptId !== undefined && this.#idleAttempts.has(stop.attemptId))) {
-      stop.confirmed = true;
-      this.#settleStop(execution.id);
-    } else if (sessionId !== undefined) {
-      let timer: NodeJS.Timeout | undefined;
-      const abort = this.#opencode.abortSession(sessionId).then(() => {
-        stop.confirmed = true;
-        this.#settleStop(execution.id, stop);
-      });
-      try {
-        await Promise.race([abort, new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('停止确认超时')), this.#context.settings().execution.pauseTimeoutMs);
-        })]);
-      } catch (error) {
-        this.#unknownStop(execution.id, error instanceof Error ? error.message : '停止未确认', stop);
-      } finally {
-        if (timer !== undefined) clearTimeout(timer);
-      }
-    } else {
-      this.#unknownStop(execution.id, '会话仍在创建；收到会话后将阻止派发，当前不能确认停稳');
+    for (const id of stop.attemptIds) if (this.#idleAttempts.has(id)) stop.confirmedAttempts.add(id);
+    const requests = stop.attemptIds.filter((id) => !stop.confirmedAttempts.has(id)).map(async (attemptId) => {
+      const sessionId = this.#activeSessions.get(execution.id)?.get(attemptId);
+      if (sessionId === undefined) throw new Error('会话仍在创建；收到会话后将阻止派发，当前不能确认停稳');
+      await this.#opencode.abortSession(sessionId);
+      stop.confirmedAttempts.add(attemptId);
+      this.#settleStop(execution.id, stop);
+    });
+    this.#settleStop(execution.id, stop);
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([Promise.all(requests), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('停止确认超时')), executionPolicy(this.#store, execution.id, this.#context.settings().execution).pauseTimeoutMs);
+      })]);
+    } catch (error) {
+      this.#unknownStop(execution.id, error instanceof Error ? error.message : '停止未确认', stop);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
   }
@@ -476,10 +490,12 @@ export class ExecutionService {
   #settleStop(executionId: string, expectedStop = this.#stops.get(executionId)): void {
     const stop = this.#stops.get(executionId);
     const execution = this.#store.executions.get(executionId);
-    if (stop === undefined || stop !== expectedStop || stop.settled || !stop.confirmed || execution === undefined || !['stopping', 'unknown'].includes(execution.status)) return;
+    if (stop === undefined || stop !== expectedStop || stop.settled || execution === undefined || !['stopping', 'unknown'].includes(execution.status)) return;
+    stop.confirmed = stop.attemptIds.every((id) => stop.confirmedAttempts.has(id));
+    if (!stop.confirmed) return;
     stop.settled = true;
     for (const node of execution.nodes) {
-      if (node.currentAttemptId !== stop.attemptId || stop.attemptId === undefined) continue;
+      if (node.currentAttemptId === undefined || !stop.attemptIds.includes(node.currentAttemptId)) continue;
       if (node.status !== NodeStatus.RUNNING && node.status !== NodeStatus.UNKNOWN && node.error?.code !== 'INTERRUPTED') continue;
       if (node.currentAttemptId !== undefined) {
         this.#store.executions.finishAttempt(node.currentAttemptId, NodeStatus.CANCELLED, undefined, '用户停止执行');
@@ -506,9 +522,9 @@ export class ExecutionService {
     if (this.#opencode.inspectSession === undefined) return;
     let stop = this.#stops.get(executionId);
     if (stop !== undefined && stop.requestKey !== requestKey) return;
-    const active = execution.nodes.find((node) => node.currentAttemptId !== undefined && (node.status === NodeStatus.RUNNING || node.status === NodeStatus.UNKNOWN || node.error?.code === 'INTERRUPTED'));
+    const active = execution.nodes.filter((node) => node.currentAttemptId !== undefined && (node.status === NodeStatus.RUNNING || node.status === NodeStatus.UNKNOWN || node.error?.code === 'INTERRUPTED'));
     if (stop === undefined) {
-      stop = { requestKey, confirmed: false, settled: false, attemptId: active?.currentAttemptId };
+      stop = { requestKey, confirmed: false, settled: false, attemptIds: active.map((node) => node.currentAttemptId!), confirmedAttempts: new Set() };
       this.#stops.set(executionId, stop);
     }
     const expectedStop = stop;
@@ -516,15 +532,16 @@ export class ExecutionService {
       // Absence from a session listing never proves that a lost create request
       // did not reach the runtime. Require an explicit idle state for every
       // session belonging to this exact attempt.
-      if (stop.attemptId === undefined) return;
-      const saved = this.#store.settings.getJson<{ sessionId: string }>(`execution.session.${stop.attemptId}`);
-      const sessions = saved === undefined
-        ? await this.#opencode.findSessions({ taskId: execution.taskId, executionId, attemptId: stop.attemptId })
-        : [{ id: saved.sessionId }];
-      if (sessions.length === 0) return;
-      const states = await Promise.all(sessions.map((session) => this.#opencode.inspectSession!(session.id)));
-      if (!states.every((state) => state === 'idle')) return;
-      expectedStop.confirmed = true;
+      if (stop.attemptIds.length === 0) return;
+      for (const attemptId of stop.attemptIds) {
+        const saved = this.#store.settings.getJson<{ sessionId: string }>(`execution.session.${attemptId}`);
+        const sessions = saved === undefined
+          ? await this.#opencode.findSessions({ taskId: execution.taskId, executionId, attemptId })
+          : [{ id: saved.sessionId }];
+        if (sessions.length === 0) continue;
+        const states = await Promise.all(sessions.map((session) => this.#opencode.inspectSession!(session.id)));
+        if (states.every((state) => state === 'idle')) expectedStop.confirmedAttempts.add(attemptId);
+      }
       this.#settleStop(executionId, expectedStop);
     } catch {
       // A read failure leaves the durable UNKNOWN receipt intact.
@@ -660,34 +677,51 @@ export class ExecutionService {
     if (this.#loops.has(executionId)) return;
     const loop = Symbol(executionId);
     this.#loops.set(executionId, loop);
+    const active = new Map<string, Promise<void>>();
     try {
       for (;;) {
         const execution = this.#store.executions.get(executionId);
-        if (this.#loops.get(executionId) !== loop || execution === undefined || execution.status !== 'running') return;
+        if (this.#loops.get(executionId) !== loop || execution === undefined) return;
+        if (execution.status !== 'running') {
+          if (active.size === 0) return;
+          await Promise.race(active.values());
+          continue;
+        }
         const task = this.#requireTask(execution.taskId);
         const plan = this.#store.plans.get(execution.planRevisionId);
         if (plan === undefined) {
           this.#store.executions.update(executionId, { status: 'failed', notice: { kind: 'failed', message: '计划不存在' } });
           return;
         }
-        // Auto-advance releases eligible successors on its own. With the switch
-        // off only an explicit `advance` call releases nodes; the batch already
-        // released still runs here one node at a time.
+        const policy = executionPolicy(this.#store, executionId, this.#context.settings().execution);
         if (execution.autoAdvance) this.#recomputeReady(execution, plan);
         const current = this.#store.executions.get(executionId)!;
-        const next = current.nodes.find((node) => node.status === NodeStatus.READY);
-        if (next === undefined) {
-          this.#settleIdleExecution(task, current, plan);
-          return;
+        const failed = current.nodes.some((node) => node.status === NodeStatus.FAILED || node.status === NodeStatus.UNKNOWN);
+        if (!(failed && policy.pauseAfterFailure)) {
+          for (const candidate of current.nodes.filter((node) => node.status === NodeStatus.READY)) {
+            if (policy.pauseAfterFailure && this.#store.executions.get(executionId)!.nodes.some((node) => node.status === NodeStatus.FAILED || node.status === NodeStatus.UNKNOWN)) break;
+            if (active.size >= policy.maxConcurrentNodes) break;
+            const definition = plan.graph.nodes.find((node) => node.id === candidate.nodeId);
+            if (definition === undefined) {
+              this.#store.executions.updateNode(executionId, candidate.nodeId, { status: NodeStatus.FAILED, error: { code: 'NODE_NOT_EXECUTABLE', message: '步骤不在计划中' } });
+              continue;
+            }
+            if (candidate.attemptCount >= policy.maxAttempts) {
+              this.#store.executions.updateNode(executionId, candidate.nodeId, { status: NodeStatus.FAILED, error: { code: ErrorCode.MODEL_BUDGET_EXCEEDED, message: '已达到单节点总尝试上限，含首次执行' } });
+              continue;
+            }
+            const activeDefinitions = [...active.keys()].map((id) => plan.graph.nodes.find((node) => node.id === id)!);
+            if (active.size > 0 && (!canShareWorkspace(definition) || activeDefinitions.some((node) => !canShareWorkspace(node)))) continue;
+            const run = this.#runNode(task, current, plan, definition).finally(() => { active.delete(candidate.nodeId); });
+            active.set(candidate.nodeId, run);
+          }
         }
-        const planNode = plan.graph.nodes.find((node) => node.id === next.nodeId);
-        if (planNode === undefined) {
-          this.#store.executions.updateNode(executionId, next.nodeId, { status: 'failed', error: { code: 'NODE_NOT_EXECUTABLE', message: '步骤不在计划中' } });
+        if (active.size > 0) {
+          await Promise.race(active.values());
           continue;
         }
-        await this.#runNode(task, execution, plan, planNode);
-        const after = this.#store.executions.get(executionId);
-        if (this.#loops.get(executionId) !== loop || after === undefined || after.status !== 'running') return;
+        this.#settleIdleExecution(task, this.#store.executions.get(executionId)!, plan);
+        return;
       }
     } finally {
       if (this.#loops.get(executionId) === loop) this.#loops.delete(executionId);
@@ -711,9 +745,12 @@ export class ExecutionService {
     }
     const failed = execution.nodes.filter((node) => node.status === NodeStatus.FAILED);
     if (failed.length > 0) {
-      this.#store.executions.update(execution.id, { status: 'failed', endedAt: nowIso(), notice: { kind: 'failed', message: `${failed.length} 个步骤失败` } });
+      const policy = executionPolicy(this.#store, execution.id, this.#context.settings().execution);
+      const status = policy.pauseAfterFailure ? 'paused' : 'failed';
+      if (status === 'paused') this.#store.executions.update(execution.id, { status: 'pausing' });
+      this.#store.executions.update(execution.id, { status, endedAt: status === 'failed' ? nowIso() : undefined, notice: { kind: 'failed', message: `${failed.length} 个步骤失败；${policy.pauseAfterFailure ? '已暂停新增领取，等待处理' : '独立步骤已执行，失败分支待处理'}` } });
       this.#store.tasks.update(task.id, { attention: TaskAttention.FAILED });
-      this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status: 'failed', revision: 1 });
+      this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status, revision: 1 });
       return;
     }
     // W0-4b: executed nodes with acceptance criteria only count as done after the
@@ -858,11 +895,13 @@ export class ExecutionService {
       attemptCount: (execution.nodes.find((item) => item.nodeId === node.id)?.attemptCount ?? 0) + 1,
       startedAt: nowIso(),
     });
+    const runningView = this.#store.executions.get(execution.id)!;
+    this.#store.executions.update(execution.id, { progress: { done: runningView.nodes.filter((item) => item.status === NodeStatus.SUCCEEDED).length, failed: runningView.nodes.filter((item) => item.status === NodeStatus.FAILED).length, running: runningView.nodes.filter((item) => item.status === NodeStatus.RUNNING).length, total: runningView.nodes.length } });
     this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status: 'running', revision: 1 });
 
     const isCurrent = () => this.#store.executions.get(execution.id)?.nodes.find((item) => item.nodeId === node.id)?.currentAttemptId === attempt.id
       && this.#store.executions.getAttempt(attempt.id)?.status === NodeStatus.RUNNING;
-    const stopped = () => this.#stops.get(execution.id)?.attemptId === attempt.id;
+    const stopped = () => this.#stops.get(execution.id)?.attemptIds.includes(attempt.id) === true;
     const resultPromise = new Promise<AttemptResult>((resolve) => this.#resultWaiters.set(attempt.id, { resolve }));
     const role = node.roleSnapshot;
     let model: ModelProfile;
@@ -930,20 +969,22 @@ export class ExecutionService {
         cwd: workspace.displayRoot,
         prompt,
         model,
-        permission: 'workspace_write',
+        permission: canShareWorkspace(node) ? 'read_only' : 'workspace_write',
         ...(role === undefined ? {} : { rolePolicy: role }),
         onSessionId: (id) => {
           if (!isCurrent()) throw new AppError(ErrorCode.STALE_TARGET, '旧执行尝试不能派发会话');
           this.#store.settings.putJson(`execution.session.${attempt.id}`, { sessionId: id });
           const stop = this.#stops.get(execution.id);
-          if (stop?.attemptId === attempt.id) {
+          if (stop?.attemptIds.includes(attempt.id)) {
             // The adapter invokes this before sending the prompt. Throwing here
             // prevents a late createSession response from dispatching work.
-            stop.confirmed = true;
+            stop.confirmedAttempts.add(attempt.id);
             this.#settleStop(execution.id, stop);
             throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行在派发前已停止');
           }
-          this.#activeSessions.set(execution.id, id);
+          const sessions = this.#activeSessions.get(execution.id) ?? new Map<string, string>();
+          sessions.set(attempt.id, id);
+          this.#activeSessions.set(execution.id, sessions);
         },
         sink: {
           onTextDelta: (delta, info) => {
@@ -961,18 +1002,21 @@ export class ExecutionService {
           },
           onPermission: (permission) => {
             if (!isCurrent() || stopped()) return 'reject';
-            if (role !== undefined) return 'reject'; // Frozen roles use guarded MCP routes exclusively.
-            return 'reject';
+            return 'reject'; // Frozen roles use guarded MCP routes exclusively.
           },
         },
-        timeoutMs: Math.min(settings.execution.nodeTimeoutMinutes, role?.maxRuntimeMinutes ?? settings.execution.nodeTimeoutMinutes) * 60_000,
+        timeoutMs: Math.min(executionPolicy(this.#store, execution.id, settings.execution).nodeTimeoutMinutes, role?.maxRuntimeMinutes ?? Infinity) * 60_000,
         abortOnToolCall: ['result.submit', 'result-submit', 'result_submit'],
       });
-      if (isCurrent() && !stopped()) this.#activeSessions.set(execution.id, outcome.sessionId);
+      if (isCurrent() && !stopped()) {
+        const sessions = this.#activeSessions.get(execution.id) ?? new Map<string, string>();
+        sessions.set(attempt.id, outcome.sessionId);
+        this.#activeSessions.set(execution.id, sessions);
+      }
     } catch (error) {
       flushText();
       if (!isCurrent() || stopped()) return;
-      this.#activeSessions.delete(execution.id);
+      this.#activeSessions.get(execution.id)?.delete(attempt.id);
       const message = error instanceof Error ? error.message : '执行失败';
       this.#finishNode(execution.id, node.id, attempt.id, NodeStatus.FAILED, undefined, { code: 'OPENCODE_NOT_READY', message });
       return;
@@ -980,21 +1024,23 @@ export class ExecutionService {
 
     flushText();
     const stopAfterRun = this.#stops.get(execution.id);
-    if (stopAfterRun?.attemptId === attempt.id) {
+    if (stopAfterRun?.attemptIds.includes(attempt.id)) {
       if (outcome.outcome.idle && !outcome.outcome.timedOut) {
-        stopAfterRun.confirmed = true;
+        stopAfterRun.confirmedAttempts.add(attempt.id);
         this.#settleStop(execution.id, stopAfterRun);
       }
       return;
     }
     if (!isCurrent()) return;
-    this.#activeSessions.delete(execution.id);
+    this.#activeSessions.get(execution.id)?.delete(attempt.id);
     if (outcome.outcome.idle && !outcome.outcome.timedOut) this.#idleAttempts.add(attempt.id);
     const attemptUsage = usageFromMessages(outcome.outcome.messages);
+    let resultTimer: NodeJS.Timeout | undefined;
     const settled = await Promise.race([
       resultPromise,
-      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 2500)),
+      new Promise<'timeout'>((resolve) => { resultTimer = setTimeout(() => resolve('timeout'), 2500); }),
     ]);
+    if (resultTimer !== undefined) clearTimeout(resultTimer);
     if (settled === 'timeout') {
       const error = outcome.outcome.error ?? (outcome.outcome.timedOut ? '步骤执行超时' : '模型未通过 workflow.result.submit 提交结果');
       this.#finishNode(execution.id, node.id, attempt.id, outcome.outcome.timedOut ? NodeStatus.UNKNOWN : NodeStatus.FAILED, undefined, {
@@ -1009,7 +1055,7 @@ export class ExecutionService {
 
   #finishNode(executionId: string, nodeId: string, attemptId: string, status: NodeStatusValue, result?: AttemptResult, error?: { code: string; message: string }, usage?: TokenUsage): void {
     const current = this.#store.executions.get(executionId)?.nodes.find((node) => node.nodeId === nodeId);
-    if (current?.currentAttemptId !== attemptId || this.#store.executions.getAttempt(attemptId)?.status !== NodeStatus.RUNNING || this.#stops.get(executionId)?.attemptId === attemptId) return;
+    if (current?.currentAttemptId !== attemptId || this.#store.executions.getAttempt(attemptId)?.status !== NodeStatus.RUNNING || this.#stops.get(executionId)?.attemptIds.includes(attemptId) === true) return;
     this.#idleAttempts.delete(attemptId);
     this.#store.executions.finishAttempt(attemptId, status, result, error?.message, usage);
     this.#resultWaiters.delete(attemptId);
@@ -1104,6 +1150,7 @@ ${projectDocumentInstructions(this.#store.projects.get(task.projectId)?.settings
   #assertWritable(taskId: string, action: string): Task {
     const task = this.#requireTask(taskId);
     if (task.readOnly === true) throw readOnlyRecoveryError(action);
+    if (this.#store.settings.getJson(`task.recovery-source-lock.${taskId}`) !== undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '原任务正在生成恢复快照，暂不能开始写入');
     return task;
   }
 

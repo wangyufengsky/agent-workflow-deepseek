@@ -34,10 +34,10 @@ export interface ExecutionPatch {
   readonly autoAdvance?: boolean;
   readonly progress?: ExecutionView['progress'];
   readonly startedAt?: string;
-  readonly endedAt?: string;
-  readonly pause?: ExecutionView['pause'];
+  readonly endedAt?: string | null;
+  readonly pause?: ExecutionView['pause'] | null;
   readonly editSession?: EditSession;
-  readonly notice?: ExecutionView['notice'];
+  readonly notice?: ExecutionView['notice'] | null;
 }
 
 export interface ExecutionNodePatch {
@@ -134,10 +134,10 @@ export class ExecutionRepository {
       autoAdvance: patch.autoAdvance ?? current.autoAdvance,
       progress: patch.progress ?? current.progress,
       startedAt: patch.startedAt ?? current.startedAt,
-      endedAt: patch.endedAt ?? current.endedAt,
-      pause: patch.pause ?? current.pause,
+      endedAt: patch.endedAt === null ? undefined : patch.endedAt ?? current.endedAt,
+      pause: patch.pause === null ? undefined : patch.pause ?? current.pause,
       editSession: patch.editSession ?? current.editSession,
-      notice: patch.notice === undefined ? current.notice : patch.notice,
+      notice: patch.notice === null ? undefined : patch.notice === undefined ? current.notice : patch.notice,
     };
     this.#db
       .prepare(

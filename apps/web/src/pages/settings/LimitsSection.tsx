@@ -63,33 +63,28 @@ export function LimitsSection({ settings }: { readonly settings: PublicSettings 
           <DraftNumberRow
             path="execution.verifyCommandTimeoutMs"
             label="验证命令超时"
-            hint="服务保存该字段；当前验证路径仍使用 Git 命令超时，尚未读取此字段。"
+            hint="独立验证与受控验证命令的最长运行时间。"
             section="limits"
             baseline={settings.execution.verifyCommandTimeoutMs}
             min={1}
             max={120}
             unit="分钟"
             factor={60000}
-            effect="saved"
+            effect="live"
             issueMessage="验证命令超时需要在 1–120 分钟之间"
           />
         </div>
       </div>
 
-      <div className="card card-sec" aria-label="未读取或未提供的执行字段" style={{ marginTop: 16 }}>
+      <div className="card card-sec" aria-label="调度策略与未提供的业务时限" style={{ marginTop: 16 }}>
         <div className="row wrap" style={{ gap: 8, marginBottom: 2 }}>
-          <span className="section-title grow">执行字段：只读与未提供</span>
+          <span className="section-title grow">调度策略与业务时限</span>
           <Badge tone="unknown" icon="help">不伪造可编辑</Badge>
         </div>
-        <SettingsRow label="最大并发节点" hint="字段已由服务保存，但当前执行引擎未读取；本页不提供编辑。" effect="unavailable">
-          <ReadOnlyValue>{String(settings.execution.maxConcurrentNodes)} 个</ReadOnlyValue>
-        </SettingsRow>
-        <SettingsRow label="单节点最多尝试" hint="字段已由服务保存，但当前执行引擎未读取；本页不提供编辑。" effect="unavailable">
-          <ReadOnlyValue>{String(settings.execution.maxAttempts)} 次</ReadOnlyValue>
-        </SettingsRow>
-        <SettingsRow label="暂停等待上限" hint="字段已由服务保存，但当前执行引擎未读取；本页不提供编辑。" effect="unavailable">
-          <ReadOnlyValue>{String(Math.round(settings.execution.pauseTimeoutMs / 1000))} 秒</ReadOnlyValue>
-        </SettingsRow>
+        <DraftNumberRow path="execution.maxConcurrentNodes" label="最大并发节点" hint="只读且无命令/写权限的独立节点可并行；写节点独占任务工作区。用于新执行。" section="limits" baseline={settings.execution.maxConcurrentNodes} min={1} max={16} unit="个" effect="live" />
+        <DraftNumberRow path="execution.maxAttempts" label="单节点总尝试上限" hint="包含首次执行和显式重试；达到上限后创建恢复任务，不自动重投。用于新执行。" section="limits" baseline={settings.execution.maxAttempts} min={1} max={10} unit="次" effect="live" />
+        <DraftBooleanRow path="execution.pauseAfterFailure" label="失败后暂停新增领取" hint="已运行的节点继续结算；关闭时可完成独立分支，失败分支仍待处理。用于新执行。" section="limits" baseline={settings.execution.pauseAfterFailure} effect="live" />
+        <DraftNumberRow path="execution.pauseTimeoutMs" label="停止确认等待上限" hint="超过等待上限保留原请求号进入未知，不自动重发停止。用于新执行。" section="limits" baseline={settings.execution.pauseTimeoutMs} min={1} max={120} unit="秒" factor={1000} effect="live" />
         <SettingsRow label="业务超时限制" hint="shared execution 没有 timeoutEnabled / 最大时长 / 尝试超时 / 设计超时字段。" effect="unavailable">
           <div className="col" style={{ gap: 6 }}>
             <label className="row" style={{ gap: 8, opacity: 0.6, whiteSpace: 'nowrap' }}>

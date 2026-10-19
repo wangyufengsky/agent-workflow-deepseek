@@ -206,6 +206,7 @@ function reviewReceipt(projectId: string): OperationReceipt {
 }
 
 interface Harness {
+  readonly engine: Engine;
   readonly store: Store;
   readonly git: FakeGit;
   readonly opencode: FakeOpenCode;
@@ -288,6 +289,7 @@ function harness(): Harness {
   }));
   store.reviews.update({ ...review, findings });
   return {
+    engine,
     store,
     git,
     opencode,
@@ -622,6 +624,25 @@ test('fix merge merges the committed fix branch into the base branch with CAS an
       }),
       (error: unknown) => error instanceof AppError && error.code === ErrorCode.VALIDATION_FAILED,
     );
+  } finally {
+    h.store.close();
+  }
+});
+
+
+test('independent fix verification consumes the frozen verification timeout instead of Git command timeout', async () => {
+  const h = harness();
+  try {
+    h.engine.updateSettings({ ...h.engine.settings, git: { ...h.engine.settings.git, commandTimeoutMs: 10000 }, execution: { ...h.engine.settings.execution, verifyCommandTimeoutMs: 40 } });
+    h.store.projects.update(h.projectId, { settings: { testCommand: 'node -e "setTimeout(function(){process.stdout.write(1)},2000)"' } });
+    h.git.changeSets = [{ files: [file('src/a.ts')], changesRevision: 'rev_timeout' }];
+    h.opencode.outcome = { idle: true, timedOut: false, assistantText: outcomesJson(h.findingIds), messages: [] };
+    const started = await h.service.start(h.projectId, fixStart(h.projectId, h.review.reviewRunId, h.findingIds));
+    const fixId = started.resource!.fix.fixRunId;
+    const ready = await waitFor(() => settledFix(h.store, fixId), 'verification timeout', 1500);
+    assert.equal(ready.verification?.state, 'error');
+    assert.match(ready.verification?.summary ?? '', /服务执行校验命令失败/);
+    assert.equal(h.store.settings.getJson<{ verifyCommandTimeoutMs: number }>(`fix.worktree.${fixId}`)?.verifyCommandTimeoutMs, 40);
   } finally {
     h.store.close();
   }
