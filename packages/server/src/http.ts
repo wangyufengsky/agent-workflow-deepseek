@@ -577,8 +577,12 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       readOnly: input.readOnly ?? true,
       ssl: input.ssl ?? false,
     };
-    databaseService.registerConnection(config);
     const settings = engine.publicSettings();
+    const duplicate = settings.database.connections.find((item) => item.id !== id && item.host === config.host && item.port === config.port && item.database === config.database);
+    if (duplicate !== undefined) {
+      throw new AppError(ErrorCode.CONFLICT, '同一主机/端口/数据库已经有连接配置', { details: { connectionId: duplicate.id, name: duplicate.name } });
+    }
+    databaseService.registerConnection(config);
     const connections = [...settings.database.connections.filter((item) => item.id !== id), config];
     engine.updateSettings({ ...settings, database: { ...settings.database, connections } });
     return envelope({ connection: databaseService.get(id) }, requestId(request));

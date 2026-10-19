@@ -20,6 +20,13 @@ test('database connections can be deleted without touching the database', async 
     assert.equal(created.statusCode, 200, created.body);
     const connectionId = created.json().data.connection.id as string;
     assert.equal((await app.app.inject({ method: 'GET', url: '/api/settings/databases' })).json().data.connections.length, 1);
+    const duplicate = await app.app.inject({
+      method: 'POST',
+      url: '/api/settings/databases',
+      payload: { requestKey: requestKey('dup'), connection: { name: 'Temp duplicate', type: 'mysql', host: '127.0.0.1', port: 3306, database: 'temp_db', user: 'temp2', password: 'temp2', ssl: false, readOnly: true } },
+    });
+    assert.equal(duplicate.statusCode, 409, duplicate.body);
+    assert.equal(duplicate.json().error.code, 'CONFLICT');
     const removed = await app.app.inject({ method: 'DELETE', url: `/api/settings/databases/${connectionId}` });
     assert.equal(removed.statusCode, 200, removed.body);
     assert.equal(removed.json().data.connections.length, 0);
