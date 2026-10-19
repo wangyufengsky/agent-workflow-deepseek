@@ -1,3 +1,4 @@
+import type { QuestionChoices } from './questions.ts';
 import type { NodeKindValue } from '../domain/enums.ts';
 import { createId, type IsoDateTime } from '../ids.ts';
 import type { PlanEdge, PlanGraph, PlanGroup, PlanNode } from './models.ts';
@@ -47,7 +48,7 @@ export interface PlanningCandidateEdge {
   readonly label?: string;
 }
 
-export interface PlanningCandidateQuestion {
+export interface PlanningCandidateQuestion extends QuestionChoices {
   readonly question: string;
   readonly required: boolean;
   readonly nodeKeys?: readonly string[];

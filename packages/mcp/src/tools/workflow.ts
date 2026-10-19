@@ -1,4 +1,4 @@
-import { AppError, ErrorCode, isPlanningCandidatePayload, type PlanningCandidatePayload } from '@agent-workflow/shared';
+import { AppError, ErrorCode, isPlanningCandidatePayload, questionChoices, type QuestionChoices, type PlanningCandidatePayload } from '@agent-workflow/shared';
 import type { InternalMcpApi, ResultSubmitInput, VerificationInput } from '../api.ts';
 import { defineTool, type ToolDefinition } from '../registry.ts';
 import { arraySchema, booleanSchema, integerSchema, looseObjectSchema, objectSchema, stringSchema } from '../schema.ts';
@@ -208,6 +208,8 @@ export function createWorkflowTools(deps: WorkflowToolDeps): readonly ToolDefini
           taskId: stringSchema('任务 id', { minLength: 1 }),
           roundId: stringSchema('规划轮次 id', { minLength: 1 }),
           question: stringSchema('问题内容', { minLength: 1 }),
+          options: arraySchema('可选回答；推荐项不自动提交', objectSchema({ id: stringSchema('选项id'), label: stringSchema('选项文字'), description: stringSchema('说明'), recommended: booleanSchema('推荐') }, ['id', 'label']), { maxItems: 20 }),
+          multiple: booleanSchema('允许多选'), allowOther: booleanSchema('允许其他文字答复'),
           required: booleanSchema('是否必须答复'),
           nodeKeys: arraySchema('问题影响的规划节点 key 列表', stringSchema('节点 key', { minLength: 1 }), { maxItems: 100 }),
         },
@@ -260,7 +262,7 @@ export function createWorkflowTools(deps: WorkflowToolDeps): readonly ToolDefini
   ];
 }
 
-interface QuestionInputLocal {
+interface QuestionInputLocal extends QuestionChoices {
   readonly taskId: string;
   readonly roundId: string;
   readonly question: string;
@@ -281,6 +283,8 @@ export function validateQuestionArgs(args: Record<string, unknown>): QuestionVal
   if (roundId === undefined) problems.push({ code: 'INVALID_ROUND_ID', message: 'roundId 必须是非空字符串', path: 'roundId' });
   if (question === undefined) problems.push({ code: 'EMPTY_QUESTION', message: 'question 不能为空', path: 'question' });
   if (typeof args.required !== 'boolean') problems.push({ code: 'INVALID_REQUIRED', message: 'required 必须是布尔值', path: 'required' });
+  let choices: QuestionChoices = {};
+  try { choices = questionChoices(args as QuestionChoices); } catch { problems.push({ code: 'INVALID_CHOICES', message: '问题选项格式不合法', path: 'options' }); }
   let nodeKeys: string[] | undefined;
   if (args.nodeKeys !== undefined) {
     if (!Array.isArray(args.nodeKeys)) {
@@ -301,7 +305,7 @@ export function validateQuestionArgs(args: Record<string, unknown>): QuestionVal
   }
   return {
     ok: true,
-    input: { taskId, roundId, question, required: args.required, ...(nodeKeys === undefined ? {} : { nodeKeys }) },
+    input: { taskId, roundId, question, required: args.required, ...choices, ...(nodeKeys === undefined ? {} : { nodeKeys }) },
   };
 }
 

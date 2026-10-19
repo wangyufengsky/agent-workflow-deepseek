@@ -18,3 +18,5 @@ export * from './domain/snapshot.ts';
 export * from './domain/ppt-renderer.ts';
 export * from './domain/method-graph.ts';
 export * from './domain/run-content.ts';
+
+export * from './domain/questions.ts';

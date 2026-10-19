@@ -303,3 +303,40 @@ test('W3-2: resolve saves real requirement revisions, is idempotent and validate
     await app.close();
   }
 });
+
+
+test('choice questions preserve model options, validate exact selections and replay original answers without another requirement revision', async () => {
+  const { app, questionTaskId, questionInteractionId } = await seed();
+  try {
+    const round = app.store.planning.get(app.store.tasks.get(questionTaskId)!.currentPlanningRoundId!)!;
+    const options = [{ id: 'a', label: '按创建时间', description: '保留创建时间口径', recommended: true }, { id: 'b', label: '按更新时间' }];
+    app.store.planning.update(round.id, { questions: [{ ...question('q1', '日期口径', true), options, multiple: false, allowOther: false }] });
+    app.engine.planning.appendQuestion({ taskId: questionTaskId, roundId: round.id, question: '导出字段', required: true, options: [{ id: 'id', label: '订单编号', recommended: true }, { id: 'note', label: '备注', recommended: true }], multiple: true, allowOther: true });
+    const detail = await detailOf(app, questionInteractionId);
+    assert.deepEqual(detail.questions[0]!.options, options);
+    assert.deepEqual(detail.questions.map((question) => question.inputMode), ['single_select', 'multi_select']);
+    assert.equal(detail.degradation.recommendedValue, true);
+    assert.equal(detail.questions[0]!.answer, undefined, 'a recommendation is never an implicit answer');
+    const otherId = detail.questions[1]!.id;
+    const url = `/api/interactions/${encodeURIComponent(questionInteractionId)}/resolve`;
+    const revision = app.store.tasks.get(questionTaskId)!.requirement.revision;
+    for (const invalid of [{ values: ['a', 'b'] }, { values: ['missing'] }, { values: ['a', 'a'] }, { values: [], other: '禁止自由改选项' }]) {
+      const response = await app.app.inject({ method: 'POST', url, payload: { requestKey: requestKey('invalidchoice'), confirmResolve: true, answers: [{ questionId: 'q1', ...invalid }, { questionId: otherId, values: ['id'] }] } });
+      assert.equal(response.statusCode, 400, response.body); assert.equal(app.store.tasks.get(questionTaskId)!.requirement.revision, revision);
+    }
+    const key = requestKey('choice');
+    const payload = { requestKey: key, confirmResolve: true, answers: [{ questionId: 'q1', values: ['b'] }, { questionId: otherId, values: ['note', 'id'], other: '含审批状态' }] };
+    const saved = await app.app.inject({ method: 'POST', url, payload }); assert.equal(saved.statusCode, 200, saved.body);
+    const answers = app.store.planning.get(round.id)!.questions;
+    assert.equal(answers[0]!.answer, '按更新时间'); assert.deepEqual(answers[0]!.values, ['b']);
+    assert.deepEqual(answers[1]!.values, ['id', 'note']); assert.equal(answers[1]!.answer, '订单编号；备注；其他：含审批状态');
+    assert.equal(app.store.tasks.get(questionTaskId)!.requirement.revision, revision + 1);
+    for (const status of ['succeeded', 'accepted', 'unknown']) {
+      app.store.db.prepare('UPDATE operations SET status = ? WHERE request_key = ?').run(status, key);
+      const replay = await app.app.inject({ method: 'POST', url, payload });
+      assert.equal(replay.statusCode, 200, replay.body); assert.equal(replay.json().data.receipt.status, status);
+      assert.equal(app.store.tasks.get(questionTaskId)!.requirement.revision, revision + 1);
+    }
+    assert.throws(() => app.engine.planning.appendQuestion({ taskId: questionTaskId, roundId: round.id, question: '重复选项', required: true, options: [options[0]!, options[0]!] }), /选项格式/);
+  } finally { await app.close(); }
+});

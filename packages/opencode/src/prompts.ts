@@ -91,6 +91,8 @@ export const PLANNING_OUTPUT_SCHEMA: Record<string, unknown> = {
         required: ['question', 'required'],
         properties: {
           question: { type: 'string' },
+          options: { type: 'array', maxItems: 20, items: { type: 'object', additionalProperties: false, required: ['id', 'label'], properties: { id: { type: 'string' }, label: { type: 'string' }, description: { type: 'string' }, recommended: { type: 'boolean' } } } },
+          multiple: { type: 'boolean' }, allowOther: { type: 'boolean' },
           required: { type: 'boolean' },
           nodeKeys: { type: 'array', items: { type: 'string' } },
         },
@@ -162,7 +164,7 @@ export const PLANNING_SYSTEM_PROMPT = `你是「需求分析师（规划职责�
    {"summary":"一句话","groups":[{"id":"g1","label":"实现","kind":"implementation"}],
     "nodes":[{"key":"骨架步骤 key","title":"标题","kind":"implementation","groupId":"g1","summary":"做什么","inputs":[{"name":"上游","source":"upstream","fromKey":"上游 key"}],"outputs":[{"name":"产物","kind":"artifact"}],"acceptance":["可核对验收"],"resources":{"read":[{"kind":"file","label":"路径"}],"write":[{"kind":"file","label":"路径"}]},"roleId":"role.developer"}],
     "edges":[{"fromKey":"a","toKey":"b","kind":"order"}],
-    "questions":[{"question":"必须由用户回答的问题","required":true,"nodeKeys":["a"]}],
+    "questions":[{"question":"必须由用户回答的问题","required":true,"nodeKeys":["a"],"options":[{"id":"option_a","label":"选项说明","recommended":true}],"multiple":false,"allowOther":true}],
     "assumptions":[{"statement":"假设","critical":false,"nodeKeys":["a"]}],
     "humanDecisions":[{"title":"需人工判断项","detail":"说明","nodeKeys":["a"]}]}
 4. 必须保留方法骨架里每个必经步骤的 key（key 完全一致）；可在可细化分组内新增子步骤。

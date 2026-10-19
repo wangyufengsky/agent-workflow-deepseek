@@ -62,11 +62,12 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
   }));
 
   app.post('/internal/mcp/question', handler(async (request) => {
-    const body = request.body as { taskId?: string; roundId?: string; question?: string; required?: boolean; nodeKeys?: string[] };
+    const body = request.body as { taskId?: string; roundId?: string; question?: string; required?: boolean; nodeKeys?: string[] } & import('@agent-workflow/shared').QuestionChoices;
     if (body.taskId === undefined || body.roundId === undefined || body.question === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 taskId / roundId / question');
     deps.engine.planning.appendQuestion({
       taskId: body.taskId,
       roundId: body.roundId,
+      options: body.options, multiple: body.multiple, allowOther: body.allowOther,
       question: body.question,
       required: body.required ?? false,
       nodeKeys: body.nodeKeys,

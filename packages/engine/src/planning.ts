@@ -1,3 +1,4 @@
+import { normalizeQuestionAnswer, questionChoices, type QuestionChoices } from '@agent-workflow/shared';
 import type {
   CommandResponse,
   PlanningApplyRequest,
@@ -902,6 +903,7 @@ export class PlanningService {
       id: `pq-${index + 1}`,
       question: question.question,
       required: question.required,
+      ...questionChoices(question),
       affectedNodeIds: (question.nodeKeys ?? []).map((key) => graph.nodes.find((node) => node.key === key)?.id).filter((id): id is PlanNode['id'] => id !== undefined),
     }));
     const assumptions = (candidate.assumptions ?? []).map((assumption, index) => ({
@@ -964,6 +966,8 @@ export class PlanningService {
     if (candidate === null || typeof candidate !== 'object' || !Array.isArray(candidate.nodes) || !Array.isArray(candidate.edges) || !Array.isArray(candidate.groups)) {
       return { ok: false, problems: [{ code: 'INVALID_CANDIDATE', title: '候选格式不合法', detail: '需要 summary/groups/nodes/edges', severity: 'hard' }], humanDecisions: [], requiredQuestions: [] };
     }
+    if (candidate.questions !== undefined && !Array.isArray(candidate.questions as unknown)) throw new AppError(ErrorCode.VALIDATION_FAILED, 'questions必须是数组');
+    for (const question of candidate.questions ?? []) questionChoices(question);
     const roundScope = this.#roundScope(round.id);
     if (roundScope !== undefined) return this.#submitScopedCandidate(task, round, roundScope, candidate);
     const settings = this.#context.settings();
@@ -1014,6 +1018,7 @@ export class PlanningService {
       id: `pq-${index + 1}`,
       question: question.question,
       required: question.required,
+      ...questionChoices(question),
       affectedNodeIds: (question.nodeKeys ?? []).map((key) => graph.nodes.find((node) => node.key === key)?.id).filter((id): id is PlanNode['id'] => id !== undefined),
     }));
     const assumptions = (candidate.assumptions ?? []).map((assumption, index) => ({
@@ -1069,13 +1074,16 @@ export class PlanningService {
   }
 
   /** Append a model question (optional path; the candidate may already carry them). */
-  appendQuestion(input: { taskId: string; roundId: string; question: string; required: boolean; nodeKeys?: readonly string[] }): void {
+  appendQuestion(input: { taskId: string; roundId: string; question: string; required: boolean; nodeKeys?: readonly string[] } & QuestionChoices): void {
     const round = this.#requireRound(input.roundId);
+    if (round.taskId !== input.taskId) throw new AppError(ErrorCode.STALE_TARGET, '问题轮次与任务不匹配');
+    const choices = questionChoices(input);
     const questions = [
       ...round.questions,
       {
         id: createId('pq'),
         question: input.question,
+        ...choices,
         required: input.required,
         affectedNodeIds: [],
         ...(input.nodeKeys === undefined ? {} : { nodeKeysHint: input.nodeKeys }),
@@ -1233,6 +1241,13 @@ export class PlanningService {
     if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '保存规划答复');
     const round = this.#requireRound(input.roundId);
+    if (round.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '规划轮次不属于该任务');
+    if (!Array.isArray(input.answers) || input.answers.length === 0 || new Set(input.answers.map((answer) => answer?.questionId)).size !== input.answers.length) throw new AppError(ErrorCode.VALIDATION_FAILED, '答复不能为空且问题不能重复');
+    const normalized = input.answers.map((answer) => {
+      const question = round.questions.find((item) => item.id === answer?.questionId);
+      if (question === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '答复的问题不在本轮规划中');
+      return { questionId: question.id, ...normalizeQuestionAnswer(question, answer) };
+    });
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'requirement.answer.save',
@@ -1241,10 +1256,10 @@ export class PlanningService {
     });
     if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.planningResponse(taskId) };
     const questions = round.questions.map((question) => {
-      const answer = input.answers.find((item) => item.questionId === question.id);
-      return answer === undefined ? question : { ...question, answer: answer.answer, answeredAt: nowIso(), answeredBy: 'user' };
+      const answer = normalized.find((item) => item.questionId === question.id);
+      return answer === undefined ? question : { ...question, answer: answer.answer, values: answer.values, other: answer.other, answeredAt: nowIso(), answeredBy: 'user' };
     });
-    const answeredText = input.answers
+    const answeredText = normalized
       .map((answer) => {
         const question = round.questions.find((item) => item.id === answer.questionId);
         return `Q: ${question?.question ?? answer.questionId}\nA: ${answer.answer}`;
@@ -1273,10 +1288,12 @@ export class PlanningService {
    * owns the requirement revision, question answeredAt/By fields and the
    * requestKey receipt): every answer must reference a question of this round,
    * be non-empty, appear at most once, and leave no required question unanswered
-   * after merging with answers already stored. No option/rejection fields are
-   * invented — the persisted model is still the single-answer PlanningQuestion.
+   * after merging with answers already stored. Choice IDs are validated against
+   * the frozen question; only server labels form the human-readable answer.
    */
   resolveAnswers(taskId: string, roundId: string, input: SaveAnswerRequest): CommandResponse<PlanningResponse> {
+    const replay = this.#commands.replay({ requestKey: input.requestKey, operation: 'requirement.answer.save', body: { taskId, roundId: input.roundId, answers: input.answers } }, () => this.planningResponse(taskId));
+    if (replay !== undefined) return replay;
     this.#requireTask(taskId);
     const round = this.#requireRound(roundId);
     if (round.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '规划轮次不属于该任务');

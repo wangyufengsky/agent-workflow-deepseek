@@ -209,8 +209,8 @@ npm run build:server
 | P05 | R07 | 公约生成、项目 GitLab、文档路径生效 | design_acceptance_inventory | in_progress | 待服务/界面验证 |
 | P06 | R08 | 快照评审模式、阶段报告、读取/下载 | role_execution_parity | in_progress | 两批已整合，真实Git/blob范围及离线调用回归通过；真实模型/专门阅读GUI待验收 |
 | P07 | R09 | 流程图编辑、并行/连线、模板/缩放/版本差异 | execution_parity | in_progress | 图编辑与执行计划重绑定已整合；真实GUI保存/历史/拖动及实际调度回归通过，完整状态待验收 |
-| P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | design_acceptance_inventory | in_progress | d3c356f第一批已整合；方案/对象编辑与真实停止继续补齐 |
-| P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | Lead | in_progress | 文件快照、原生导出、工具证据、精确引用及分页已接通；运行内容专门报告/批次布局仍不符设计，继续修复 |
+| P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | design_acceptance_inventory | in_progress | 真实助手候选/明确应用、原生PDF/PPTX保存/取消/文件核验已整合；三栏与三页签结构继续修复 |
+| P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | Lead | in_progress | 专门报告/批次与历史节点阅读已整合，撤权同步隐藏与报告下载鉴权回归通过；普通源码逐文件/真实测试证据仍缺，继续修复 |
 | P10 | R13 | 任务归档、需求抽屉、模板范围/档案、首页进行中 | design_acceptance_inventory | in_progress | 已整合归档/需求来源/模板范围/文件上传，8项定向验证通过；GUI逐态继续 |
 | P11 | R14/R15 | 工具项目/来源/单工具策略、数据库授权/读取范围 | role_execution_parity | in_progress | 45ed378已整合；离线权限/查询回归通过，真实环境与GUI待验收 |
 | P12 | R16/R17 | 运行时启动/历史、职业预估/形象/统计 | role_execution_parity + Lead | in_progress | 已整合精确职业修订预估、维护锁与持久化pending防重启；真实运行时GUI待验收 |
@@ -219,3 +219,22 @@ npm run build:server
 | P15 | R20 | 四主题/布局/操作/异常状态回归、文档证据、合并推送 main | Lead | in_progress | 原生preload修复，产物保存/取消与哈希实证、四主题截图；完整矩阵未通过，尚未推送 |
 
 每项实现、离线验证、真实服务验证、GUI 验证分别留证。任何未证明项维持未完成；真实环境缺口单列，不冒充已通过。
+
+### 第二轮静态复核的剩余项（2026-10-20，继续沿用 P 编号）
+
+以下正常当前数据的功能缺口不能以“未接通/未知”占位结项；已存在的测试与能力证据也不等于整页或全部中间态通过。
+
+| 所属项 | 剩余实现/验收 | 当前分工 |
+| --- | --- | --- |
+| P09 | 普通源码与单测模板逐文件写作/独立复核、冻结 blob/批次绑定；真实测试命令/报告、通过失败跳过、失败用例文件关联 | role_execution_parity |
+| P14/P02/P03 | 原生运行 question/permission/policy 事件、一次/会话授权与拒绝、hard deny 只知晓、持久身份和原 key 核对 | execution_parity（数据库完成后） |
+| P14 | 规划选项/多选/推荐链本批实现，浏览器真实提交已验证；原生节点问答不能由规划问题替代 | Lead，见 inbox-choices 证据 |
+| P12 | 历史角色包导入校验、差异审阅、版本发布与 UNKNOWN 原 key；旧页仍陈旧禁用 | 待后续实现 |
+| P13 | 独立重试等待分区连接现有 retryDelays，去除与 LimitsSection 矛盾的永久禁用 | Lead |
+| P04 | 知识历史真实会话状态、需回答、重命名归档与断点继续 | 待后续实现 |
+| P14 | 质量统计项目/状态/质量/归档筛选、整个范围聚合、执行审查修复用量、未知和真实 0 区分 | 待后续实现 |
+| P07 | 流程最近使用与真实任务链接，按 methodId/revision 保持历史身份 | 待后续实现 |
+| P08 | PPT 缩略图轨、中央单页/备注、助手/对象/检查三页签及资料抽屉 | design_acceptance_inventory |
+| P15 | 逐页逐态证据回填、更新旧 design-coverage 与 acceptance 矩阵，最终全仓回归和 main 推送 | Lead，尚未完成 |
+
+v5 明确排除的 PE38 边界替换、PE28 子隔离汇合以及未安装驱动、未配置外部服务可保持明确禁用；这些边界不用于豁免上述正常流程。

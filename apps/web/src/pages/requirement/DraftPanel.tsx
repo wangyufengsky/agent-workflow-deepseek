@@ -1,5 +1,6 @@
+import { QuestionInput, questionDraft, hasQuestionAnswer, type QuestionDraft } from '../../components/QuestionInput.tsx';
 import { useEffect, useState } from 'react';
-import type { ActionAvailability, PlanningRound } from '@agent-workflow/shared';
+import type { ActionAvailability, PlanningRound, SaveAnswerRequest } from '@agent-workflow/shared';
 import { Badge } from '../../components/Badge.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ActionReasonLine, ServiceActionButton } from '../../flow/workflow-ui.tsx';
@@ -9,7 +10,7 @@ export interface DraftPanelProps {
   readonly round?: PlanningRound;
   readonly saveAnswerAction?: ActionAvailability;
   readonly busy: boolean;
-  readonly onSaveAnswers: (answers: readonly { questionId: string; answer: string }[]) => void;
+  readonly onSaveAnswers: (answers: SaveAnswerRequest['answers']) => void;
 }
 
 /**
@@ -17,7 +18,7 @@ export interface DraftPanelProps {
  * answer saving path. Assumptions stay labelled as model claims, never as facts.
  */
 export function DraftPanel({ round, saveAnswerAction, busy, onSaveAnswers }: DraftPanelProps) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, QuestionDraft>>({});
 
   useEffect(() => {
     setAnswers({});
@@ -29,8 +30,8 @@ export function DraftPanel({ round, saveAnswerAction, busy, onSaveAnswers }: Dra
 
   const questions = round.questions;
   const assumptions = round.assumptions;
-  const answered = questions.filter((question) => answers[question.id]?.trim().length);
-  const allAnswered = questions.every((question) => answers[question.id]?.trim().length || question.answer !== undefined);
+  const answered = questions.filter((question) => answers[question.id] !== undefined && hasQuestionAnswer(answers[question.id]!));
+  const allAnswered = questions.every((question) => !question.required || (answers[question.id] !== undefined && hasQuestionAnswer(answers[question.id]!)) || question.answer !== undefined);
 
   return (
     <div>
@@ -74,16 +75,7 @@ export function DraftPanel({ round, saveAnswerAction, busy, onSaveAnswers }: Dra
                 <div className="q-title">{question.question}</div>
               </div>
               {question.answer === undefined ? (
-                <textarea
-                  className="textarea"
-                  style={{ minHeight: 68, marginTop: 8 }}
-                  aria-label={`答复：${question.question}`}
-                  value={answers[question.id] ?? ''}
-                  placeholder="写下业务答复；保存后形成新的输入修订，不会改写旧轮次"
-                  onChange={(event) => {
-                    setAnswers((previous) => ({ ...previous, [question.id]: event.target.value }));
-                  }}
-                />
+                <QuestionInput id={`draft-q-${question.id}`} title={question.question} question={question} value={answers[question.id] ?? questionDraft(question)} disabled={busy || saveAnswerAction?.allowed !== true} onChange={(value) => setAnswers((previous) => ({ ...previous, [question.id]: value }))} />
               ) : (
                 <div className="answer-saved">
                   <Icon name="check" size="sm" />
@@ -106,8 +98,8 @@ export function DraftPanel({ round, saveAnswerAction, busy, onSaveAnswers }: Dra
               fallbackReason="当前没有必须答复的问题"
               onRun={() => {
                 const payload = questions
-                  .filter((question) => answers[question.id]?.trim().length)
-                  .map((question) => ({ questionId: question.id, answer: answers[question.id]!.trim() }));
+                  .filter((question) => answers[question.id] !== undefined && hasQuestionAnswer(answers[question.id]!))
+                  .map((question) => ({ questionId: question.id, answer: answers[question.id]!.other, values: answers[question.id]!.values, other: answers[question.id]!.other }));
                 onSaveAnswers(payload);
               }}
             >

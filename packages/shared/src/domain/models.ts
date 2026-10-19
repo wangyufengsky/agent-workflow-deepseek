@@ -1,3 +1,4 @@
+import type { QuestionChoices, QuestionAnswer } from './questions.ts';
 import type {
   AttemptId,
   DatabaseConnectionId,
@@ -549,7 +550,7 @@ export interface PlanningUsage {
   readonly modelDisplayName?: string;
 }
 
-export interface PlanningQuestion {
+export interface PlanningQuestion extends QuestionChoices, QuestionAnswer {
   readonly id: string;
   readonly question: string;
   readonly affectedNodeIds: readonly PlanNodeId[];

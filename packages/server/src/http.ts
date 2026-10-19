@@ -1,3 +1,4 @@
+import { normalizeQuestionAnswer, questionChoices } from '@agent-workflow/shared';
 import { readableOutput } from '@agent-workflow/engine';
 import { registerRuntimeOperationRoutes } from './runtime-operations.ts';
 import { registerRoleInsightRoutes } from './role-insights.ts';
@@ -1238,7 +1239,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     // A settled replay is answered from the stored receipt even though the round
     // (or its state) moved on; fresh submissions must satisfy availability.
     const existing = engine.commands.get(body.requestKey);
-    if (!availability.allowed && (existing === undefined || existing.status === 'accepted')) {
+    if (!availability.allowed && existing === undefined) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, availability.reason ?? '该互动事项当前不能提交', {
         details: { interactionId: request.params.id, state, reasonCode: availability.reasonCode },
       });
@@ -1247,7 +1248,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       if (answer === null || typeof answer !== 'object' || typeof answer.questionId !== 'string' || answer.questionId === '') {
         throw new AppError(ErrorCode.VALIDATION_FAILED, '答复格式不合法', { details: { index } });
       }
-      return { questionId: answer.questionId, answer: interactionAnswerText(answer) };
+      const question = round.questions.find((item) => item.id === answer.questionId);
+      return { questionId: answer.questionId, ...(question?.options === undefined ? { answer: interactionAnswerText(answer) } : normalizeQuestionAnswer(question, answer)) };
     });
     const saved = engine.planning.resolveAnswers(round.taskId, round.id, { requestKey: body.requestKey, roundId: round.id, answers });
     const refreshedRound = store.planning.get(round.id) ?? round;
@@ -1734,7 +1736,10 @@ function buildInteractionQuestion(question: PlanningQuestion): InteractionQuesti
     ...(questionAnswered(question) && question.answer !== undefined ? { answer: question.answer } : {}),
     ...(question.answeredAt === undefined ? {} : { answeredAt: question.answeredAt }),
     affectedNodeIds: [...question.affectedNodeIds],
-    inputMode: 'free_text',
+    ...questionChoices(question),
+    ...(question.values === undefined ? {} : { values: question.values }),
+    ...(question.other === undefined ? {} : { other: question.other }),
+    inputMode: question.options === undefined ? 'free_text' : question.multiple ? 'multi_select' : 'single_select',
   };
 }
 
@@ -1803,10 +1808,10 @@ function buildInteractionDetail(store: Store, round: PlanningRound, kind: 'plann
     questions,
     ...(candidate === undefined ? {} : { candidate }),
     degradation: {
-      options: false,
-      multiSelect: false,
-      recommendedValue: false,
-      reason: '当前规划问题模型只有单答案文本字段（PlanningQuestion.answer）；没有选项、单选/多选、推荐值数据，也不提供「拒绝回答」——规划业务问题必须明确回答。服务按真实字段降级为自由文本答复。',
+      options: questions.some((question) => question.options !== undefined),
+      multiSelect: questions.some((question) => question.multiple),
+      recommendedValue: questions.some((question) => question.options?.some((option) => option.recommended)),
+      reason: questions.every((question) => question.options === undefined) ? '本轮模型只提供单答案文本问题，未提供选项。规划业务问题需明确回答，不能以拒绝回答作为业务结论。' : '只展示本轮模型实际提交的选项；推荐答案需明确采用后再提交。',
     },
     resolve: interactionResolveAvailability(kind, summary.state),
     ...(summary.state === InteractionState.UNKNOWN

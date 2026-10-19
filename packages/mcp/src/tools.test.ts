@@ -268,6 +268,17 @@ describe('workflow tools', () => {
     }
   });
 
+  it('forwards validated model question choices without selecting a recommendation', async () => {
+    const environment = await harness();
+    try {
+      const options = [{ id: 'a', label: '方案A', recommended: true }, { id: 'b', label: '方案B' }];
+      await call(environment.registry, 'workflow.question.ask', { taskId: 't1', roundId: 'r1', question: '选择方案', required: true, options, multiple: false, allowOther: true });
+      assert.deepEqual(onlyRequest(environment.server).body, { taskId: 't1', roundId: 'r1', question: '选择方案', required: true, options, multiple: false, allowOther: true });
+      await assert.rejects(call(environment.registry, 'workflow.question.ask', { taskId: 't1', roundId: 'r1', question: '选择方案', required: true, options: [options[0], options[0]] }));
+      assert.equal(environment.server.requests.length, 1, 'invalid choices never reach the service');
+    } finally { await environment.close(); }
+  });
+
   it('submits node results with payload and verification verbatim', async () => {
     const environment = await harness();
     try {

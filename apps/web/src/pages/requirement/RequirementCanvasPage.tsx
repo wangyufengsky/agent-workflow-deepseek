@@ -344,7 +344,7 @@ export function RequirementCanvasPage() {
       });
   };
 
-  const runSaveAnswers = (answers: readonly { questionId: string; answer: string }[]) => {
+  const runSaveAnswers = (answers: import('@agent-workflow/shared').SaveAnswerRequest['answers']) => {
     if (taskId === undefined || round === undefined) return;
     void command.run(() => savePlanningAnswers(taskId, { roundId: round.id, answers }));
   };

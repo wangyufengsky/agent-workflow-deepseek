@@ -1,3 +1,4 @@
+import { QuestionInput, questionDraft, hasQuestionAnswer, type QuestionDraft } from '../../components/QuestionInput.tsx';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -83,7 +84,7 @@ interface ResolveInput {
   readonly answers: InteractionResolveRequest['answers'];
 }
 
-type DraftMap = Record<string, Record<string, string>>;
+type DraftMap = Record<string, Record<string, QuestionDraft>>;
 
 function targetHref(item: InboxItem): string {
   const base =
@@ -244,8 +245,8 @@ function effectiveAnswer(
   drafts: DraftMap,
   interactionId: string,
   question: InteractionQuestion,
-): string {
-  return drafts[interactionId]?.[question.id] ?? question.answer ?? '';
+): QuestionDraft {
+  return drafts[interactionId]?.[question.id] ?? questionDraft(question);
 }
 
 function InteractionDetailPanel({
@@ -266,7 +267,7 @@ function InteractionDetailPanel({
   readonly resolveState?: ResolveState;
   readonly resolvePending: boolean;
   readonly onRetry: () => void;
-  readonly onUpdateDraft: (questionId: string, value: string) => void;
+  readonly onUpdateDraft: (questionId: string, value: QuestionDraft) => void;
   readonly onResolve: (answers: InteractionResolveRequest['answers']) => void;
 }) {
   if (loading) return <InteractionSkeleton />;
@@ -302,11 +303,11 @@ function InteractionDetailPanel({
     question,
     value: effectiveAnswer(drafts, detail.id, question),
   }));
-  const answeredCount = values.filter((item) => item.value.trim().length > 0).length;
-  const missingRequired = values.filter((item) => item.question.required && item.value.trim().length === 0).length;
+  const answeredCount = values.filter((item) => hasQuestionAnswer(item.value)).length;
+  const missingRequired = values.filter((item) => item.question.required && !hasQuestionAnswer(item.value)).length;
   const answers: InteractionResolveRequest['answers'] = values
-    .filter((item) => item.value.trim().length > 0)
-    .map((item) => ({ questionId: item.question.id, values: [item.value.trim()] }));
+    .filter((item) => hasQuestionAnswer(item.value))
+    .map((item) => ({ questionId: item.question.id, values: item.value.values, other: item.value.other.trim() }));
 
   const submitReason = !detail.resolve.allowed
     ? (detail.resolve.reason ?? '服务不允许在此提交这个事项。')
@@ -383,19 +384,7 @@ function InteractionDetailPanel({
 
         {isQuestion ? (
           <>
-            <div className="banner info" style={{ marginTop: 14 }}>
-              <Icon name="info" />
-              <div className="grow">
-                <b>服务当前只支持单答案文本。</b>
-                <br />
-                {detail.degradation.reason}
-                <span className="row wrap" style={{ gap: 6, marginTop: 6 }}>
-                  <Badge tone="idle" icon="lock">选项 · 服务未提供</Badge>
-                  <Badge tone="idle" icon="lock">多选 · 服务未提供</Badge>
-                  <Badge tone="idle" icon="lock">推荐值 · 服务未提供</Badge>
-                </span>
-              </div>
-            </div>
+            <p className="hint" style={{ marginTop: 14 }}>{detail.degradation.reason}</p>
 
             <div className="inbox-questions">
               {detail.questions.length === 0 ? (
@@ -410,23 +399,14 @@ function InteractionDetailPanel({
                         <b>{question.title}</b>
                         <Badge tone={question.required ? 'wait' : 'idle'}>{question.required ? '必答' : '可选'}</Badge>
                         {question.answered ? <Badge tone="ok" icon="check">已有答复</Badge> : null}
-                        <Badge outline>文本回答</Badge>
+                        <Badge outline>{question.inputMode === 'free_text' ? '文本回答' : question.multiple ? '多选' : '单选'}</Badge>
                       </div>
                       {question.answered && question.answer !== undefined ? (
                         <p className="hint" style={{ marginBottom: 6 }}>
                           服务已有答复：{question.answer}
                         </p>
                       ) : null}
-                      <label className="sr" htmlFor={`inbox-q-${detail.id}-${question.id}`}>回答：{question.title}</label>
-                      <textarea
-                        id={`inbox-q-${detail.id}-${question.id}`}
-                        className="textarea"
-                        rows={3}
-                        value={value}
-                        disabled={locked || resolved || !detail.resolve.allowed}
-                        placeholder={question.required ? '必答：用文字说明你的决定…' : '可选：补充说明…'}
-                        onChange={(event) => { onUpdateDraft(question.id, event.target.value); }}
-                      />
+                      <QuestionInput id={`inbox-q-${detail.id}-${question.id}`} title={question.title} question={question} value={value} disabled={locked || resolved || !detail.resolve.allowed} onChange={(draft) => onUpdateDraft(question.id, draft)} />
                       {question.affectedNodeIds.length === 0 ? null : (
                         <span className="inbox-answer-hint">
                           <Icon name="flow" size="sm" />
@@ -491,8 +471,12 @@ function InteractionDetailPanel({
             </span>
             <Button
               variant="secondary"
-              disabled
-              disabledReason="服务未提供推荐值字段（degradation.recommendedValue=false）；请逐题填写文本。"
+              disabled={locked || resolved || !detail.resolve.allowed || !detail.questions.some((question) => question.options?.some((option) => option.recommended))}
+              disabledReason={detail.resolve.reason ?? '本轮问题没有提供推荐选项，或答复已经提交'}
+              onClick={() => { for (const question of detail.questions) {
+                const recommended = question.options?.filter((option) => option.recommended).map((option) => option.id) ?? [];
+                if (recommended.length) onUpdateDraft(question.id, { ...effectiveAnswer(drafts, detail.id, question), values: question.multiple ? recommended : recommended.slice(0, 1) });
+              } }}
             >
               采用推荐答案
             </Button>
@@ -635,7 +619,7 @@ export function InboxPage() {
     setSwitchOpen(false);
   };
 
-  const updateDraft = (questionId: string, value: string) => {
+  const updateDraft = (questionId: string, value: QuestionDraft) => {
     if (selectedSummary === undefined) return;
     setDrafts((current) => ({
       ...current,

@@ -1,4 +1,4 @@
-import type { PlanningCandidatePayload } from '@agent-workflow/shared';
+import type { QuestionChoices, PlanningCandidatePayload } from '@agent-workflow/shared';
 import type { InternalApiClient } from './client.ts';
 
 /**
@@ -27,7 +27,7 @@ export interface PlanSubmitInput {
   readonly candidate: PlanningCandidatePayload;
 }
 
-export interface QuestionAskInput {
+export interface QuestionAskInput extends QuestionChoices {
   readonly taskId: string;
   readonly roundId: string;
   readonly question: string;
@@ -97,6 +97,7 @@ export class InternalMcpApi {
       roundId: input.roundId,
       question: input.question,
       required: input.required,
+      ...(input.options === undefined ? {} : { options: input.options, multiple: input.multiple, allowOther: input.allowOther }),
       ...(input.nodeKeys === undefined ? {} : { nodeKeys: input.nodeKeys }),
     });
   }

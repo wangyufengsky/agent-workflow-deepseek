@@ -1,0 +1,7 @@
+.question-input{border:0;margin:0;padding:0;min-width:0;display:grid;gap:8px}
+.question-choice{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--line);border-radius:var(--r-md, 10px);padding:12px 14px;background:var(--surface);cursor:pointer}
+.question-choice.selected{border-color:var(--accent);background:var(--accent-fill)}
+.question-choice input{margin-top:4px;accent-color:var(--accent)}
+.question-choice b{font-size:13px;font-weight:500}
+.question-choice .hint{display:block;margin-top:4px}
+.question-input:disabled .question-choice{cursor:default;opacity:.7}

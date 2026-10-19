@@ -1,3 +1,4 @@
+import type { QuestionChoices, QuestionAnswer } from '../domain/questions.ts';
 import type { IsoDateTime, RequestKey, TaskId } from '../ids.ts';
 import type { ErrorCodeValue } from '../errors.ts';
 import type {
@@ -190,11 +191,10 @@ export interface InteractionSummary {
 }
 
 /**
- * One planning question as the server actually stores it: a single free-text
- * answer. The model has no option/multi-select/recommended-value fields, so the
- * detail exposes `degradation` and the UI must not render fake options.
+ * Persisted question choices and answer identities. Legacy text-only questions
+ * stay free text; recommendations are never filled or submitted implicitly.
  */
-export interface InteractionQuestion {
+export interface InteractionQuestion extends QuestionChoices, QuestionAnswer {
   readonly id: string;
   readonly title: string;
   readonly required: boolean;
@@ -202,7 +202,7 @@ export interface InteractionQuestion {
   readonly answer?: string;
   readonly answeredAt?: IsoDateTime;
   readonly affectedNodeIds: readonly string[];
-  readonly inputMode: 'free_text';
+  readonly inputMode: 'free_text' | 'single_select' | 'multi_select';
 }
 
 export interface InteractionResolveAvailability {
@@ -228,9 +228,9 @@ export interface InteractionDetail extends InteractionSummary {
     readonly diffCount: number;
   };
   readonly degradation: {
-    readonly options: false;
-    readonly multiSelect: false;
-    readonly recommendedValue: false;
+    readonly options: boolean;
+    readonly multiSelect: boolean;
+    readonly recommendedValue: boolean;
     readonly reason: string;
   };
   readonly resolve: InteractionResolveAvailability;
@@ -1283,7 +1283,7 @@ export interface PlanningRejectRequest extends CommandRequest {
 
 export interface SaveAnswerRequest extends CommandRequest {
   readonly roundId: string;
-  readonly answers: readonly { readonly questionId: string; readonly answer: string }[];
+  readonly answers: readonly ({ readonly questionId: string; readonly answer: string } & QuestionAnswer)[];
 }
 
 export interface PlanningResponse {
