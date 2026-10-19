@@ -31,6 +31,13 @@ export class InsightsService {
         running: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE status IN ('queued','running','stopping')"),
         costKnown: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.budget.known') AS REAL)), 0) AS n FROM planning_rounds"),
         budgetUnknownRounds: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE CAST(COALESCE(json_extract(usage_json, '$.budget.unknown'), 0) AS INTEGER) > 0"),
+        tokens: {
+          input: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.tokens.input') AS INTEGER)), 0) AS n FROM planning_rounds"),
+          output: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.tokens.output') AS INTEGER)), 0) AS n FROM planning_rounds"),
+          reasoning: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.tokens.reasoning') AS INTEGER)), 0) AS n FROM planning_rounds"),
+          cache: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.tokens.cache') AS INTEGER)), 0) AS n FROM planning_rounds"),
+          total: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.tokens.total') AS INTEGER)), 0) AS n FROM planning_rounds"),
+        },
         currency: String(this.#store.settings.getSettings()?.planning?.currency ?? 'USD'),
       },
       executions: {

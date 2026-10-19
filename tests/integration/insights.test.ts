@@ -32,13 +32,44 @@ test('insights aggregate real task/review counters from SQLite', async () => {
       const created = await app.app.inject({ method: 'POST', url: '/api/tasks', payload: { requestKey: requestKey('task'), projectId, title, requirementText: 'R1', methodId: 'method.requirement-development' } });
       assert.equal(created.statusCode, 201, created.body);
     }
+    const firstTask = app.store.tasks.list().find((task) => task.title === 'A');
+    assert.ok(firstTask);
+    const model = app.store.settings.getSettings()?.models?.at(0) ?? {
+      id: 'opencode-go/deepseek-v4.1-flash',
+      label: 'DeepSeek Flash',
+      provider: 'opencode-go',
+      model: 'deepseek-v4.1-flash',
+      displayName: 'flash',
+      roles: ['planner'],
+      enabled: true,
+      contextTokens: 131072,
+      outputTokens: 65536,
+      cost: { inputPerMTokens: 0.28, outputPerMTokens: 0.42, currency: 'USD' },
+    };
+    app.store.planning.create({
+      taskId: firstTask.id,
+      ordinal: 1,
+      inputRevision: firstTask.requirement.revision,
+      method: { id: 'method.requirement-development', name: '需求开发', revision: 'r1' },
+      strategy: { id: 'single_pass', version: '1' },
+      model,
+      usage: {
+        dispatches: { used: 0, maximum: 2 },
+        revisions: { used: 0, maximum: 1 },
+        budget: { known: 0.01, reserved: 0, unknown: 0, currency: 'USD' },
+        tokens: { input: 100, output: 50, reasoning: 10, cache: 5, total: 165 },
+      },
+    });
+
     const empty = await app.app.inject({ method: 'GET', url: '/api/insights' });
     assert.equal(empty.statusCode, 200, empty.body);
     const emptyData = empty.json().data as { tasks: { total: number; active: number }; reviews: { openFindings: number } };
     assert.equal(emptyData.tasks.total, 2);
     assert.equal(emptyData.tasks.active, 2);
     assert.equal(emptyData.reviews.openFindings, 0);
-    assert.equal((empty.json().data as { planning: { costKnown: number } }).planning.costKnown, 0);
+    const planning = (empty.json().data as { planning: { costKnown: number; tokens: { total: number } } }).planning;
+    assert.equal(planning.costKnown, 0.01);
+    assert.equal(planning.tokens.total, 165);
 
     const review = app.store.reviews.create({
       projectId,

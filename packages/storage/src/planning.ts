@@ -385,11 +385,7 @@ function mapRound(row: Row): PlanningRound {
     strategy: jsonParse<PlanningRound['strategy']>(row.strategy_json as string, { id: '', version: '' }),
     model: jsonParse<ModelProfile>(row.model_json as string, { id: '', label: '', provider: '', model: '', roles: [], enabled: false }),
     stageRuns: jsonParse<readonly PlanningStageRun[]>(row.stage_runs_json as string, []),
-    usage: jsonParse<PlanningUsage>(row.usage_json as string, {
-      dispatches: { used: 0, maximum: 2 },
-      revisions: { used: 0, maximum: 1 },
-      budget: { known: 0, reserved: 0, unknown: 0, currency: 'USD' },
-    }),
+    usage: mapUsage(row.usage_json as string),
     startedAt: row.started_at === null ? undefined : String(row.started_at),
     endedAt: row.ended_at === null ? undefined : String(row.ended_at),
     lastActivity: row.last_activity === null ? undefined : String(row.last_activity),
@@ -406,5 +402,18 @@ function mapRound(row: Row): PlanningRound {
       last: Number(row.record_last_seq ?? 0),
       gaps: jsonParse<readonly PlanningRecordGap[]>(row.gaps_json as string, []),
     },
+  };
+}
+
+
+function mapUsage(raw: string): PlanningUsage {
+  const usage = jsonParse<PlanningUsage>(raw, {
+    dispatches: { used: 0, maximum: 2 },
+    revisions: { used: 0, maximum: 1 },
+    budget: { known: 0, reserved: 0, unknown: 0, currency: 'USD' },
+  });
+  return {
+    ...usage,
+    tokens: usage.tokens ?? { input: 0, output: 0, reasoning: 0, cache: 0, total: 0 },
   };
 }

@@ -278,25 +278,21 @@ export function InsightsPage() {
 
       <div className="grid-3" style={{ marginBottom: 16 }}>
         <div className="card pad">
-          <div className="eyebrow">已记录用量</div>
-          <div style={{ marginTop: 6 }}>
-            <Badge tone="unknown" icon="help">
-              未知
-            </Badge>
+          <div className="eyebrow">已记录用量 · 规划</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, marginTop: 6 }}>
+            {insights.data === undefined ? <UnknownValue reason="正在读取 insights" /> : `${formatCount(insights.data.planning.tokens.total)} tokens`}
           </div>
           <div className="hint" style={{ marginTop: 6 }}>
-            服务未提供 tokens 聚合接口，未计入 0。
+            {insights.data === undefined ? '尚未读取' : `输入 ${formatCount(insights.data.planning.tokens.input)} · 输出 ${formatCount(insights.data.planning.tokens.output)} · 推理 ${formatCount(insights.data.planning.tokens.reasoning)} · 缓存 ${formatCount(insights.data.planning.tokens.cache)}`}
           </div>
         </div>
         <div className="card pad">
-          <div className="eyebrow">成本 · 按币种分列</div>
-          <div style={{ marginTop: 6 }}>
-            <Badge tone="unknown" icon="help">
-              未知
-            </Badge>
+          <div className="eyebrow">成本 · 规划</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, marginTop: 6 }}>
+            {insights.data === undefined ? <UnknownValue reason="正在读取 insights" /> : `${insights.data.planning.currency} ${insights.data.planning.costKnown.toFixed(4)}`}
           </div>
           <div className="hint" style={{ marginTop: 6 }}>
-            不同币种不换算、不相加；当前无成本数据。
+            规划轮次已结账成本；执行/评审/修复用量尚未聚合，不混入。
           </div>
         </div>
         <div className="card pad">

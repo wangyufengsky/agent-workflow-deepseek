@@ -184,6 +184,7 @@ export class PlanningService {
           currency: this.#context.settings().planning.currency,
           limit: this.#context.settings().planning.budgetLimit,
         },
+        tokens: { input: 0, output: 0, reasoning: 0, cache: 0, total: 0 },
       },
       previousRoundId: rounds[0]?.id,
     });
@@ -374,9 +375,37 @@ export class PlanningService {
     const cost = (result.outcome.messages ?? [])
       .filter((message) => message.info.role === 'assistant')
       .reduce((sum, message) => sum + (message.info.cost ?? 0), 0);
+    const priorTokens = latest.usage.tokens ?? { input: 0, output: 0, reasoning: 0, cache: 0, total: 0 };
+    const dispatchTokens = (result.outcome.messages ?? [])
+      .filter((message) => message.info.role === 'assistant')
+      .reduce((sum, message) => {
+        const raw = message.info.tokens ?? {};
+        const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
+        const cache = raw['cache'] !== null && typeof raw['cache'] === 'object' ? raw['cache'] as Record<string, unknown> : {};
+        const input = num(raw['input']);
+        const output = num(raw['output']);
+        const reasoning = num(raw['reasoning']);
+        const cacheRead = num(cache['read']);
+        const cacheWrite = num(cache['write']);
+        return {
+          input: sum.input + input,
+          output: sum.output + output,
+          reasoning: sum.reasoning + reasoning,
+          cache: sum.cache + cacheRead + cacheWrite,
+          total: sum.total + input + output + reasoning + cacheRead + cacheWrite,
+        };
+      }, { input: 0, output: 0, reasoning: 0, cache: 0, total: 0 });
+    const tokens = {
+      input: priorTokens.input + dispatchTokens.input,
+      output: priorTokens.output + dispatchTokens.output,
+      reasoning: priorTokens.reasoning + dispatchTokens.reasoning,
+      cache: priorTokens.cache + dispatchTokens.cache,
+      total: priorTokens.total + dispatchTokens.total,
+    };
     const usage = {
       ...latest.usage,
       dispatches: { ...latest.usage.dispatches, used: latest.usage.dispatches.used + 1 },
+      tokens,
       budget: {
         ...latest.usage.budget,
         known: cost,

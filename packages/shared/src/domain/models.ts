@@ -378,6 +378,7 @@ export interface PlanningUsage {
     readonly currency: string;
     readonly limit?: number;
   };
+  readonly tokens?: { readonly input: number; readonly output: number; readonly reasoning: number; readonly cache: number; readonly total: number };
   readonly deadlineAt?: IsoDateTime;
   readonly modelDisplayName?: string;
 }

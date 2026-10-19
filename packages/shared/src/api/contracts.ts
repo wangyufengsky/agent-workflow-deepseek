@@ -276,6 +276,7 @@ export interface InsightsResponse {
     readonly running: number;
     readonly costKnown: number;
     readonly budgetUnknownRounds: number;
+    readonly tokens: { readonly input: number; readonly output: number; readonly reasoning: number; readonly cache: number; readonly total: number };
     readonly currency: string;
   };
   readonly executions: { readonly total: number; readonly running: number; readonly failed: number; readonly attempts: number };
