@@ -477,3 +477,10 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 执行相关设置标为「新执行生效」，不再误称对当前冻结执行立即生效。保存只接受 succeeded 为成功，accepted/unknown 不清草稿。
 - HTTP配置、实际重试策略与模板任务回归19/19通过，typecheck/Web构建通过。CUA隔离5281服务：将模型限流改为30/300秒，切分区再刷新仍保留两项脏草稿；保存成功、刷新回读30/300且无脏标记。保存仅作用测试服务，不改用户运行实例。
 - 证据：`docs/evidence/retry-settings-2026-10-20/`。此批不宣称全主题、真实限流或UNKNOWN GUI故障注入验收。
+
+### 2026-10-20 · 数据库草稿检查合流与真实 MySQL
+
+- 合入 `9325741`：未保存草稿检查只建立临时连接；schema/table 明确授权，限定 SHOW 元数据查询，重新检查失败不保留旧只读成功标记；未提供驱动从服务清单返回禁用原因。
+- 合流类型检查通过，数据库草稿/删除、规划问题、重试设置 HTTP 回归7/7通过。
+- 真实 MySQL 9.x 回归1/1通过且0跳过：未保存草稿探测成功后连接设置未变化；保存后探测、授权 schema 内 SHOW TABLES 与实际表 COUNT 成功；DELETE 和多语句写入被拦截。复用了已有本地 Java 测试库，没有创建/清空业务表。凭据仅经进程环境传入，日志输出做脱敏。
+- 该结果证明 MySQL 驱动/只读查询链，不能替代 PostgreSQL、其他 planned 驱动或全部数据库GUI状态验收。

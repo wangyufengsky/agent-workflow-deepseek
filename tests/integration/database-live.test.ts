@@ -22,10 +22,18 @@ test('live: mysql2 probe and read-only queries against java-test database', { sk
   const app = await createApplication({ dataDir: mkdtempSync(join(tmpdir(), 'aw-db-live-')), disableOpenCode: true, disableListen: true });
   try {
     const key = () => `req_${Math.random().toString(36).slice(2, 18)}`;
+    const beforeDraft = structuredClone(app.engine.publicSettings().database);
+    const connection = { name: 'java-test', type: 'mysql', host, port: Number(port), database, user, password, ssl: false, readOnly: true, schemas: [database!] };
+    const draft = await app.app.inject({ method: 'POST', url: '/api/settings/databases/probe-draft', payload: { connection } });
+    assert.equal(draft.statusCode, 200, draft.body);
+    assert.equal(draft.json().data.probe.state, 'connected', draft.body);
+    assert.ok(!draft.body.includes(password));
+    assert.deepEqual(app.engine.publicSettings().database, beforeDraft, 'checking an unsaved connection must not save it');
+
     const upsert = await app.app.inject({
       method: 'POST',
       url: '/api/settings/databases',
-      payload: { requestKey: key(), connection: { name: 'java-test', type: 'mysql', host, port: Number(port), database, user, password, ssl: false, readOnly: true } },
+      payload: { requestKey: key(), connection },
     });
     assert.equal(upsert.statusCode, 200, upsert.body);
     const id = upsert.json().data.connection.id;
