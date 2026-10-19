@@ -7,6 +7,7 @@ import { RoleCatalogService } from './role-catalog.ts';
 import { InsightsService } from './insights.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { PptService } from './ppt.ts';
+import { TemplateCatalogService } from './template-catalog.ts';
 import { ProjectService, TaskService, InboxService } from './project-task.ts';
 import { PlanningService } from './planning.ts';
 import { PlanService } from './plan.ts';
@@ -45,6 +46,7 @@ export class Engine {
   readonly insights: InsightsService;
   readonly knowledge: KnowledgeService;
   readonly ppt: PptService;
+  readonly templates: TemplateCatalogService;
   readonly planning: PlanningService;
   readonly plans: PlanService;
   readonly workspaces: WorkspaceService;
@@ -66,6 +68,10 @@ export class Engine {
       },
     });
     this.roleCatalog.applyEffective();
+    this.templates = new TemplateCatalogService(this.store, this.commands, (templates) => {
+      (this.catalog as { templates: readonly import('@agent-workflow/shared').TaskTemplate[] }).templates = templates;
+    });
+    this.templates.applyEffective(this.catalog.templates);
     this.insights = new InsightsService(this.store);
     const integration = options.integration ?? { opencodeReady: () => false, gitlabConfigured: () => false };
     this.context = {
@@ -77,7 +83,7 @@ export class Engine {
       planningBudgetConfigured: () => this.#settings.planning.budgetLimit > 0,
     };
     this.projects = new ProjectService(this.store, this.ports.git, this.commands, this.context);
-    this.tasks = new TaskService(this.store, this.commands, this.context, this.projects);
+    this.tasks = new TaskService(this.store, this.commands, this.context, this.projects, this.catalog);
     this.inbox = new InboxService(this.store, this.tasks);
     this.recoveries = new RecoveryService({ store: this.store, commands: this.commands });
     this.planning = new PlanningService(this.store, this.commands, this.context, this.ports.opencode, () => this.tasks);

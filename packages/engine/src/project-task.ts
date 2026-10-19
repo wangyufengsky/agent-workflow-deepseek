@@ -1,5 +1,6 @@
 import type {
   ApiEnvelope,
+  CatalogSnapshot,
   CommandResponse,
   CreateTaskRequest,
   InboxItem,
@@ -184,12 +185,14 @@ export class TaskService {
   readonly #commands: CommandService;
   readonly #context: EngineContext;
   readonly #projects: ProjectService;
+  readonly #catalog: CatalogSnapshot;
 
-  constructor(store: Store, commands: CommandService, context: EngineContext, projects: ProjectService) {
+  constructor(store: Store, commands: CommandService, context: EngineContext, projects: ProjectService, catalog: CatalogSnapshot) {
     this.#store = store;
     this.#commands = commands;
     this.#context = context;
     this.#projects = projects;
+    this.#catalog = catalog;
   }
 
   listByTemplate(templateId: string): readonly TaskSummary[] {
@@ -242,7 +245,7 @@ export class TaskService {
         ? undefined
         : {
             templateId: input.template.templateId,
-            templateVersion: DEFAULT_CATALOG.templates.find((template) => template.id === input.template!.templateId)?.version ?? 1,
+            templateVersion: this.#catalog.templates.find((template) => template.id === input.template!.templateId)?.version ?? 1,
             locked: true as const,
             parameters: input.template.parameters,
           };

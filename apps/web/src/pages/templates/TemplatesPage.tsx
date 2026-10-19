@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ROUTES,
@@ -12,7 +12,7 @@ import {
   type TemplateDetailResponse,
   type TemplateTasksResponse,
 } from '@agent-workflow/shared';
-import { ApiClientError, apiGet, apiPost, errorMessage } from '../../api/client.ts';
+import { ApiClientError, apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
 import { queryKeys, useBootstrap } from '../../api/hooks.ts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../../components/Badge.tsx';
@@ -85,6 +85,9 @@ export function TemplatesPage() {
   const navigate = useNavigate();
   const [planBusy, setPlanBusy] = useState(false);
   const [planError, setPlanError] = useState<string | undefined>(undefined);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importError, setImportError] = useState<string | undefined>(undefined);
   const templates = bootstrap.data?.catalog.templates ?? [];
   const methods = bootstrap.data?.catalog.methods ?? [];
   const projects: readonly ProjectSummary[] = bootstrap.data?.projects ?? [];
@@ -588,6 +591,35 @@ export function TemplatesPage() {
         title="模板任务"
         lede="选一个固定模板，填好必要参数创建任务，再在任务里确认计划、准备独立工作区、开始执行。模板使用固定流程：创建后不能修改步骤。"
         actions={
+          <div className="row wrap" style={{ gap: 8 }}>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: 'none' }}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file === undefined) return;
+              setImportBusy(true);
+              setImportError(undefined);
+              void (async () => {
+                try {
+                  const parsed = JSON.parse(await file.text()) as { template?: unknown } | unknown;
+                  const template = parsed !== null && typeof parsed === 'object' && 'template' in parsed ? (parsed as { template: unknown }).template : parsed;
+                  await apiPost('/api/catalog/templates/import', { requestKey: createRequestKey(), template, confirmImport: true });
+                  await queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap });
+                } catch (error) {
+                  setImportError(isServiceUnavailable(error) ? '服务未连接，未导入。' : errorMessage(error));
+                } finally {
+                  setImportBusy(false);
+                }
+              })();
+            }}
+          />
+          <Button variant="secondary" size="sm" icon="upload" disabled={importBusy} onClick={() => { importInputRef.current?.click(); }}>
+            {importBusy ? '导入中…' : '导入模板 JSON'}
+          </Button>
           <div className="input-wrap" style={{ width: 220 }}>
             <Icon name="search" />
             <input
@@ -599,6 +631,7 @@ export function TemplatesPage() {
                 setKeyword(event.target.value);
               }}
             />
+          </div>
           </div>
         }
       />

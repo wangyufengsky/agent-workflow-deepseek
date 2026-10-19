@@ -7,6 +7,7 @@ import type {
   RoleSaveRequest,
   RolePublishRequest,
   RoleArchiveRequest,
+  TemplateImportRequest,
   NodeSkipRequest,
   UseTemplateRequest,
   KnowledgeAskRequest,
@@ -547,6 +548,15 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   app.get('/api/skills', async (request) => envelope({ skills: discoverSkills() }, requestId(request)));
   app.get('/api/insights', async (request) => envelope(engine.insights.summary(), requestId(request)));
+
+  app.post('/api/catalog/templates/import', async (request) => {
+    const body = request.body as TemplateImportRequest;
+    return envelope(engine.templates.import(body), requestId(request));
+  });
+  app.delete<{ Params: { id: string } }>('/api/catalog/templates/:id', async (request) => {
+    const list = engine.templates.archive(request.params.id);
+    return envelope({ templates: list }, requestId(request));
+  });
 
   app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));
   app.post('/api/catalog/roles', async (request) => {

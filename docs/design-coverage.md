@@ -20,7 +20,7 @@
 | node/index.html | 任务页节点面板 | `/nodes/:nodeId` | ✅/🟡 | 事实条、正文/工具、attempts、输出；历史分页/补读未做 |
 | databases.html | `/databases` | `/api/settings/databases` | ✅ | 连接管理（增/改/删）、探针、只读查询；真实 MySQL 9.2 已验证 |
 | roles.html / roles-legacy.html | `/roles` | `/api/catalog/roles` | ✅/🟡 | 草稿/发布/归档/自定义已接线；版本对比/导入未做 |
-| templates.html | `/templates` | catalog + `/api/tasks`、`/api/templates/:id{,/tasks}`、`/plan/from-template` | ✅/🟡 | 固定模板创建/按模板生成计划/确认/历史任务/详情导出已接线；模板编辑/导入未开放 |
+| templates.html | `/templates` | catalog + `/api/catalog/templates/import` + `/api/tasks`、`/api/templates/:id{,/tasks}`、`/plan/from-template` | ✅/🟡 | 固定模板创建/计划/历史/导出 + 自定义模板导入/归档；模板可视化编辑未开放 |
 | workflows.html / workflow-editor.html | `/workflows` | catalog.methods | 🟡 | 目录只读；编辑未接通 |
 | settings.html | `/settings` | `/api/settings`、opencode | ✅/🟡 | 外观/服务/模型启停/轮询间隔/Git 账号与令牌/数据库概览已接线；监控阈值未接 |
 | tools.html | `/tools` | MCP 目录 + opencode status + `/api/settings` + `/api/skills` | ✅/🟡 | 工具集启停（重启生效）、本机 Skill 只读目录已接线；单工具开关/正文查看未开放 |

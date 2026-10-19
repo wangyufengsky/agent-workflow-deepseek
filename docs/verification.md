@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**308 tests / 54 suites / 298 pass / 10 skipped / 0 fail**，约 24s。
+结果（本轮）：**309 tests / 54 suites / 299 pass / 10 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -43,7 +43,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
 | server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
 | server/ppt | PPT 草稿 CRUD/大纲编辑/Markdown 导出；真实模型生成大纲 + 逐页要点（12 页 live PASS） |
-| server/templates | 固定模板详情/任务数/JSON 导出；按模板生成计划（template source，5 步/4 边）；按模板查历史 |
+| server/templates | 固定模板详情/导出；自定义模板导入/归档；按模板生成计划；按模板查历史 |
 | server/settings | 断连轮询间隔持久化/校验、模型档案启停、工具集启停（非空/合法校验）、数据库概览跳转；任务页轮询使用该设置 |
 | mcp/runtime | 工具集过滤：只注入启用前缀的工具；空/未知工具集回退默认；设置经 AGENT_WORKFLOW_TOOLSETS 注入 |
 | server/session-limit | 并发 runSession 达到 opencode.maxSessions 即拒绝并返回 OPENCODE_SESSION_LIMIT(429)；状态口暴露 sessions/maxSessions；告警阈值可配置并驱动运行状态告警 |
