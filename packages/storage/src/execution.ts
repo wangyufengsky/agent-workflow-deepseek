@@ -238,6 +238,8 @@ export class ExecutionRepository {
   }
 
   appendOutput(input: { attemptId: string; seq: number; fragment: OutputFragment }): void {
+    const previous = input.fragment.toolCallRef?.callId ? this.readToolRecord(input.attemptId, input.fragment.toolCallRef.callId)?.evidence : undefined;
+    const evidence = input.fragment.toolEvidence === undefined ? previous : { ...previous, ...input.fragment.toolEvidence, redacted: previous?.redacted === true || input.fragment.toolEvidence.redacted, truncated: previous?.truncated === true || input.fragment.toolEvidence.truncated };
     this.#db
       .prepare('INSERT OR IGNORE INTO node_output (attempt_id, seq, fragment_id, category, at, text, block_id, tool_call_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(
@@ -248,8 +250,15 @@ export class ExecutionRepository {
         input.fragment.recordedAt ?? null,
         input.fragment.text ?? null,
         input.fragment.blockId ?? null,
-        input.fragment.toolCallRef === undefined ? null : jsonStringify(input.fragment.toolCallRef),
+        input.fragment.toolCallRef === undefined ? null : jsonStringify({ ...input.fragment.toolCallRef, ...(evidence === undefined ? {} : { evidence }) }),
       );
+  }
+
+  readToolRecord(attemptId: string, callId: string): { revision: string; reference: NonNullable<OutputFragment['toolCallRef']>; evidence?: OutputFragment['toolEvidence'] } | undefined {
+    const row = this.#db.prepare("SELECT fragment_id, tool_call_json FROM node_output WHERE attempt_id = ? AND json_extract(tool_call_json, '$.callId') = ? ORDER BY seq DESC LIMIT 1").get(attemptId, callId) as Row | undefined;
+    if (row === undefined) return undefined;
+    const record = jsonParse<NonNullable<OutputFragment['toolCallRef']> & { evidence?: OutputFragment['toolEvidence'] }>(row.tool_call_json as string, { callId, status: 'unknown', source: 'opencode' });
+    return { revision: String(row.fragment_id), reference: { callId: record.callId, status: record.status, source: record.source }, evidence: record.evidence };
   }
 
   listOutput(attemptId: string, afterSeq = 0, limit = 500): readonly OutputFragment[] {
@@ -265,6 +274,7 @@ export class ExecutionRepository {
       text: row.text === null ? undefined : String(row.text),
       blockId: row.block_id === null ? undefined : String(row.block_id),
       toolCallRef: jsonParse<OutputFragment['toolCallRef'] | undefined>(row.tool_call_json as string | null, undefined),
+      toolEvidence: jsonParse<{ evidence?: OutputFragment['toolEvidence'] }>(row.tool_call_json as string | null, {}).evidence,
     }));
   }
 }

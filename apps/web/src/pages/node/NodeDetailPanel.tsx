@@ -1,3 +1,4 @@
+import { toolFeed } from './tool-feed.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   NODE_STATUS_LABEL,
@@ -169,7 +170,8 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
     if (selectedAttemptIdResolved === undefined) return detail.attempts[0];
     return detail.attempts.find((attempt) => attempt.id === selectedAttemptIdResolved) ?? (currentAttempt?.id === selectedAttemptIdResolved ? currentAttempt : undefined);
   }, [currentAttempt, detail, selectedAttemptIdResolved]);
-  const fragments = outputQuery.data?.fragments ?? detail?.output.fragments ?? [];
+  const fragments = outputQuery.data?.fragments ?? (selectedAttemptIdResolved === currentAttempt?.id ? detail?.output.fragments : undefined) ?? [];
+  const feed = toolFeed(fragments);
   const attemptLabel =
     selectedAttempt === undefined
       ? '尝试记录：服务未提供'
@@ -342,9 +344,9 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
         </div>
         <div className="side-body node-side-body">
           {reader.kind === 'tool' ? (
-            <ToolDetailView fragment={reader.fragment} attemptLabel={reader.attemptLabel} />
+            <ToolDetailView key={`${reader.attemptId}:${reader.fragment.toolCallRef?.callId}`} taskId={taskId} nodeId={nodeId} attemptId={reader.attemptId} fragment={reader.fragment} attemptLabel={reader.attemptLabel} />
           ) : reader.kind === 'artifact' ? (
-            <ArtifactDetailView taskId={taskId} artifact={reader.artifact} attemptLabel={reader.attemptLabel} />
+            <ArtifactDetailView key={`${taskId}:${reader.artifact.id}:${reader.artifact.revision}`} taskId={taskId} artifact={reader.artifact} attemptLabel={reader.attemptLabel} />
           ) : (
             <CitationSourceView link={reader.link} />
           )}
@@ -469,7 +471,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                 {fragments.length === 0 ? (
                   <EmptyState compact icon="terminal" title="还没有执行记录" description="服务返回空记录；这里不会补写演示正文。" />
                 ) : (
-                  fragments.map((fragment) => (
+                  feed.map((fragment) => (
                     <div key={fragment.fragmentId} className="node-fragment">
                       <div className="node-fragment-meta">
                         <span className="mono">#{fragment.seq}</span>
@@ -496,7 +498,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                               variant="secondary"
                               icon="eye"
                               onClick={() => {
-                                setReader({ kind: 'tool', fragment, attemptLabel });
+                                setReader({ kind: 'tool', fragment, attemptLabel, attemptId: selectedAttemptIdResolved ?? '' });
                               }}
                             >
                               查看工具详情

@@ -730,6 +730,19 @@ export interface SnapshotReviewModel {
   readonly partialReport: SnapshotPartialReport;
 }
 
+export interface ToolCallReadResponse {
+  readonly taskId: string;
+  readonly nodeId: string;
+  readonly attemptId: string;
+  readonly callId: string;
+  readonly revision: string;
+  readonly status: string;
+  readonly evidence: Omit<import('../domain/models.ts').ToolCallEvidence, 'input' | 'output' | 'error'>;
+  readonly part: 'input' | 'output' | 'error';
+  readonly content: string | null;
+  readonly nextCursor?: string;
+}
+
 export interface ArtifactExportRequest {
   readonly taskId: string;
   readonly attemptId: string;
@@ -740,6 +753,7 @@ export interface ArtifactExportRequest {
 export type ArtifactExportResult = { readonly status: 'saved' | 'cancelled' | 'unsupported' } | { readonly status: 'failed'; readonly message: string };
 
 export interface ArtifactContentResponse {
+  readonly nextCursor?: string;
   readonly artifact: import('../domain/models.ts').ArtifactRef;
   readonly preview: string | null;
   readonly truncated: boolean;
@@ -1897,6 +1911,7 @@ export const ROUTES = {
   executionCancel: (id: string) => `/api/tasks/${encodeURIComponent(id)}/execution/cancel`,
   node: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}`,
   nodeAttempts: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/attempts`,
+  nodeTool: (id: string, nodeId: string, attemptId: string, callId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/attempts/${encodeURIComponent(attemptId)}/tools/${encodeURIComponent(callId)}`,
   nodeOutput: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/output`,
   nodeAccept: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/accept`,
   nodeReject: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/nodes/${encodeURIComponent(nodeId)}/reject`,

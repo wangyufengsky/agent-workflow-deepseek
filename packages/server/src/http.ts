@@ -656,12 +656,18 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(engine.executions.skipNode(request.params.id, request.params.nodeId, body), requestId(request));
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/cancel', async (request) => envelope(await engine.executions.cancel(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
-  app.get<{ Params: { id: string; attemptId: string; artifactId: string }; Querystring: { revision?: string; sha256?: string; download?: string } }>('/api/tasks/:id/attempts/:attemptId/artifacts/:artifactId', async (request, reply) => {
+  app.get<{ Params: { id: string; nodeId: string; attemptId: string; callId: string }; Querystring: { part?: 'input' | 'output' | 'error'; cursor?: string } }>('/api/tasks/:id/nodes/:nodeId/attempts/:attemptId/tools/:callId', async (request) => envelope(engine.executions.readTool(request.params.id, request.params.nodeId, request.params.attemptId, request.params.callId, request.query.part ?? 'output', request.query.cursor), requestId(request)));
+
+  app.get<{ Params: { id: string; attemptId: string; artifactId: string }; Querystring: { revision?: string; sha256?: string; download?: string; cursor?: string } }>('/api/tasks/:id/attempts/:attemptId/artifacts/:artifactId', async (request, reply) => {
     const { artifact, bytes } = engine.executions.readArtifact(request.params.id, request.params.attemptId, request.params.artifactId, request.query.revision ?? '', request.query.sha256 ?? '');
     reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff');
     if (request.query.download === '1') return reply.type('application/octet-stream').header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(artifact.name)}`).send(bytes);
     const text = artifact.mediaType.startsWith('text/') || artifact.mediaType === 'application/json';
-    return envelope({ artifact, preview: text ? bytes.subarray(0, 256 * 1024).toString('utf8') : null, truncated: text && bytes.length > 256 * 1024 }, requestId(request));
+    const offset = Number(request.query.cursor ?? 0);
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '读取位置无效');
+    const content = text ? bytes.toString('utf8') : null;
+    const end = Math.min(offset + 65536, content?.length ?? 0);
+    return envelope({ artifact, preview: content === null ? null : content.slice(offset, end), truncated: content !== null && end < content.length, ...(content !== null && end < content.length ? { nextCursor: String(end) } : {}) }, requestId(request));
   });
 
   app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId), requestId(request)));

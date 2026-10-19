@@ -1,0 +1,19 @@
+.readable-text { min-width: 0; width: 100%; }
+.reader-controls { gap: 8px; margin: 12px 0; }
+.reader-search { display: flex; align-items: center; gap: 6px; flex: 1 1 200px; }
+.reader-search .input { width: 100%; }
+.reader-code { overflow: auto; font: 12px/1.7 var(--font-mono, monospace); }
+.reader-code > div { display: flex; min-height: 1.7em; }
+.reader-code code { flex: 1; white-space: pre; }
+.reader-code.wrap code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.reader-line-number { min-width: 3.2em; padding-right: 1em; text-align: right; opacity: .5; user-select: none; }
+.reader-json-tree { padding-left: 12px; margin: 5px 0; }
+.reader-json-leaf { padding-left: 18px; overflow-wrap: anywhere; line-height: 1.7; }
+.reader-markdown { line-height: 1.75; overflow-wrap: anywhere; }
+.reader-markdown h1, .reader-markdown h2, .reader-markdown h3 { margin: 1em 0 .5em; }
+.reader-markdown p, .reader-markdown ul, .reader-markdown ol { margin: .65em 0; }
+.reader-markdown pre { overflow: auto; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.reader-markdown table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; }
+.reader-markdown th, .reader-markdown td { border: 1px solid var(--line); padding: 6px 10px; }
+
+.reader-code mark { color: var(--warn); background: var(--warn-fill); }

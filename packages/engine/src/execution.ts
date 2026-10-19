@@ -785,6 +785,28 @@ export class ExecutionService {
     return { ok: true };
   }
 
+  readTool(taskId: string, nodeId: string, attemptId: string, callId: string, part: 'input' | 'output' | 'error', cursor?: string): import('@agent-workflow/shared').ToolCallReadResponse {
+    this.#requireTask(taskId);
+    const attempt = this.#store.executions.getAttempt(attemptId);
+    if (!attempt || attempt.nodeId !== nodeId || this.#store.executions.get(attempt.executionId)?.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '工具调用来源不存在');
+    if (attempt.readability.tools === 'forbidden') throw new AppError(ErrorCode.FORBIDDEN, '你没有查看此调用完整参数的权限');
+    const record = this.#store.executions.readToolRecord(attemptId, callId);
+    if (!record) throw new AppError(ErrorCode.NOT_FOUND, '工具调用不存在');
+    if (!record.evidence) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '这条历史记录没有保留工具完整参数');
+    if (!['input', 'output', 'error'].includes(part)) throw new AppError(ErrorCode.VALIDATION_FAILED, '读取部分无效');
+    let offset = 0;
+    if (cursor !== undefined) {
+      const [revision, value] = cursor.split('|');
+      offset = Number(value);
+      if (revision !== record.revision) throw new AppError(ErrorCode.STALE_TARGET, '工具调用内容已更新，请重新读取');
+      if (!Number.isSafeInteger(offset) || offset < 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '读取位置无效');
+    }
+    const { input, output, error, ...evidence } = record.evidence;
+    const text = { input, output, error }[part];
+    const end = Math.min(offset + 16384, text?.length ?? 0);
+    return { taskId, nodeId, attemptId, callId, revision: record.revision, status: record.reference.status, evidence, part, content: text === undefined ? null : text.slice(offset, end), ...(text !== undefined && end < text.length ? { nextCursor: `${record.revision}|${end}` } : {}) };
+  }
+
   readArtifact(taskId: string, attemptId: string, artifactId: string, revision: string, sha256: string) {
     this.#requireTask(taskId);
     const attempt = this.#store.executions.getAttempt(attemptId);
