@@ -290,6 +290,10 @@ export interface InsightsResponse {
   readonly deliveries: { readonly delivered: number; readonly blocked: number; readonly inProgress: number };
 }
 
+export interface InsightsTaskAcceptanceResponse {
+  readonly items: readonly { readonly taskId: string; readonly passed: number; readonly failed: number; readonly total: number }[];
+}
+
 export interface InsightsTaskQualityResponse {
   readonly items: readonly { readonly taskId: string; readonly reviews: number; readonly openFindings: number }[];
 }
@@ -1066,6 +1070,7 @@ export const ROUTES = {
   insights: '/api/insights',
   insightsTaskUsage: '/api/insights/task-usage',
   insightsTaskQuality: '/api/insights/task-quality',
+  insightsTaskAcceptance: '/api/insights/task-acceptance',
   skills: '/api/skills',
   knowledgeSources: '/api/knowledge/sources',
   knowledgeSearch: '/api/knowledge/search',

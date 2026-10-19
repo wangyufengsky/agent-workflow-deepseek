@@ -103,4 +103,20 @@ export class InsightsService {
       .all() as unknown as { taskId: string; reviews: number; openFindings: number }[];
     return rows.map((row) => ({ taskId: row.taskId, reviews: Number(row.reviews), openFindings: Number(row.openFindings) }));
   }
+
+  taskAcceptance(): readonly { readonly taskId: string; readonly passed: number; readonly failed: number; readonly total: number }[] {
+    const rows = this.#store.db
+      .prepare(
+        `SELECT e.task_id AS taskId,
+                SUM(CASE WHEN en.status = 'succeeded' THEN 1 ELSE 0 END) AS passed,
+                SUM(CASE WHEN en.status IN ('failed', 'unknown') THEN 1 ELSE 0 END) AS failed,
+                COUNT(en.node_id) AS total
+           FROM executions e
+           JOIN execution_nodes en ON en.execution_id = e.id
+          GROUP BY e.task_id
+          ORDER BY e.task_id`,
+      )
+      .all() as unknown as { taskId: string; passed: number; failed: number; total: number }[];
+    return rows.map((row) => ({ taskId: row.taskId, passed: Number(row.passed), failed: Number(row.failed), total: Number(row.total) }));
+  }
 }

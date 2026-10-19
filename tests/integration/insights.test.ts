@@ -88,6 +88,8 @@ test('insights aggregate real task/review counters from SQLite', async () => {
     app.store.db.exec('PRAGMA foreign_keys = OFF');
     app.store.db.prepare("INSERT OR REPLACE INTO executions (id, task_id, plan_revision_id, status, auto_advance, progress_json, revision) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run('exec_quality_test', firstTask.id, 'plan_test', 'completed', 0, '{"done":0,"failed":0,"running":0,"total":0}', 1);
+    app.store.db.prepare("INSERT OR REPLACE INTO execution_nodes (execution_id, node_id, status, attempt_count) VALUES (?, ?, ?, ?)").run('exec_quality_test', 'node_pass', 'succeeded', 1);
+    app.store.db.prepare("INSERT OR REPLACE INTO execution_nodes (execution_id, node_id, status, attempt_count) VALUES (?, ?, ?, ?)").run('exec_quality_test', 'node_fail', 'failed', 1);
     app.store.db.exec('PRAGMA foreign_keys = ON');
     const review = app.store.reviews.create({
       projectId,
@@ -129,6 +131,14 @@ test('insights aggregate real task/review counters from SQLite', async () => {
     assert.equal(qualityItems[0]!.taskId, firstTask.id);
     assert.equal(qualityItems[0]!.reviews, 1);
     assert.equal(qualityItems[0]!.openFindings, 1);
+    const acceptance = await app.app.inject({ method: 'GET', url: '/api/insights/task-acceptance' });
+    assert.equal(acceptance.statusCode, 200, acceptance.body);
+    const acceptanceItems = acceptance.json().data.items as { taskId: string; passed: number; failed: number; total: number }[];
+    assert.equal(acceptanceItems.length, 1);
+    assert.equal(acceptanceItems[0]!.taskId, firstTask.id);
+    assert.equal(acceptanceItems[0]!.passed, 1);
+    assert.equal(acceptanceItems[0]!.failed, 1);
+    assert.equal(acceptanceItems[0]!.total, 2);
   } finally {
     await app.close();
   }
