@@ -1,3 +1,4 @@
+import { KnowledgeInputs, type KnowledgeInputSnapshot } from './knowledge-inputs.ts';
 import {
   AppError,
   ErrorCode,
@@ -20,7 +21,7 @@ import {
 import type { Store } from '@agent-workflow/storage';
 import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
-import type { OpenCodePort } from './ports.ts';
+import type { OpenCodePort, DatabasePort, PublicSearchPort } from './ports.ts';
 import type { OpenCodeMessage, OpenCodePart } from '@agent-workflow/opencode';
 import { listKnowledgeSources, readKnowledgeSource } from '../../server/src/knowledge.ts';
 import { roleModel } from './role-runtime.ts';
@@ -36,6 +37,8 @@ export interface KnowledgeServiceOptions {
   readonly commands: CommandService;
   readonly context: EngineContext;
   readonly opencode: OpenCodePort;
+  readonly database?: DatabasePort;
+  readonly publicSearch?: PublicSearchPort;
   readonly roles?: () => readonly RoleDefinition[];
 }
 
@@ -45,10 +48,12 @@ export class KnowledgeService {
   readonly #commands: CommandService;
   readonly #context: EngineContext;
   readonly #opencode: OpenCodePort;
+  readonly inputs: KnowledgeInputs;
   readonly #active = new Set<string>();
   readonly #roles: () => readonly RoleDefinition[];
 
   constructor(options: KnowledgeServiceOptions) {
+    this.inputs = new KnowledgeInputs(options.store, options.commands, options.context, options.database, options.publicSearch);
     this.#store = options.store;
     this.#commands = options.commands;
     this.#context = options.context;
@@ -74,8 +79,8 @@ export class KnowledgeService {
     const requestedConversationId = typeof input.conversationId === 'string' && input.conversationId.trim() !== ''
       ? input.conversationId.trim().slice(0, 64)
       : undefined;
-    if (input.sourcePaths !== undefined && (!Array.isArray(input.sourcePaths) || input.sourcePaths.length === 0 || input.sourcePaths.length > MAX_SOURCES || input.sourcePaths.some((path) => typeof path !== 'string' || path.trim() === ''))) {
-      throw new AppError(ErrorCode.VALIDATION_FAILED, '请选择 1–200 份资料来源');
+    if (input.sourcePaths !== undefined && (!Array.isArray(input.sourcePaths) || input.sourcePaths.length > MAX_SOURCES || input.sourcePaths.some((path) => typeof path !== 'string' || path.trim() === ''))) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '请选择最多 200 份资料来源');
     }
     const sourcePaths = input.sourcePaths === undefined ? undefined : [...new Set(input.sourcePaths)].sort();
     // Hash only caller input. A generated conversation ID must not change the
@@ -83,7 +88,7 @@ export class KnowledgeService {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'knowledge.ask',
-      body: { projectId: input.projectId, question, conversationId: requestedConversationId, sourcePaths, continueFromRequestKey: input.continueFromRequestKey },
+      body: { projectId: input.projectId, question, conversationId: requestedConversationId, sourcePaths, continueFromRequestKey: input.continueFromRequestKey, modelId: input.modelId, networkSearch: input.networkSearch },
       target: { projectId: input.projectId },
     });
     if (replayed) {
@@ -102,32 +107,41 @@ export class KnowledgeService {
         const status = outstandingKey === undefined ? undefined : this.#commands.get(outstandingKey)?.status;
         if (status === 'accepted' || status === 'unknown') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, `当前对话还有未完成问答，请核对原请求 ${outstandingKey}`);
       }
-      const role = this.#roles().find((item) => item.id === 'role.reviewer');
-      const model = requestedConversationId === undefined ? (role === undefined ? this.#model() : roleModel(role, this.#context.settings().models))
-        : this.#store.settings.getJson<ModelProfile>(`knowledge.model.${requestedConversationId}`) ?? this.#model();
+      const frozenInput = input.continueFromRequestKey === undefined ? undefined : this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${input.continueFromRequestKey}`);
+      if (input.continueFromRequestKey !== undefined && frozenInput === undefined) throw new AppError(ErrorCode.NOT_RETAINED, '原回答未保留来源内容快照，无法安全继续；请新建问答');
+      const role = frozenInput?.role ?? (requestedConversationId === undefined ? this.#roles().find((item) => item.id === 'role.reviewer') : this.#store.settings.getJson<RoleDefinition>(`knowledge.role.${requestedConversationId}`));
+      const savedModel = requestedConversationId === undefined ? undefined : this.#store.settings.getJson<ModelProfile>(`knowledge.model.${requestedConversationId}`);
+      if (savedModel !== undefined && input.modelId !== undefined && input.modelId !== savedModel.id) throw new AppError(ErrorCode.VALIDATION_FAILED, '已有会话不可更换模型，请新建对话');
+      const requestedModel = input.modelId === undefined ? undefined : this.#context.settings().models.find((item) => item.id === input.modelId && item.enabled);
+      if (input.modelId !== undefined && requestedModel === undefined && savedModel === undefined) throw new AppError(ErrorCode.MODEL_NOT_CONFIGURED, '所选模型不可用');
+      const model = frozenInput?.model ?? savedModel ?? requestedModel ?? (role === undefined ? this.#model() : roleModel(role, this.#context.settings().models));
       if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法问答');
-      const retrieveStartedAt = nowIso();
-      const retrieveStartedMs = Date.now();
-      const inventory = listKnowledgeSources(project.rootPath);
-      const available = new Set(inventory.map((source) => source.path));
-      const selectedPaths = previous?.sources?.selectedPaths ?? sourcePaths ?? inventory.map((source) => source.path);
-      if (selectedPaths.some((path) => !available.has(path))) {
-        throw new AppError(ErrorCode.VALIDATION_FAILED, '所选资料已不可读取，请刷新资料来源后重新选择');
-      }
-      const sources = selectedPaths;
-      if (sources.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '项目里没有可读的文档来源');
-      const perDocumentLimit = Math.min(MAX_DOC_CHARS, Math.floor(MAX_CONTEXT_CHARS / sources.length));
-      const truncatedPaths: string[] = [];
-      const documents = sources.map((path) => {
-        try {
-          const { content } = readKnowledgeSource(project.rootPath, path);
-          if (content.length > perDocumentLimit) truncatedPaths.push(path);
-          return { path, content: content.slice(0, perDocumentLimit) };
-        } catch {
-          throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '所选资料读取失败，请刷新来源后重试', { details: { path } });
-        }
-      }).filter((document) => document.content !== '');
-      if (documents.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '文档来源不可读');
+      const retrieveStartedAt = nowIso(); const retrieveStartedMs = Date.now();
+      const selectedPaths = frozenInput?.selectedPaths ?? sourcePaths ?? this.inputs.inventory(input.projectId).map((source) => source.path);
+      const networkSearch = frozenInput?.networkSearch ?? input.networkSearch ?? false;
+      if (selectedPaths.length === 0 && !networkSearch) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '请选择原资料或开启独立网络检索');
+      const conversationId = requestedConversationId ?? createId('conversation');
+      this.#store.settings.putJson(`knowledge.model.${conversationId}`, model);
+      if (role !== undefined) this.#store.settings.putJson(`knowledge.role.${conversationId}`, role);
+      this.#store.settings.putJson(`knowledge.project.${conversationId}`, input.projectId);
+      this.#store.settings.putJson(`knowledge.pending.${conversationId}`, input.requestKey);
+      const conversationVersion = (this.#store.settings.getJson<number>(`knowledge.version.${conversationId}`) ?? 0) + 1;
+      this.#store.settings.putJson(`knowledge.version.${conversationId}`, conversationVersion);
+      const roleEvidence: KnowledgeRoleEvidence = { executionRole: { id: 'knowledge.researcher', label: '知识研究员（只读）' },
+        ...(role === undefined ? {} : { profession: { id: role.id, name: role.name, revision: role.revision }, ...(role.image === undefined ? {} : { appearance: structuredClone(role.image) }) }),
+        conversationVersion, messageVersion: 1, requestKey: input.requestKey };
+      this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId, model: `${model.provider}/${model.model}`, status: 'researching', startedAt: nowIso(), updatedAt: nowIso(), answer: '', sources: { selectedPaths, readPaths: [], truncatedPaths: [], networkSearch }, roleEvidence });
+      const runKeys = this.#store.settings.getJson<string[]>(`knowledge.runs.${input.projectId}`) ?? [];
+      this.#store.settings.putJson(`knowledge.runs.${input.projectId}`, [input.requestKey, ...runKeys].slice(0, 200));
+      this.#active.add(input.requestKey);
+      const collected = frozenInput ?? await this.inputs.collect(input.projectId, selectedPaths, networkSearch, question);
+      const retrievalProgress = this.progress(input.requestKey, input.projectId);
+      if (retrievalProgress.status === 'stopped') return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
+      const { documents, truncatedPaths } = collected;
+      const snapshot: KnowledgeInputSnapshot = { documents, selectedPaths, truncatedPaths, model, ...(role === undefined ? {} : { role: structuredClone(role) }), networkSearch, frozenAt: frozenInput?.frozenAt ?? nowIso() };
+      this.inputs.assertCurrent(input.projectId, snapshot);
+      if (documents.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '所选资料或公共检索没有可读取的内容');
+      this.#store.settings.putJson(`knowledge.input.${input.requestKey}`, snapshot);
       const retrieveEndedAt = nowIso();
       const steps: KnowledgeStep[] = [
         {
@@ -141,28 +155,16 @@ export class KnowledgeService {
           detail: documents.map((document) => document.path).join('、').slice(0, 500),
         },
       ];
-      const conversationId = requestedConversationId ?? createId('conversation');
-      this.#store.settings.putJson(`knowledge.model.${conversationId}`, model);
-      this.#store.settings.putJson(`knowledge.project.${conversationId}`, input.projectId);
-      this.#store.settings.putJson(`knowledge.pending.${conversationId}`, input.requestKey);
-      const conversationVersion = (this.#store.settings.getJson<number>(`knowledge.version.${conversationId}`) ?? 0) + 1;
-      this.#store.settings.putJson(`knowledge.version.${conversationId}`, conversationVersion);
-      const roleEvidence: KnowledgeRoleEvidence = { executionRole: { id: 'knowledge.researcher', label: '知识研究员（只读）' },
-        ...(role === undefined ? {} : { profession: { id: role.id, name: role.name, revision: role.revision }, ...(role.image === undefined ? {} : { appearance: structuredClone(role.image) }) }),
-        conversationVersion, messageVersion: 1, requestKey: input.requestKey };
-      const sourceSnapshot = { selectedPaths, readPaths: documents.map((document) => document.path), truncatedPaths };
+      const sourceSnapshot = { frozenAt: snapshot.frozenAt, contentHashes: Object.fromEntries(documents.map((document) => [document.path, document.sha256])), networkSearch, selectedPaths, readPaths: documents.map((document) => document.path), truncatedPaths };
       this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId,
         model: `${model.provider}/${model.model}`, status: 'researching', startedAt: nowIso(), updatedAt: nowIso(), answer: '', sources: sourceSnapshot, roleEvidence });
-      const runKeys = this.#store.settings.getJson<string[]>(`knowledge.runs.${input.projectId}`) ?? [];
-      this.#store.settings.putJson(`knowledge.runs.${input.projectId}`, [input.requestKey, ...runKeys].slice(0, 200));
-      this.#active.add(input.requestKey);
       let streamText = '';
       const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? [])
-        .filter((entry) => entry.conversationId === conversationId)
+        .filter((entry) => { if (entry.conversationId !== conversationId) return false; const old = entry.requestKey === undefined ? undefined : this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${entry.requestKey}`); try { if (old !== undefined) this.inputs.assertCurrent(input.projectId, old); return old !== undefined; } catch { return false; } })
         .slice(0, 3);
       const result = await this.#opencode.runSession({
         kind: 'review',
-        metadata: { projectId: input.projectId, purpose: 'knowledge.ask' },
+        metadata: { requestKey: input.requestKey, projectId: input.projectId, purpose: 'knowledge.ask' },
         cwd: project.rootPath,
         prompt: buildPrompt(question, documents, recent) + (previous === undefined ? '' : `\n继续完成上次停止的回答，返回包含已有内容的完整答案。已保留内容：\n${previous.answer}`),
         system: `${role?.instructions ?? role?.purpose ?? ''}\n${SYSTEM_PROMPT}`,
@@ -184,6 +186,7 @@ export class KnowledgeService {
             streamText += delta;
             const progress = this.progress(input.requestKey, input.projectId);
             if (!['researching', 'answering'].includes(progress.status)) return;
+            try { this.inputs.assertCurrent(input.projectId, snapshot); } catch { this.#saveProgress({ ...progress, answer: '', status: 'failed', error: '资料许可已撤销，迟到内容已清空' }); return; }
             const answer = partialKnowledgeAnswer(streamText);
             this.#saveProgress({ ...progress, answer, status: answer === '' ? 'researching' : 'answering' });
           },
@@ -194,6 +197,7 @@ export class KnowledgeService {
         },
         timeoutMs: 120_000,
       });
+      this.inputs.assertCurrent(input.projectId, snapshot);
       const progress = this.progress(input.requestKey, input.projectId);
       if (progress.status === 'stopped' || (progress.stopRequestKey !== undefined && result.outcome.idle)) {
         this.#finishStopped(progress);
@@ -241,7 +245,7 @@ export class KnowledgeService {
         model: `${model.provider}/${model.model}`,
         generatedAt: nowIso(),
         conversationId,
-        sources: { selectedPaths, readPaths: documents.map((document) => document.path), truncatedPaths },
+        sources: sourceSnapshot,
         usage: usageFromMessages(result.outcome.messages),
         steps: orderedSteps,
         ...(toolActivity.length === 0 ? {} : { toolActivity }),
@@ -251,8 +255,9 @@ export class KnowledgeService {
     } catch (error) {
       const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(input.requestKey));
       if (progress?.status === 'stopped') return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
+      const revoked = error instanceof AppError && error.code === ErrorCode.REVOKED;
       const unknown = progress?.stopRequestKey !== undefined || (error instanceof AppError && error.code === ErrorCode.MODEL_BUDGET_EXCEEDED);
-      if (progress !== undefined) this.#saveProgress({ ...progress, status: unknown ? 'unknown' : 'failed', error: error instanceof Error ? error.message : '知识问答失败' });
+      if (progress !== undefined) this.#saveProgress({ ...progress, ...(revoked ? { answer: '' } : {}), status: unknown ? 'unknown' : 'failed', error: error instanceof Error ? error.message : '知识问答失败' });
       this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('知识问答失败'), unknown);
       throw error;
     } finally { this.#active.delete(input.requestKey); }
@@ -265,6 +270,8 @@ export class KnowledgeService {
       progress = { ...progress, status: 'unknown', error: '执行连接已中断，请核对原操作。' };
       this.#saveProgress(progress);
     }
+    const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${requestKey}`);
+    if (input !== undefined) { try { this.inputs.assertCurrent(projectId, input); } catch { return { ...progress, answer: '', error: '资料许可已撤销，内容已清空' }; } }
     return progress;
   }
 
@@ -279,7 +286,8 @@ export class KnowledgeService {
     } else {
       const stopping = { ...progress, status: 'stopping' as const, stopRequestKey: input.requestKey };
       this.#saveProgress(stopping);
-      if (progress.sessionId !== undefined) {
+      if (progress.sessionId === undefined) this.#finishStopped(stopping);
+      else {
         try {
           await Promise.race([this.#opencode.abortSession(progress.sessionId), new Promise<never>((_, reject) => {
             const timer = setTimeout(() => reject(new Error('停止确认超时')), 5000); timer.unref();
@@ -302,11 +310,40 @@ export class KnowledgeService {
     const askKey = operation.operation === 'knowledge.ask' ? key : this.#store.settings.getJson<string>(`knowledge.stop-target.${key}`);
     if (askKey === undefined) return;
     const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(askKey));
-    if (progress?.sessionId === undefined || progress.stopRequestKey === undefined) return;
+    if (progress?.sessionId === undefined) return;
     try {
       const status = await this.#opencode.inspectSession?.(progress.sessionId);
-      if (status === 'idle') this.#finishStopped(progress);
-    } catch { /* Missing state cannot prove a stopped session. */ }
+      if (status !== 'idle') return;
+      if (progress.stopRequestKey !== undefined) { this.#finishStopped(progress); return; }
+      const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${askKey}`);
+      if (input === undefined || this.#opencode.sessionMessages === undefined) return;
+      this.inputs.assertCurrent(progress.projectId, input);
+      const messages = await this.#opencode.sessionMessages(progress.sessionId);
+      const assistant = [...messages].reverse().find((message) => message.info.role === 'assistant');
+      if (assistant?.info.time?.completed === undefined || assistant.info.error !== undefined) return;
+      const text = assistant.parts.filter((part) => part.type === 'text').map((part) => part.text ?? '').join('');
+      const parsed = extractJson(text);
+      if (parsed === undefined || typeof parsed.answer !== 'string') return;
+      this.inputs.assertCurrent(progress.projectId, input);
+      this.#complete(askKey, { requestKey: askKey, projectId: progress.projectId, question: progress.question,
+        answer: parsed.answer.trim().slice(0, 8000), citations: validateCitations(parsed.citations, input.documents),
+        status: 'completed', model: progress.model, conversationId: progress.conversationId, generatedAt: nowIso(), sources: progress.sources,
+        roleEvidence: progress.roleEvidence, usage: usageFromMessages(messages), steps: [...(modelStepFrom(messages) === undefined ? [] : [modelStepFrom(messages)!]), ...toolStepsFrom(messages)], toolActivity: toolActivityFrom(messages) });
+    } catch { /* Missing remote proof or revoked sources cannot settle the original operation. */ }
+  }
+
+  async readSource(projectId: string, path: string, requestKey?: string) {
+    if (requestKey !== undefined) {
+      const operation = this.#commands.get(requestKey);
+      if (operation?.target.projectId !== projectId || operation.operation !== 'knowledge.ask') throw new AppError(ErrorCode.NOT_FOUND, '问答来源不存在');
+      const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${requestKey}`);
+      if (input === undefined) throw new AppError(ErrorCode.NOT_RETAINED, '问答来源内容快照未保留');
+      this.inputs.assertCurrent(projectId, input);
+      const document = input.documents.find((item) => item.path === path);
+      if (document === undefined) throw new AppError(ErrorCode.FORBIDDEN, '来源不在该轮冻结输入内');
+      return { path, content: document.content, bytes: Buffer.byteLength(document.content), sha256: document.sha256 };
+    }
+    return this.inputs.read(projectId, path);
   }
 
   #saveProgress(progress: KnowledgeRunProgress): void {
@@ -318,7 +355,7 @@ export class KnowledgeService {
     if (['completed', 'failed'].includes(progress.status)) return;
     this.#complete(progress.requestKey, { requestKey: progress.requestKey, status: 'stopped', projectId: progress.projectId,
       question: progress.question, answer: progress.answer, citations: [], model: progress.model,
-      generatedAt: nowIso(), conversationId: progress.conversationId, sources: progress.sources, roleEvidence: progress.roleEvidence });
+      generatedAt: nowIso(), conversationId: progress.conversationId, sources: progress.sources, roleEvidence: progress.roleEvidence, continueAvailability: this.#store.settings.getJson(`knowledge.input.${progress.requestKey}`) === undefined ? { allowed: false, reasonCode: ErrorCode.NOT_RETAINED, reason: '来源读取尚未完成，没有可继续的冻结输入；请新建问答' } : { allowed: true } });
     if (progress.stopRequestKey !== undefined && this.#commands.get(progress.stopRequestKey)?.status !== 'succeeded') {
       this.#commands.settle(progress.stopRequestKey, { askKey: progress.requestKey, confirmedStopped: true });
     }
@@ -344,6 +381,8 @@ export class KnowledgeService {
     if (operation.status !== 'succeeded' || result === undefined) {
       throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '问答结果尚未就绪，请核对原操作');
     }
+    const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${requestKey}`);
+    if (input !== undefined) this.inputs.assertCurrent(projectId, input);
     return result;
   }
 
@@ -358,7 +397,7 @@ export class KnowledgeService {
         answer: progress.answer, model: progress.model, generatedAt: progress.startedAt, sources: progress.sources,
         runStatus: progress.status, citations: [] }];
     });
-    return { entries: [...pending, ...completed].sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)) };
+    return { entries: [...pending, ...completed].map((entry) => { const input = entry.requestKey === undefined ? undefined : this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${entry.requestKey}`); try { if (input !== undefined) this.inputs.assertCurrent(projectId, input); return entry; } catch { return { ...entry, answer: '', citations: [] }; } }).sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)) };
   }
 
   #model(): ModelProfile {

@@ -130,7 +130,7 @@ export class Engine {
     this.workspaces = new WorkspaceService(this.store, this.commands, this.context, this.ports.git);
     this.executions = new ExecutionService(this.store, this.commands, this.context, this.ports.opencode);
     this.deliveries = new DeliveryService(this.store, this.commands, this.context, this.ports.git, this.workspaces, this.ports.remote);
-    this.knowledge = new KnowledgeService({ store: this.store, commands: this.commands, context: this.context, opencode: this.ports.opencode, roles: () => this.catalog.roles });
+    this.knowledge = new KnowledgeService({ store: this.store, commands: this.commands, context: this.context, opencode: this.ports.opencode, ...(this.ports.database === undefined ? {} : { database: this.ports.database }), ...(this.ports.publicSearch === undefined ? {} : { publicSearch: this.ports.publicSearch }), roles: () => this.catalog.roles });
     this.ppt = new PptService(this.store, this.commands, this.context, this.ports.opencode);
     this.acceptances = new AcceptanceService(this.store, this.commands);
   }

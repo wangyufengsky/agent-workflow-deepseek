@@ -38,7 +38,8 @@ test('knowledge sources lists project docs read-only and skips ignored directori
     assert.ok(paths.includes('README.md'));
     assert.ok(paths.includes('docs/design.md'));
     assert.ok(!paths.some((path) => path.startsWith('node_modules/')));
-    assert.ok(!paths.includes('app.ts'));
+    assert.ok(paths.includes('app.ts'));
+    assert.equal(response.json().data.sources.find((source: { path: string }) => source.path === 'app.ts').kind, 'code');
     assert.ok(sources.every((source) => source.bytes > 0));
     const search = await app.app.inject({ method: 'GET', url: `/api/knowledge/search?projectId=${projectId}&q=design` });
     assert.equal(search.statusCode, 200, search.body);

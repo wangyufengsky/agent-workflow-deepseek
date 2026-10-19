@@ -2,7 +2,8 @@ import { readFileSync, readdirSync, realpathSync, statSync, type Dirent } from '
 import { join, relative, resolve, sep } from 'node:path';
 import type { KnowledgeSearchMatch, KnowledgeSource } from '@agent-workflow/shared';
 
-const EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.rst', '.json', '.yaml', '.yml']);
+const DOCUMENT_EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.rst', '.json', '.yaml', '.yml']);
+const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.py', '.go', '.rs', '.sql', '.css', '.scss', '.html', '.vue', '.svelte', '.sh', '.kt', '.swift', '.c', '.h', '.cpp', '.cs', '.rb', '.php']);
 const SKIP = new Set(['node_modules', '.git', '.build', '.data', 'dist', 'release', '.tmp', 'coverage', 'test-results']);
 const MAX_ENTRIES = 200;
 const MAX_BYTES = 1024 * 1024;
@@ -30,10 +31,12 @@ export function listKnowledgeSources(rootPath: string): readonly KnowledgeSource
       }
       if (!entry.isFile()) continue;
       const dot = entry.name.lastIndexOf('.');
-      if (dot < 0 || !EXTENSIONS.has(entry.name.slice(dot).toLowerCase())) continue;
+      const extension = entry.name.slice(dot).toLowerCase();
+      if (dot < 0 || (!DOCUMENT_EXTENSIONS.has(extension) && !CODE_EXTENSIONS.has(extension))) continue;
       const info = statSync(full);
       if (info.size > MAX_BYTES) continue;
       sources.push({
+        kind: CODE_EXTENSIONS.has(extension) ? 'code' : 'document',
         path: relative(rootPath, full),
         bytes: info.size,
         modifiedAt: info.mtime.toISOString(),
@@ -54,7 +57,7 @@ export function searchKnowledgeSources(rootPath: string, query: string, limit = 
     if (matches.length >= limit) break;
     let text: string;
     try {
-      text = readFileSync(join(rootPath, source.path), 'utf8');
+      text = readKnowledgeSource(rootPath, source.path).content;
     } catch {
       continue;
     }

@@ -41,6 +41,8 @@ class FakeOpenCode implements OpenCodePort {
   }
   async inspectSession() { return this.sessionState; }
 
+  async sessionMessages() { return this.messages; }
+
   async findSessions(): Promise<readonly never[]> {
     return [];
   }
@@ -57,6 +59,8 @@ function setup(): { store: Store; engine: Engine; opencode: FakeOpenCode; projec
   const project = store.projects.create({ name: 'Knowledge', rootPath, gitState: 'not_git' });
   return { store, engine, opencode, projectId: project.id, rootPath, close: () => { store.close(); rmSync(dataDir, { recursive: true, force: true }); rmSync(rootPath, { recursive: true, force: true }); } };
 }
+
+async function waitForDispatch(opencode: FakeOpenCode) { for (let i = 0; i < 50 && opencode.requests.length === 0; i++) await new Promise<void>((resolve) => setImmediate(resolve)); assert.ok(opencode.requests.length > 0, 'source retrieval must finish before testing model dispatch'); }
 
 function requestKey(prefix: string): string {
   return `req_${prefix}${Math.random().toString(36).slice(2, 21)}`;
@@ -193,6 +197,7 @@ test('knowledge accepted replay does not redispatch; first question identity and
     const first = fixture.engine.knowledge.ask(input);
     const second = await fixture.engine.knowledge.ask(input);
     assert.equal(second.receipt.status, 'accepted');
+    await waitForDispatch(fixture.opencode);
     assert.equal(fixture.opencode.requests.length, 1);
     await assert.rejects(() => fixture.engine.knowledge.ask({ ...input, question: '不同的问题？' }), { code: 'REQUEST_KEY_REUSED' });
     release();
@@ -221,7 +226,7 @@ test('knowledge freezes selected input, rejects outside inventory and includes s
     assert.equal(all.resource?.sources?.readPaths.length, 17);
     assert.ok(fixture.opencode.requests[1]!.prompt.includes('source marker 14'));
     const count = fixture.opencode.requests.length;
-    await assert.rejects(() => fixture.engine.knowledge.ask({ requestKey: requestKey('escape'), projectId: fixture.projectId, question: '读外部文件？', sourcePaths: ['../outside.md'] }), { code: 'VALIDATION_FAILED' });
+    await assert.rejects(() => fixture.engine.knowledge.ask({ requestKey: requestKey('escape'), projectId: fixture.projectId, question: '读外部文件？', sourcePaths: ['../outside.md'] }), { code: 'PATH_ESCAPE' });
     assert.equal(fixture.opencode.requests.length, count);
     writeFileSync(join(fixture.rootPath, 'long.md'), 'a'.repeat(7000));
     const clipped = await fixture.engine.knowledge.ask({ requestKey: requestKey('clipped'), projectId: fixture.projectId, question: '长文件是什么？', sourcePaths: ['long.md'] });
@@ -238,6 +243,7 @@ test('knowledge streams decoded answer, stop remains pending until idle, and exp
   const stopKey = requestKey('stop');
   try {
     const first = fixture.engine.knowledge.ask({ requestKey: askKey, projectId: fixture.projectId, question: '这个项目是什么？' });
+    await waitForDispatch(fixture.opencode);
     const sink = fixture.opencode.requests[0]!.sink;
     sink.onTextDelta?.('{"answer":"已经写出的内容', { messageId: 'm1', partId: 'p1' });
     assert.equal(fixture.engine.knowledge.progress(askKey, fixture.projectId).answer, '已经写出的内容');
@@ -257,9 +263,14 @@ test('knowledge streams decoded answer, stop remains pending until idle, and exp
     assert.equal(fixture.engine.knowledge.result(askKey, fixture.projectId).answer, '已经写出的内容');
     release(); await first;
     fixture.opencode.gate = undefined;
+    writeFileSync(join(fixture.rootPath, 'README.md'), 'MUTATED_AFTER_STOP');
     const resumed = await fixture.engine.knowledge.ask({ requestKey: requestKey('continue'), projectId: fixture.projectId, question: partial.question, conversationId: partial.conversationId, continueFromRequestKey: askKey });
     assert.equal(resumed.resource?.status, 'completed');
     assert.match(fixture.opencode.requests[1]!.prompt, /已经写出的内容/);
+    assert.match(fixture.opencode.requests[1]!.prompt, /# Demo/);
+    assert.ok(!fixture.opencode.requests[1]!.prompt.includes('MUTATED_AFTER_STOP'));
+    const frozen = await fixture.engine.knowledge.readSource(fixture.projectId, 'README.md', askKey);
+    assert.match(frozen.content, /# Demo/);
   } finally { release(); fixture.close(); }
 });
 
@@ -273,6 +284,7 @@ test('knowledge abort failure stays UNKNOWN and original-key reconciliation neve
   const stopKey = requestKey('unknown-stop');
   try {
     const first = fixture.engine.knowledge.ask({ requestKey: askKey, projectId: fixture.projectId, question: '这个项目是什么？' });
+    await waitForDispatch(fixture.opencode);
     const result = await fixture.engine.knowledge.stop(askKey, { requestKey: stopKey, projectId: fixture.projectId });
     assert.equal(result.receipt.status, 'unknown');
     await fixture.engine.knowledge.reconcileOperation(stopKey);
@@ -304,5 +316,36 @@ test('knowledge records dispatch-time role evidence and never retrofits a newer 
     mutable.image = { id: 'later-image', kind: 'emoji', value: 'X' }; mutable.revision = 'later-revision';
     try { assert.deepEqual(fixture.engine.knowledge.result(input.requestKey, fixture.projectId).roleEvidence, evidence); }
     finally { (role as { image?: typeof originalImage }).image = originalImage; mutable.revision = revision; }
+  } finally { fixture.close(); }
+});
+
+
+test('knowledge completed response is restored by original key from real session message contract after service recreation', async () => {
+  const fixture = setup(); let release!: () => void;
+  fixture.opencode.gate = new Promise<void>((resolve) => { release = resolve; }); fixture.opencode.assistantText = ANSWER;
+  const key = requestKey('restore-completed');
+  try {
+    const first = fixture.engine.knowledge.ask({ requestKey: key, projectId: fixture.projectId, question: '重启后恢复结果？', sourcePaths: ['README.md'] });
+    await waitForDispatch(fixture.opencode);
+    fixture.opencode.sessionState = 'idle';
+    fixture.opencode.messages = [{ ...assistantMessage({ withTime: true, withTool: false }), parts: [{ type: 'text', text: ANSWER }] }];
+    const recreated = new Engine({ store: fixture.store, ports: { git: {} as EnginePorts['git'], opencode: fixture.opencode }, integration: { opencodeReady: () => true, gitlabConfigured: () => false } });
+    assert.equal(recreated.knowledge.progress(key, fixture.projectId).status, 'unknown');
+    await recreated.knowledge.reconcileOperation(key);
+    const result = recreated.knowledge.result(key, fixture.projectId);
+    assert.equal(result.status, 'completed'); assert.equal(result.answer, '这是一个演示项目。');
+    assert.equal(fixture.opencode.requests.length, 1); assert.equal(recreated.knowledge.history(fixture.projectId).entries.length, 1);
+    release(); await first;
+    assert.equal(recreated.knowledge.history(fixture.projectId).entries.length, 1);
+  } finally { release(); fixture.close(); }
+});
+
+test('knowledge explicit model controls dispatch and an existing conversation rejects replacement', async () => {
+  const fixture = setup(); fixture.opencode.assistantText = ANSWER;
+  try {
+    const model = fixture.engine.settings.models.find((model) => model.enabled)!;
+    const first = await fixture.engine.knowledge.ask({ requestKey: requestKey('model'), projectId: fixture.projectId, question: '指定模型读取什么？', modelId: model.id });
+    assert.equal(fixture.opencode.requests[0]!.model.id, model.id);
+    await assert.rejects(() => fixture.engine.knowledge.ask({ requestKey: requestKey('replace'), projectId: fixture.projectId, question: '换模型？', conversationId: first.resource!.conversationId, modelId: 'other-model' }), { code: 'VALIDATION_FAILED' });
   } finally { fixture.close(); }
 });

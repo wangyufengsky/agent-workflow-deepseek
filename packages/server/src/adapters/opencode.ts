@@ -229,6 +229,11 @@ export class OpenCodeAdapter implements OpenCodePort {
     return 'unknown';
   }
 
+  async sessionMessages(sessionId: string) {
+    if (this.#manager.status.state !== 'ready') throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法读取原会话');
+    return this.#manager.client.messages(sessionId);
+  }
+
   async findSessions(metadata: Record<string, string>): Promise<readonly OpenCodeSession[]> {
     if (this.#manager.status.state !== 'ready') return [];
     const sessions = await this.#manager.client.listSessions();

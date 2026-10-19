@@ -146,6 +146,7 @@ export interface OpenCodePort {
   abortSession(sessionId: string): Promise<void>;
   /** Explicit runtime state only; unsupported/missing state remains unknown. */
   inspectSession?(sessionId: string): Promise<'idle' | 'running' | 'unknown'>;
+  sessionMessages?(sessionId: string): Promise<readonly import('@agent-workflow/opencode').OpenCodeMessage[]>;
   findSessions(metadata: Record<string, string>): Promise<readonly OpenCodeSession[]>;
 }
 
@@ -160,7 +161,12 @@ export interface ClockPort {
 
 export const systemClock: ClockPort = { now: () => new Date() };
 
+export interface PublicSearchPort {
+  search(query: string): Promise<readonly { readonly url: string; readonly title: string; readonly excerpt: string }[]>;
+}
+
 export interface EnginePorts {
+  readonly publicSearch?: PublicSearchPort;
   readonly git: GitPort;
   readonly remote?: RemotePort;
   readonly opencode: OpenCodePort;

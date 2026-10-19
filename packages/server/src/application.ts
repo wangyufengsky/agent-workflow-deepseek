@@ -1,3 +1,4 @@
+import { BingPublicSearch } from './public-search.ts';
 import { registerToolPolicyRoutes, sessionPolicy } from './tool-policy.ts';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
@@ -70,6 +71,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
       if (adapter === undefined) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 服务未启用，无法确认停止');
       await adapter.abortSession(sessionId);
     },
+    sessionMessages: async (sessionId: string) => { if (adapter === undefined) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '运行时尚未就绪'); return adapter.sessionMessages(sessionId); },
     inspectSession: async (sessionId: string) => adapter?.inspectSession(sessionId) ?? 'unknown',
     findSessions: async (metadata: Record<string, string>): Promise<readonly OpenCodeSession[]> => {
       if (adapter === undefined) return [];
@@ -83,7 +85,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   const database: DatabasePort = createDatabasePort(databaseService);
   const engine = new Engine({
     store,
-    ports: { git, opencode: opencodeProxy, database, remote: remoteService },
+    ports: { git, opencode: opencodeProxy, database, publicSearch: new BingPublicSearch(), remote: remoteService },
     integration: {
       opencodeReady: () => opencodeProxy.status().state === 'ready',
       gitlabConfigured: () => false,

@@ -259,6 +259,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'PATCH /api/settings',
   'POST /api/settings/databases',
   'POST /api/knowledge/ask',
+  'PATCH /api/knowledge/projects/:id/permissions',
   'POST /api/knowledge/runs/:key/stop',
   'POST /api/interactions/:id/resolve',
   'POST /api/opencode/start',
@@ -922,26 +923,28 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const projectId = request.query.projectId ?? '';
     if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
     const project = engine.projects.get(projectId);
-    return envelope({ projectId, sources: listKnowledgeSources(project.rootPath), askAvailability: engine.knowledge.askAvailability() }, requestId(request));
+    return envelope({ projectId, sources: engine.knowledge.inputs.inventory(projectId), permissions: engine.knowledge.inputs.permissions(projectId), askAvailability: engine.knowledge.askAvailability() }, requestId(request));
   });
   app.get<{ Querystring: { projectId?: string; q?: string; limit?: string } }>('/api/knowledge/search', async (request) => {
     const projectId = request.query.projectId ?? '';
     if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
+    engine.knowledge.inputs.requireOriginal(projectId);
     const query = (request.query.q ?? '').trim();
     if (query.length < 2) throw new AppError(ErrorCode.VALIDATION_FAILED, '搜索词至少 2 个字符');
     const limit = Math.min(Math.max(Number(request.query.limit ?? 30), 1), 100);
     const project = engine.projects.get(projectId);
     return envelope({ projectId, query, matches: searchKnowledgeSources(project.rootPath, query, limit) }, requestId(request));
   });
-  app.get<{ Querystring: { projectId?: string; path?: string } }>('/api/knowledge/source', async (request) => {
+  app.get<{ Querystring: { projectId?: string; path?: string; requestKey?: string } }>('/api/knowledge/source', async (request) => {
     const projectId = request.query.projectId ?? '';
     const path = request.query.path ?? '';
     if (projectId === '' || path === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId 或 path');
     const project = engine.projects.get(projectId);
     try {
-      const source = readKnowledgeSource(project.rootPath, path);
+      const source = await engine.knowledge.readSource(projectId, path, request.query.requestKey);
       return envelope({ projectId, ...source }, requestId(request));
     } catch (error) {
+      if (error instanceof AppError) throw error;
       const message = error instanceof Error ? error.message : '读取失败';
       if (message === 'PATH_ESCAPE') throw new AppError(ErrorCode.PATH_ESCAPE, '来源路径越出项目目录');
       if (message === 'SOURCE_NOT_READABLE') throw new AppError(ErrorCode.VALIDATION_FAILED, '来源不是可读文本，或超过 512KB');
@@ -986,6 +989,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(await engine.ppt.generate(request.params.id, body), requestId(request));
   });
   app.delete<{ Params: { id: string } }>('/api/ppt/works/:id', async (request) => envelope(engine.ppt.delete(request.params.id, (request.body as { requestKey: string } | undefined)?.requestKey ?? ''), requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/knowledge/projects/:id/permissions', async (request) => envelope(engine.knowledge.inputs.permissions(request.params.id), requestId(request)));
+  app.patch<{ Params: { id: string } }>('/api/knowledge/projects/:id/permissions', async (request) => envelope(engine.knowledge.inputs.updatePermissions(request.params.id, request.body as import('@agent-workflow/shared').KnowledgePermissionUpdate), requestId(request)));
   app.post('/api/knowledge/ask', async (request) => {
     const body = request.body as KnowledgeAskRequest;
     return envelope(await engine.knowledge.ask(body), requestId(request));

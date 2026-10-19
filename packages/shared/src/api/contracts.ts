@@ -396,6 +396,8 @@ export interface NodeSkipRequest extends CommandRequest {
 }
 
 export interface KnowledgeSource {
+  readonly kind?: 'code' | 'document' | 'database';
+  readonly label?: string;
   readonly path: string;
   readonly bytes: number;
   readonly modifiedAt: IsoDateTime;
@@ -408,6 +410,8 @@ export interface KnowledgeAskRequest extends CommandRequest {
   /** Inventory-relative paths selected for this round; omitted means all current sources. */
   readonly sourcePaths?: readonly string[];
   readonly continueFromRequestKey?: string;
+  readonly modelId?: string;
+  readonly networkSearch?: boolean;
 }
 
 export interface KnowledgeStopRequest extends CommandRequest { readonly projectId: string }
@@ -448,6 +452,7 @@ export interface KnowledgeAskResponse {
   readonly question: string;
   readonly answer: string;
   readonly status?: 'completed' | 'stopped';
+  readonly continueAvailability?: ActionAvailability;
   readonly requestKey?: string;
   readonly roleEvidence?: KnowledgeRoleEvidence;
   readonly citations: readonly KnowledgeCitation[];
@@ -456,6 +461,9 @@ export interface KnowledgeAskResponse {
   readonly conversationId: string;
   /** Actual frozen input selection and bounded excerpts used for this answer. */
   readonly sources?: {
+    readonly frozenAt?: IsoDateTime;
+    readonly contentHashes?: Readonly<Record<string, string>>;
+    readonly networkSearch?: boolean;
     readonly selectedPaths: readonly string[];
     readonly readPaths: readonly string[];
     readonly truncatedPaths: readonly string[];
@@ -529,6 +537,7 @@ export interface KnowledgeSearchResponse {
 
 export interface KnowledgeSourcesResponse {
   readonly askAvailability?: ActionAvailability;
+  readonly permissions?: KnowledgePermissions;
   readonly projectId: string;
   readonly sources: readonly KnowledgeSource[];
 }
@@ -2025,6 +2034,7 @@ export const ROUTES = {
   skills: '/api/skills',
   skillSource: (id: string) => `/api/skills/${encodeURIComponent(id)}/source`,
   knowledgeSources: '/api/knowledge/sources',
+  knowledgePermissions: (projectId: string) => `/api/knowledge/projects/${encodeURIComponent(projectId)}/permissions`,
   knowledgeSearch: '/api/knowledge/search',
   knowledgeSourceContent: '/api/knowledge/source',
   knowledgeAsk: '/api/knowledge/ask',
@@ -2057,3 +2067,11 @@ export interface RoleInsightsResponse {
 export interface RoleImageCatalogResponse { readonly images: readonly RoleImageBinding[] }
 export interface RuntimeOperationHistoryResponse { readonly operations: readonly OperationRecord[] }
 export type OpenCodeStartResponse = OpenCodeRestartResponse;
+export interface KnowledgePermissions {
+  readonly projectId: string; readonly revision: number;
+  readonly originalRead: boolean; readonly publicSearch: boolean;
+  readonly publicSearchAvailability: ActionAvailability;
+}
+export interface KnowledgePermissionUpdate extends CommandRequest {
+  readonly originalRead?: boolean; readonly publicSearch?: boolean;
+}
