@@ -100,3 +100,9 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 任务执行画布、节点执行现场、Git 工作台、四主题与 1024 宽度。说明见 `docs/verification.md`。
 
 协议与设计细节见 `docs/architecture.md`、`docs/design-system.md`、`docs/api.md`、`docs/design-coverage.md`、`docs/remaining-work.md`、`docs/verification.md`、`AGENTS.md`。
+
+## 实现状态
+
+截至第 15 轮：核心链路（Electron/主题/画布/后端/存储/MySQL/Git/MCP/受管 OpenCode/规划/执行/审查/修复/交付/恢复）
+均已真实运行；离线测试 296 条全绿，live 场景（规划、执行、网关、审查、修复、MySQL、GitHub 只读）均有证据。
+真实远端写、模板编辑、知识库/PPT、用量质量、签名打包与视觉回归仍待完成，见 `docs/remaining-work.md`。
