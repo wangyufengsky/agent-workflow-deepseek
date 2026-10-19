@@ -289,9 +289,7 @@ export class PlanningRepository {
       ...(patch.stop === undefined ? {} : { stop: patch.stop }),
       ...(patch.failure === undefined ? {} : { failure: patch.failure }),
       ...(patch.reconcile === undefined ? {} : { reconcile: patch.reconcile }),
-      ...(patch.gaps === undefined ? {} : { recordSeq: { ...current.recordSeq, gaps: patch.gaps } }),
-      ...(patch.recordFirstSeq === undefined ? {} : { recordSeq: { ...current.recordSeq, first: patch.recordFirstSeq } }),
-      ...(patch.recordLastSeq === undefined ? {} : { recordSeq: { ...current.recordSeq, last: patch.recordLastSeq } }),
+      recordSeq: { first: patch.recordFirstSeq ?? current.recordSeq.first, last: patch.recordLastSeq ?? current.recordSeq.last, gaps: patch.gaps ?? current.recordSeq.gaps },
       ...(patch.sessionId === undefined ? {} : { sessionId: patch.sessionId }),
     };
     this.#db
@@ -326,7 +324,7 @@ export class PlanningRepository {
   }
 
   appendRecord(roundId: string, record: PlanningRecordInput): number {
-    const row = this.#db.prepare('SELECT COALESCE(MAX(seq), 0) AS max FROM planning_records WHERE round_id = ?').get(roundId) as { max: number };
+    const row = this.#db.prepare('SELECT MAX(COALESCE((SELECT MAX(seq) FROM planning_records WHERE round_id = ?), 0), COALESCE((SELECT record_last_seq FROM planning_rounds WHERE id = ?), 0)) AS max').get(roundId, roundId) as { max: number };
     const seq = Number(row.max) + 1;
     this.#db
       .prepare(

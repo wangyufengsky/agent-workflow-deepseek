@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PlanningRecordResponse, PlanningRound } from '@agent-workflow/shared';
+import { PLANNING_STATUS_LABEL, type PlanningRecordResponse, type PlanningRound } from '@agent-workflow/shared';
+import { planningRecordRows } from './planning-record-model.ts';
+import { Button } from '../../components/Button.tsx';
 import { Badge } from '../../components/Badge.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { EmptyState, SkeletonText } from '../../components/EmptyState.tsx';
@@ -20,19 +22,29 @@ export interface PlanningRecordPanelProps {
   readonly error: unknown;
   readonly onRetry: () => void;
   readonly historical: boolean;
+  readonly hasMore?: boolean;
+  readonly loadingMore?: boolean;
+  readonly onLoadMore?: () => void;
 }
 
 /**
  * Planning record reading view. Fragments are shown by service seq; gaps are
  * rendered as explicit gap lines and are never filled with fabricated text.
  */
-export function PlanningRecordPanel({ record, round, loading, error, onRetry, historical }: PlanningRecordPanelProps) {
+export function PlanningRecordPanel({ record, round, loading, error, onRetry, historical, hasMore, loadingMore, onLoadMore }: PlanningRecordPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastSeqRef = useRef(0);
   const [following, setFollowing] = useState(true);
   const [hasNew, setHasNew] = useState(false);
   const fragments = record?.fragments ?? [];
   const lastSeq = fragments.at(-1)?.seq ?? 0;
+  const rows = planningRecordRows(fragments);
+
+  useEffect(() => {
+    lastSeqRef.current = 0;
+    setFollowing(true);
+    setHasNew(false);
+  }, [round?.id]);
   const hasModelText = fragments.some((fragment) => fragment.category === 'model_text');
   const hasTool = fragments.some((fragment) => fragment.category === 'tool_activity');
 
@@ -60,7 +72,7 @@ export function PlanningRecordPanel({ record, round, loading, error, onRetry, hi
     }
   };
 
-  if (error !== null && error !== undefined) {
+  if (error !== null && error !== undefined && record === undefined) {
     return (
       <div style={{ padding: 16 }}>
         <ServiceNotice
@@ -96,6 +108,7 @@ export function PlanningRecordPanel({ record, round, loading, error, onRetry, hi
   return (
     <div className="record-panel">
       <div className="rec-top">
+        {error === null || error === undefined ? null : <ServiceNotice error={error} title="记录更新失败，已读内容保留" onRetry={onRetry} compact />}
         {historical ? (
           <div className="banner info" style={{ padding: '8px 10px' }}>
             <Icon name="lock" />
@@ -108,7 +121,7 @@ export function PlanningRecordPanel({ record, round, loading, error, onRetry, hi
           <Icon name="info" size="sm" />
           <span>
             离开页面不会停止规划。记录按服务序号排列，同一序号不会重复显示；这是只读记录，不驱动执行。
-            当前轮第 {round.ordinal} 轮 · 状态 {round.status}。
+            当前轮第 {round.ordinal} 轮 · 状态 {PLANNING_STATUS_LABEL[round.status]}。
           </span>
         </div>
         {!hasModelText && fragments.length > 0 ? (
@@ -140,21 +153,21 @@ export function PlanningRecordPanel({ record, round, loading, error, onRetry, hi
               <p className="hint">尚未收到规划记录。服务返回空记录时这里不会补写任何演示内容。</p>
             </div>
           ) : (
-            fragments.map((fragment) => {
+            rows.map((fragment) => {
               const time = fragment.at === undefined ? '' : formatDateTime(fragment.at).slice(6);
               if (fragment.category === 'tool_activity') {
                 return (
                   <div key={fragment.fragmentId} className="ri">
                     <div className="tm">
                       {time}
-                      <span className="sq">#{fragment.seq}</span>
+                      <span className="sq">#{fragment.seq}{fragment.lastSeq === undefined ? '' : `–#${fragment.lastSeq}`}</span>
                     </div>
                     <div className="tc">
                       <div className="tc-h">
                         <span className="nm">{fragment.toolCallRef?.callId ?? '工具调用'}</span>
                         <span className="tagx ext">{fragment.toolCallRef?.source === 'managed_mcp' ? '受管 MCP' : 'OpenCode'}</span>
-                        <Badge tone={fragment.toolCallRef?.status === 'completed' ? 'done' : fragment.toolCallRef?.status === 'failed' ? 'fail' : 'run'}>
-                          {fragment.toolCallRef?.status ?? '未知状态'}
+                        <Badge icon={fragment.toolCallRef?.status === 'completed' ? 'check' : fragment.toolCallRef?.status === 'failed' ? 'alert' : 'clock'} tone={fragment.toolCallRef?.status === 'completed' ? 'done' : fragment.toolCallRef?.status === 'failed' ? 'fail' : 'run'}>
+                          {({ completed: '已完成', failed: '失败', running: '进行中', pending: '等待中' } as Record<string, string>)[fragment.toolCallRef?.status ?? ''] ?? '未知状态'}
                         </Badge>
                       </div>
                       {fragment.text === undefined ? null : (
@@ -228,6 +241,7 @@ export function PlanningRecordPanel({ record, round, loading, error, onRetry, hi
           </button>
         ) : null}
 
+        {hasMore ? <div className="row" style={{ padding: 10 }}><Button size="sm" variant="secondary" icon="chevDown" disabled={loadingMore} disabledReason={loadingMore ? '正在读取下一页记录' : undefined} onClick={onLoadMore}>{loadingMore ? '正在读取…' : '加载后续记录'}</Button><span className="hint">还有未载入记录；读取不会重新调用模型。</span></div> : null}
         <div className="follow">
           <span className="muted">跟随最新</span>
           <button

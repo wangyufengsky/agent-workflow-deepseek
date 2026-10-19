@@ -1331,6 +1331,8 @@ export interface PlanningRecordQuery {
 }
 
 export interface PlanningRecordResponse {
+  readonly hasMore?: boolean;
+  readonly lastAvailableSeq?: number;
   readonly taskId: string;
   readonly roundId: string;
   readonly fragments: readonly {

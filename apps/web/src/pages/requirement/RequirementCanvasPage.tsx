@@ -525,7 +525,7 @@ export function RequirementCanvasPage() {
               >
                 {contextAction.label}
               </Button>
-              {roundActive || candidate !== undefined || planConfirmed ? null : (
+              {roundActive || candidate !== undefined || planConfirmed || plan === undefined ? null : (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -913,8 +913,12 @@ export function RequirementCanvasPage() {
 
               {tab === 'records' ? (
                 <PlanningRecordPanel
+                  key={round?.id ?? 'no-round'}
                   record={recordQuery.data}
                   round={round}
+                  hasMore={recordQuery.hasNextPage}
+                  loadingMore={recordQuery.isFetchingNextPage}
+                  onLoadMore={() => { void recordQuery.fetchNextPage(); }}
                   loading={recordQuery.isLoading}
                   error={recordQuery.error}
                   onRetry={() => {

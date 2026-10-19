@@ -466,13 +466,24 @@ export function useRequirementView(taskId: string | undefined) {
 }
 
 export function usePlanningRecord(taskId: string | undefined, roundId: string | undefined, refetchInterval: PollInterval = false) {
-  return useQuery({
-    queryKey: workflowKeys.planningRecord(taskId ?? '', roundId),
-    queryFn: () => fetchPlanningRecord(taskId!, { roundId, limit: 500 }),
-    enabled: taskId !== undefined && taskId.length > 0,
+  const query = useInfiniteQuery({
+    queryKey: [...workflowKeys.planningRecord(taskId ?? '', roundId), 'pages'],
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const result = await fetchPlanningRecord(taskId!, { roundId, afterSeq: pageParam, limit: 500 });
+      if (result.taskId !== taskId || result.roundId !== roundId) throw new Error('规划记录所属轮次不一致，请重新读取');
+      return result;
+    },
+    getNextPageParam: (page) => page.hasMore ? page.nextAfterSeq : undefined,
+    enabled: taskId !== undefined && taskId.length > 0 && roundId !== undefined,
     refetchInterval,
     staleTime: 1_000,
   });
+  const latest = query.data?.pages.at(-1);
+  const pages = query.data?.pages ?? [];
+  const fragments = [...new Map(pages.flatMap((page) => page.fragments).map((fragment) => [fragment.seq, fragment])).values()].sort((a, b) => a.seq - b.seq);
+  const gaps = [...new Map(pages.flatMap((page) => page.gaps).map((gap) => [`${gap.fromSeq}:${gap.toSeq}:${gap.reason}`, gap])).values()];
+  return { ...query, data: latest === undefined ? undefined : { ...latest, fragments, gaps } };
 }
 
 export function usePlanView(taskId: string | undefined) {

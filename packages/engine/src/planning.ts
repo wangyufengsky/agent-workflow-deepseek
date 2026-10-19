@@ -354,8 +354,8 @@ export class PlanningService {
     const settings = this.#context.settings();
     let seq = 0;
     const record = (input: Parameters<Store['planning']['appendRecord']>[1]) => {
-      seq += 1;
-      this.#store.planning.appendRecord(roundId, { ...input, fragmentId: input.fragmentId || `${roundId}-${seq}` });
+      const fragmentId = input.fragmentId || createId('fragment');
+      seq = this.#store.planning.appendRecord(roundId, { ...input, fragmentId });
       this.#store.journal.append(`planning-${roundId}`, {
         type: input.category,
         at: input.at ?? nowIso(),
@@ -367,7 +367,7 @@ export class PlanningService {
         taskId,
         roundId,
         seq,
-        fragmentId: input.fragmentId,
+        fragmentId,
         category: input.category as 'model_text',
         text: input.text,
         blockId: input.blockId,
@@ -1330,9 +1330,24 @@ export class PlanningService {
   }
 
   record(taskId: string, roundId: string | undefined, afterSeq = 0, limit = 500) {
+    this.#requireTask(taskId);
+    if (!Number.isSafeInteger(afterSeq) || afterSeq < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '记录游标必须是非负整数，每页数量为 1–1000');
+    }
     const round = roundId === undefined ? this.#store.planning.latest(taskId) : this.#store.planning.get(roundId);
-    if (round === undefined) return { taskId, roundId: '', fragments: [], gaps: [], terminal: false };
-    const rows = this.#store.planning.listRecords(round.id, afterSeq, limit);
+    if (roundId !== undefined && (round === undefined || round.taskId !== taskId)) throw new AppError(ErrorCode.NOT_FOUND, '任务中不存在此规划轮次');
+    if (round === undefined) return { taskId, roundId: '', fragments: [], gaps: [], terminal: false, hasMore: false, lastAvailableSeq: 0 };
+    const page = this.#store.planning.listRecords(round.id, afterSeq, limit + 1);
+    const hasMore = page.length > limit;
+    const rows = page.slice(0, limit);
+    const gaps = [...round.recordSeq.gaps];
+    let expected = afterSeq + 1;
+    const addGap = (fromSeq: number, toSeq: number) => {
+      if (fromSeq > toSeq || gaps.some((gap) => gap.fromSeq <= fromSeq && gap.toSeq >= toSeq)) return;
+      gaps.push({ fromSeq, toSeq, reason: toSeq < round.recordSeq.first ? 'NOT_RETAINED' : 'CAPTURE_UNAVAILABLE' });
+    };
+    for (const row of rows) { addGap(expected, row.seq - 1); expected = row.seq + 1; }
+    if (!hasMore) addGap(expected, round.recordSeq.last);
     return {
       taskId,
       roundId: round.id,
@@ -1350,7 +1365,9 @@ export class PlanningService {
         },
       })),
       nextAfterSeq: rows.at(-1)?.seq,
-      gaps: round.recordSeq.gaps,
+      gaps,
+      hasMore,
+      lastAvailableSeq: round.recordSeq.last,
       terminal: !['queued', 'running', 'stopping'].includes(round.status),
     };
   }
