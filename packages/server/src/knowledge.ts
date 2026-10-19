@@ -1,6 +1,6 @@
-import { readdirSync, statSync, type Dirent } from 'node:fs';
+import { readFileSync, readdirSync, statSync, type Dirent } from 'node:fs';
 import { join, relative } from 'node:path';
-import type { KnowledgeSource } from '@agent-workflow/shared';
+import type { KnowledgeSearchMatch, KnowledgeSource } from '@agent-workflow/shared';
 
 const EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.rst', '.json', '.yaml', '.yml']);
 const SKIP = new Set(['node_modules', '.git', '.build', '.data', 'dist', 'release', '.tmp', 'coverage', 'test-results']);
@@ -42,4 +42,29 @@ export function listKnowledgeSources(rootPath: string): readonly KnowledgeSource
   };
   visit(rootPath, 0);
   return sources.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+
+/** Literal, case-insensitive search over the source inventory. Citations carry path + line. */
+export function searchKnowledgeSources(rootPath: string, query: string, limit = 30): readonly KnowledgeSearchMatch[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length < 2) return [];
+  const matches: KnowledgeSearchMatch[] = [];
+  for (const source of listKnowledgeSources(rootPath)) {
+    if (matches.length >= limit) break;
+    let text: string;
+    try {
+      text = readFileSync(join(rootPath, source.path), 'utf8');
+    } catch {
+      continue;
+    }
+    if (text.includes('\u0000')) continue;
+    const lines = text.split(/\r?\n/);
+    for (let index = 0; index < lines.length && matches.length < limit; index += 1) {
+      const line = lines[index] ?? '';
+      if (!line.toLowerCase().includes(needle)) continue;
+      matches.push({ path: source.path, line: index + 1, text: line.trim().slice(0, 300) });
+    }
+  }
+  return matches;
 }

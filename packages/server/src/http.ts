@@ -42,7 +42,7 @@ import type { RemoteService } from './remote.ts';
 import { fileIdFor } from './adapters/git-cli.ts';
 import { detectOpenCodeBinaries } from './opencode-detect.ts';
 import { discoverSkills } from './skills.ts';
-import { listKnowledgeSources } from './knowledge.ts';
+import { listKnowledgeSources, searchKnowledgeSources } from './knowledge.ts';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
@@ -473,6 +473,15 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
     const project = engine.projects.get(projectId);
     return envelope({ projectId, sources: listKnowledgeSources(project.rootPath) }, requestId(request));
+  });
+  app.get<{ Querystring: { projectId?: string; q?: string; limit?: string } }>('/api/knowledge/search', async (request) => {
+    const projectId = request.query.projectId ?? '';
+    if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
+    const query = (request.query.q ?? '').trim();
+    if (query.length < 2) throw new AppError(ErrorCode.VALIDATION_FAILED, '搜索词至少 2 个字符');
+    const limit = Math.min(Math.max(Number(request.query.limit ?? 30), 1), 100);
+    const project = engine.projects.get(projectId);
+    return envelope({ projectId, query, matches: searchKnowledgeSources(project.rootPath, query, limit) }, requestId(request));
   });
   app.get('/api/skills', async (request) => envelope({ skills: discoverSkills() }, requestId(request)));
   app.get('/api/insights', async (request) => envelope(engine.insights.summary(), requestId(request)));

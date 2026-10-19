@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { KnowledgeSourcesResponse } from '@agent-workflow/shared';
+import type { KnowledgeSearchResponse, KnowledgeSourcesResponse } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
 import { apiGet } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -21,7 +21,15 @@ export function KnowledgePage() {
   const [question, setQuestion] = useState('');
   const projects = bootstrap.data?.projects ?? [];
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [submittedTerm, setSubmittedTerm] = useState('');
   const projectId = selectedProjectId !== '' ? selectedProjectId : (projects[0]?.id ?? '');
+  const searchQuery = useQuery({
+    queryKey: ['knowledge', 'search', projectId, submittedTerm],
+    queryFn: async () => (await apiGet<KnowledgeSearchResponse>(`/api/knowledge/search?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(submittedTerm)}`)).data,
+    enabled: projectId !== '' && submittedTerm.trim().length >= 2,
+    retry: false,
+  });
   const sourcesQuery = useQuery({
     queryKey: ['knowledge', 'sources', projectId],
     queryFn: async () => (await apiGet<KnowledgeSourcesResponse>(`/api/knowledge/sources?projectId=${encodeURIComponent(projectId)}`)).data,
@@ -172,6 +180,37 @@ export function KnowledgePage() {
               ))}
             </div>
           )}
+          <div className="row wrap" style={{ gap: 8, marginTop: 14 }}>
+            <input
+              className="input"
+              style={{ flex: 1, minWidth: 180 }}
+              placeholder="在文档来源中搜索（至少 2 字）"
+              value={searchTerm}
+              onChange={(event) => { setSearchTerm(event.target.value); }}
+              onKeyDown={(event) => { if (event.key === 'Enter') setSubmittedTerm(searchTerm.trim()); }}
+              aria-label="搜索知识来源"
+            />
+            <Button variant="secondary" size="sm" icon="search" disabled={projectId === '' || searchTerm.trim().length < 2} onClick={() => { setSubmittedTerm(searchTerm.trim()); }}>
+              搜索
+            </Button>
+          </div>
+          {searchQuery.isError ? <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>搜索失败：{String((searchQuery.error as Error).message)}</p> : null}
+          {searchQuery.data === undefined ? null : searchQuery.data.matches.length === 0 ? (
+            <p className="hint" style={{ marginTop: 8 }}>没有匹配的文档行。</p>
+          ) : (
+            <div className="list" style={{ marginTop: 8, maxHeight: 260, overflow: 'auto' }}>
+              {searchQuery.data.matches.map((match) => (
+                <div key={`${match.path}:${match.line}`} className="list-row" style={{ cursor: 'default', alignItems: 'flex-start' }}>
+                  <span className="tile"><Icon name="search" size="sm" /></span>
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div className="mono" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>{match.path}:{match.line}</div>
+                    <div className="hint" style={{ marginTop: 3 }}>{match.text}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="hint" style={{ marginTop: 8 }}>搜索只读本地文档文本，返回文件与行号；它不是模型问答，也不会生成引用结论。</p>
         </section>
 
         <section className="card pad">
