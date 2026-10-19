@@ -66,7 +66,7 @@ flash 模型经兼容网关返回文本 `OK`。验证发生在工具集过滤、
 
 `AGENT_WORKFLOW_LIVE=1 tests/integration/knowledge-ask-live.test.ts`：基于项目 README/docs 提问“交付流程/清理前要做什么”，
 flash 模型返回答案并给出 `README.md:3`、`README.md:4` 两条引用（服务端校验路径与行号），**PASS 31s**。
-问答结果写入本机历史（最多 30 条，可按项目读取）；无引用/非法引用会被服务端丢弃。
+问答结果写入本机历史（最多 30 条）；后续问题会带上最近 3 条问答作为上下文；无引用/非法引用会被服务端丢弃。
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 

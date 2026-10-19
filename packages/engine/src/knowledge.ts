@@ -62,6 +62,7 @@ export class KnowledgeService {
       return { path: source.path, content };
     }).filter((document) => document.content !== '');
     if (documents.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '文档来源不可读');
+    const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? []).slice(0, 3);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'knowledge.ask',
@@ -74,7 +75,7 @@ export class KnowledgeService {
         kind: 'review',
         metadata: { projectId: input.projectId, purpose: 'knowledge.ask' },
         cwd: project.rootPath,
-        prompt: buildPrompt(question, documents),
+        prompt: buildPrompt(question, documents, recent),
         system: SYSTEM_PROMPT,
         model,
         permission: 'read_only',
@@ -128,9 +129,12 @@ const SYSTEM_PROMPT = `你是项目知识库的研究员。只依据用户提供
 {"answer":"回答（可多句）","citations":[{"path":"文档相对路径","line":行号,"snippet":"该行原文"}]}
 line 必须来自文档真实行号；answer 中引用的每个关键结论都要有 citation。文档不足时明确说“文档中没有足够依据”。`;
 
-function buildPrompt(question: string, documents: readonly { path: string; content: string }[]): string {
+function buildPrompt(question: string, documents: readonly { path: string; content: string }[], recent: readonly KnowledgeHistoryEntry[]): string {
   const blocks = documents.map((document, index) => `--- 文档 ${index + 1}：${document.path}\n${document.content}`).join('\n\n');
-  return `问题：${question}\n\n可用文档（只读，路径用于引用）：\n${blocks}`;
+  const context = recent.length === 0
+    ? ''
+    : `\n\n最近问答（仅作为上下文，不要用它们替代文档引用）：\n${recent.map((entry, index) => `Q${String(index + 1)}: ${entry.question.slice(0, 300)}\nA${String(index + 1)}: ${entry.answer.slice(0, 500)}`).join('\n')}`;
+  return `问题：${question}${context}\n\n可用文档（只读，路径用于引用）：\n${blocks}`;
 }
 
 function extractJson(text: string): { answer?: unknown; citations?: unknown } | undefined {

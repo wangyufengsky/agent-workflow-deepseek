@@ -148,7 +148,7 @@ export function KnowledgePage() {
             </Button>
           </div>
           <p className="hint" id="kb-disabled-note" style={{ marginTop: 8 }}>
-            问答使用受管 OpenCode（只读）基于下方项目文档回答；结果不写入历史，引用可点击回到原文。
+            问答使用受管 OpenCode（只读）基于项目文档回答；最近 3 条问答会作为上下文，引用可点击回到原文。
           </p>
           {askMutation.isError ? <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>问答失败：{String((askMutation.error as Error).message)}</p> : null}
           {askResult === undefined ? null : (
