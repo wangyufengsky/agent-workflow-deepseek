@@ -297,3 +297,30 @@ test('service shutdown invalidates a pending classified retry timer before stora
 function fixtureRetryDelays(): ExecutionSettings['retryDelays'] {
   return { modelRateLimit: { initialMs: 0, maxMs: 0 }, sessionError: { initialMs: 0, maxMs: 0 }, verificationFailure: { initialMs: 0, maxMs: 0 } };
 }
+
+test('scoped retry dispatches only selected failed nodes and preserves other attempts and receipts', async () => {
+  const f = fixture({ maxAttempts: 5 });
+  f.store.executions.update(f.execution.id, { status: 'paused' });
+  for (const id of ['a', 'b']) {
+    const attempt = f.store.executions.createAttempt({ executionId: f.execution.id, nodeId: id, ordinal: 1 });
+    f.store.executions.updateNode(f.execution.id, id, { status: 'failed', currentAttemptId: attempt.id, attemptCount: 1, error: { code: 'VALIDATION_FAILED', message: 'offline' } });
+  }
+  const beforeB = f.store.executions.get(f.execution.id)!.nodes.find((n) => n.nodeId === 'b');
+  for (const nodeIds of [[], ['a', 'a'], ['missing'], ['c']]) {
+    assert.throws(() => f.engine.executions.retry(f.task.id, { requestKey: `req_invalid_${JSON.stringify(nodeIds)}`, nodeIds }));
+  }
+  assert.throws(() => f.engine.executions.retry(f.task.id, { requestKey: 'req_stale_scope', nodeIds: ['a'], expectedStatus: 'failed' }));
+  const input = { requestKey: 'req_scoped_retry', nodeIds: ['a'], expectedStatus: 'paused', confirm: true };
+  const response = f.engine.executions.retry(f.task.id, input);
+  assert.equal(response.receipt.status, 'succeeded');
+  assert.deepEqual(f.calls.map((call) => call.request.metadata.nodeId), ['a']);
+  assert.deepEqual(f.store.executions.get(f.execution.id)!.nodes.find((n) => n.nodeId === 'b'), beforeB);
+  assert.deepEqual(f.engine.executions.retry(f.task.id, input).receipt, response.receipt);
+  assert.throws(() => f.engine.executions.retry(f.task.id, { ...input, nodeIds: ['b'] }));
+  await f.finish(0);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.engine.executions.get(f.task.id)?.status, 'paused');
+  assert.deepEqual(f.store.executions.get(f.execution.id)!.nodes.find((n) => n.nodeId === 'b'), beforeB);
+  f.engine.executions.shutdown();
+  f.store.close();
+});

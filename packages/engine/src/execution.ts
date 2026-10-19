@@ -342,11 +342,18 @@ export class ExecutionService {
   }
 
   retry(taskId: string, input: ExecutionCommandRequest): CommandResponse<ExecutionResponse> {
-    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.retry', body: { taskId, expectedStatus: input.expectedStatus, confirm: true } }, () => this.#viewResponse(taskId));
+    if (input.nodeIds !== undefined && !Array.isArray(input.nodeIds)) throw new AppError(ErrorCode.VALIDATION_FAILED, '重试步骤必须是步骤集合');
+    const nodeIds = input.nodeIds === undefined ? undefined : [...input.nodeIds].sort();
+    if (nodeIds !== undefined && (nodeIds.length === 0 || nodeIds.some((id) => typeof id !== 'string' || id.trim().length === 0) || new Set(nodeIds).size !== nodeIds.length)) throw new AppError(ErrorCode.VALIDATION_FAILED, '重试步骤必须是非空且不重复的步骤集合');
+    const body = { taskId, expectedStatus: input.expectedStatus, confirm: true, ...(nodeIds === undefined ? {} : { nodeIds }) };
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'execution.retry', body }, () => this.#viewResponse(taskId));
     if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '重试执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
+    if (input.expectedStatus !== undefined && input.expectedStatus !== execution.status) throw new AppError(ErrorCode.STALE_TARGET, '执行状态已变化，请刷新后重试');
+    if (nodeIds !== undefined && execution.status === 'unknown') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行结果未知，请先核对原请求');
+    if (execution.editSession !== undefined && !['finished', 'abandoned'].includes(execution.editSession.state)) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '计划调整尚未结束，请先确认并结束调整');
     const plan = this.#store.plans.get(execution.planRevisionId);
     if (this.#stops.get(execution.id)?.settled === false || (execution.status === 'unknown' && this.#store.operations.listPending().some((operation) => operation.operation === 'execution.cancel' && operation.target.executionId === execution.id))) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '停止尚未确认，请先按原请求号核对，不能重试');
@@ -354,10 +361,11 @@ export class ExecutionService {
     if (execution.nodes.some((node) => node.status === NodeStatus.RUNNING || node.status === NodeStatus.UNKNOWN)) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '仍有活动或结果未知的步骤，停稳核对前不能重试');
     }
-    const failedNodes = execution.nodes.filter((node) => node.status === NodeStatus.FAILED);
+    if (nodeIds !== undefined && nodeIds.some((id) => !execution.nodes.some((node) => node.nodeId === id && node.status === NodeStatus.FAILED))) throw new AppError(ErrorCode.VALIDATION_FAILED, '只能重试当前执行中明确失败的步骤');
+    const failedNodes = execution.nodes.filter((node) => node.status === NodeStatus.FAILED && (nodeIds === undefined || nodeIds.includes(node.nodeId)));
     // W0-4b: a node the human sent back for rework (verdict rejected) can be
     // retried even though its last execution succeeded.
-    const rejectedNodes = plan === undefined
+    const rejectedNodes = nodeIds !== undefined || plan === undefined
       ? []
       : execution.nodes.filter((node) => node.status === NodeStatus.SUCCEEDED
           && plan.graph.nodes.some((planNode) => planNode.id === node.nodeId && planNodeRequiresAcceptance(planNode))
@@ -381,11 +389,12 @@ export class ExecutionService {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'execution.retry',
-      body: { taskId, expectedStatus: input.expectedStatus, confirm: true },
+      body,
       target: { taskId, executionId: execution.id },
     });
     if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     this.#beginGeneration(execution.id);
+    this.#store.settings.putJson(`execution.retry-scope.${execution.id}`, nodeIds ?? null);
     for (const node of [...failedNodes, ...rejectedNodes]) {
       const delayMs = retryDelayMs(policy, node.error, node.attemptCount);
       this.#store.settings.putJson(`execution.retry-ready-at.${execution.id}.${node.nodeId}`, { readyAt: Date.now() + delayMs, delayMs, reason: retryClass(node.error), requestKey: input.requestKey });
@@ -638,6 +647,7 @@ export class ExecutionService {
   async #reconcileUnknownNodes(executionId: string): Promise<void> {
     const execution = this.#store.executions.get(executionId);
     if (execution?.status !== 'unknown' || this.#opencode.inspectSession === undefined || this.#stops.has(executionId)) return;
+    this.#store.settings.putJson(`execution.retry-scope.${execution.id}`, null);
     const unknown = execution.nodes.filter((node) => node.status === NodeStatus.UNKNOWN);
     if (unknown.length === 0) return;
     for (const node of unknown) {
@@ -890,14 +900,16 @@ export class ExecutionService {
         }
         if (execution.autoAdvance) this.#recomputeReady(execution, plan);
         const current = this.#store.executions.get(executionId)!;
-        const failed = current.nodes.some((node) => node.status === NodeStatus.FAILED || node.status === NodeStatus.UNKNOWN);
+        const retryScope = this.#store.settings.getJson<string[] | null>(`execution.retry-scope.${executionId}`);
+        const inScope = (node: { nodeId: string }) => retryScope == null || retryScope.includes(node.nodeId);
+        const failed = current.nodes.some((node) => inScope(node) && (node.status === NodeStatus.FAILED || node.status === NodeStatus.UNKNOWN));
         const sessionErrorsExceeded = (this.#store.settings.getJson<number>(`execution.session-errors.${executionId}`) ?? 0) >= policy.sessionErrorThreshold;
         let waitingUntil: number | undefined;
         const hasUnknown = current.nodes.some((node) => node.status === NodeStatus.UNKNOWN);
         if (!sessionErrorsExceeded && !hasUnknown && !(failed && policy.pauseAfterFailure)) {
-          for (const candidate of current.nodes.filter((node) => node.status === NodeStatus.READY)) {
+          for (const candidate of current.nodes.filter((node) => node.status === NodeStatus.READY && inScope(node))) {
             if (this.#store.executions.get(executionId)!.status !== 'running') break;
-            if (policy.pauseAfterFailure && this.#store.executions.get(executionId)!.nodes.some((node) => node.status === NodeStatus.FAILED || node.status === NodeStatus.UNKNOWN)) break;
+            if (policy.pauseAfterFailure && this.#store.executions.get(executionId)!.nodes.some((node) => inScope(node) && (node.status === NodeStatus.FAILED || node.status === NodeStatus.UNKNOWN))) break;
             if (active.size >= policy.maxConcurrentNodes) break;
             const retry = this.#store.settings.getJson<{ readyAt: number }>(`execution.retry-ready-at.${executionId}.${candidate.nodeId}`);
             if (retry !== undefined && retry.readyAt > Date.now()) { waitingUntil = Math.min(waitingUntil ?? retry.readyAt, retry.readyAt); continue; }
