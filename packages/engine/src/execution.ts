@@ -1372,6 +1372,7 @@ ${task.title}
 
 # 需求原文
 ${task.requirement.text}
+${task.fixedTemplate === undefined ? '' : `# 冻结模板参数\n${JSON.stringify(task.fixedTemplate.parameters)}\n参数是本任务选择的配置；只在当前工作区和职业授权范围内使用。`}
 ${templateScopePrompt(task.fixedTemplate?.scope)}
 ${sourceEvidencePrompt(this.#store, task, node, attemptId)}
 

@@ -199,3 +199,24 @@ test('PDF requirements are extracted on capable hosts; unavailable parser has a 
         await app.close();
     }
 });
+
+
+test('new source evidence templates require frozen scope even for legacy parameter-only requests', async () => {
+  const repository = repo();
+  const app = await createApplication({ dataDir: mkdtempSync(join(tmpdir(), 'aw-template-range-')), disableOpenCode: true, disableListen: true });
+  try {
+    const projectId = await project(app, repository.root);
+    const base = { projectId, title: '参数范围', requirementText: '测试冻结范围', methodId: 'method.unit-test-development' };
+    const missing = await app.app.inject({ method: 'POST', url: '/api/tasks', payload: { ...base, requestKey: createRequestKey(), template: { templateId: 'template.unit-test-development', parameters: {} } } });
+    assert.equal(missing.statusCode, 400); assert.match(missing.body, /源码范围/);
+    const created = await app.app.inject({ method: 'POST', url: '/api/tasks', payload: { ...base, requestKey: createRequestKey(), template: { templateId: 'template.unit-test-development', parameters: { targetPath: 'src/only.ts', testPath: 'test/only.test.ts' } } } });
+    assert.equal(created.statusCode, 201, created.body);
+    const task = created.json().data.resource.task;
+    assert.equal(task.fixedTemplate.scope.sourceFiles.length, 1);
+    assert.equal(task.fixedTemplate.scope.sourceFiles[0].path, 'src/only.ts');
+    assert.equal(task.fixedTemplate.scope.sourceFiles[0].text, 'export const frozen = 1;\n');
+    const plan = await app.app.inject({ method: 'POST', url: `/api/tasks/${task.id}/plan/from-template`, payload: { requestKey: createRequestKey(), confirmUseTemplate: true } });
+    assert.equal(plan.statusCode, 200, plan.body);
+    assert.ok(plan.json().data.resource.plan.graph.nodes.every((node: { sourceEvidence?: { filePaths: readonly string[] } }) => node.sourceEvidence?.filePaths.length === 1));
+  } finally { await app.close(); }
+});

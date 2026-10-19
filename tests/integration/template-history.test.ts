@@ -16,6 +16,7 @@ function createRepo(): string {
   execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
   execFileSync('git', ['config', 'user.name', 'Test'], { cwd: root });
   writeFileSync(join(root, 'README.md'), '# tpl\n', 'utf8');
+  writeFileSync(join(root, 'read-name.mjs'), 'export const readName = (value) => value.name;\n', 'utf8');
   execFileSync('git', ['add', '.'], { cwd: root });
   execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
   return root;
@@ -36,7 +37,7 @@ test('template history lists only tasks created from that fixed template', async
         title: '单元测试任务',
         requirementText: 'R1 为 readName 写测试',
         methodId: 'method.unit-test-development',
-        template: { templateId: 'template.unit-test-development', parameters: {} },
+        template: { templateId: 'template.unit-test-development', parameters: { targetPath: 'read-name.mjs', testPath: 'test/read-name.test.mjs' } },
       },
     });
     assert.equal(created.statusCode, 201, created.body);
@@ -67,7 +68,7 @@ test('template history lists only tasks created from that fixed template', async
     const detail = await app.app.inject({ method: 'GET', url: '/api/templates/template.unit-test-development' });
     assert.equal(detail.statusCode, 200, detail.body);
     const detailData = detail.json().data as { template: { version: number; steps: unknown[] }; taskCount: number };
-    assert.equal(detailData.template.version, 7);
+    assert.equal(detailData.template.version, 8);
     assert.equal(detailData.template.steps.length, 5);
     assert.equal(detailData.taskCount, 1);
     const missingTemplate = await app.app.inject({ method: 'GET', url: '/api/templates/template.unknown' });

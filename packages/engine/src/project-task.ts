@@ -288,7 +288,8 @@ export class TaskService {
       if (template.inputs?.source && (requestScope !== undefined || template.id !== 'template.unit-test-development') && !requestScope?.sourcePaths?.length && !input.template?.parameters.targetPath) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板需要明确源码范围');
       if (template.inputs?.documents && !requestScope?.documents?.length) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板需要需求文档');
       if (template.inputs?.dates && requestScope && !requestScope.dateRange) throw new AppError(ErrorCode.VALIDATION_FAILED, '模板需要时间范围');
-      const effectiveScope = requestScope;
+      const effectiveScope = requestScope ?? (template.sourceEvidenceVersion === 1 && input.template?.parameters.targetPath?.trim() ? { sourcePaths: [input.template.parameters.targetPath.trim()] } : undefined);
+      if (template.sourceEvidenceVersion === 1 && !effectiveScope?.sourcePaths?.length) throw new AppError(ErrorCode.VALIDATION_FAILED, '逐文件模板必须选择可冻结的源码范围');
       const scope = effectiveScope === undefined ? undefined : await freezeTemplateScope(this.#store.projects.get(input.projectId), effectiveScope, this.#snapshotGit);
       if (template.kind !== 'snapshot_review') return this.create(input, undefined, scope);
       const project = this.#store.projects.get(input.projectId);
