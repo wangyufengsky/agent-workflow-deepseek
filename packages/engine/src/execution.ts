@@ -1,6 +1,6 @@
 import { toolEvidence } from './tool-evidence.ts';
 import { projectDocumentInstructions } from './project-documents.ts';
-import { canShareWorkspace, executionPolicy } from './execution-policy.ts';
+import { canShareWorkspace, executionPolicy, executionTimeoutMs, retryClass, retryDelayMs } from './execution-policy.ts';
 import type {
   AttemptResult,
   CommandResponse,
@@ -38,6 +38,7 @@ import type { OpenCodePort } from './ports.ts';
 
 interface StopContext {
   readonly requestKey: string;
+  readonly reason?: string;
   confirmed: boolean;
   settled: boolean;
   readonly attemptIds: readonly string[];
@@ -75,6 +76,8 @@ export class ExecutionService {
   readonly #loops = new Map<string, symbol>();
   readonly #activeSessions = new Map<string, Map<string, string>>();
   readonly #idleAttempts = new Set<string>();
+  readonly #wakes = new Map<string, Set<() => void>>();
+  #closed = false;
   readonly #stops = new Map<string, StopContext>();
 
   constructor(store: Store, commands: CommandService, context: EngineContext, opencode: OpenCodePort) {
@@ -82,6 +85,14 @@ export class ExecutionService {
     this.#commands = commands;
     this.#context = context;
     this.#opencode = opencode;
+  }
+
+  /** Stop local scheduling before closing storage; durable waits require explicit resume after restart. */
+  shutdown(): void {
+    this.#closed = true;
+    this.#loops.clear();
+    for (const executionId of this.#wakes.keys()) this.#wake(executionId);
+    this.#resultWaiters.clear();
   }
 
   get(taskId: string): ExecutionView | undefined {
@@ -148,6 +159,7 @@ export class ExecutionService {
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     this.#store.executions.update(execution.id, { status: 'paused', pause: { requestedAt: nowIso(), settledAt: nowIso(), requestKey: input.requestKey }, notice: { kind: 'paused', message: '已暂停新增领取' } });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'paused', revision: 1 });
+    this.#wake(execution.id);
     this.#commands.settle(input.requestKey, { paused: true });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
   }
@@ -167,6 +179,7 @@ export class ExecutionService {
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     this.#store.executions.update(execution.id, { status: 'running', notice: null, pause: null, endedAt: null });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
+    this.#wake(execution.id);
     this.#commands.settle(input.requestKey, { resumed: true });
     void this.#advance(execution.id);
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
@@ -288,6 +301,11 @@ export class ExecutionService {
     const task = this.#assertWritable(taskId, '重试执行');
     const execution = this.get(taskId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
+    const replay = this.#commands.get(input.requestKey);
+    if (replay !== undefined) {
+      const checked = this.#commands.begin({ requestKey: input.requestKey, operation: 'execution.retry', body: { taskId, expectedStatus: input.expectedStatus, confirm: true }, target: { taskId, executionId: execution.id } });
+      return { receipt: this.#commands.toReceipt(checked.record), resource: this.#viewResponse(taskId) };
+    }
     const plan = this.#store.plans.get(execution.planRevisionId);
     if (this.#stops.get(execution.id)?.settled === false || (execution.status === 'unknown' && this.#store.operations.listPending().some((operation) => operation.operation === 'execution.cancel' && operation.target.executionId === execution.id))) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '停止尚未确认，请先按原请求号核对，不能重试');
@@ -313,17 +331,24 @@ export class ExecutionService {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行仍在运行，先暂停/取消后再重试', { details: { status: execution.status } });
     }
     const policy = executionPolicy(this.#store, execution.id, this.#context.settings().execution);
+    if (this.#store.executions.listAttempts(execution.id).length >= policy.maxTaskAttempts) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '任务总尝试次数已用完；请创建恢复任务');
+    if ((this.#store.settings.getJson<number>(`execution.session-errors.${execution.id}`) ?? 0) >= policy.sessionErrorThreshold) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '会话异常次数已达阈值；请检查运行环境后创建恢复任务');
+    if (policy.timeoutEnabled && execution.startedAt !== undefined && Date.now() >= Date.parse(execution.startedAt) + policy.taskTimeoutMinutes * 60000) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '任务业务总时限已用完；请创建恢复任务');
     const exhausted = [...failedNodes, ...rejectedNodes].filter((node) => node.attemptCount >= policy.maxAttempts);
     if (exhausted.length > 0) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '步骤尝试次数已用完（含首次执行）；请创建恢复任务', { details: { nodeIds: exhausted.map((node) => node.nodeId), maxAttempts: policy.maxAttempts } });
     const retriedNodeIds = [...failedNodes.map((node) => node.nodeId), ...rejectedNodes.map((node) => node.nodeId)];
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'execution.retry',
-      body: { taskId, expectedStatus: input.expectedStatus, nodeIds: retriedNodeIds, confirm: true },
+      body: { taskId, expectedStatus: input.expectedStatus, confirm: true },
       target: { taskId, executionId: execution.id },
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.#viewResponse(taskId) };
     this.#beginGeneration(execution.id);
+    for (const node of [...failedNodes, ...rejectedNodes]) {
+      const delayMs = retryDelayMs(policy, node.error, node.attemptCount);
+      this.#store.settings.putJson(`execution.retry-ready-at.${execution.id}.${node.nodeId}`, { readyAt: Date.now() + delayMs, delayMs, reason: retryClass(node.error), requestKey: input.requestKey });
+    }
     for (const nodeId of retriedNodeIds) {
       this.#store.executions.updateNode(execution.id, nodeId, {
         status: NodeStatus.PENDING,
@@ -343,7 +368,7 @@ export class ExecutionService {
     });
     this.#store.tasks.update(taskId, { attention: TaskAttention.NONE });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'running', revision: 1 });
-    this.#commands.settle(input.requestKey, { retried: retriedNodeIds.length, failedRetried: failedNodes.length, rejectedRetried: rejectedNodes.length });
+    this.#commands.settle(input.requestKey, { retried: retriedNodeIds.length, nodeIds: retriedNodeIds, failedRetried: failedNodes.length, rejectedRetried: rejectedNodes.length });
     void this.#advance(execution.id);
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
   }
@@ -431,14 +456,19 @@ export class ExecutionService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
   }
 
+  #wake(executionId: string): void {
+    for (const wake of this.#wakes.get(executionId) ?? []) wake();
+  }
+
   #beginGeneration(executionId: string): void {
     // Invalidate every old loop/callback before permitting another attempt.
     this.#loops.delete(executionId);
+    this.#wake(executionId);
     this.#stops.delete(executionId);
     this.#activeSessions.delete(executionId);
   }
 
-  async cancel(taskId: string, input: ExecutionCommandRequest): Promise<CommandResponse<ExecutionResponse>> {
+  async cancel(taskId: string, input: ExecutionCommandRequest, reason?: string): Promise<CommandResponse<ExecutionResponse>> {
     this.#assertWritable(taskId, '取消执行');
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);
@@ -454,9 +484,11 @@ export class ExecutionService {
       this.#commands.fail(input.requestKey, new AppError(ErrorCode.OPERATION_IN_PROGRESS, '执行无法重复停止；请核对原请求号'));
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
     }
-    const stop: StopContext = { requestKey: input.requestKey, confirmed: false, settled: false, attemptIds: execution.nodes.filter((node) => node.status === NodeStatus.RUNNING).flatMap((node) => node.currentAttemptId === undefined ? [] : [node.currentAttemptId]), confirmedAttempts: new Set() };
+    const stop: StopContext = { requestKey: input.requestKey, reason, confirmed: false, settled: false, attemptIds: execution.nodes.filter((node) => node.status === NodeStatus.RUNNING).flatMap((node) => node.currentAttemptId === undefined ? [] : [node.currentAttemptId]), confirmedAttempts: new Set() };
     this.#stops.set(execution.id, stop);
+    if (reason !== undefined) this.#store.settings.putJson(`execution.stop-reason.${input.requestKey}`, reason);
     this.#store.executions.update(execution.id, { status: 'stopping' });
+    this.#wake(execution.id);
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'stopping', revision: 1 });
     for (const id of stop.attemptIds) if (this.#idleAttempts.has(id)) stop.confirmedAttempts.add(id);
     const requests = stop.attemptIds.filter((id) => !stop.confirmedAttempts.has(id)).map(async (attemptId) => {
@@ -481,6 +513,7 @@ export class ExecutionService {
   }
 
   #unknownStop(executionId: string, message: string, expectedStop = this.#stops.get(executionId)): void {
+    if (this.#closed) return;
     const stop = this.#stops.get(executionId);
     const execution = this.#store.executions.get(executionId);
     if (stop === undefined || stop !== expectedStop || stop.settled || execution === undefined || !['stopping', 'unknown'].includes(execution.status)) return;
@@ -491,6 +524,7 @@ export class ExecutionService {
   }
 
   #settleStop(executionId: string, expectedStop = this.#stops.get(executionId)): void {
+    if (this.#closed) return;
     const stop = this.#stops.get(executionId);
     const execution = this.#store.executions.get(executionId);
     if (stop === undefined || stop !== expectedStop || stop.settled || execution === undefined || !['stopping', 'unknown'].includes(execution.status)) return;
@@ -505,10 +539,10 @@ export class ExecutionService {
         this.#resultWaiters.delete(node.currentAttemptId);
         this.#idleAttempts.delete(node.currentAttemptId);
       }
-      this.#store.executions.updateNode(executionId, node.nodeId, { status: NodeStatus.FAILED, endedAt: nowIso(), error: { code: 'STOPPED', message: '用户停止，当前步骤未完成；可按原配置重试' } });
+      this.#store.executions.updateNode(executionId, node.nodeId, { status: NodeStatus.FAILED, endedAt: nowIso(), error: { code: stop.reason === undefined ? 'STOPPED' : ErrorCode.MODEL_BUDGET_EXCEEDED, message: stop.reason ?? '用户停止，当前步骤未完成；可按原配置重试' } });
     }
-    this.#store.executions.update(executionId, { status: 'stopped', endedAt: nowIso(), progress: { ...execution.progress, failed: this.#store.executions.get(executionId)!.nodes.filter((node) => node.status === NodeStatus.FAILED).length, running: 0 }, notice: { kind: 'paused', message: '执行已确认停止，工作区保留' } });
-    this.#store.tasks.update(execution.taskId, { attention: TaskAttention.NONE });
+    this.#store.executions.update(executionId, { status: 'stopped', endedAt: nowIso(), progress: { ...execution.progress, failed: this.#store.executions.get(executionId)!.nodes.filter((node) => node.status === NodeStatus.FAILED).length, running: 0 }, notice: { kind: stop.reason === undefined ? 'paused' : 'failed', message: stop.reason ?? '执行已确认停止，工作区保留' } });
+    this.#store.tasks.update(execution.taskId, { attention: stop.reason === undefined ? TaskAttention.NONE : TaskAttention.FAILED });
     this.#commands.settle(stop.requestKey, { stopped: true });
     this.#activeSessions.delete(executionId);
     this.#store.events.publish('execution.changed', { taskId: execution.taskId, executionId, status: 'stopped', revision: 1 });
@@ -517,7 +551,12 @@ export class ExecutionService {
   /** Read-only reconciliation of the original cancellation; never sends abort or prompt. */
   async reconcileOperation(requestKey: string): Promise<void> {
     const operation = this.#commands.get(requestKey);
-    if (operation?.operation !== 'execution.cancel' || !['accepted', 'unknown'].includes(operation.status)) return;
+    if (operation === undefined) return;
+    if (operation.operation !== 'execution.cancel') {
+      if (operation.operation.startsWith('execution.') && operation.target.executionId !== undefined) await this.#reconcileUnknownNodes(operation.target.executionId);
+      return;
+    }
+    if (!['accepted', 'unknown'].includes(operation.status)) return;
     const executionId = operation.target.executionId;
     if (executionId === undefined) return;
     const execution = this.#store.executions.get(executionId);
@@ -527,7 +566,7 @@ export class ExecutionService {
     if (stop !== undefined && stop.requestKey !== requestKey) return;
     const active = execution.nodes.filter((node) => node.currentAttemptId !== undefined && (node.status === NodeStatus.RUNNING || node.status === NodeStatus.UNKNOWN || node.error?.code === 'INTERRUPTED'));
     if (stop === undefined) {
-      stop = { requestKey, confirmed: false, settled: false, attemptIds: active.map((node) => node.currentAttemptId!), confirmedAttempts: new Set() };
+      stop = { requestKey, reason: this.#store.settings.getJson<string>(`execution.stop-reason.${requestKey}`), confirmed: false, settled: false, attemptIds: active.map((node) => node.currentAttemptId!), confirmedAttempts: new Set() };
       this.#stops.set(executionId, stop);
     }
     const expectedStop = stop;
@@ -549,6 +588,44 @@ export class ExecutionService {
     } catch {
       // A read failure leaves the durable UNKNOWN receipt intact.
     }
+  }
+
+  async #reconcileUnknownNodes(executionId: string): Promise<void> {
+    const execution = this.#store.executions.get(executionId);
+    if (execution?.status !== 'unknown' || this.#opencode.inspectSession === undefined || this.#stops.has(executionId)) return;
+    const unknown = execution.nodes.filter((node) => node.status === NodeStatus.UNKNOWN);
+    if (unknown.length === 0) return;
+    for (const node of unknown) {
+      const attemptId = node.currentAttemptId;
+      if (attemptId === undefined) return;
+      const saved = this.#store.settings.getJson<{ sessionId: string }>(`execution.session.${attemptId}`);
+      if (saved === undefined) return;
+      try { if (await this.#opencode.inspectSession(saved.sessionId) !== 'idle') return; } catch { return; }
+    }
+    // All original sessions are explicitly idle. Re-read to exclude a newer generation.
+    if (this.#store.executions.get(executionId)?.status !== 'unknown') return;
+    for (const node of unknown) {
+      const attempt = this.#store.executions.getAttempt(node.currentAttemptId!);
+      if (attempt === undefined || attempt.status !== NodeStatus.UNKNOWN) continue;
+      const status = attempt.result === undefined || attempt.result.verification?.state === 'failed' ? NodeStatus.FAILED : NodeStatus.SUCCEEDED;
+      assertTransition(nodeMachine, node.status, status);
+      this.#store.executions.finishAttempt(attempt.id, status, attempt.result, status === NodeStatus.FAILED ? '核对会话已结束；没有可通过的结构化结果，需显式重试' : undefined, attempt.usage);
+      this.#store.executions.updateNode(executionId, node.nodeId, { status, endedAt: nowIso(), error: status === NodeStatus.FAILED ? { code: 'OPENCODE_NOT_READY', message: '核对已停稳；结果缺失或验证失败，需显式重试' } : null });
+      if (status === NodeStatus.FAILED) this.#recordSessionError(executionId, attempt.id, node.error);
+    }
+    const refreshed = this.#store.executions.get(executionId)!;
+    const failed = refreshed.nodes.some((node) => node.status === NodeStatus.FAILED);
+    assertTransition(executionMachine, 'unknown', failed ? 'failed' : 'paused');
+    this.#store.executions.update(executionId, { status: failed ? 'failed' : 'paused', notice: { kind: failed ? 'failed' : 'paused', message: '原会话已核对停稳；未派发任何新尝试，请处理结果后显式继续' }, progress: { ...refreshed.progress, running: 0, failed: refreshed.nodes.filter((node) => node.status === NodeStatus.FAILED).length } });
+    this.#store.tasks.update(execution.taskId, { attention: failed ? TaskAttention.FAILED : TaskAttention.WAITING_USER });
+    this.#store.events.publish('execution.changed', { taskId: execution.taskId, executionId, status: failed ? 'failed' : 'paused', revision: 1 });
+  }
+
+  #recordSessionError(executionId: string, attemptId: string, error?: { readonly code: string; readonly message: string }): void {
+    if (retryClass(error) !== 'session_error' || this.#store.settings.getJson(`execution.session-error-attempt.${attemptId}`) === true) return;
+    this.#store.settings.putJson(`execution.session-error-attempt.${attemptId}`, true);
+    const count = this.#store.settings.getJson<number>(`execution.session-errors.${executionId}`) ?? 0;
+    this.#store.settings.putJson(`execution.session-errors.${executionId}`, count + 1);
   }
 
   /**
@@ -575,8 +652,14 @@ export class ExecutionService {
       const execution = task.executionId === undefined ? this.#store.executions.byTask(task.id) : this.#store.executions.get(task.executionId);
       if (execution === undefined) continue;
       if (execution.status !== 'running' && execution.status !== 'pausing' && execution.status !== 'stopping') continue;
+      if (execution.status === 'running' && !execution.nodes.some((node) => node.status === NodeStatus.RUNNING) && execution.nodes.some((node) => this.#store.settings.getJson(`execution.retry-ready-at.${execution.id}.${node.nodeId}`) !== undefined)) {
+        this.#store.executions.update(execution.id, { status: 'paused', pause: null, notice: { kind: 'paused', message: '服务重启，已保留原重试等待时间；请显式继续，不自动派发模型' } });
+        affected.push(task.id);
+        continue;
+      }
       const pendingStop = this.#store.operations.listPending().find((operation) => operation.operation === 'execution.cancel' && operation.target.executionId === execution.id);
-      if (pendingStop !== undefined) {
+      const knownRemote = execution.nodes.some((node) => node.status === NodeStatus.RUNNING && node.currentAttemptId !== undefined && this.#store.settings.getJson(`execution.session.${node.currentAttemptId}`) !== undefined);
+      if (pendingStop !== undefined || knownRemote) {
         // The desktop process ending does not prove its remote session ended.
         // Keep attempt identity for read-only reconciliation, never allow retry
         // until the original cancellation has a positive idle observation.
@@ -585,8 +668,9 @@ export class ExecutionService {
           this.#store.executions.updateNode(execution.id, node.nodeId, { status: NodeStatus.UNKNOWN });
           if (node.currentAttemptId !== undefined) this.#store.executions.finishAttempt(node.currentAttemptId, NodeStatus.UNKNOWN, undefined, '服务重启，停止待核对');
         }
-        this.#store.executions.update(execution.id, { status: 'unknown', notice: { kind: 'unknown', message: '服务重启，停止尚未确认；请按原请求号只读核对会话' } });
-        this.#commands.fail(pendingStop.requestKey, failure, true);
+        this.#store.executions.update(execution.id, { status: 'unknown', notice: { kind: 'unknown', message: '服务重启，原会话停稳尚未确认；请按原请求号只读核对会话' } });
+        if (pendingStop !== undefined) this.#commands.fail(pendingStop.requestKey, failure, true);
+        else this.#settleInterruptedReceipts(task.id, execution.id, failure);
       } else {
         this.#recoverExecution(task, execution, failure, notice);
       }
@@ -680,9 +764,10 @@ export class ExecutionService {
       errors: [],
       warnings: [],
     };
-    if (waiter === undefined) throw new AppError(ErrorCode.STALE_TARGET, '结果等待器不存在');
-    this.#resultWaiters.delete(input.attemptId);
+    if (!this.#store.executions.saveSubmittedResult(input.attemptId, result)) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '该尝试已经提交结果，不能覆盖');
+
     waiter.resolve(result);
+    this.#resultWaiters.delete(input.attemptId);
     return { ok: true };
   }
 
@@ -703,8 +788,9 @@ export class ExecutionService {
     const active = new Map<string, Promise<void>>();
     try {
       for (;;) {
+        if (this.#closed || this.#loops.get(executionId) !== loop) return;
         const execution = this.#store.executions.get(executionId);
-        if (this.#loops.get(executionId) !== loop || execution === undefined) return;
+        if (execution === undefined) return;
         if (execution.status !== 'running') {
           if (active.size === 0) return;
           await Promise.race(active.values());
@@ -717,13 +803,28 @@ export class ExecutionService {
           return;
         }
         const policy = executionPolicy(this.#store, executionId, this.#context.settings().execution);
+        const taskDeadline = policy.timeoutEnabled && execution.startedAt !== undefined ? Date.parse(execution.startedAt) + policy.taskTimeoutMinutes * 60000 : undefined;
+        if (taskDeadline !== undefined && Date.now() >= taskDeadline) {
+          await this.cancel(task.id, { requestKey: `req_deadline_${execution.id}`, confirm: true }, '任务业务总时限已用完，已确认停止；请创建恢复任务');
+          return;
+        }
         if (execution.autoAdvance) this.#recomputeReady(execution, plan);
         const current = this.#store.executions.get(executionId)!;
         const failed = current.nodes.some((node) => node.status === NodeStatus.FAILED || node.status === NodeStatus.UNKNOWN);
-        if (!(failed && policy.pauseAfterFailure)) {
+        const sessionErrorsExceeded = (this.#store.settings.getJson<number>(`execution.session-errors.${executionId}`) ?? 0) >= policy.sessionErrorThreshold;
+        let waitingUntil: number | undefined;
+        const hasUnknown = current.nodes.some((node) => node.status === NodeStatus.UNKNOWN);
+        if (!sessionErrorsExceeded && !hasUnknown && !(failed && policy.pauseAfterFailure)) {
           for (const candidate of current.nodes.filter((node) => node.status === NodeStatus.READY)) {
+            if (this.#store.executions.get(executionId)!.status !== 'running') break;
             if (policy.pauseAfterFailure && this.#store.executions.get(executionId)!.nodes.some((node) => node.status === NodeStatus.FAILED || node.status === NodeStatus.UNKNOWN)) break;
             if (active.size >= policy.maxConcurrentNodes) break;
+            const retry = this.#store.settings.getJson<{ readyAt: number }>(`execution.retry-ready-at.${executionId}.${candidate.nodeId}`);
+            if (retry !== undefined && retry.readyAt > Date.now()) { waitingUntil = Math.min(waitingUntil ?? retry.readyAt, retry.readyAt); continue; }
+            if (this.#store.executions.listAttempts(executionId).length >= policy.maxTaskAttempts) {
+              this.#store.executions.updateNode(executionId, candidate.nodeId, { status: NodeStatus.FAILED, error: { code: ErrorCode.MODEL_BUDGET_EXCEEDED, message: '任务总尝试次数已用完，含首次；请创建恢复任务' } });
+              continue;
+            }
             const definition = plan.graph.nodes.find((node) => node.id === candidate.nodeId);
             if (definition === undefined) {
               this.#store.executions.updateNode(executionId, candidate.nodeId, { status: NodeStatus.FAILED, error: { code: 'NODE_NOT_EXECUTABLE', message: '步骤不在计划中' } });
@@ -735,12 +836,30 @@ export class ExecutionService {
             }
             const activeDefinitions = [...active.keys()].map((id) => plan.graph.nodes.find((node) => node.id === id)!);
             if (active.size > 0 && (!canShareWorkspace(definition) || activeDefinitions.some((node) => !canShareWorkspace(node)))) continue;
+            const designKey = `execution.design-started.${executionId}.${definition.groupId}`;
+            const designStartedAt = this.#store.settings.getJson<string>(designKey);
+            if (policy.timeoutEnabled && definition.kind === 'design' && designStartedAt !== undefined && Date.now() >= Date.parse(designStartedAt) + policy.designTimeoutMinutes * 60000) {
+              this.#store.executions.updateNode(executionId, candidate.nodeId, { status: NodeStatus.FAILED, error: { code: ErrorCode.MODEL_BUDGET_EXCEEDED, message: '设计阶段业务时限已用完；请创建恢复任务' } });
+              continue;
+            }
+            if (definition.kind === 'design' && designStartedAt === undefined) this.#store.settings.putJson(designKey, nowIso());
+            this.#store.settings.removeJson(`execution.retry-ready-at.${executionId}.${candidate.nodeId}`);
             const run = this.#runNode(task, current, plan, definition).finally(() => { active.delete(candidate.nodeId); });
             active.set(candidate.nodeId, run);
           }
         }
-        if (active.size > 0) {
-          await Promise.race(active.values());
+        if (active.size > 0 || waitingUntil !== undefined) {
+          if (active.size === 0 && waitingUntil !== undefined) this.#store.executions.update(executionId, { notice: { kind: 'paused', message: `已登记重试，按配置等待至 ${new Date(waitingUntil).toISOString()}；可暂停或停止` } });
+          const wakeAt = Math.min(waitingUntil ?? Infinity, taskDeadline ?? Infinity);
+          let wakeTimer: NodeJS.Timeout | undefined;
+          const waits: Promise<unknown>[] = [...active.values()];
+          let wake!: () => void;
+          waits.push(new Promise<void>((resolve) => { wake = resolve; }));
+          const listeners = this.#wakes.get(executionId) ?? new Set<() => void>();
+          listeners.add(wake);
+          this.#wakes.set(executionId, listeners);
+          if (Number.isFinite(wakeAt)) waits.push(new Promise<void>((resolve) => { wakeTimer = setTimeout(resolve, Math.max(1, wakeAt - Date.now())); }));
+          try { await Promise.race(waits); } finally { listeners.delete(wake); if (listeners.size === 0) this.#wakes.delete(executionId); if (wakeTimer !== undefined) clearTimeout(wakeTimer); }
           continue;
         }
         this.#settleIdleExecution(task, this.#store.executions.get(executionId)!, plan);
@@ -907,7 +1026,7 @@ export class ExecutionService {
   async #runNode(task: Task, execution: ExecutionView, plan: PlanRevision, node: PlanNode): Promise<void> {
     const settings = this.#context.settings();
     const workspace = task.workspaceId === undefined ? this.#store.workspaces.byTask(task.id) : this.#store.workspaces.get(task.workspaceId);
-    if (workspace === undefined || workspace.displayRoot === undefined) {
+    if (workspace === undefined || workspace.state !== 'ready' || workspace.displayRoot === undefined) {
       this.#store.executions.updateNode(execution.id, node.id, { status: 'failed', error: { code: 'WORKSPACE_NOT_READY', message: '工作区不可用' } });
       return;
     }
@@ -922,7 +1041,7 @@ export class ExecutionService {
     this.#store.executions.update(execution.id, { progress: { done: runningView.nodes.filter((item) => item.status === NodeStatus.SUCCEEDED).length, failed: runningView.nodes.filter((item) => item.status === NodeStatus.FAILED).length, running: runningView.nodes.filter((item) => item.status === NodeStatus.RUNNING).length, total: runningView.nodes.length } });
     this.#store.events.publish('execution.changed', { taskId: task.id, executionId: execution.id, status: 'running', revision: 1 });
 
-    const isCurrent = () => this.#store.executions.get(execution.id)?.nodes.find((item) => item.nodeId === node.id)?.currentAttemptId === attempt.id
+    const isCurrent = () => !this.#closed && this.#store.executions.get(execution.id)?.nodes.find((item) => item.nodeId === node.id)?.currentAttemptId === attempt.id
       && this.#store.executions.getAttempt(attempt.id)?.status === NodeStatus.RUNNING;
     const stopped = () => this.#stops.get(execution.id)?.attemptIds.includes(attempt.id) === true;
     const resultPromise = new Promise<AttemptResult>((resolve) => this.#resultWaiters.set(attempt.id, { resolve }));
@@ -1028,7 +1147,8 @@ export class ExecutionService {
             return 'reject'; // Frozen roles use guarded MCP routes exclusively.
           },
         },
-        timeoutMs: Math.min(executionPolicy(this.#store, execution.id, settings.execution).nodeTimeoutMinutes, role?.maxRuntimeMinutes ?? Infinity) * 60_000,
+        timeoutMs: executionTimeoutMs(executionPolicy(this.#store, execution.id, settings.execution), node, execution.startedAt, this.#store.settings.getJson<string>(`execution.design-started.${execution.id}.${node.groupId}`)),
+
         abortOnToolCall: ['result.submit', 'result-submit', 'result_submit'],
       });
       if (isCurrent() && !stopped()) {
@@ -1039,16 +1159,18 @@ export class ExecutionService {
     } catch (error) {
       flushText();
       if (!isCurrent() || stopped()) return;
-      this.#activeSessions.get(execution.id)?.delete(attempt.id);
+      const sessionKnown = this.#activeSessions.get(execution.id)?.has(attempt.id) === true;
+      if (!sessionKnown) this.#activeSessions.get(execution.id)?.delete(attempt.id);
       const message = error instanceof Error ? error.message : '执行失败';
-      this.#finishNode(execution.id, node.id, attempt.id, NodeStatus.FAILED, undefined, { code: 'OPENCODE_NOT_READY', message });
+      this.#finishNode(execution.id, node.id, attempt.id, sessionKnown ? NodeStatus.UNKNOWN : NodeStatus.FAILED, undefined, { code: 'OPENCODE_NOT_READY', message });
       return;
     }
 
     flushText();
+    if (this.#closed) return;
     const stopAfterRun = this.#stops.get(execution.id);
     if (stopAfterRun?.attemptIds.includes(attempt.id)) {
-      if (outcome.outcome.idle && !outcome.outcome.timedOut) {
+      if (outcome.outcome.idle || outcome.outcome.stoppedConfirmed === true) {
         stopAfterRun.confirmedAttempts.add(attempt.id);
         this.#settleStop(execution.id, stopAfterRun);
       }
@@ -1056,7 +1178,7 @@ export class ExecutionService {
     }
     if (!isCurrent()) return;
     this.#activeSessions.get(execution.id)?.delete(attempt.id);
-    if (outcome.outcome.idle && !outcome.outcome.timedOut) this.#idleAttempts.add(attempt.id);
+    if (outcome.outcome.idle || outcome.outcome.stoppedConfirmed === true) this.#idleAttempts.add(attempt.id);
     const attemptUsage = usageFromMessages(outcome.outcome.messages);
     let resultTimer: NodeJS.Timeout | undefined;
     const settled = await Promise.race([
@@ -1064,6 +1186,10 @@ export class ExecutionService {
       new Promise<'timeout'>((resolve) => { resultTimer = setTimeout(() => resolve('timeout'), 2500); }),
     ]);
     if (resultTimer !== undefined) clearTimeout(resultTimer);
+    if (!outcome.outcome.idle && outcome.outcome.stoppedConfirmed !== true) {
+      this.#finishNode(execution.id, node.id, attempt.id, NodeStatus.UNKNOWN, settled === 'timeout' ? undefined : settled, { code: outcome.outcome.timedOut ? 'MODEL_BUDGET_EXCEEDED' : 'OPENCODE_NOT_READY', message: outcome.outcome.timedOut ? '尝试/设计/任务时限到达，但会话停稳未确认；只核对原操作，不重投' : '会话连接结束但远端停稳未确认；只核对原操作，不重投' }, attemptUsage);
+      return;
+    }
     if (settled === 'timeout') {
       const error = outcome.outcome.error ?? (outcome.outcome.timedOut ? '步骤执行超时' : '模型未通过 workflow.result.submit 提交结果');
       this.#finishNode(execution.id, node.id, attempt.id, outcome.outcome.timedOut ? NodeStatus.UNKNOWN : NodeStatus.FAILED, undefined, {
@@ -1077,8 +1203,10 @@ export class ExecutionService {
   }
 
   #finishNode(executionId: string, nodeId: string, attemptId: string, status: NodeStatusValue, result?: AttemptResult, error?: { code: string; message: string }, usage?: TokenUsage): void {
+    if (this.#closed) return;
     const current = this.#store.executions.get(executionId)?.nodes.find((node) => node.nodeId === nodeId);
     if (current?.currentAttemptId !== attemptId || this.#store.executions.getAttempt(attemptId)?.status !== NodeStatus.RUNNING || this.#stops.get(executionId)?.attemptIds.includes(attemptId) === true) return;
+    if (status === NodeStatus.FAILED) this.#recordSessionError(executionId, attemptId, error);
     this.#idleAttempts.delete(attemptId);
     this.#store.executions.finishAttempt(attemptId, status, result, error?.message, usage);
     this.#resultWaiters.delete(attemptId);
@@ -1172,6 +1300,7 @@ ${projectDocumentInstructions(this.#store.projects.get(task.projectId)?.settings
 
   /** Read-only recovery drafts may be read, never executed. */
   #assertWritable(taskId: string, action: string): Task {
+    if (this.#closed) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '服务正在关闭，不能开始新的执行操作');
     const task = this.#requireTask(taskId);
     if (task.readOnly === true) throw readOnlyRecoveryError(action);
     if (this.#store.settings.getJson(`task.recovery-source-lock.${taskId}`) !== undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '原任务正在生成恢复快照，暂不能开始写入');

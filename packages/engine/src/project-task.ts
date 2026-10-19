@@ -37,7 +37,7 @@ import {
   nowIso,
   unresolvedPlanScopes,
 } from '@agent-workflow/shared';
-import { executionSettingsKey } from './execution-policy.ts';
+import { executionPolicy as frozenExecutionPolicy } from './execution-policy.ts';
 import type { Store } from '@agent-workflow/storage';
 import { READ_ONLY_RECOVERY_REASON, computeTaskActions, computeTaskAttention, planningView, readNodeAcceptance, readOnlyRecoveryError } from './actions.ts';
 import type { CommandService } from './operations.ts';
@@ -347,7 +347,9 @@ export class TaskService {
       opencodeReady: this.#context.opencodeReady(),
       planningBudgetConfigured: this.#context.planningBudgetConfigured(),
       gitlabConfigured: this.#context.gitlabConfigured(),
-      executionPolicy: execution === undefined ? undefined : this.#store.settings.getJson<import('@agent-workflow/shared').ExecutionSettings>(executionSettingsKey(execution.id)) ?? this.#context.settings().execution,
+      taskAttemptCount: execution === undefined ? 0 : this.#store.executions.listAttempts(execution.id).length,
+      sessionErrorCount: execution === undefined ? 0 : this.#store.settings.getJson<number>(`execution.session-errors.${execution.id}`) ?? 0,
+      executionPolicy: execution === undefined ? undefined : frozenExecutionPolicy(this.#store, execution.id, this.#context.settings().execution),
       retryRejectedNodeIds: execution === undefined ? [] : execution.nodes.filter((node) => readNodeAcceptance(this.#store, execution.id, node.nodeId)?.state === 'rejected').map((node) => node.nodeId),
     });
     return {

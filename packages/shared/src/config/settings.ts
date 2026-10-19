@@ -88,11 +88,26 @@ export interface PlanningSettings {
   readonly recordRetentionDays: number;
 }
 
+export interface ExecutionRetryDelay {
+  readonly initialMs: number;
+  readonly maxMs: number;
+}
+
 export interface ExecutionSettings {
   readonly autoAdvanceByDefault: boolean;
   readonly maxConcurrentNodes: number;
   /** Total attempts per node, including the first dispatch. No automatic retry. */
   readonly maxAttempts: number;
+  readonly maxTaskAttempts: number;
+  readonly sessionErrorThreshold: number;
+  readonly timeoutEnabled: boolean;
+  readonly taskTimeoutMinutes: number;
+  readonly designTimeoutMinutes: number;
+  readonly retryDelays: {
+    readonly modelRateLimit: ExecutionRetryDelay;
+    readonly sessionError: ExecutionRetryDelay;
+    readonly verificationFailure: ExecutionRetryDelay;
+  };
   readonly pauseAfterFailure: boolean;
   readonly nodeTimeoutMinutes: number;
   readonly pauseTimeoutMs: number;
@@ -210,6 +225,16 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoAdvanceByDefault: true,
     maxConcurrentNodes: 1,
     maxAttempts: 3,
+    maxTaskAttempts: 10,
+    sessionErrorThreshold: 3,
+    timeoutEnabled: false,
+    taskTimeoutMinutes: 1440,
+    designTimeoutMinutes: 240,
+    retryDelays: {
+      modelRateLimit: { initialMs: 1000, maxMs: 60000 },
+      sessionError: { initialMs: 1000, maxMs: 30000 },
+      verificationFailure: { initialMs: 0, maxMs: 30000 },
+    },
     pauseAfterFailure: true,
     nodeTimeoutMinutes: 30,
     pauseTimeoutMs: 15000,
@@ -290,6 +315,15 @@ export function validateSettings(settings: AppSettings): SettingsIssue[] {
   }
   if (!Number.isInteger(settings.execution.maxConcurrentNodes) || settings.execution.maxConcurrentNodes < 1 || settings.execution.maxConcurrentNodes > 16) issues.push({ path: 'execution.maxConcurrentNodes', message: '并发节点数需要在 1–16 之间' });
   if (!Number.isInteger(settings.execution.maxAttempts) || settings.execution.maxAttempts < 1 || settings.execution.maxAttempts > 10) issues.push({ path: 'execution.maxAttempts', message: '单节点总尝试上限需要在 1–10 之间，含首次执行' });
+  for (const [field, min, max] of [['maxTaskAttempts', 1, 50], ['sessionErrorThreshold', 1, 10], ['taskTimeoutMinutes', 1, 10080], ['designTimeoutMinutes', 1, 1440]] as const) {
+    const value = settings.execution[field];
+    if (!Number.isInteger(value) || value < min || value > max) issues.push({ path: `execution.${field}`, message: `需要在 ${min}–${max} 之间的整数` });
+  }
+  if (typeof settings.execution.timeoutEnabled !== 'boolean') issues.push({ path: 'execution.timeoutEnabled', message: '业务超时开关必须是布尔值' });
+  for (const key of ['modelRateLimit', 'sessionError', 'verificationFailure'] as const) {
+    const delay = settings.execution.retryDelays?.[key];
+    if (delay === undefined || !Number.isInteger(delay.initialMs) || !Number.isInteger(delay.maxMs) || delay.initialMs < 0 || delay.maxMs < delay.initialMs || delay.maxMs > 300000) issues.push({ path: `execution.retryDelays.${key}`, message: '等待时间需为 0–300000ms 整数，最长等待不得小于初始等待' });
+  }
   if (typeof settings.execution.pauseAfterFailure !== 'boolean') issues.push({ path: 'execution.pauseAfterFailure', message: '失败后暂停必须是布尔值' });
   for (const [field, min, max] of [['nodeTimeoutMinutes', 1, 1440], ['pauseTimeoutMs', 1, 120000], ['verifyCommandTimeoutMs', 1, 7200000]] as const) {
     const value = settings.execution[field];

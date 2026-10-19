@@ -136,6 +136,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   registerReviewRoutes(app, { engine, store });
   registerDirectoryApplyRoutes(app, { engine, store });
   app.addHook('onClose', async () => {
+    engine.executions.shutdown();
     await adapter?.stop().catch(() => undefined);
     await databaseService.closeAll().catch(() => undefined);
     store.close();

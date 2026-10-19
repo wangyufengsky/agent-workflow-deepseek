@@ -258,6 +258,7 @@ export const executionMachine: StateMachineDef<ExecutionStatusValue> = {
     t([ExecutionStatus.STOPPING], ExecutionStatus.UNKNOWN, 'execution.unknown', '停止回执不明'),
     t([ExecutionStatus.UNKNOWN], ExecutionStatus.RUNNING, 'execution.reconcile.running', '核对确认仍在运行'),
     t([ExecutionStatus.UNKNOWN], ExecutionStatus.STOPPED, 'execution.reconcile.stopped', '核对确认已停止'),
+    t([ExecutionStatus.UNKNOWN], ExecutionStatus.PAUSED, 'execution.reconcile.paused', '核对确认原会话已结束，等待用户处理后续'),
     t([ExecutionStatus.UNKNOWN], ExecutionStatus.FAILED, 'execution.reconcile.failed', '核对确认失败'),
     t([ExecutionStatus.UNKNOWN], ExecutionStatus.COMPLETED, 'execution.reconcile.completed', '核对确认完成'),
   ],

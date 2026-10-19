@@ -789,3 +789,11 @@ export type KnowledgeRunStatusValue = typeof KnowledgeRunStatus[keyof typeof Kno
 /** PPT direction choices are independent of application skin. */
 export const PptVisualDirection = { RESTRAINED: 'restrained', EDITORIAL: 'editorial', CONTRAST: 'contrast' } as const;
 export type PptVisualDirectionValue = (typeof PptVisualDirection)[keyof typeof PptVisualDirection];
+
+export const ExecutionRetryClass = {
+  MODEL_RATE_LIMIT: 'model_rate_limit',
+  SESSION_ERROR: 'session_error',
+  VERIFICATION_FAILURE: 'verification_failure',
+  OTHER: 'other',
+} as const;
+export type ExecutionRetryClassValue = (typeof ExecutionRetryClass)[keyof typeof ExecutionRetryClass];

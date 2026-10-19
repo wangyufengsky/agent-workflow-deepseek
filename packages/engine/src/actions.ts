@@ -170,6 +170,8 @@ export function computeTaskActions(input: {
   readonly gitlabConfigured: boolean;
   readonly executionPolicy?: ExecutionSettings;
   readonly retryRejectedNodeIds?: readonly string[];
+  readonly taskAttemptCount?: number;
+  readonly sessionErrorCount?: number;
 }): Record<string, ActionAvailability> {
   const { task, plan, round, execution, workspace, delivery } = input;
   const fixed = task.fixedTemplate !== undefined;
@@ -248,14 +250,17 @@ export function computeTaskActions(input: {
       );
   actions.pauseExecution = execution?.status === 'running' ? allowed() : denied(Rationale.OPERATION_IN_PROGRESS, '当前没有运行中的执行');
   const retryNodes = execution?.nodes.filter((node) => node.status === 'failed' || input.retryRejectedNodeIds?.includes(node.nodeId)) ?? [];
+  const totalExhausted = input.executionPolicy !== undefined && (input.taskAttemptCount ?? 0) >= input.executionPolicy.maxTaskAttempts;
+  const sessionExhausted = input.executionPolicy !== undefined && (input.sessionErrorCount ?? 0) >= input.executionPolicy.sessionErrorThreshold;
+  const deadlineExhausted = input.executionPolicy?.timeoutEnabled === true && execution?.startedAt !== undefined && Date.now() >= Date.parse(execution.startedAt) + input.executionPolicy.taskTimeoutMinutes * 60000;
   const attemptsExhausted = retryNodes.some((node) => node.attemptCount >= (input.executionPolicy?.maxAttempts ?? 3));
   const activeNodes = execution?.nodes.some((node) => node.status === 'running' || node.status === 'unknown') ?? false;
-  actions.retryExecution = execution !== undefined && ['failed', 'stopped', 'paused', 'unknown'].includes(execution.status) && !activeNodes && (retryNodes.length > 0 || (execution.status === 'stopped' && execution.nodes.some((node) => node.status === 'pending' || node.status === 'ready'))) && !attemptsExhausted
+  actions.retryExecution = execution !== undefined && ['failed', 'stopped', 'paused', 'unknown'].includes(execution.status) && !activeNodes && (retryNodes.length > 0 || (execution.status === 'stopped' && execution.nodes.some((node) => node.status === 'pending' || node.status === 'ready'))) && !attemptsExhausted && !totalExhausted && !sessionExhausted && !deadlineExhausted
     ? allowed()
-    : denied(Rationale.OPERATION_IN_PROGRESS, activeNodes || execution?.status === 'unknown' ? '仍有活动或未知步骤，请先只读核对停稳' : attemptsExhausted ? `已达到单节点总尝试上限（${input.executionPolicy?.maxAttempts ?? 3} 次，含首次）；请创建恢复任务` : '当前没有可按原配置重试的失败或退回步骤');
-  actions.resumeExecution = execution?.status === 'paused' && !(retryNodes.length > 0 && input.executionPolicy?.pauseAfterFailure === true)
+    : denied(Rationale.OPERATION_IN_PROGRESS, activeNodes || execution?.status === 'unknown' ? '仍有活动或未知步骤，请先只读核对停稳' : totalExhausted ? '任务总尝试次数已用完；请创建恢复任务' : sessionExhausted ? '会话异常已达阈值；请检查环境后创建恢复任务' : deadlineExhausted ? '任务业务总时限已用完；请创建恢复任务' : attemptsExhausted ? `已达到单节点总尝试上限（${input.executionPolicy?.maxAttempts ?? 3} 次，含首次）；请创建恢复任务` : '当前没有可按原配置重试的失败或退回步骤');
+  actions.resumeExecution = execution?.status === 'paused' && !deadlineExhausted && !(retryNodes.length > 0 && input.executionPolicy?.pauseAfterFailure === true)
     ? allowed()
-    : denied(Rationale.OPERATION_IN_PROGRESS, retryNodes.length > 0 ? '先处理失败或退回步骤，再继续执行' : '当前没有暂停的执行');
+    : denied(Rationale.OPERATION_IN_PROGRESS, deadlineExhausted ? '任务业务总时限已用完；请停止后创建恢复任务' : retryNodes.length > 0 ? '先处理失败或退回步骤，再继续执行' : '当前没有暂停的执行');
   actions.cancelExecution = execution !== undefined && (execution.status === 'running' || execution.status === 'paused' || execution.status === 'pausing')
     ? allowed()
     : denied(Rationale.OPERATION_IN_PROGRESS, '当前没有可取消的执行');

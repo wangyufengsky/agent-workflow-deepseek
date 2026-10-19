@@ -187,7 +187,7 @@ export class ExecutionRepository {
 
   createAttempt(input: { executionId: string; nodeId: string; ordinal: number }): Attempt {
     const dbRow = this.#db.prepare('SELECT MAX(ordinal) AS max FROM attempts WHERE execution_id = ? AND node_id = ?').get(input.executionId, input.nodeId) as { max: number | null };
-    const ordinal = Math.max(Number(dbRow.max ?? 0), input.ordinal) + 1;
+    const ordinal = Math.max(Number(dbRow.max ?? 0) + 1, input.ordinal);
     const attempt: Attempt = {
       id: createId('attempt'),
       executionId: input.executionId,
@@ -215,8 +215,16 @@ export class ExecutionRepository {
     return rows.map(mapAttempt);
   }
 
+  /** Persist a submission before the remote session ends, without claiming execution success. */
+  saveSubmittedResult(id: string, result: AttemptResult): boolean {
+    const saved = this.#db.prepare("UPDATE attempts SET result_json = ?, readability_json = ? WHERE id = ? AND status = 'running' AND result_json IS NULL")
+      .run(jsonStringify(result), jsonStringify({ output: 'ok', tools: 'ok', result: 'ok' }), id);
+    return Number(saved.changes) === 1;
+  }
+
   finishAttempt(id: string, status: NodeStatusValue, result?: AttemptResult, error?: string, usage?: Attempt['usage']): void {
     const endedAt = nowIso();
+    result ??= this.getAttempt(id)?.result;
     this.#db
       .prepare('UPDATE attempts SET status = ?, ended_at = ?, result_json = ?, readability_json = ?, usage_json = ? WHERE id = ?')
       .run(

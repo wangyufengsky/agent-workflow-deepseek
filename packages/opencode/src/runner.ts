@@ -22,6 +22,7 @@ export interface PermissionRequest {
 }
 
 export interface RunPromptOptions {
+  /** 0 disables the deadline; used when business timeout is explicitly off. */
   readonly timeoutMs: number;
   readonly abortOnEvent?: (event: { type: string; properties: Record<string, unknown> }) => boolean;
   readonly abortGraceMs?: number;
@@ -30,6 +31,8 @@ export interface RunPromptOptions {
 export interface PromptOutcome {
   readonly idle: boolean;
   readonly timedOut: boolean;
+  /** Runtime explicitly acknowledged abort; local stream closure alone is not enough. */
+  readonly stoppedConfirmed?: boolean;
   readonly error?: string;
   readonly assistantText: string;
   readonly messages: readonly OpenCodeMessage[];
@@ -64,6 +67,7 @@ export class SessionRunner {
     this.#abort = abort;
     let idle = false;
     let timedOut = false;
+    let stoppedConfirmed = false;
     let error: string | undefined;
     let idleResolve: (() => void) | undefined;
     const idlePromise = new Promise<void>((resolve) => {
@@ -71,6 +75,7 @@ export class SessionRunner {
     });
     let sawEventToAbort = false;
     let graceTimer: NodeJS.Timeout | undefined;
+    let deadlineTimer: NodeJS.Timeout | undefined;
 
     const consume = (async () => {
       try {
@@ -152,7 +157,9 @@ export class SessionRunner {
           }
           if (!sawEventToAbort && options.abortOnEvent?.(event) === true) {
             sawEventToAbort = true;
-            graceTimer = setTimeout(() => abort.abort(), options.abortGraceMs ?? 1500);
+            graceTimer = setTimeout(() => {
+              void this.#client.abort(this.#sessionId).then((confirmed) => { stoppedConfirmed = confirmed; }).catch(() => {}).finally(() => abort.abort());
+            }, options.abortGraceMs ?? 1500);
           }
         }
       } catch (caught) {
@@ -168,25 +175,27 @@ export class SessionRunner {
     try {
       await this.#client.promptAsync(this.#sessionId, input);
       const timeout = new Promise<void>((resolve) => {
-        setTimeout(() => {
+        if (options.timeoutMs > 0) deadlineTimer = setTimeout(() => {
           timedOut = true;
           resolve();
         }, options.timeoutMs);
       });
       await Promise.race([idlePromise, timeout]);
       if (timedOut && !idle) {
-        await this.#client.abort(this.#sessionId).catch(() => undefined);
+        stoppedConfirmed = await this.#client.abort(this.#sessionId).catch(() => false);
         abort.abort();
       }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : '发送提示失败';
     } finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
       if (graceTimer !== undefined) clearTimeout(graceTimer);
-      const timer = setTimeout(() => abort.abort(), 5000);
+      let drainTimer: NodeJS.Timeout | undefined;
+      const drainTimeout = new Promise<void>((resolve) => { drainTimer = setTimeout(() => { abort.abort(); resolve(); }, 5000); });
       try {
-        await Promise.race([consume, new Promise((resolve) => setTimeout(resolve, 5000))]);
+        await Promise.race([consume, drainTimeout]);
       } finally {
-        clearTimeout(timer);
+        if (drainTimer !== undefined) clearTimeout(drainTimer);
         abort.abort();
         this.#abort = undefined;
         this.#running = false;
@@ -195,7 +204,7 @@ export class SessionRunner {
 
     const messages = await this.#client.messages(this.#sessionId).catch(() => []);
     const assistantText = collectAssistantText(messages);
-    return { idle, timedOut, error, assistantText, messages };
+    return { idle, timedOut, stoppedConfirmed, error, assistantText, messages };
   }
 
   async abort(): Promise<void> {

@@ -1,9 +1,10 @@
 import { readNodeAcceptance } from './actions.ts';
 import { createRecoveryWorkspace } from './recovery-workspace.ts';
 import type { GitPort } from './ports.ts';
-import { executionSettingsKey } from './execution-policy.ts';
+import { executionPolicy, executionSettingsKey } from './execution-policy.ts';
 import {
   AppError,
+  DEFAULT_SETTINGS,
   DELIVERY_PROJECTION_LABEL,
   ErrorCode,
   EXECUTION_STATUS_LABEL,
@@ -396,7 +397,9 @@ export class RecoveryService {
     if (workspace !== undefined && ['preparing', 'cleaning'].includes(workspace.state)) {
       throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '原任务工作区正在准备/清理，请等待结束再恢复', { details: { state: workspace.state } });
     }
-    if (task.lifecycle === 'active' && task.attention === 'none') {
+    const policy = execution === undefined ? undefined : executionPolicy(this.#store, execution.id, this.#store.settings.getJson<ExecutionSettings>(`task.execution-settings.${task.id}`) ?? this.#store.settings.getJson<ExecutionSettings>(executionSettingsKey(execution.id)) ?? DEFAULT_SETTINGS.execution);
+    const expired = policy?.timeoutEnabled === true && execution?.startedAt !== undefined && Date.now() >= Date.parse(execution.startedAt) + policy.taskTimeoutMinutes * 60000;
+    if (task.lifecycle === 'active' && task.attention === 'none' && !expired) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '原任务没有需要恢复的失败或阻断上下文', { details: { stage: task.stage } });
     }
   }

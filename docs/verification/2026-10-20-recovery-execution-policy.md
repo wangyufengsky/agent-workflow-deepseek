@@ -20,4 +20,4 @@
 
 ## Remaining design work
 
-The design's optional total-task/attempt/design business deadlines, total task-attempt budget, session-error threshold, and classified retry delays are not included in this commit. They remain required follow-up work and are not treated as completed by a UI disclaimer. Real OpenCode parallel execution and native GUI verification also remain outstanding.
+The design's optional total-task/attempt/design deadlines, whole-task attempt budget, session-error threshold and classified waits are implemented in the subsequent business-limits patch; see 2026-10-20-execution-business-limits.md. Real OpenCode parallel execution and native GUI verification remain outstanding.
