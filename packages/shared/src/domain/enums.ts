@@ -511,6 +511,7 @@ export const OperationKind = {
   OPENCODE_RESTART: 'opencode.restart',
   OPERATION_RECONCILE: 'operations.by-key',
   TEMPLATE_TASK_CREATE: 'template.task.create',
+  TASK_RECOVERY_CREATE: 'task.recovery.create',
 } as const;
 export type OperationKindValue = (typeof OperationKind)[keyof typeof OperationKind];
 
@@ -559,6 +560,7 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'task.delivery.mergeRequest.create': op('task.delivery.mergeRequest.create', 'task', true, '创建合并请求'),
   'task.delivery.merge': op('task.delivery.merge', 'task', true, '合并任务分支'),
   'task.delivery.apply': op('task.delivery.apply', 'task', true, '应用到原目录'),
+  'task.recovery.create': op('task.recovery.create', 'task', true, '创建恢复草稿'),
   'git.fetch': op('git.fetch', 'git', true, '获取远端更新'),
   'review.start': op('review.start', 'git', true, '开始 AI 审查'),
   'review.stop': op('review.stop', 'git', true, '停止 AI 审查'),

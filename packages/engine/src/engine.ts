@@ -2,6 +2,7 @@ import type { AppSettings, CatalogSnapshot, PublicSettings } from '@agent-workfl
 import { DEFAULT_CATALOG, DEFAULT_SETTINGS, mergeSettings } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import { CommandService } from './operations.ts';
+import { RecoveryService } from './recovery.ts';
 import { ProjectService, TaskService, InboxService } from './project-task.ts';
 import { PlanningService } from './planning.ts';
 import { PlanService } from './plan.ts';
@@ -35,6 +36,7 @@ export class Engine {
   readonly projects: ProjectService;
   readonly tasks: TaskService;
   readonly inbox: InboxService;
+  readonly recoveries: RecoveryService;
   readonly planning: PlanningService;
   readonly plans: PlanService;
   readonly workspaces: WorkspaceService;
@@ -60,6 +62,7 @@ export class Engine {
     this.projects = new ProjectService(this.store, this.ports.git, this.commands, this.context);
     this.tasks = new TaskService(this.store, this.commands, this.context, this.projects);
     this.inbox = new InboxService(this.store, this.tasks);
+    this.recoveries = new RecoveryService({ store: this.store, commands: this.commands });
     this.planning = new PlanningService(this.store, this.commands, this.context, this.ports.opencode, () => this.tasks);
     this.plans = new PlanService(this.store, this.commands, this.context, this.ports.git, () => this.tasks);
     this.workspaces = new WorkspaceService(this.store, this.commands, this.context, this.ports.git);

@@ -3,7 +3,7 @@ import { extname, join, normalize } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   ApiEnvelope,
-  GitLabConnectionRequest,
+  RecoveryCreateRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
   CommandRequest,
@@ -29,7 +29,7 @@ import type {
   DeliveryCommitRequest,
   DeliveryPushRequest,
   DeliveryMergeRequest,
-
+  GitLabConnectionRequest,
 } from '@agent-workflow/shared';
 import { AppError, ErrorCode, THEMES, THEME_ORDER, createId, mergeSettings, nowIso, validateSettings, type AppSettings } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
@@ -448,6 +448,15 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const result = await fetchImpl.call(engine.ports.git, { repoRoot: project.rootPath, remote: 'origin', prune: true });
     store.events.publish('git.repo.changed', { projectId: project.id });
     return envelope({ fetchedAt: result.fetchedAt }, requestId(request));
+  });
+
+  // Task recovery (derived draft only; the parent task is never mutated)
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/recovery', async (request) => {
+    const body = request.body as RecoveryCreateRequest;
+    return envelope(await engine.recoveries.create(request.params.id, body), requestId(request));
+  });
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/recoveries', async (request) => {
+    return envelope(engine.recoveries.list(request.params.id), requestId(request));
   });
 
   // Operations

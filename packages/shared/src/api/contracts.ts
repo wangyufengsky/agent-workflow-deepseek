@@ -1,4 +1,4 @@
-import type { IsoDateTime, RequestKey } from '../ids.ts';
+import type { IsoDateTime, RequestKey, TaskId } from '../ids.ts';
 import type { ErrorCodeValue } from '../errors.ts';
 import type { AppEventEnvelope } from '../domain/events.ts';
 import type {
@@ -40,7 +40,7 @@ import type {
   WorkspaceCleanupPreview,
 } from '../domain/models.ts';
 import type { AppSettings, IntegrationStatus, PublicSettings, SettingsIssue } from '../config/settings.ts';
-import type { ThemeMeta } from '../domain/enums.ts';
+import type { TaskLifecycleValue, TaskStageValue, ThemeMeta } from '../domain/enums.ts';
 
 /* ------------------------------------------------------------------ */
 /* Envelope                                                            */
@@ -197,6 +197,34 @@ export interface TaskDetailResponse {
   readonly workspace?: TaskWorkspace;
   readonly delivery?: TaskDelivery;
   readonly capabilities: Record<string, ActionAvailability>;
+}
+
+export const RECOVERY_MODES = ['from_failed_stage', 'all_stages', 'verify_only'] as const;
+export type RecoveryModeValue = (typeof RECOVERY_MODES)[number];
+
+export interface RecoveryCreateRequest extends CommandRequest {
+  readonly mode: RecoveryModeValue;
+  readonly confirmCreate: true;
+  readonly note?: string;
+}
+
+export interface RecoveryRecord {
+  readonly taskId: TaskId;
+  readonly parentTaskId: TaskId;
+  readonly mode: RecoveryModeValue;
+  readonly title: string;
+  readonly stage: TaskStageValue;
+  readonly lifecycle: TaskLifecycleValue;
+  readonly createdAt: IsoDateTime;
+}
+
+export interface RecoveryCreateResponse {
+  readonly task: Task;
+  readonly recovery: RecoveryRecord;
+}
+
+export interface RecoveryHistoryResponse {
+  readonly recoveries: readonly RecoveryRecord[];
 }
 
 export interface RequirementResponse {
@@ -705,6 +733,8 @@ export const ROUTES = {
   tasks: '/api/tasks',
   task: (id: string) => `/api/tasks/${encodeURIComponent(id)}`,
   taskDetail: (id: string) => `/api/tasks/${encodeURIComponent(id)}/detail`,
+  taskRecovery: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recovery`,
+  taskRecoveries: (id: string) => `/api/tasks/${encodeURIComponent(id)}/recoveries`,
   requirement: (id: string) => `/api/tasks/${encodeURIComponent(id)}/requirement`,
   planning: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning`,
   planningPreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/planning/preview`,

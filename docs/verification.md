@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**288 tests / 54 suites / 280 pass / 8 skipped / 0 fail**，约 24s。
+结果（本轮）：**289 tests / 54 suites / 281 pass / 8 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -40,6 +40,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/apply | 非 Git 三方预览 → 冻结 → 逐项应用：真实 prepare baseline、无冲突写入、冲突处理、备份、漂移拒绝、路径逃逸 |
 | server/push-mr | 本地 bare 远端 push 创建/非快进拒绝；GitHub/GitLab REST 创建 MR（stub）→ delivered/lifecycle completed |
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
+| server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
@@ -181,7 +182,16 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 结果：应用启动后若本地服务未运行，主进程用 `.build/server/main.mjs` 拉起受管服务（Electron RUN_AS_NODE），
 等待 `/api/health` 后加载本地 Web；截图见 `electron-selfhosted-home.png`。退出时子进程收到 SIGTERM 并正常关闭。
 
-## 7. 已知限制 / 未验证
+## 7. 任务恢复（PASS）
+
+`POST /api/tasks/:id/recovery` + `GET /api/tasks/:id/recoveries`：
+- 仅对失败/受阻/已取消任务创建派生草稿；原任务、执行证据与交付记录不变。
+- `from_failed_stage / all_stages / verify_only` 三种方式，草稿为 `draft` 阶段，不自动规划/执行。
+- requestKey 幂等（重放返回同一草稿）、回执结算、操作表登记 `task.recovery.create`。
+- UI 恢复工作台已接线：真实任务摘要、方式选择、创建后跳转需求画布、派生草稿历史。
+测试：`tests/integration/recovery-api.test.ts` PASS。
+
+## 8. 已知限制 / 未验证
 
 - Git 远端写：fetch 用本地远端验证；MR 创建用 GitHub/GitLab 桩服务验证；真实 GitHub push / 创建 MR / 直接合并
   未执行（避免修改真实仓库），真实 GitLab 未连接。

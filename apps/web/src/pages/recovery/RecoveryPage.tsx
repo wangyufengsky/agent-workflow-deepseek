@@ -1,6 +1,16 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { TASK_ATTENTION_LABEL, TaskAttention, type TaskSummary } from '@agent-workflow/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  TASK_ATTENTION_LABEL,
+  TaskAttention,
+  createRequestKey,
+  type RecoveryCreateRequest,
+  type RecoveryCreateResponse,
+  type RecoveryHistoryResponse,
+  type TaskSummary,
+} from '@agent-workflow/shared';
+import { apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
 import { useBootstrap } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
 import { deriveTaskStatus, taskHref, taskProgressText } from '../../app/taskStatus.ts';
@@ -35,8 +45,7 @@ const MODES: readonly { readonly id: RecoveryMode; readonly title: string; reado
   },
 ];
 
-const RECOVERY_BLOCKED_REASON = '恢复创建接口尚未接通：服务端没有 POST /api/tasks/:id/recovery，本页不会创建派生草稿。';
-const HISTORY_BLOCKED_REASON = '派生草稿记录接口尚未接通：服务端没有恢复记录查询，无法展示历史派生草稿。';
+const RECOVERY_REQUIRES_TASK_REASON = '先从左侧选择一个需要恢复的任务，再创建派生草稿。';
 
 function TaskContext({ task }: { readonly task: TaskSummary }) {
   const status = deriveTaskStatus(task);
@@ -97,12 +106,41 @@ function TaskContext({ task }: { readonly task: TaskSummary }) {
 export function RecoveryPage() {
   const params = useParams<{ taskId?: string }>();
   const [search] = useSearchParams();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const bootstrap = useBootstrap();
   const [mode, setMode] = useState<RecoveryMode>('from_failed_stage');
+  const [notice, setNotice] = useState<string | undefined>(undefined);
+  const [failure, setFailure] = useState<string | undefined>(undefined);
 
   const taskId = params.taskId ?? search.get('taskId') ?? '';
   const tasks = bootstrap.data?.tasks ?? [];
   const task = tasks.find((item) => item.id === taskId);
+  const history = useQuery({
+    queryKey: ['recovery', 'history', taskId],
+    queryFn: async () => (await apiGet<RecoveryHistoryResponse>(`/api/tasks/${encodeURIComponent(taskId)}/recoveries`)).data,
+    enabled: taskId.length > 0,
+    retry: false,
+  });
+  const createRecovery = useMutation({
+    mutationFn: async () => {
+      const payload: RecoveryCreateRequest = { requestKey: createRequestKey(), mode, confirmCreate: true };
+      return (await apiPost<RecoveryCreateResponse>(`/api/tasks/${encodeURIComponent(taskId)}/recovery`, payload)).data;
+    },
+    onSuccess: async (created) => {
+      setFailure(undefined);
+      setNotice(`已创建派生草稿：${created.task.title}`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+        queryClient.invalidateQueries({ queryKey: ['recovery', 'history', taskId] }),
+      ]);
+      navigate(`/requirement/${created.task.id}`);
+    },
+    onError: (error) => {
+      setNotice(undefined);
+      setFailure(isServiceUnavailable(error) ? '服务未连接，未创建派生草稿。' : errorMessage(error));
+    },
+  });
   const candidates = useMemo(
     () => tasks.filter((item) => item.attention !== TaskAttention.NONE),
     [tasks],
@@ -181,7 +219,7 @@ export function RecoveryPage() {
           <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
             恢复只生成一个派生草稿，不会开始执行。原任务、执行证据和失败记录保持不变；创建前由服务端核对原任务已停止与权限。
           </p>
-          <Button variant="primary" icon="layers" disabled disabledReason={RECOVERY_BLOCKED_REASON} style={{ marginTop: 12 }}>
+          <Button variant="primary" icon="layers" disabled disabledReason={RECOVERY_REQUIRES_TASK_REASON} style={{ marginTop: 12 }}>
             创建恢复草稿
           </Button>
         </div>
@@ -205,12 +243,12 @@ export function RecoveryPage() {
               </div>
             </div>
             <div className="card-body">
-              <div className="banner unknown" style={{ marginBottom: 14 }}>
-                <Icon name="lock" />
+              <div className="banner info" style={{ marginBottom: 14 }}>
+                <Icon name="info" />
                 <div className="grow">
-                  <b>恢复能力尚未接通</b>
+                  <b>只创建派生草稿</b>
                   <br />
-                  选项可以查看，但创建草稿需要服务端接口；当前不会发出任何恢复写操作。
+                  原任务、执行证据与失败记录保持不变；草稿创建后在需求画布中重新规划。
                 </div>
               </div>
               <div role="radiogroup" aria-label="恢复方式" className="col" style={{ gap: 10 }}>
@@ -229,7 +267,6 @@ export function RecoveryPage() {
                       style={{
                         textAlign: 'left',
                         padding: 14,
-                        opacity: 0.72,
                         borderColor: checked ? 'var(--accent-line)' : undefined,
                         background: checked ? 'var(--accent-fill)' : undefined,
                       }}
@@ -257,9 +294,11 @@ export function RecoveryPage() {
               <p className="hint" style={{ marginTop: 14, lineHeight: 1.7 }}>
                 <b>只创建草稿，不会开始执行。</b>草稿准备好后，到任务页单独开始；创建前由服务端核对原任务已停止、你有权限。
               </p>
-              <Button variant="primary" icon="layers" disabled disabledReason={RECOVERY_BLOCKED_REASON} style={{ marginTop: 12 }}>
-                创建恢复草稿
+              <Button variant="primary" icon="layers" disabled={createRecovery.isPending} onClick={() => createRecovery.mutate()} style={{ marginTop: 12 }}>
+                {createRecovery.isPending ? '正在创建…' : '创建恢复草稿'}
               </Button>
+              {failure === undefined ? null : <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>{failure}</p>}
+              {notice === undefined ? null : <p className="hint" style={{ marginTop: 8 }}>{notice}</p>}
             </div>
           </section>
         </div>
@@ -272,20 +311,35 @@ export function RecoveryPage() {
             <div className="grow">
               <span className="section-title">派生草稿</span>
               <div className="hint" style={{ marginTop: 2 }}>
-                尚无派生草稿
+                {history.data === undefined ? '读取中…' : history.data.recoveries.length === 0 ? '尚无派生草稿' : `${String(history.data.recoveries.length)} 个派生草稿`}
               </div>
             </div>
-            <Badge tone="idle" icon="lock">
+            <Badge tone={history.data === undefined ? 'idle' : 'neutral'} icon="archive">
               只读
             </Badge>
           </div>
           <div className="card-body">
-            <EmptyState
-              compact
-              icon="archive"
-              title="还没有可读取的恢复记录"
-              description={HISTORY_BLOCKED_REASON}
-            />
+            {history.data === undefined ? (
+              <p className="hint">正在读取恢复记录…</p>
+            ) : history.data.recoveries.length === 0 ? (
+              <EmptyState compact icon="archive" title="还没有派生草稿" description="创建恢复草稿后，这里会列出派生任务；原任务保持不变。" />
+            ) : (
+              <div className="list" style={{ padding: 6 }}>
+                {history.data.recoveries.map((record) => (
+                  <Link key={record.taskId} className="list-row" to={`/tasks/${encodeURIComponent(record.taskId)}`}>
+                    <span className="tile"><Icon name="layers" /></span>
+                    <span className="grow" style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 13.5 }}>{record.title}</span>
+                      <span className="hint" style={{ display: 'block', marginTop: 2 }}>
+                        {record.mode} · {new Date(record.createdAt).toLocaleString('zh-CN')}
+                      </span>
+                    </span>
+                    <Badge tone="neutral">{record.stage}</Badge>
+                    <Icon name="chevRight" size="sm" />
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
@@ -293,7 +347,7 @@ export function RecoveryPage() {
           <Icon name="info" />
           <div className="grow">
             本页路径约定：<span className="mono">/recovery?taskId=…</span> 或 <span className="mono">/tasks/:taskId/recovery</span>。
-            接入恢复接口后，这里会显示服务端返回的派生草稿与执行权限。
+            恢复只生成草稿，不会自动开始规划或执行。
           </div>
         </div>
       </div>
@@ -306,7 +360,7 @@ export function RecoveryPage() {
     <div className="page">
       <PageHeader
         title="任务恢复"
-        lede="为失败或受阻的任务创建派生草稿。原任务、执行证据和失败记录保持不变；当前恢复接口尚未接通，本页只展示真实任务摘要。"
+        lede="为失败或受阻的任务创建派生草稿。原任务、执行证据和失败记录保持不变；恢复只创建草稿，不会自动开始。"
         actions={
           <LinkButton to="/tasks" variant="secondary" size="sm" icon="list">
             任务列表
