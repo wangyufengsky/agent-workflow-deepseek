@@ -42,7 +42,7 @@ import type { RemoteService } from './remote.ts';
 import { fileIdFor } from './adapters/git-cli.ts';
 import { detectOpenCodeBinaries } from './opencode-detect.ts';
 import { discoverSkills } from './skills.ts';
-import { listKnowledgeSources, searchKnowledgeSources } from './knowledge.ts';
+import { listKnowledgeSources, readKnowledgeSource, searchKnowledgeSources } from './knowledge.ts';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
@@ -482,6 +482,22 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const limit = Math.min(Math.max(Number(request.query.limit ?? 30), 1), 100);
     const project = engine.projects.get(projectId);
     return envelope({ projectId, query, matches: searchKnowledgeSources(project.rootPath, query, limit) }, requestId(request));
+  });
+  app.get<{ Querystring: { projectId?: string; path?: string } }>('/api/knowledge/source', async (request) => {
+    const projectId = request.query.projectId ?? '';
+    const path = request.query.path ?? '';
+    if (projectId === '' || path === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId 或 path');
+    const project = engine.projects.get(projectId);
+    try {
+      const source = readKnowledgeSource(project.rootPath, path);
+      return envelope({ projectId, ...source }, requestId(request));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '读取失败';
+      if (message === 'PATH_ESCAPE') throw new AppError(ErrorCode.PATH_ESCAPE, '来源路径越出项目目录');
+      if (message === 'SOURCE_NOT_READABLE') throw new AppError(ErrorCode.VALIDATION_FAILED, '来源不是可读文本，或超过 512KB');
+      if (message === 'SOURCE_NOT_TEXT') throw new AppError(ErrorCode.VALIDATION_FAILED, '来源包含二进制内容');
+      throw new AppError(ErrorCode.INTERNAL_ERROR, '读取来源失败');
+    }
   });
   app.get('/api/skills', async (request) => envelope({ skills: discoverSkills() }, requestId(request)));
   app.get('/api/insights', async (request) => envelope(engine.insights.summary(), requestId(request)));

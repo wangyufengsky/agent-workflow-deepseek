@@ -49,6 +49,13 @@ test('knowledge sources lists project docs read-only and skips ignored directori
     const short = await app.app.inject({ method: 'GET', url: `/api/knowledge/search?projectId=${projectId}&q=x` });
     assert.equal(short.statusCode, 400, short.body);
 
+    const content = await app.app.inject({ method: 'GET', url: `/api/knowledge/source?projectId=${projectId}&path=README.md` });
+    assert.equal(content.statusCode, 200, content.body);
+    assert.match(content.json().data.content as string, /# knowledge/);
+    const escape = await app.app.inject({ method: 'GET', url: `/api/knowledge/source?projectId=${projectId}&path=../etc/passwd` });
+    assert.equal(escape.statusCode, 400, escape.body);
+    assert.equal(escape.json().error.code, 'PATH_ESCAPE');
+
     const missing = await app.app.inject({ method: 'GET', url: '/api/knowledge/sources' });
     assert.equal(missing.statusCode, 400, missing.body);
   } finally {

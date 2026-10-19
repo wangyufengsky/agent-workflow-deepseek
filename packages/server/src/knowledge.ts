@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync, statSync, type Dirent } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readFileSync, readdirSync, realpathSync, statSync, type Dirent } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import type { KnowledgeSearchMatch, KnowledgeSource } from '@agent-workflow/shared';
 
 const EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.rst', '.json', '.yaml', '.yml']);
@@ -67,4 +67,33 @@ export function searchKnowledgeSources(rootPath: string, query: string, limit = 
     }
   }
   return matches;
+}
+
+
+const MAX_CONTENT_BYTES = 512 * 1024;
+
+/** Read one source by its inventory-relative path; never follows symlinks outside the root. */
+export function readKnowledgeSource(rootPath: string, relativePath: string): { path: string; content: string; bytes: number } {
+  if (relativePath.trim() === '' || relativePath.startsWith('/') || relativePath.split('/').includes('..')) {
+    throw new Error('PATH_ESCAPE');
+  }
+  const root = realpathSync(rootPath);
+  const candidate = resolve(root, relativePath);
+  const real = existsInRoot(candidate, root);
+  if (real === undefined) throw new Error('PATH_ESCAPE');
+  const info = statSync(real);
+  if (!info.isFile() || info.size > MAX_CONTENT_BYTES) throw new Error('SOURCE_NOT_READABLE');
+  const text = readFileSync(real, 'utf8');
+  if (text.includes('\u0000')) throw new Error('SOURCE_NOT_TEXT');
+  return { path: relativePath, content: text, bytes: info.size };
+}
+
+function existsInRoot(candidate: string, root: string): string | undefined {
+  try {
+    const real = realpathSync(candidate);
+    if (real !== root && !real.startsWith(`${root}${sep}`)) return undefined;
+    return real;
+  } catch {
+    return undefined;
+  }
 }

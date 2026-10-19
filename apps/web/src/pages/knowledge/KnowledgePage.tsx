@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { KnowledgeSearchResponse, KnowledgeSourcesResponse } from '@agent-workflow/shared';
+import type { KnowledgeSearchResponse, KnowledgeSourceContentResponse, KnowledgeSourcesResponse } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
 import { apiGet } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -8,6 +8,7 @@ import { Button } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { PendingBackendNotice, ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { Modal } from '../../components/Modal.tsx';
 
 const ASK_BLOCKED_REASON = '知识库问答接口尚未接通：服务端没有检索 / 对话 / 引用读取接口，问题不会发送，也没有模拟回答。';
 
@@ -23,7 +24,14 @@ export function KnowledgePage() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [submittedTerm, setSubmittedTerm] = useState('');
+  const [sourcePath, setSourcePath] = useState<string | null>(null);
   const projectId = selectedProjectId !== '' ? selectedProjectId : (projects[0]?.id ?? '');
+  const contentQuery = useQuery({
+    queryKey: ['knowledge', 'content', projectId, sourcePath],
+    queryFn: async () => (await apiGet<KnowledgeSourceContentResponse>(`/api/knowledge/source?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(sourcePath ?? '')}`)).data,
+    enabled: projectId !== '' && sourcePath !== null,
+    retry: false,
+  });
   const searchQuery = useQuery({
     queryKey: ['knowledge', 'search', projectId, submittedTerm],
     queryFn: async () => (await apiGet<KnowledgeSearchResponse>(`/api/knowledge/search?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(submittedTerm)}`)).data,
@@ -172,11 +180,12 @@ export function KnowledgePage() {
           ) : (
             <div className="list" style={{ marginTop: 10, maxHeight: 280, overflow: 'auto' }}>
               {sourcesQuery.data.sources.map((source) => (
-                <div key={source.path} className="list-row" style={{ cursor: 'default' }}>
+                <button key={source.path} type="button" className="list-row" onClick={() => { setSourcePath(source.path); }}>
                   <span className="tile"><Icon name="doc" size="sm" /></span>
-                  <span className="grow mono" style={{ fontSize: 12.5, wordBreak: 'break-all' }}>{source.path}</span>
+                  <span className="grow mono" style={{ fontSize: 12.5, wordBreak: 'break-all', textAlign: 'left' }}>{source.path}</span>
                   <span className="hint">{Math.max(1, Math.round(source.bytes / 1024))} KB</span>
-                </div>
+                  <Icon name="chevRight" size="sm" />
+                </button>
               ))}
             </div>
           )}
@@ -249,7 +258,23 @@ export function KnowledgePage() {
         </div>
       </div>
 
-      <PendingBackendNotice message="资料来源清单已接通（只读、无正文）；问答、检索、引用与历史会话仍未接通，本页不展示示例回答或引用编号。" />
+      <Modal
+        open={sourcePath !== null}
+        title={sourcePath === null ? '来源正文' : sourcePath}
+        onClose={() => { setSourcePath(null); }}
+        footer={<Button variant="ghost" onClick={() => { setSourcePath(null); }}>关闭</Button>}
+      >
+        {contentQuery.isLoading ? <p className="hint">正在读取来源…</p> : null}
+        {contentQuery.isError ? <p className="hint" style={{ color: 'var(--danger)' }}>读取失败：{String((contentQuery.error as Error).message)}</p> : null}
+        {contentQuery.data === undefined ? null : (
+          <div className="stack-loose">
+            <p className="hint">只读正文，{contentQuery.data.bytes} 字节；内容不会被发送给模型，也不会自动生成引用结论。</p>
+            <pre className="code" style={{ maxHeight: '55vh', overflow: 'auto', whiteSpace: 'pre-wrap' }}>{contentQuery.data.content}</pre>
+          </div>
+        )}
+      </Modal>
+
+      <PendingBackendNotice message="资料来源清单与正文读取已接通（只读）；模型问答、检索结论、引用与历史会话仍未接通，本页不展示示例回答或引用编号。" />
     </div>
   );
 }

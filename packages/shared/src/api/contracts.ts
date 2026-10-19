@@ -201,6 +201,13 @@ export interface KnowledgeSource {
   readonly modifiedAt: IsoDateTime;
 }
 
+export interface KnowledgeSourceContentResponse {
+  readonly projectId: string;
+  readonly path: string;
+  readonly content: string;
+  readonly bytes: number;
+}
+
 export interface KnowledgeSearchMatch {
   readonly path: string;
   readonly line: number;
@@ -926,6 +933,7 @@ export const ROUTES = {
   skills: '/api/skills',
   knowledgeSources: '/api/knowledge/sources',
   knowledgeSearch: '/api/knowledge/search',
+  knowledgeSourceContent: '/api/knowledge/source',
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;
