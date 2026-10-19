@@ -45,6 +45,9 @@ import type {
   ReceiptStatusValue,
   RepoGitStateValue,
   ReviewRunStateValue,
+  RoleCapabilityGroupValue,
+  RoleResourceFileKindValue,
+  RoleResourceToolKindValue,
   SeverityValue,
   TaskAttentionValue,
   TaskLifecycleValue,
@@ -126,6 +129,66 @@ export interface WorkflowMethod {
   readonly description: string;
 }
 
+export interface RoleCapabilityItem {
+  readonly id: string;
+  readonly label: string;
+  readonly enabled: boolean;
+}
+
+/** "能力范围" tab: four fixed groups whose item ids/labels come from the shared catalog. */
+export interface RoleCapabilityGroupView {
+  readonly id: RoleCapabilityGroupValue;
+  readonly label: string;
+  readonly items: readonly RoleCapabilityItem[];
+}
+
+export interface RoleResourceTool {
+  readonly kind: RoleResourceToolKindValue;
+  readonly name: string;
+  readonly source?: string;
+}
+
+export interface RoleResourceFile {
+  readonly kind: RoleResourceFileKindValue;
+  readonly path: string;
+  readonly workspace?: string;
+}
+
+/** Command permission as an explicit argv list; '' is a preserved empty argument. */
+export interface RoleResourceCommand {
+  readonly kind: 'argv';
+  readonly argv: readonly string[];
+  readonly workspace?: string;
+}
+
+export interface RoleResourceCapability {
+  readonly kind: 'cap';
+  readonly id: string;
+  readonly label: string;
+}
+
+export interface RoleResourcePermissions {
+  readonly tools: readonly RoleResourceTool[];
+  readonly files: readonly RoleResourceFile[];
+  readonly commands: readonly RoleResourceCommand[];
+  readonly resources: readonly RoleResourceCapability[];
+}
+
+export interface RoleImageBinding {
+  readonly id: string;
+  readonly kind: 'initials' | 'emoji';
+  readonly value: string;
+  readonly label?: string;
+}
+
+export interface RolePublishCheck {
+  readonly id: 'responsibilities' | 'capabilities' | 'resources' | 'image';
+  readonly label: string;
+  readonly state: 'ok' | 'warn' | 'error';
+  readonly detail?: string;
+  readonly changes?: readonly string[];
+}
+
 export interface RoleDefinition {
   readonly id: string;
   readonly name: string;
@@ -133,6 +196,41 @@ export interface RoleDefinition {
   readonly revision: string;
   readonly promptRevision: string;
   readonly responsibilities: readonly string[];
+  /**
+   * Extended role fields (design roles.html four tabs). They stay optional on
+   * the base definition so existing built-in catalogs and old settings records
+   * keep validating; the role service resolves defaults before exposing the
+   * catalog (`RoleDefinitionResolved`).
+   */
+  readonly instructions?: string;
+  readonly model?: string;
+  readonly maxRuntimeMinutes?: number;
+  readonly capabilityGroups?: readonly RoleCapabilityGroupView[];
+  readonly resourcePermissions?: RoleResourcePermissions;
+  readonly image?: RoleImageBinding;
+}
+
+/** Effective role after defaults are applied (instructions/capabilities always present). */
+export interface RoleDefinitionResolved {
+  readonly id: string;
+  readonly name: string;
+  readonly purpose: string;
+  readonly revision: string;
+  readonly promptRevision: string;
+  readonly responsibilities: readonly string[];
+  readonly instructions: string;
+  readonly model?: string;
+  readonly maxRuntimeMinutes?: number;
+  readonly capabilityGroups: readonly RoleCapabilityGroupView[];
+  readonly resourcePermissions: RoleResourcePermissions;
+  readonly image?: RoleImageBinding;
+}
+
+export interface RoleImageHistoryEntry {
+  readonly revision: string;
+  readonly publishedAt?: IsoDateTime;
+  /** Absent for revisions published before images were tracked (UI shows a placeholder). */
+  readonly image?: RoleImageBinding;
 }
 
 export interface TaskTemplate {

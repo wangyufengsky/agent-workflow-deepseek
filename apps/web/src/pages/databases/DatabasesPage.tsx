@@ -28,6 +28,7 @@ import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon, type IconName } from '../../components/Icon.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+import './databases.css';
 
 const DATABASE_LIST_KEY = ['settings', 'databases'] as const;
 const DATABASE_TYPES = Object.keys(DATABASE_TYPE_META) as DatabaseTypeValue[];
@@ -390,6 +391,12 @@ export function DatabasesPage() {
 
               <div className="row wrap" style={{ gap: 6 }}>
                 <Badge outline>{meta.label}</Badge>
+                <Badge outline>驱动 {meta.driver === 'planned' ? '未内置' : meta.driver}</Badge>
+                {meta.driver === 'planned' ? (
+                  <Badge tone="unknown" icon="help">
+                    驱动计划中
+                  </Badge>
+                ) : null}
                 {connection.readOnly ? (
                   <Badge tone="ok" icon="lock">
                     只读
@@ -405,6 +412,59 @@ export function DatabasesPage() {
                   </span>
                 )}
               </div>
+
+              <div className="db-facts">
+                <div className="db-fact">
+                  <span className="db-fact-k">可读范围</span>
+                  <span className="db-fact-v mono">{connection.database}</span>
+                  <span className="hint">服务只保存一个数据库 / Schema；没有多 schema、表级可读范围字段。</span>
+                </div>
+                <div className="db-fact db-fact-warn">
+                  <span className="db-fact-k">授权项目</span>
+                  <span className="db-fact-v">
+                    <Badge tone="warn" icon="alert">
+                      服务未提供
+                    </Badge>
+                  </span>
+                  <span className="hint">没有数据库→项目授权字段；执行侧 database.query 只按 connectionId 访问，本页不展示授权项目清单。</span>
+                </div>
+                <div className="db-fact">
+                  <span className="db-fact-k">最近检查</span>
+                  <span className="db-fact-v">
+                    {connection.lastCheckedAt === undefined ? '尚未检查' : `${STATE_META[connection.state].label} · ${formatRelativeTime(connection.lastCheckedAt)}`}
+                  </span>
+                  <span className="hint">
+                    {feedback?.probe === undefined
+                      ? '列表接口只返回 state / lastCheckedAt；版本、延迟与能力只在本会话测试后显示。'
+                      : `本次探针：${feedback.probe.serverVersion ?? '版本未知'} · ${feedback.probe.latencyMs === undefined ? '延迟未知' : `${String(feedback.probe.latencyMs)} ms`}`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="db-probe-cells" aria-label="检查结果（三格降级）">
+                <div className="db-probe-cell">
+                  <span className="db-probe-k">已连接</span>
+                  <span className="db-probe-v">
+                    {connection.state === DatabaseConnectionState.CONNECTED
+                      ? '已连接'
+                      : connection.state === DatabaseConnectionState.NOT_CONFIGURED
+                        ? '尚未检查'
+                        : STATE_META[connection.state].label}
+                  </span>
+                  <span className="hint">{connection.lastCheckedAt === undefined ? '尚无检查记录' : `最近 ${formatRelativeTime(connection.lastCheckedAt)}`}</span>
+                </div>
+                <div className="db-probe-cell">
+                  <span className="db-probe-k">会话只读</span>
+                  <span className="db-probe-v">服务未提供</span>
+                  <span className="hint">探针结果没有会话只读标记。</span>
+                </div>
+                <div className="db-probe-cell">
+                  <span className="db-probe-k">只读已强制</span>
+                  <span className="db-probe-v">查询接口强制</span>
+                  <span className="hint">只读 SQL 由服务端守卫；探针未返回该标记。</span>
+                </div>
+              </div>
+              <p className="hint">现场兼容性尚未验证：检查结果只代表最近一次探针；修改连接后旧结果作废。</p>
 
               {connection.message === undefined ? null : (
                 <div className="hint" style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>
@@ -525,7 +585,7 @@ export function DatabasesPage() {
         </div>
         <SegmentedControl ariaLabel="数据库类型" options={typeOptions} value={typeFilter} onChange={setTypeFilter} />
         <span className="spacer" />
-        <span className="hint">共 {String(connections.length)} 个连接 · 查询只读</span>
+        <span className="hint">共 {String(connections.length)} 个连接 · 查询只读 · 类型/驱动来自服务枚举，openGauss / GaussDB 没有类型与驱动契约</span>
       </div>
 
       {listBody}
@@ -667,6 +727,9 @@ export function DatabasesPage() {
                 {DATABASE_TYPE_META[form.type].urlExample}
                 {DATABASE_TYPE_META[form.type].driver === 'planned' ? ' · 当前无内置驱动，探针会返回不支持原因。' : ''}
               </span>
+              <span className="hint">
+                类型来自服务枚举与真实驱动（mysql2 / pg / planned）；openGauss、GaussDB 没有类型与驱动契约，不能在本页添加。
+              </span>
             </div>
 
             <div className="grid-2" style={{ gap: 12 }}>
@@ -779,6 +842,37 @@ export function DatabasesPage() {
                 </span>
               </span>
             </label>
+
+            <div className="section" style={{ marginTop: 4 }}>
+              <div className="section-head">
+                <span className="section-title">访问范围</span>
+                <Badge tone="unknown" icon="help">
+                  服务未提供
+                </Badge>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label className="label" htmlFor="db-readable-scopes">
+                  可读库 / Schema（标签输入）
+                </label>
+                <input
+                  id="db-readable-scopes"
+                  className="input"
+                  disabled
+                  placeholder={form.database === '' ? '服务未提供多 schema 可读范围字段' : form.database}
+                  title="服务连接模型只有单个 database 字段；没有多 schema / 表级可读范围接口。"
+                />
+                <span className="hint">服务端连接模型只有一个 database 字段；无法在本页配置多个 schema 或表级可读范围。</span>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label className="label" htmlFor="db-authorized-projects">
+                  授权项目
+                </label>
+                <select id="db-authorized-projects" className="select" disabled aria-label="授权项目" title="服务未提供数据库→项目授权字段/接口。">
+                  <option>服务未提供授权项目字段</option>
+                </select>
+                <span className="hint">服务没有把数据库连接与项目关联的接口；执行侧 database.query 只按 connectionId 访问，不能从本页展示或修改授权项目。</span>
+              </div>
+            </div>
 
             <div className="banner info">
               <Icon name="info" />

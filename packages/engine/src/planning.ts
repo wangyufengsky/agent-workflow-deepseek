@@ -18,16 +18,34 @@ import type {
 import {
   AppError,
   ErrorCode,
+  PLANNING_CANDIDATE_SCOPE_KEY,
+  PLANNING_GROUP_REFINED_KEY,
+  PLANNING_ROUND_SCOPE_KEY,
+  PlanningGroupState,
   PlanningStage,
+  SCOPE_UNREFINED,
+  SCOPE_VIOLATION,
   TaskAttention,
   TaskStage,
   canTransition,
   createId,
+  findMethod,
+  groupLeafNodes,
+  isPlaceholderNode,
+  mergeScopedCandidate,
   nowIso,
   planningStageMachine,
+  unresolvedPlanScopes,
   validatePlanningCandidate,
+  validateScopedCandidate,
+  withRefinedGroup,
   DEFAULT_CATALOG,
-  findMethod,
+  type PlanningCandidateScope,
+  type PlanningGroupProposal,
+  type PlanningGroupStateValue,
+  type PlanningProposal,
+  type PlanningRoundScope,
+  type RefineScopePreview,
 } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { OpenCodePort, OpenCodeRunResult } from './ports.ts';
@@ -46,6 +64,18 @@ interface PreviewRecord {
   readonly createdOrdinal: number;
 }
 
+/** A PE37 scope preview: read-only, no model dispatch until `start`. */
+interface RefinePreviewRecord {
+  readonly preview: RefineScopePreview;
+  readonly taskId: string;
+  readonly scope: PlanningRoundScope;
+  readonly inputRevision: number;
+  readonly createdOrdinal: number;
+}
+
+/** Scope can be attached to the normal planning.start input by the HTTP layer. */
+export type ScopedPlanningStartInput = PlanningStartRequest & { readonly scope?: { readonly groupRef: string } };
+
 export interface SubmitCandidateResult {
   readonly ok: boolean;
   readonly planRevisionId?: string;
@@ -61,6 +91,7 @@ export class PlanningService {
   readonly #opencode: OpenCodePort;
   readonly #tasks: () => TaskService;
   readonly #previews = new Map<string, PreviewRecord>();
+  readonly #refinePreviews = new Map<string, RefinePreviewRecord>();
   readonly #activeSessions = new Map<string, string>();
   readonly #stopKeys = new Map<string, string>();
   readonly #startKeys = new Map<string, string>();
@@ -205,26 +236,58 @@ export class PlanningService {
     return preview;
   }
 
-  start(taskId: string, input: PlanningStartRequest): CommandResponse<PlanningResponse> {
+  start(taskId: string, input: ScopedPlanningStartInput): CommandResponse<PlanningResponse> {
     const task = this.#assertWritable(taskId, '开始规划');
     const previewRecord = this.#previews.get(input.previewId);
-    if (previewRecord === undefined) throw new AppError(ErrorCode.STALE_TARGET, '规划预览已失效，请重新预览');
-    if (Date.parse(previewRecord.preview.expiresAt) < Date.now()) {
+    const refineRecord = this.#refinePreviews.get(input.previewId);
+    if (previewRecord === undefined && refineRecord === undefined) {
+      throw new AppError(ErrorCode.STALE_TARGET, '规划预览已失效，请重新预览');
+    }
+    if (input.scope !== undefined) {
+      if (refineRecord === undefined) throw new AppError(ErrorCode.STALE_TARGET, '分组细化预览已失效，请重新预览');
+      if (refineRecord.scope.groupRef !== input.scope.groupRef) {
+        throw new AppError(ErrorCode.STALE_TARGET, '细分范围与预览不一致，请重新预览', { details: { previewGroupRef: refineRecord.scope.groupRef } });
+      }
+    } else if (refineRecord !== undefined && previewRecord === undefined) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '该预览是分组细化预览，启动时必须携带 scope.groupRef', { details: { groupRef: refineRecord.scope.groupRef } });
+    }
+    const preview = refineRecord?.preview ?? previewRecord!.preview;
+    if (Date.parse(preview.expiresAt) < Date.now()) {
       this.#previews.delete(input.previewId);
+      this.#refinePreviews.delete(input.previewId);
       throw new AppError(ErrorCode.STALE_TARGET, '规划预览已过期，请重新预览');
     }
-    if (previewRecord.inputRevision !== input.sourceInputRevision) {
+    const inputRevision = refineRecord?.inputRevision ?? previewRecord!.inputRevision;
+    if (inputRevision !== input.sourceInputRevision) {
       throw new AppError(ErrorCode.STALE_TARGET, '需求输入已变化，请重新预览');
     }
-    if (previewRecord.preview.blockers.length > 0) {
-      throw new AppError(ErrorCode.PLANNING_UNAVAILABLE, previewRecord.preview.blockers[0]?.message ?? '配置不足，无法开始规划', {
-        details: { blockers: previewRecord.preview.blockers },
+    if (preview.blockers.length > 0) {
+      throw new AppError(ErrorCode.PLANNING_UNAVAILABLE, preview.blockers[0]?.message ?? '配置不足，无法开始规划', {
+        details: { blockers: preview.blockers },
       });
+    }
+    const scopeInfo = refineRecord?.scope;
+    if (scopeInfo !== undefined) {
+      const basePlan = this.#store.plans.get(scopeInfo.basePlanRevisionId);
+      if (basePlan === undefined || task.currentPlanRevisionId !== basePlan.id) {
+        throw new AppError(ErrorCode.STALE_TARGET, '总览草稿已变化，请重新预览分组细化', { details: { basePlanRevisionId: scopeInfo.basePlanRevisionId } });
+      }
+      const group = basePlan.graph.groups.find((item) => item.id === scopeInfo.groupRef);
+      const placeholders = basePlan.graph.nodes.filter((node) => node.groupId === scopeInfo.groupRef && isPlaceholderNode(node));
+      if (group === undefined || (group.refined !== false && placeholders.length === 0)) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '该分组已细化，无需继续规划', { details: { groupRef: scopeInfo.groupRef } });
+      }
     }
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'planning.start',
-      body: { taskId, previewId: input.previewId, sourceInputRevision: input.sourceInputRevision, confirmModelDispatch: true },
+      body: {
+        taskId,
+        previewId: input.previewId,
+        sourceInputRevision: input.sourceInputRevision,
+        confirmModelDispatch: true,
+        ...(scopeInfo === undefined ? {} : { scope: { groupRef: scopeInfo.groupRef } }),
+      },
       target: { taskId },
     });
     if (replayed && record.status !== 'accepted') {
@@ -267,16 +330,18 @@ export class PlanningService {
     });
     this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: TaskStage.PLANNING, revision: 1 });
     this.#store.events.publish('planning.changed', { taskId, roundId: round.id, status: 'running', stage: 'preparing_input', revision: 1 });
+    if (scopeInfo !== undefined) this.#store.settings.putJson(`${PLANNING_ROUND_SCOPE_KEY}${round.id}`, scopeInfo);
     this.#startKeys.set(round.id, input.requestKey);
     this.#previews.delete(input.previewId);
-    void this.#runRound(taskId, round.id, method).catch((error: unknown) => {
+    this.#refinePreviews.delete(input.previewId);
+    void this.#runRound(taskId, round.id, method, scopeInfo).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : '规划执行失败';
       this.#failRound(round.id, input.requestKey, message);
     });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.planningResponse(taskId) };
   }
 
-  async #runRound(taskId: string, roundId: string, method: WorkflowMethod): Promise<void> {
+  async #runRound(taskId: string, roundId: string, method: WorkflowMethod, scope?: PlanningRoundScope): Promise<void> {
     const task = this.#requireTask(taskId);
     const project = this.#requireProject(task.projectId);
     const round = this.#requireRound(roundId);
@@ -366,7 +431,7 @@ export class PlanningService {
       },
     };
 
-    const prompt = buildPlanningPrompt({
+    const basePrompt = buildPlanningPrompt({
       taskId: task.id,
       roundId: round.id,
       taskTitle: task.title,
@@ -387,6 +452,14 @@ export class PlanningService {
       },
       strategyVersion: `${method.planningStrategy?.id ?? 'planning'} · ${method.planningStrategy?.version ?? 'v1'}`,
     });
+    const prompt = scope === undefined ? basePrompt : `${basePrompt}
+
+# 本轮范围（PE37 分组细化）
+本轮只细化分组「${scope.groupTitle}」（groupRef=${scope.groupRef}）。
+- 只提交该分组内的节点与该组内部依赖；不要提交其他分组的节点或分组，也不要新增组外步骤。
+- 其他分组与当前草稿保持不变；跨组依赖按总览连线保留，如确需引用组外步骤，只能引用总览中已存在的组外节点键。
+- 越界候选会被 SCOPE_VIOLATION 拒绝，不会写入计划。
+`;
 
     let result: OpenCodeRunResult | undefined;
     try {
@@ -576,6 +649,303 @@ export class PlanningService {
     this.#refreshTask(round.taskId);
   }
 
+  /* ---------------------------------------------------------------- */
+  /* PE37 · incremental group refinement                              */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Overview read model for the requirement canvas (design v5 S1): per-group
+   * refinement state, leaf count, coverage and the scopes still blocking
+   * confirm. Read-only; never calls the model.
+   */
+  proposal(taskId: string): PlanningProposal {
+    const task = this.#requireTask(taskId);
+    const settings = this.#context.settings();
+    const plan = task.currentPlanRevisionId === undefined
+      ? this.#store.plans.latest(taskId)
+      : this.#store.plans.get(task.currentPlanRevisionId);
+    if (plan === undefined) {
+      return {
+        taskId,
+        groups: [],
+        unresolvedScopes: [],
+        limits: { maxNodes: settings.planning.maxNodes, maxGroups: settings.planning.maxGroups, maxDepth: settings.planning.maxDepth, currentNodes: 0, currentGroups: 0, projectedLeafCount: 0 },
+      };
+    }
+    const refinedMap = this.#refinedMap(plan.id);
+    const rounds = this.#store.planning.list(taskId);
+    const active = rounds.find((round) => {
+      if (!['queued', 'running', 'stopping', 'completed'].includes(round.status)) return false;
+      const scope = this.#roundScope(round.id);
+      if (scope === undefined) return false;
+      return round.status !== 'completed' || round.applyStatus === 'not_applied';
+    });
+    const activeScope = active === undefined ? undefined : this.#roundScope(active.id);
+    const groups: PlanningGroupProposal[] = plan.graph.groups.map((group) => {
+      const placeholders = plan.graph.nodes.filter((node) => node.groupId === group.id && isPlaceholderNode(node));
+      const leaves = groupLeafNodes(plan.graph, group.id);
+      let state: PlanningGroupStateValue = group.refined === false || placeholders.length > 0 ? PlanningGroupState.UNREFINED : PlanningGroupState.REFINED;
+      if (active !== undefined && activeScope !== undefined && activeScope.groupRef === group.id) {
+        state = active.status === 'completed' && active.applyStatus === 'not_applied' ? PlanningGroupState.CANDIDATE : PlanningGroupState.PLANNING;
+      }
+      const coverage = this.#groupCoverage(plan, group.id);
+      const refinedInRound = refinedMap[group.id] ?? (group.refined === true && state === PlanningGroupState.REFINED ? 1 : undefined);
+      return {
+        groupRef: group.id,
+        title: group.label,
+        coverage,
+        state,
+        ...(refinedInRound === undefined ? {} : { refinedInRound }),
+        leafCount: leaves.length,
+        placeholderNodeIds: placeholders.map((node) => node.id),
+      };
+    });
+    const unresolvedScopes = groups.filter((group) => group.state !== PlanningGroupState.REFINED).map((group) => ({ groupRef: group.groupRef, title: group.title }));
+    const currentNodes = plan.graph.nodes.filter((node) => !isPlaceholderNode(node)).length;
+    return {
+      taskId,
+      planRevisionId: plan.id,
+      revisionNumber: plan.revisionNumber,
+      groups,
+      unresolvedScopes,
+      limits: {
+        maxNodes: settings.planning.maxNodes,
+        maxGroups: settings.planning.maxGroups,
+        maxDepth: settings.planning.maxDepth,
+        currentNodes,
+        currentGroups: groups.length,
+        projectedLeafCount: groups.reduce((sum, group) => sum + group.leafCount, 0),
+      },
+    };
+  }
+
+  /**
+   * `refineScope.preview` (design v5 S2): read-only preview for one unrefined
+   * group. Returns round/scope/limits/budget/expiresAt and never calls the model;
+   * `start` consumes the returned previewRef.
+   */
+  refinePreview(taskId: string, groupRef: string): RefineScopePreview {
+    const task = this.#assertWritable(taskId, '继续规划选区');
+    if (task.fixedTemplate !== undefined) throw new AppError(ErrorCode.FIXED_TEMPLATE_LOCKED, '固定模板任务不能使用分组细化');
+    const method = this.#method(task);
+    const project = this.#requireProject(task.projectId);
+    const settings = this.#context.settings();
+    const plan = task.currentPlanRevisionId === undefined ? this.#store.plans.latest(taskId) : this.#store.plans.get(task.currentPlanRevisionId);
+    if (plan === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '当前没有可细化的计划草稿');
+    if (plan.status === 'confirmed') throw new AppError(ErrorCode.VALIDATION_FAILED, '计划已确认，不能继续分组细化');
+    const group = plan.graph.groups.find((item) => item.id === groupRef);
+    if (group === undefined) throw new AppError(ErrorCode.NOT_FOUND, '分组不存在', { details: { groupRef } });
+    const placeholders = plan.graph.nodes.filter((node) => node.groupId === groupRef && isPlaceholderNode(node));
+    if (group.refined !== false && placeholders.length === 0) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '该分组已细化，无需继续规划', { details: { groupRef } });
+    }
+    const activeRound = this.#store.planning.list(taskId).find((round) => ['queued', 'running', 'stopping'].includes(round.status));
+    if (activeRound !== undefined) {
+      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '本轮规划仍在进行，先停止/等待结束再继续规划选区', { details: { roundId: activeRound.id, status: activeRound.status } });
+    }
+    const blockers: { code: string; message: string }[] = [];
+    if (method.support !== 'ai_planning') blockers.push({ code: 'PLANNING_UNAVAILABLE', message: '该流程尚未配置 AI 规划' });
+    if (!this.#context.opencodeReady()) blockers.push({ code: 'OPENCODE_NOT_READY', message: '受管 OpenCode 服务未就绪' });
+    if (settings.planning.budgetLimit <= 0) blockers.push({ code: 'BUDGET_NOT_CONFIGURED', message: '本轮预算上限未设置' });
+    if (project.rootPath.trim() === '') blockers.push({ code: 'SOURCE_UNAVAILABLE', message: '项目路径不可用' });
+    const rounds = this.#store.planning.list(taskId);
+    const ordinal = rounds.length + 1;
+    const currentNodes = plan.graph.nodes.filter((node) => !isPlaceholderNode(node)).length;
+    const previewRef = `refine_${taskId}_${groupRef}_${String(ordinal)}_${createId('rp').split('_').at(-1)}`;
+    const scope: PlanningRoundScope = {
+      groupRef,
+      groupTitle: group.label,
+      placeholderNodeIds: placeholders.map((node) => node.id),
+      basePlanRevisionId: plan.id,
+    };
+    const preview: RefineScopePreview = {
+      previewRef,
+      taskId,
+      groupRef,
+      groupTitle: group.label,
+      round: ordinal,
+      scope: { groupRef, groupTitle: group.label, placeholderNodeIds: scope.placeholderNodeIds, basePlanRevisionId: plan.id },
+      limits: {
+        maxNodes: settings.planning.maxNodes,
+        maxGroups: settings.planning.maxGroups,
+        maxDepth: settings.planning.maxDepth,
+        currentNodes,
+        currentGroups: plan.graph.groups.length,
+        projectedLeafCount: currentNodes,
+      },
+      budget: {
+        dispatches: settings.planning.maxDrafts,
+        revisions: settings.planning.maxRevisions,
+        budgetLimit: settings.planning.budgetLimit,
+        currency: settings.planning.currency,
+        perDispatchLimitMinutes: settings.planning.perDispatchLimitMinutes,
+        timeLimitMinutes: settings.planning.timeLimitMinutes,
+      },
+      expiresAt: new Date(Date.now() + settings.planning.previewTtlMinutes * 60_000).toISOString(),
+      blockers,
+      instructions: [
+        `只细化分组「${group.label}」；其他分组与当前草稿不变。`,
+        '跨组依赖按总览连线保留。',
+        '本轮最多 2 次模型派发：初稿 1 + 修订 1；停止只停本轮。',
+        '应用后计划修订 +1，不会执行。全部组细化后才能确认计划。',
+      ],
+    };
+    this.#refinePreviews.set(previewRef, { preview, taskId, scope, inputRevision: task.requirement.revision, createdOrdinal: ordinal });
+    return preview;
+  }
+
+  /** The persisted scope of a round (undefined for whole-plan rounds). */
+  roundScope(roundId: string): PlanningRoundScope | undefined {
+    return this.#roundScope(roundId);
+  }
+
+  /** The persisted scope of a candidate plan revision (undefined for whole-plan candidates). */
+  candidateScope(planRevisionId: string): PlanningCandidateScope | undefined {
+    return this.#candidateScope(planRevisionId);
+  }
+
+  #roundScope(roundId: string): PlanningRoundScope | undefined {
+    return this.#store.settings.getJson<PlanningRoundScope>(`${PLANNING_ROUND_SCOPE_KEY}${roundId}`);
+  }
+
+  #candidateScope(planRevisionId: string): PlanningCandidateScope | undefined {
+    return this.#store.settings.getJson<PlanningCandidateScope>(`${PLANNING_CANDIDATE_SCOPE_KEY}${planRevisionId}`);
+  }
+
+  #refinedMap(planRevisionId: string): Readonly<Record<string, number>> {
+    return this.#store.settings.getJson<Record<string, number>>(`${PLANNING_GROUP_REFINED_KEY}${planRevisionId}`) ?? {};
+  }
+
+  #putRefinedMap(planRevisionId: string, map: Readonly<Record<string, number>>): void {
+    this.#store.settings.putJson(`${PLANNING_GROUP_REFINED_KEY}${planRevisionId}`, map);
+  }
+
+  #groupCoverage(plan: import('@agent-workflow/shared').PlanRevision, groupRef: string): readonly string[] {
+    const nodeIds = new Set(plan.graph.nodes.filter((node) => node.groupId === groupRef && !isPlaceholderNode(node)).map((node) => node.id));
+    const fromValidation = (plan.validation?.requirementCoverage ?? [])
+      .filter((coverage) => coverage.nodeIds.some((id) => nodeIds.has(id)))
+      .map((coverage) => coverage.label);
+    if (fromValidation.length > 0) return [...new Set(fromValidation)];
+    const labels = plan.graph.nodes
+      .filter((node) => nodeIds.has(node.id))
+      .flatMap((node) => node.inputs.filter((input) => input.source === 'requirement').map((input) => input.name));
+    return [...new Set(labels)];
+  }
+
+  /** Validate + merge one scoped candidate into the overview draft (design S3/S4). */
+  #submitScopedCandidate(task: Task, round: PlanningRound, scope: PlanningRoundScope, candidate: import('@agent-workflow/shared').PlanningCandidatePayload): SubmitCandidateResult {
+    const base = this.#store.plans.get(scope.basePlanRevisionId);
+    if (base === undefined) {
+      return { ok: false, problems: [{ code: 'SCOPE_BASE_MISSING', title: '总览草稿不存在', detail: `基准计划 ${scope.basePlanRevisionId} 不可读`, severity: 'hard' }], humanDecisions: [], requiredQuestions: [] };
+    }
+    if (task.currentPlanRevisionId !== base.id) {
+      return { ok: false, problems: [{ code: 'STALE_SCOPE_BASE', title: '总览草稿已变化', detail: '请重新预览本轮分组细化', severity: 'hard' }], humanDecisions: [], requiredQuestions: [] };
+    }
+    const settings = this.#context.settings();
+    const validationResult = validateScopedCandidate({
+      candidate,
+      baseGraph: base.graph,
+      scope,
+      limits: {
+        maxNodes: settings.planning.maxNodes,
+        maxEdges: settings.planning.maxEdges,
+        maxGroups: settings.planning.maxGroups,
+        maxDepth: settings.planning.maxDepth,
+      },
+    });
+    if (validationResult.structural === 'failed') {
+      return { ok: false, problems: validationResult.problems, humanDecisions: [], requiredQuestions: [] };
+    }
+    const graph = mergeScopedCandidate(base.graph, candidate, scope);
+    const diff = diffGraphs(base.graph, graph);
+    const humanItems: { id: string; title: string; detail: string; nodeKey?: string; accepted: boolean }[] = (candidate.humanDecisions ?? []).map((decision, index) => ({
+      id: `hd-${index + 1}`,
+      title: decision.title,
+      detail: decision.detail,
+      ...(decision.nodeKeys?.[0] === undefined ? {} : { nodeKey: decision.nodeKeys[0] }),
+      accepted: false,
+    }));
+    for (const assumption of (candidate.assumptions ?? []).filter((item) => item.critical)) {
+      humanItems.push({ id: `hd-${humanItems.length + 1}`, title: `确认关键假设：${assumption.statement}`, detail: '模型陈述 · 未确认', accepted: false });
+    }
+    const requiredQuestions = (candidate.questions ?? []).filter((question) => question.required).map((question) => question.question);
+    const validation: PlanValidation = {
+      structural: { state: 'passed', problems: [] },
+      humanReview: { required: humanItems.length, accepted: 0, items: humanItems },
+      basis: { state: 'complete', detail: `基于需求修订 ${task.requirement.revision}；只细化分组 ${scope.groupRef}` },
+      readiness: { state: 'needs_preparation', detail: '应用该组候选后仍需细化其他未完成分组' },
+      checks: validationResult.checks.map((check) => ({ ...check })),
+      requirementCoverage: base.validation?.requirementCoverage ?? [],
+    };
+    if (round.candidate !== undefined) {
+      const previous = this.#store.plans.get(round.candidate.planRevisionId);
+      if (previous !== undefined) this.#store.plans.setStatus(previous.id, 'superseded');
+    }
+    const refinedMap = withRefinedGroup(this.#refinedMap(base.id), scope.groupRef, round.ordinal);
+    const plan = this.#store.plans.create({
+      taskId: task.id,
+      source: 'applied',
+      graph,
+      status: 'draft',
+      validation,
+      diff,
+      baseRevisionId: base.id,
+    });
+    this.#putRefinedMap(plan.id, refinedMap);
+    this.#store.settings.putJson(`${PLANNING_CANDIDATE_SCOPE_KEY}${plan.id}`, { roundId: round.id, groupRef: scope.groupRef, basePlanRevisionId: base.id } satisfies PlanningCandidateScope);
+    const questions = (candidate.questions ?? []).map((question, index) => ({
+      id: `pq-${index + 1}`,
+      question: question.question,
+      required: question.required,
+      affectedNodeIds: (question.nodeKeys ?? []).map((key) => graph.nodes.find((node) => node.key === key)?.id).filter((id): id is PlanNode['id'] => id !== undefined),
+    }));
+    const assumptions = (candidate.assumptions ?? []).map((assumption, index) => ({
+      id: `pa-${index + 1}`,
+      statement: assumption.statement,
+      critical: assumption.critical,
+      confirmed: false,
+      affectedNodeIds: (assumption.nodeKeys ?? []).map((key) => graph.nodes.find((node) => node.key === key)?.id).filter((id): id is PlanNode['id'] => id !== undefined),
+    }));
+    const unresolved = unresolvedPlanScopes(graph);
+    this.#store.planning.update(round.id, {
+      candidate: {
+        planRevisionId: plan.id,
+        summary: candidate.summary,
+        diff,
+        validation,
+        checkpoint: {
+          id: createId('checkpoint'),
+          roundId: round.id,
+          planRevisionId: plan.id,
+          coveredGroups: graph.groups.filter((group) => group.refined).map((group) => group.label),
+          missingGroups: unresolved.map((item) => item.title),
+          savedAt: nowIso(),
+          executable: false,
+        },
+      },
+      questions,
+      assumptions,
+      stage: requiredQuestions.length > 0 ? 'needs_answer' : 'awaiting_review',
+      lastActivity: `分组「${scope.groupTitle}」候选已提交，其余 ${String(unresolved.length)} 个组仍未细化`,
+    });
+    const seq = this.#store.planning.appendRecord(round.id, {
+      fragmentId: `${round.id}-scoped-candidate-${plan.id}`,
+      category: 'service_event',
+      at: nowIso(),
+      text: `服务事实：分组「${scope.groupTitle}」候选已提交并通过作用域校验（组内 ${String(candidate.nodes.length)} 步；应用不改动其他分组）`,
+      metadata: { planRevisionId: plan.id, groupRef: scope.groupRef, problems: 0 },
+    });
+    this.#store.events.publish('planning.output.appended', { taskId: task.id, roundId: round.id, seq, fragmentId: `${round.id}-scoped-candidate-${plan.id}`, category: 'service_event', text: '分组候选已提交' });
+    this.#publishRound(task.id, round.id, 'running');
+    return {
+      ok: true,
+      planRevisionId: plan.id,
+      problems: [],
+      humanDecisions: humanItems,
+      requiredQuestions,
+    };
+  }
+
   /** Called by the internal MCP endpoint when the model submits a candidate. */
   submitCandidate(input: { taskId: string; roundId: string; candidate: unknown }): SubmitCandidateResult {
     const task = this.#requireTask(input.taskId);
@@ -589,6 +959,8 @@ export class PlanningService {
     if (candidate === null || typeof candidate !== 'object' || !Array.isArray(candidate.nodes) || !Array.isArray(candidate.edges) || !Array.isArray(candidate.groups)) {
       return { ok: false, problems: [{ code: 'INVALID_CANDIDATE', title: '候选格式不合法', detail: '需要 summary/groups/nodes/edges', severity: 'hard' }], humanDecisions: [], requiredQuestions: [] };
     }
+    const roundScope = this.#roundScope(round.id);
+    if (roundScope !== undefined) return this.#submitScopedCandidate(task, round, roundScope, candidate);
     const settings = this.#context.settings();
     const validationResult = validatePlanningCandidate({
       candidate,
@@ -800,14 +1172,23 @@ export class PlanningService {
       supersedeSiblingsForTaskId: taskId,
     });
     this.#store.planning.update(round.id, { applyStatus: 'applied' });
+    // PE37 S4/S5: a scoped apply writes the merged draft revision +1 without
+    // executing; the task only moves to CONFIRMING once every group is refined.
+    const candidateScope = this.#candidateScope(candidatePlan.id);
+    const unresolved = candidateScope === undefined ? [] : unresolvedPlanScopes(candidatePlan.graph);
+    const nextStage = candidateScope === undefined || unresolved.length === 0 ? TaskStage.CONFIRMING : TaskStage.PLANNING;
     this.#store.tasks.update(taskId, {
-      stage: TaskStage.CONFIRMING,
+      stage: nextStage,
       attention: TaskAttention.NONE,
       currentPlanRevisionId: candidatePlan.id,
     });
     this.#store.events.publish('plan.changed', { taskId, planRevisionId: candidatePlan.id, revisionNumber: candidatePlan.revisionNumber, status: 'unconfirmed' });
-    this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: TaskStage.CONFIRMING, revision: 1 });
-    this.#commands.settle(input.requestKey, { planRevisionId: candidatePlan.id, planRevisionNumber: candidatePlan.revisionNumber });
+    this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: nextStage, revision: 1 });
+    this.#commands.settle(input.requestKey, {
+      planRevisionId: candidatePlan.id,
+      planRevisionNumber: candidatePlan.revisionNumber,
+      ...(candidateScope === undefined ? {} : { groupRef: candidateScope.groupRef, unresolvedScopes: unresolved.map((item) => item.groupRef) }),
+    });
     this.#publishRound(taskId, round.id, 'completed');
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.planningResponse(taskId, applied ?? candidatePlan) };
   }

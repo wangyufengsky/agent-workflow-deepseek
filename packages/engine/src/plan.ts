@@ -21,7 +21,7 @@ import type {
   TaskTemplate,
   UseTemplateRequest,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, NodeManualAcceptanceState, NodeStatus, Rationale, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso } from '@agent-workflow/shared';
+import { AppError, ErrorCode, NodeManualAcceptanceState, NodeStatus, Rationale, SCOPE_UNREFINED, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso, unresolvedPlanScopes } from '@agent-workflow/shared';
 import {
   nodeAcceptanceKey,
   readNodeAcceptance,
@@ -152,6 +152,13 @@ export class PlanService {
     if (plan === undefined || plan.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '计划不存在');
     if (plan.status !== 'unconfirmed' && plan.status !== 'draft') {
       throw new AppError(ErrorCode.PLAN_REVISION_CONFLICT, '只有未确认的计划可以确认');
+    }
+    // PE37 S5: unrefined groups block confirmation (they must never execute first).
+    const unresolved = unresolvedPlanScopes(plan.graph);
+    if (unresolved.length > 0) {
+      throw new AppError(ErrorCode.PLAN_REVISION_CONFLICT, `还有 ${String(unresolved.length)} 个组未细化，不能确认执行`, {
+        details: { code: SCOPE_UNREFINED, groups: unresolved.map((item) => item.title), unresolvedScopes: unresolved.map((item) => item.groupRef) },
+      });
     }
     if (input.expectedRevisionNumber !== undefined && plan.revisionNumber !== input.expectedRevisionNumber) {
       throw new AppError(ErrorCode.STALE_TARGET, '计划已变化，请重新读取后确认', { details: { expected: input.expectedRevisionNumber, actual: plan.revisionNumber } });

@@ -165,7 +165,7 @@ assignGroup('review', [
 ]);
 assignGroup('catalog', [
   'catalogRoles', 'catalogRoleSave', 'catalogRolePublish', 'catalogRoleRestore',
-  'catalogRoleHistory', 'catalogRoleArchive', 'catalogTemplateImport',
+  'catalogRoleHistory', 'catalogRoleArchive', 'catalogRoleValidate', 'catalogTemplateImport',
   'catalogTemplateUpdate', 'catalogTemplateArchive', 'templateDetail', 'templateTasks',
 ]);
 assignGroup('knowledge', [
@@ -288,6 +288,7 @@ const META = {
   catalogRoleRestore: ['恢复历史快照为草稿', 'command'],
   catalogRoleHistory: ['角色发布历史', 'read'],
   catalogRoleArchive: ['归档角色', 'command'],
+  catalogRoleValidate: ['发布前检查（非变更，返回 checks/canPublish）', 'read'],
   catalogTemplateImport: ['导入自定义模板', 'command'],
   catalogTemplateUpdate: ['更新模板（新版本）', 'command'],
   catalogTemplateArchive: ['归档自定义模板', 'command'],

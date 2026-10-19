@@ -912,6 +912,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(engine.roleCatalog.restore(request.params.id, request.params.revision, body), requestId(request));
   });
   app.get<{ Params: { id: string } }>('/api/catalog/roles/:id/history', async (request) => envelope(engine.roleCatalog.history(request.params.id), requestId(request)));
+  // Non-mutating publish checklist (no requestKey / no receipt by design).
+  app.post<{ Params: { id: string } }>('/api/catalog/roles/:id/validate', async (request) => envelope(engine.roleCatalog.validate(request.params.id), requestId(request)));
   app.post('/api/catalog/roles', async (request) => {
     const body = request.body as RoleSaveRequest;
     return envelope(await engine.roleCatalog.save(body), requestId(request));

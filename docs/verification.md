@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（最近一次完整验证：2026-10-19，日志 `.tmp/wave3b-verify.log`）：**360 tests / 54 suites / 349 pass / 11 skipped / 0 fail**，约 55.1s。数字以最近一次 `npm test` 日志为准，不在本文档固定历史计数。
+结果（最近一次完整验证：2026-10-19，日志 `.tmp/wave3c-verify.log`）：**371 tests / 54 suites / 360 pass / 11 skipped / 0 fail**，约 58.9s。数字以最近一次 `npm test` 日志为准，不在本文档固定历史计数。
 
 跳过项（共 11）：10 个 `live:` gate（planning / execution / AI review / AI fix / GitHub 写入 / GitHub 只读 / knowledge / provider gateway / PPT / MySQL，需 `AGENT_WORKFLOW_LIVE=1` 或真实凭据）＋ 1 个 MySQL 探测（无可达实例或未提供账号时 skip）。其余测试全部执行。
 
@@ -241,7 +241,7 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
   「按原配置重试失败步骤」（新 attempt，保留成功步骤）/「继续执行」/「停止执行（保留工作区）」。
 - `POST /api/tasks/:id/execution/retry` 已实现并登记 `execution.retry`。
 - 启动恢复（Wave 0）：进程重启后 execution running→unknown、planning running→unknown（可 reconcile）、workspace preparing→unknown，并结算 accepted 回执；`tests/integration/startup-recovery.test.ts` PASS。
-- 恢复三模式（Wave 2）：`from_failed_stage / all_stages / verify_only` 产生不同继承上下文与后续动作（`tests/integration/recovery-modes.test.ts` PASS）；`verify_only` 硬只读已在 Wave 3B 落地（migration v11 + 9 类写接口 403），W2-4c 投影/`updateDraft` 守卫待收口。
+- 恢复三模式（Wave 2/3C）：`from_failed_stage / all_stages / verify_only` 产生不同继承上下文与后续动作（`recovery-modes.test.ts` PASS）；`verify_only` 硬只读（migration v11 + 9 类写接口 403）、readOnly `planning.actions` 投影/`updateDraft` 守卫（W2-4c）、abandon 恢复暂停态（W2-15）均已完成。
 测试：`tests/integration/recovery-api.test.ts` PASS。
 
 ## 8. 角色目录编辑（PASS）
@@ -261,18 +261,18 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 
 ## 10. 已知限制 / 未验证
 
-- Git 远端写：GitHub 真实 push → 创建 MR → 关闭/删分支已在可丢弃测试仓库 PASS（§3.10）。远端 push/MR 的不可判定结果已在 Wave 3B 结算为 UNKNOWN（分类矩阵 + 重放不重发）；`fetch` 与 fix push 仍待 W3-13。GitLab 真实实例未连接，MR 列表/创建仍为桩验证；关闭/合并/删分支产品边界（W2-8）未确认。
+- Git 远端写：GitHub 真实 push → 创建 MR → 关闭/删分支已在可丢弃测试仓库 PASS（§3.10）。push/MR/fetch/fix push 的不可判定结果已在 Wave 3B/3C 结算为 UNKNOWN（分类矩阵 + 重放不重发 + by-key 核对）；GitLab 真实实例未连接，列表/创建仍为桩验证；关闭/合并/删分支产品边界（W2-8）未确认。
 - AI 审查/修复的服务端结果已验证；模型自报的校验命令未由服务独立执行；`fix.merge` 已实现并由 live 修复流程验证（§3.4）。
 - FixRun/ReviewRun 的启动恢复已实现：进程重启后 running/editing 进入 unknown 并结算持久化 requestKey（`tests/integration/review-fix-recovery.test.ts`）。
-- 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理 UI 已接线，非 Git 清理真实删除受管副本/baseline/settings 键（`workspace-cleanup-nongit.test.ts` 4 pass）；storage `removeJson` 已落地（W2-14）。
-- 恢复三模式真实差异已实现（`recovery-modes.test.ts`）；`verify_only` 硬只读已强制（migration v11 + 9 类写接口 403）；W2-4c（`planning.actions` 投影/`updateDraft` 守卫）与 W2-15（放弃调整恢复暂停态）仍进行中；恢复不复制执行上下文/阶段图。
-- W3-12（`GET /api/tasks/:id/changes/files/:fileId/diff` 未传 headSha 时把空字符串当 revision → 500 `REVISION_NOT_FOUND`）正在 Wave 3C 修复；验收前运行内容页的文件 diff 仍按真实错误展示。
-- Electron 打包：第 64 轮 `npm run dist` 的未签名 .app 可启动；签名/公证、Windows/Linux 目标、自动更新未验证，且 Wave 0–3B 后未重新打包。
-- 视觉与设计稿：Wave 3A/3B 页面验收使用一次性 Electron 冒烟（W3-7c 47 项、知识历史 33 项等），未进入 `npm test`/CI；`npm run ui:smoke` 在当前沙箱仍失败，`docs/evidence/` 为 Wave 0 前旧图，无像素级视觉回归。
-- 设计覆盖：`docs/design-coverage.md` 已更新到 Wave 3A/3B：25 页中 ✅ 3 / 🟡 21 / ⛔ 1（唯一整页缺失 `workflow-editor`）。`docs/api.md` 已由 ROUTES + 服务端注册生成，`check:docs-routes` 接入 `verify`。
-- 节点验收（`node.accept` / `node.reject`）已在 Wave 3A 落地（审计叠加 + 回执），但验收 gating 待 W0-4b。
-- 其他未完成：W3-1b（charter/docPaths/GitLab 绑定）、W3-3（角色四页签）、W3-4（知识研究体验，W3-4a 进行中）、W3-5（任务画布扩展/快照评审）、W3-6（PE37）、W3-8（工作流编辑器）、W3-9b（结构缺口）、W3-10（节点详情子视图）、W3-11（主页/品牌）、W3-7d（run/legacy 面包屑）。
-
+- 非 Git 目录副本与三方应用（预览/逐项应用/备份）已实现；目录级空目录、ACL/mtime 不做处理。工作区清理 UI 已接线，非 Git 清理真实删除受管副本/baseline/settings 键；storage `removeJson` 已落地（W2-14）。
+- 恢复三模式真实差异 + `verify_only` 硬只读 + readOnly 投影/`updateDraft` 守卫 + abandon 恢复暂停态均已完成；恢复不复制执行上下文/阶段图。
+- W3-12 已修复：`GET /api/tasks/:id/changes/files/:fileId/diff` 无 headSha 时改用 `git diff base -- path`，有 headSha 时保持 `base..head`；W3-13 把 `fetch` 与 fix push 接入远端 UNKNOWN 结算。
+- 节点验收 gating 已实现（有验收标准的节点 succeeded 后 park 到 paused；accept 后完成、reject 可重试）；W0-4c「待验收情况条」UI 仍在 Wave 3D 进行中。
+- Electron 打包：第 64 轮 `npm run dist` 的未签名 .app 可启动；签名/公证、Windows/Linux 目标、自动更新未验证，且 Wave 0–3C 后未重新打包。
+- 视觉与证据：W4-3a 已新增 `test:e2e`、最小 CI 与 `docs/evidence/README.md` 清单；但 22 张截图仍是 Wave 0 前历史证据，无像素级视觉回归（W4-3b），`npm run ui:smoke` 在当前沙箱仍失败。
+- 设计覆盖：`docs/design-coverage.md` 已更新到 Wave 3C：25 页中 ✅ 3 / 🟡 21 / ⛔ 1（唯一整页缺失 `workflow-editor`）。`docs/api.md` 由 ROUTES + 服务端注册生成，`check:docs-routes` 接入 `verify`。
+- 品牌：产品名继续 `agent-workflow` / `Agent Workflow`；设计稿 `opencode-workflow` 仅作来源名，不做全局改名（README「品牌与命名」）。
+- 其他未完成：W3-1b（charter/docPaths/GitLab 绑定）、W3-3（角色四页签，Wave 3D）、W3-4b（研究步骤/流式）、W3-5（任务画布扩展/快照评审）、W3-6（PE37，Wave 3D）、W3-8（工作流编辑器）、W3-9c（数据库/工具/模板结构，Wave 3D）、W3-10（节点详情，Wave 3D）、W4-3b 视觉回归、W4-4 打包、W4-5 真实环境。
 ## 11. 轮次日志（历史）
 
 ### 第 64 轮打包回归（2026-10-19）
@@ -393,3 +393,14 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - **发现缺陷**：`GET /api/tasks/:id/changes/files/:fileId/diff` 未传 headSha 时空字符串被当作 revision → 500 `REVISION_NOT_FOUND`（新登记 W3-12）；运行内容页按真实错误展示，未伪造 diff。
 - **UI**：一次性 Electron 冒烟（W3-7c 47 项等）未进入 `npm test`/CI；`npm run ui:smoke` 在当前沙箱仍失败。
 - **新登记 follow-up**：W2-4c（readOnly 投影/updateDraft）、W2-15（abandon 恢复暂停态）、W3-12（diff bug）、W3-13（fetch/fix push UNKNOWN）、W3-7d（run/legacy 面包屑）。
+
+### Wave 3C 验收（2026-10-19，371 tests）
+
+依据 [`docs/review/execution-log.md`](review/execution-log.md) 21:20 整合记录；验收范围：W3-12/W3-13/W2-4c 后端缺陷、W0-4b 节点验收 gating、W2-15 暂停态、W3-4a 知识库体验、W3-9b 设置页、W3-11a/W3-7d 主页/面包屑、W4-3a e2e/CI/证据、W4-1c 文档同步。
+
+- **类型检查**：`npx tsc -p tsconfig.json --noEmit` → exit 0。
+- **全量测试**：`npm test` → **371 tests / 54 suites / 360 pass / 11 skipped / 0 fail**（58.9s；日志 `.tmp/wave3c-verify.log`）。
+- **构建/脚本**：`npm run build:web`、`build:server`、`check:docs-routes` 通过；`node scripts/test-e2e.mjs --skip-build` PASS（真实 server + health/bootstrap/home/未知 API 404）。
+- **功能证据**：diffPage 有/无 headSha 正常；fetch/fix push 超时 → UNKNOWN 可核对；readOnly 投影/写守卫；节点验收 gating（待验收 paused、accept 后 completed、reject 可重试）；abandon 恢复暂停态；知识库来源选择/引用原文 520 面板/研究员面板（研究步骤如实降级）；设置页执行限制/脏保存条/缺失分区降级；主页展示化；run/legacy 面包屑；CI/证据清单。
+- **UI/CI**：页面验收使用一次性 Electron 冒烟（未进入 `npm test`）；CI 尚未在 GitHub 实际运行（本地 YAML 校验）；`docs/evidence/` 22 张仍为历史证据。
+- **新登记 follow-up**：W0-4c（待验收 UI）、W3-4b（研究步骤/流式 DTO）、W3-9c（数据库/工具/模板结构）、W3-11b（品牌，本次决策已记录）、W4-1d（文档同步）、W4-3b（视觉回归/截图）。

@@ -1,0 +1,68 @@
+/* 数据库页：可读范围 / 授权项目 / 检查三格。只用设计令牌，不写死颜色。 */
+
+.db-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+
+.db-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+  min-width: 0;
+}
+
+.db-fact-warn {
+  border-color: var(--warn-line);
+  background: var(--warn-fill);
+}
+
+.db-fact-k {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.db-fact-v {
+  font-size: 13px;
+  color: var(--ink-2);
+  word-break: break-all;
+}
+
+.db-probe-cells {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.db-probe-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--fill-2);
+  min-width: 0;
+}
+
+.db-probe-k {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.db-probe-v {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+@media (max-width: 720px) {
+  .db-probe-cells {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

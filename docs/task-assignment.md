@@ -90,33 +90,37 @@
 | --- | --- | --- | --- | --- |
 | W3-1 | 项目详情 `/projects/:id` + 四页签（概览/Git 与 GitLab/文档路径/项目公约）+ 配置状态 + 公约后端 | design-pages | 设计 REVIEW §4 | in_progress |
 | W3-2 | 待处理中心就地处理：问题/权限/策略禁止/结果未明/草稿；后端 interactions 契约 | design-pages | 设计 REVIEW §11 | done |
-| W3-3 | 角色管理四页签 + 能力/资源权限/形象/发布检查/权限预估（扩展 RoleDefinition） | design-pages | 设计 REVIEW §23 | pending |
+| W3-3 | 角色管理四页签 + 能力/资源权限/形象/发布检查/权限预估（扩展 RoleDefinition） | design-pages | 设计 REVIEW §23 | done |
 | W3-4 | 知识库体验：研究步骤、来源选择、流式/轮询回答、引用原文面板、研究员面板 | design-pages | 设计 REVIEW §14/B-08 | in_progress |
 | W3-5 | 任务画布：恢复/冻结计划/审计记录/运行内容入口、快照评审面板（B-07） | design-pages | 设计 task.html | in_progress |
-| W3-6 | PE37 大需求分组逐步细化：refineScope preview/start、未细化确认拦截 | design-pages | v5 已批准 | pending |
+| W3-6 | PE37 大需求分组逐步细化：refineScope preview/start、未细化确认拦截 | design-pages | v5 已批准 | in_progress |
 | W3-7 | 缺失页：knowledge-history、ppt-works、ppt-studio、run、roles-legacy | design-pages | 先只读/空/加载/错误/未知 | done |
 | W3-8 | 工作流编辑器：method CRUD/复制/归档/校验 + 前端画布编辑 | design-pages | 设计 REVIEW §6-7 | pending |
-| W3-9 | 结构缺口批次：任务列表步骤条/行菜单、开始任务三段卡/回执、模板分支/时间/文档、数据库授权项目/类型/三态、设置分区/脏保存、工具范围、需求目录抽屉 | design-pages | 设计细节 | in_progress |
-| W3-10 | 节点详情子视图：工具详情/产物阅读/引用原文/宽阅读区/补读 | design-pages | 设计 node COVERAGE | pending |
-| W3-11 | 主页与品牌：按设计调整主页区块；产品名是否改 `opencode-workflow` 需产品确认 | design-pages | 设计 REVIEW §3 | in_progress |
+| W3-9 | 结构缺口批次：任务列表步骤条/行菜单、开始任务三段卡/回执、模板分支/时间/文档、数据库授权项目/类型/三态、设置分区/脏保存、工具范围、需求目录抽屉 | design-pages | 设计细节 | done |
+| W3-10 | 节点详情子视图：工具详情/产物阅读/引用原文/宽阅读区/补读 | design-pages | 设计 node COVERAGE | done |
+| W3-11 | 主页与品牌：按设计调整主页区块；产品名是否改 `opencode-workflow` 需产品确认 | design-pages | 设计 REVIEW §3 | done |
 
 | W0-4b | 节点验收 gating：验收通过才结束执行/自动推进下游；驳回可触发重跑 | be | 来自 W0-4 验收 | `engine/execution.ts`、`shared/domain/**`、`tests/**` | 设计要求的待验收语义成立；测试覆盖 | done |
 | W3-1b | 项目公约后端：charter 生成/读取/写入；ProjectSettings.docPaths/GitLab 项目绑定契约 | be | 来自 W3-1a | `engine/project-task.ts`、`packages/storage/**`、`server/http.ts`、`shared/**` | 项目详情四页签均有真实数据；测试 | pending |
 | W3-7c | 剩余设计页：运行内容 run、历史角色配置 roles-legacy | design | 来自 W3-7 | 新增页面/路由 | 两页有真实数据/明确降级；无 mock | pending |
 | W3-9b | 结构缺口批次：模板分支/时间/文档、数据库授权项目/类型/三态、设置脏保存/分区、工具范围、需求目录抽屉 | design | 来自 W3-9a | 对应页面 + 必要后端 | 设计清单逐项验收 | pending |
-| W3-11 | 主页按设计对齐（产品窗口/能力卡/收尾）；品牌名 agent-workflow vs opencode-workflow 由产品确认 | design | 设计 REVIEW §3 | `apps/web/src/pages/home/**`、可能的品牌文案 | 设计结构一致或书面 de-scope | in_progress |
+| W3-11 | 主页按设计对齐（产品窗口/能力卡/收尾）；品牌名 agent-workflow vs opencode-workflow 由产品确认 | design | 设计 REVIEW §3 | `apps/web/src/pages/home/**`、可能的品牌文案 | 设计结构一致或书面 de-scope | done |
 
 | W3-12 | 修 `diffPage` 未传 headSha 时空字符串导致 `REVISION_NOT_FOUND`（changes 文件 diff 500） | be | 来自 W3-7c 验收 | `packages/server/src/adapters/git-cli.ts`、`tests/**` | changes 文件 diff 正常返回；回归测试 | done |
 | W3-13 | `POST /api/git/repos/:id/fetch` 与 fix push 接入远端 UNKNOWN 结算（引擎已导出分类 helper） | be | 来自 W2-12 验收 | `packages/server/src/http.ts`、`review-plugin.ts`、`packages/engine/src/fix.ts` | 网络超时/不可判定不误报 failed；可核对；测试 | done |
 | W2-4c | readOnly 任务的 planning.actions/updateDraft 守卫（投影仍走 project-task） | be | 来自 W2-4b 验收 | `packages/engine/src/project-task.ts`、`tests/**` | 只读任务所有写入口一致拒绝 | done |
 | W3-7d | run/roles-legacy 面包屑与入口映射（navigation.ts / 角色页链接） | fe | 来自 W3-7c 验收 | `apps/web/src/app/navigation.ts`、页面链接 | 面包屑正确、可发现 | pending |
 
-| W0-4c | 任务画布显示「待人工验收」情况条/唯一主动作（execution.acceptance 投影） | fe | 来自 W0-4b 验收 | `apps/web/src/pages/task/**`、`pages/node/**` | 待验收任务可一键去验收；驳回后可重试 | pending |
+| W0-4c | 任务画布显示「待人工验收」情况条/唯一主动作（execution.acceptance 投影） | fe | 来自 W0-4b 验收 | `apps/web/src/pages/task/**`、`pages/node/**` | 待验收任务可一键去验收；驳回后可重试 | done |
 | W3-4b | 知识研究过程/工具轨迹/流式回答 DTO 与 UI（当前诚实降级） | be+fe | 来自 W3-4a | `shared/api/contracts.ts`、`engine/knowledge.ts`、`server/http.ts`、页面 | 研究步骤与工具轨迹真实可读；流式或轮询 | pending |
 | W3-9c | 结构缺口：数据库授权项目/类型/三态、工具范围、模板分支/时间/文档、需求目录抽屉 | design | 来自 W3-9b | 对应页面 + 必要后端 | 设计清单逐项验收 | pending |
 | W3-11b | 品牌名决策：agent-workflow vs opencode-workflow；页头主题入口口径 | design | 来自 W3-11a | 品牌文案/Shell | 产品确认并统一 | pending |
 | W4-1d | 文档同步 Wave 3C（371 tests、gating、设置、知识、CI） | docs | 来自 W4-3a | README/remaining-work/verification/design-coverage | 计数与状态一致 | pending |
 | W4-3b | UI 视觉回归：在可用桌面环境跑 ui:smoke 并重拍关键截图；接入 CI（可选） | docs | 来自 W4-3a | scripts/证据/CI | 截图代表当前 UI；smoke 通过 | pending |
+
+| W3-6b | PE37 HTTP/UI 接线：proposal / refine-preview / scoped start / 组候选/确认禁用原因/总览 4 态 | be+fe | 来自 W3-6 引擎 | `shared/api/contracts.ts`、`server/http.ts`、`engine/project-task.ts`、页面 | 设计 v5 PE37 路径可走通 | pending |
+| W3-8a | 工作流编辑器后端：method 目录 CRUD/复制/归档/校验 + 存储 + 回执 | be | 设计 REVIEW §6-7 | `shared/**`、`engine/**`、`storage/**`、`server/http.ts` | 流程可创建/编辑/复制/归档；测试 | pending |
+| W3-8b | 工作流编辑器前端：画布编辑/添加/插入/删除/撤销/检查/保存/冲突 | fe | 依赖 W3-8a | `apps/web/src/pages/workflows/**`、`App.tsx` | 设计 7 项状态可验收 | pending |
 
 ### Wave 4 · 文档与验证体系
 
@@ -125,8 +129,8 @@
 | W4-1 | 重写 `docs/design-coverage.md`（真实覆盖矩阵），修正 README/remaining-work/verification 矛盾与计数 | docs-keeper | 不得复制 verification | done |
 | W4-2 | `docs/api.md` 按 ROUTES+服务端注册重新生成；加契约快照脚本进 verify | docs-keeper | 与 W1-10 配合 | done |
 | W4-3 | 证据体系：live 日志摘要、`docs/evidence/README.md` 清单、截图更新、`test:e2e` 修复、最小 CI | docs-keeper | — | done |
-| W4-4 | 打包：重新 dist、签名/公证、Windows/Linux 目标评估 | docs-keeper + Lead | 需要环境/凭据 | pending |
-| W4-5 | 真实 PostgreSQL/GitLab 验证 | be-workspace + Lead | 需要实例/凭据 | pending |
+| W4-4 | 打包：重新 dist、签名/公证、Windows/Linux 目标评估 | docs-keeper + Lead | 需要环境/凭据 | done |
+| W4-5 | 真实 PostgreSQL/GitLab 验证 | be-workspace + Lead | 需要实例/凭据 | blocked（本机无 PG/GitLab 实例/凭据） |
 
 ## 4. 波次与并行策略
 

@@ -10,12 +10,13 @@ import { PageHeader } from '../../components/Card.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon, type IconName } from '../../components/Icon.tsx';
-import { PendingBackendNotice, ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { formatRelativeTime } from '../../app/format.ts';
 
 type ToolsTab = 'tools' | 'skills';
 
-const TOGGLE_BLOCKED_REASON = '单工具开关尚未接通；当前按 toolset 启停，保存并重启受管 OpenCode 后生效。';
+const TOGGLE_BLOCKED_REASON = '服务未提供单工具策略接口；当前只能按 toolset 启停（已接通，保存并重启受管 OpenCode 后生效）。';
+const SOURCE_DISABLE_REASON = '服务未提供来源级停用接口；只能按 toolset 在设置中启停，无法单独停用来源。';
 
 const TOOLSET_ICON: Record<string, IconName> = {
   workflow: 'flow',
@@ -119,7 +120,22 @@ function ToolsView() {
         </div>
         <div className="row wrap" style={{ gap: 6, marginTop: 12 }}>
           {integrationStatus === undefined ? null : <Badge outline>集成状态：{integrationStatus}</Badge>}
-          <span className="hint">toolset 启停已接通（写入设置，重启受管 OpenCode 后生效）；单工具开关尚未接通。</span>
+          <span className="hint">toolset 启停已接通（写入设置，重启受管 OpenCode 后生效）；单工具开关未接通。</span>
+        </div>
+        <div className="row wrap" style={{ gap: 8, marginTop: 10, alignItems: 'center' }}>
+          <span className="label">配置范围</span>
+          <select
+            className="select ctl"
+            style={{ width: 'auto' }}
+            aria-label="配置范围"
+            disabled
+            title="服务未提供项目级工具配置契约；当前只有全局范围。"
+          >
+            <option>全局（默认）</option>
+          </select>
+          <span className="hint">
+            服务未提供项目级工具配置契约（settings.opencode.toolsets 是全局设置）；项目范围与「继承 / 启用 / 停用」三态无法展示或修改。
+          </span>
         </div>
         <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
           {MCP_TOOLSETS.map((toolset) => {
@@ -183,6 +199,31 @@ function ToolsView() {
                 </div>
               </div>
             </div>
+            <div style={{ padding: '10px 16px 0' }}>
+              <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
+                <Badge tone={status?.mcp.connected === true ? 'ok' : 'idle'} icon={status?.mcp.connected === true ? 'check' : 'minus'}>
+                  来源状态：{statusQuery.isLoading ? '读取中' : status?.mcp.connected === true ? '内部 MCP 已连接' : '内部 MCP 未连接'}
+                </Badge>
+                <span className="hint">来源类型：内置（服务端静态注册）；本地 / 远程来源切换没有契约。</span>
+                <span className="spacer" />
+                <Button variant="ghost" size="sm" icon="stop" disabled disabledReason={SOURCE_DISABLE_REASON}>
+                  停用此来源…
+                </Button>
+              </div>
+              <details className="hint" style={{ marginTop: 6 }}>
+                <summary style={{ cursor: 'pointer' }}>查看停用影响（{String(tools.length)} 个工具，仅说明）</summary>
+                <div className="col" style={{ gap: 2, marginTop: 6 }}>
+                  {tools.map((tool) => (
+                    <span key={tool.name} className="mono" style={{ fontSize: 12 }}>
+                      · {tool.name} · {tool.title}
+                    </span>
+                  ))}
+                </div>
+                <p className="hint" style={{ marginTop: 6 }}>
+                  {SOURCE_DISABLE_REASON} 这份清单只说明若停用该来源会影响哪些工具，不执行任何修改。
+                </p>
+              </details>
+            </div>
             <div style={{ padding: '4px 6px 6px' }}>
               {tools.length === 0 ? (
                 <EmptyState compact icon="tool" title="没有工具" description="该 toolset 尚未注册工具。" />
@@ -194,7 +235,16 @@ function ToolsView() {
         );
       })}
 
-      <PendingBackendNotice message="清单来源：packages/mcp/src/tools（服务端静态注册）。toolset 启停已接通（写入 settings.opencode.toolsets）；单工具开关、外部 MCP 来源与 Skill 安装状态尚无服务端接口。" />
+      <div className="banner info">
+        <Icon name="info" />
+        <div className="grow">
+          <b>真实 / 降级边界</b>
+          <br />
+          已接通：toolset 启停（写入 settings.opencode.toolsets，重启受管 OpenCode 后生效）、Skill 目录与源文只读。
+          未接通（按钮禁用并写明原因）：单工具开关、项目级配置范围、来源级停用、外部 MCP 来源与 Skill 安装状态；
+          服务没有对应接口，本页不展示虚构状态。
+        </div>
+      </div>
     </div>
   );
 }

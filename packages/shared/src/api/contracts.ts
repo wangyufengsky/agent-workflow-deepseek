@@ -1,6 +1,16 @@
 import type { IsoDateTime, RequestKey, TaskId } from '../ids.ts';
 import type { ErrorCodeValue } from '../errors.ts';
-import type { DimensionValue, InteractionKindValue, InteractionStateValue, NodeManualAcceptanceStateValue, SeverityValue, ThemeIdValue } from '../domain/enums.ts';
+import type {
+  DimensionValue,
+  InteractionKindValue,
+  InteractionStateValue,
+  NodeManualAcceptanceStateValue,
+  RoleCapabilityGroupValue,
+  RoleResourceFileKindValue,
+  RoleResourceToolKindValue,
+  SeverityValue,
+  ThemeIdValue,
+} from '../domain/enums.ts';
 import type { AppEventEnvelope } from '../domain/events.ts';
 import type {
   ActionAvailability,
@@ -41,6 +51,12 @@ import type {
   TaskSummary,
   TaskTemplate,
   RoleDefinition,
+  RoleDefinitionResolved,
+  RoleImageBinding,
+  RoleImageHistoryEntry,
+  RolePublishCheck,
+  RoleCapabilityGroupView,
+  RoleResourcePermissions,
   TaskWorkspace,
   WorkspaceCleanupPreview,
 } from '../domain/models.ts';
@@ -525,12 +541,39 @@ export interface TemplateImportRequest extends CommandRequest {
   readonly confirmImport: true;
 }
 
+/** Editable inputs for the extended role tabs (ids only; labels/defaults are server-owned). */
+export interface RoleCapabilityGroupInput {
+  readonly id: RoleCapabilityGroupValue;
+  readonly items: readonly { readonly id: string; readonly enabled: boolean }[];
+}
+
+export interface RoleResourcePermissionsInput {
+  readonly tools: readonly { readonly kind: RoleResourceToolKindValue; readonly name: string; readonly source?: string }[];
+  readonly files: readonly { readonly kind: RoleResourceFileKindValue; readonly path: string; readonly workspace?: string }[];
+  readonly commands: readonly { readonly argv: readonly string[]; readonly workspace?: string }[];
+  readonly resources: readonly { readonly id: string }[];
+}
+
+export interface RoleImageInput {
+  readonly id: string;
+  readonly kind: 'initials' | 'emoji';
+  readonly value: string;
+  readonly label?: string;
+}
+
 export interface RoleSaveRequest extends CommandRequest {
   readonly roleId?: string;
   readonly baseId?: string;
   readonly name: string;
   readonly purpose: string;
   readonly responsibilities: readonly string[];
+  readonly instructions?: string;
+  readonly model?: string;
+  readonly maxRuntimeMinutes?: number;
+  readonly capabilityGroups?: readonly RoleCapabilityGroupInput[];
+  readonly resourcePermissions?: RoleResourcePermissionsInput;
+  /** `null` clears the image binding; omitted keeps the previous/draft value. */
+  readonly image?: RoleImageInput | null;
   readonly confirmSave: true;
 }
 
@@ -547,6 +590,15 @@ export interface RoleCatalogEntry extends RoleDefinition {
   readonly baseId?: string;
   readonly hasDraft: boolean;
   readonly updatedAt?: IsoDateTime;
+  /**
+   * Full editable draft (all four tabs) when `hasDraft` is true. Top-level
+   * fields stay the published/effective content so callers can diff draft vs
+   * published; a never-published custom role exposes its draft at both levels.
+   */
+  readonly draft?: RoleDefinitionResolved;
+  /** Published revisions' images; an entry without `image` is a placeholder. */
+  readonly imageHistory?: readonly RoleImageHistoryEntry[];
+  readonly publishChecks?: readonly RolePublishCheck[];
 }
 
 export interface RoleRevisionSnapshot {
@@ -555,6 +607,23 @@ export interface RoleRevisionSnapshot {
   readonly purpose: string;
   readonly responsibilities: readonly string[];
   readonly publishedAt: IsoDateTime;
+  readonly instructions?: string;
+  readonly model?: string;
+  readonly maxRuntimeMinutes?: number;
+  readonly capabilityGroups?: readonly RoleCapabilityGroupView[];
+  readonly resourcePermissions?: RoleResourcePermissions;
+  readonly image?: RoleImageBinding;
+}
+
+export interface RoleValidateResponse {
+  readonly roleId: string;
+  readonly hasDraft: boolean;
+  readonly draftRevision: string;
+  readonly publishedRevision?: string;
+  readonly canPublish: boolean;
+  readonly checks: readonly RolePublishCheck[];
+  /** Present when there is nothing to publish (no draft). */
+  readonly reason?: string;
 }
 
 export interface RoleRestoreRequest extends CommandRequest {
@@ -1343,6 +1412,7 @@ export const ROUTES = {
   templateTasks: (id: string) => `/api/templates/${encodeURIComponent(id)}/tasks`,
   catalogRoleSave: '/api/catalog/roles',
   catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,
+  catalogRoleValidate: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/validate`,
   catalogTemplateImport: '/api/catalog/templates/import',
   catalogTemplateUpdate: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
   catalogTemplateArchive: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,

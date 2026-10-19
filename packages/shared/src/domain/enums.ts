@@ -447,6 +447,47 @@ export const InboxKind = {
 export type InboxKindValue = (typeof InboxKind)[keyof typeof InboxKind];
 
 /**
+ * Role capability catalog (design roles.html "能力范围"): four groups, each a
+ * fixed set of switchable items. The server owns ids/labels/defaults so the
+ * client never invents capability names; only `enabled` is editable.
+ */
+export const RoleCapabilityGroup = {
+  KNOWLEDGE: 'knowledge',
+  DATA: 'data',
+  TASKS: 'tasks',
+  TOOLS: 'tools',
+} as const;
+export type RoleCapabilityGroupValue = (typeof RoleCapabilityGroup)[keyof typeof RoleCapabilityGroup];
+
+export const RoleCapabilityGroupMeta: readonly { readonly id: RoleCapabilityGroupValue; readonly label: string }[] = [
+  { id: RoleCapabilityGroup.KNOWLEDGE, label: '知识与资料' },
+  { id: RoleCapabilityGroup.DATA, label: '数据' },
+  { id: RoleCapabilityGroup.TASKS, label: '任务' },
+  { id: RoleCapabilityGroup.TOOLS, label: '工具' },
+];
+
+export const RoleCapabilityCatalog = [
+  { id: 'project_knowledge', group: 'knowledge', label: '项目知识', defaultEnabled: true },
+  { id: 'knowledge_conversation', group: 'knowledge', label: '知识对话', defaultEnabled: true },
+  { id: 'public_knowledge_search', group: 'knowledge', label: '公共知识检索', defaultEnabled: true },
+  { id: 'document_read', group: 'knowledge', label: '文档读取', defaultEnabled: true },
+  { id: 'document_write', group: 'knowledge', label: '文档写入', defaultEnabled: false },
+  { id: 'database_schema', group: 'data', label: '数据库结构', defaultEnabled: true },
+  { id: 'database_read', group: 'data', label: '数据库读取', defaultEnabled: true },
+  { id: 'task_evidence', group: 'tasks', label: '任务证据', defaultEnabled: true },
+  { id: 'gitlab_read', group: 'tasks', label: 'GitLab 读取', defaultEnabled: false },
+  { id: 'native_tools', group: 'tools', label: '原生工具', defaultEnabled: true },
+  { id: 'external_mcp', group: 'tools', label: '外部 MCP', defaultEnabled: true },
+] as const satisfies readonly { readonly id: string; readonly group: RoleCapabilityGroupValue; readonly label: string; readonly defaultEnabled: boolean }[];
+export type RoleCapabilityIdValue = (typeof RoleCapabilityCatalog)[number]['id'];
+
+/** Resource permission kinds (design "资源权限" rows NATIVE/ASSIST/MCP/READ/WRITE/ARGV/CAP). */
+export const RoleResourceToolKind = { NATIVE: 'native', ASSIST: 'assist', MCP: 'mcp' } as const;
+export type RoleResourceToolKindValue = (typeof RoleResourceToolKind)[keyof typeof RoleResourceToolKind];
+export const RoleResourceFileKind = { READ: 'read', WRITE: 'write' } as const;
+export type RoleResourceFileKindValue = (typeof RoleResourceFileKind)[keyof typeof RoleResourceFileKind];
+
+/**
  * Inbox interactions the server can actually serve. Permissions/policy are not
  * listed because the managed-OpenCode + internal-MCP architecture has no source
  * for them; `capabilities` reports that absence instead of inventing items.

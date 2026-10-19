@@ -148,6 +148,7 @@
 | GET | `/api/catalog/roles/:id/history` | 角色发布历史 | 读口；无写回执 |
 | POST | `/api/catalog/roles/:id/publish` | 发布角色（修订递增） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/catalog/roles/:id/restore/:revision` | 恢复历史快照为草稿 | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/catalog/roles/:id/validate` | 发布前检查（非变更，返回 checks/canPublish） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | PATCH / DELETE | `/api/catalog/templates/:id` | 更新模板（新版本）；归档自定义模板 | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/catalog/templates/import` | 导入自定义模板 | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/templates/:id` | 固定模板详情 | 读口；无写回执 |

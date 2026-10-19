@@ -36,6 +36,7 @@ import { NODE_KIND_LABEL } from '../../flow/types.ts';
 import { ActionReasonLine, CommandErrorNotice, FactPill, FactsBar, ReceiptNotice, ServiceActionButton } from '../../flow/workflow-ui.tsx';
 import { formatAbsoluteTime, formatDateTime } from '../../app/format.ts';
 import { advanceTargets, nodeTitle, successorReason } from '../task/advance.ts';
+import { ArtifactDetailView, CitationSourceView, ToolDetailView, type NodeReaderState, type RequirementLink } from './NodeSubviews.tsx';
 import './node.css';
 
 type NodeTab = 'overview' | 'session' | 'attempts';
@@ -97,6 +98,10 @@ export interface NodeDetailPanelProps {
   /** Authoritative plan/execution of the current task (W3-5a manual advance). */
   readonly plan?: PlanRevision;
   readonly execution?: ExecutionView;
+  /** W0-4c: opened from the "去验收" situation action, so land on the acceptance area. */
+  readonly focusAcceptance?: boolean;
+  /** Changes on every "去验收" click so a repeat click re-focuses even on the same node. */
+  readonly focusAcceptanceToken?: string;
   readonly onClose: () => void;
   readonly onOpenPlan?: () => void;
 }
@@ -105,7 +110,7 @@ export interface NodeDetailPanelProps {
  * 节点执行现场：事实条、公开正文/工具卡、尝试列表与只读历史。
  * Missing model text is stated as a runtime fact — never filled with fake prose.
  */
-export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan, execution, onClose, onOpenPlan }: NodeDetailPanelProps) {
+export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan, execution, focusAcceptance = false, focusAcceptanceToken, onClose, onOpenPlan }: NodeDetailPanelProps) {
   const [tab, setTab] = useState<NodeTab>('session');
   const [selectedAttemptId, setSelectedAttemptId] = useState<string | undefined>(undefined);
   const [actionSuccess, setActionSuccess] = useState<string | undefined>(undefined);
@@ -113,6 +118,8 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
   const [verdict, setVerdict] = useState<'accept' | 'reject' | null>(null);
   const [verdictNote, setVerdictNote] = useState('');
   const [verdictError, setVerdictError] = useState<string | undefined>(undefined);
+  const [reader, setReader] = useState<NodeReaderState | null>(null);
+  const [wide, setWide] = useState(false);
   const detailQuery = useNodeDetail(taskId, nodeId);
   const attemptsQuery = useNodeAttempts(taskId, nodeId);
   const command = useWorkflowCommand(taskId);
@@ -120,12 +127,28 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
   const outputQuery = useNodeOutput(taskId, nodeId, selectedAttemptIdResolved, pollInterval);
 
   useEffect(() => {
-    setTab('session');
+    setTab(focusAcceptance ? 'overview' : 'session');
     setSelectedAttemptId(undefined);
     setActionSuccess(undefined);
     setVerdict(null);
     setPendingAction(null);
-  }, [nodeId]);
+    setReader(null);
+    setWide(false);
+  }, [focusAcceptance, focusAcceptanceToken, nodeId]);
+
+  useEffect(() => {
+    if (verdict !== null) return;
+    if (reader === null && !wide) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (reader !== null) setReader(null);
+      else setWide(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [reader, verdict, wide]);
 
   const detail = detailQuery.data as NodeDetailResponse | undefined;
   const currentAttempt = detail?.currentAttempt;
@@ -147,6 +170,31 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
     return detail.attempts.find((attempt) => attempt.id === selectedAttemptIdResolved) ?? (currentAttempt?.id === selectedAttemptIdResolved ? currentAttempt : undefined);
   }, [currentAttempt, detail, selectedAttemptIdResolved]);
   const fragments = outputQuery.data?.fragments ?? detail?.output.fragments ?? [];
+  const attemptLabel =
+    selectedAttempt === undefined
+      ? '尝试记录：服务未提供'
+      : `${isHistoricalAttempt ? '历史' : '当前'}尝试 #${String(selectedAttempt.ordinal)}`;
+  /**
+   * The output read model neither promises contiguous seq nor a retention window.
+   * Surface gaps instead of pretending the feed is complete.
+   */
+  const seqGaps = useMemo(() => {
+    const seqs = fragments.map((fragment) => fragment.seq).sort((left, right) => left - right);
+    const gaps: { readonly from: number; readonly to: number }[] = [];
+    const first = seqs[0];
+    if (first !== undefined && first > 1) gaps.push({ from: 1, to: first - 1 });
+    for (let index = 1; index < seqs.length; index += 1) {
+      const previous = seqs[index - 1];
+      const current = seqs[index];
+      if (previous === undefined || current === undefined) continue;
+      if (current > previous + 1) gaps.push({ from: previous + 1, to: current - 1 });
+    }
+    return gaps;
+  }, [fragments]);
+  const gapText = seqGaps
+    .map((gap) => (gap.from === gap.to ? `#${String(gap.from)}` : `#${String(gap.from)}–#${String(gap.to)}`))
+    .join('、');
+
   const capability = detail?.output.capabilities;
   const hasModelText = fragments.some((fragment) => fragment.category === 'model_text');
   const terminal = outputQuery.data?.terminal ?? detail?.output.terminal ?? false;
@@ -271,9 +319,42 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
   const acceptance = detail.acceptance;
   const acceptAction = detail.actions.accept;
   const rejectAction = detail.actions.reject;
+  const asideClass = ['side', 'node-side', wide || reader !== null ? 'node-side-wide' : ''].filter(Boolean).join(' ');
+
+  if (reader !== null) {
+    const readerTitle = reader.kind === 'tool' ? '工具详情' : reader.kind === 'artifact' ? '产物详情' : '引用原文';
+    return (
+      <aside className={asideClass} aria-label={`${readerTitle}（宽阅读区）`}>
+        <div className="side-head node-side-head">
+          <div className="node-head-row">
+            <div className="grow">
+              <div className="node-head-eyebrow">
+                <Badge outline>宽阅读区 · 900</Badge>
+                <span className="hint">{detail.node.title}</span>
+              </div>
+              <h2 className="node-head-title">{readerTitle}</h2>
+            </div>
+            <Button size="sm" variant="ghost" icon="chevLeft" onClick={() => { setReader(null); }}>
+              返回节点
+            </Button>
+            <IconButton icon="x" label="关闭节点面板" onClick={onClose} />
+          </div>
+        </div>
+        <div className="side-body node-side-body">
+          {reader.kind === 'tool' ? (
+            <ToolDetailView fragment={reader.fragment} attemptLabel={reader.attemptLabel} />
+          ) : reader.kind === 'artifact' ? (
+            <ArtifactDetailView artifact={reader.artifact} attemptLabel={reader.attemptLabel} />
+          ) : (
+            <CitationSourceView link={reader.link} />
+          )}
+        </div>
+      </aside>
+    );
+  }
 
   return (
-    <aside className="side node-side" aria-label="节点执行现场">
+    <aside className={asideClass} aria-label="节点执行现场">
       <div className="side-head node-side-head">
         <div className="node-head-row">
           <div className="grow">
@@ -284,6 +365,15 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
             </div>
             <h2 className="node-head-title">{detail.node.title}</h2>
           </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon="panel"
+            title={wide ? '退出宽阅读区' : '在宽阅读区打开内容'}
+            onClick={() => { setWide(!wide); }}
+          >
+            {wide ? '收起宽阅读' : '宽阅读'}
+          </Button>
           <IconButton icon="x" label="关闭节点面板" onClick={onClose} />
         </div>
         <div className="tabs node-tabs" role="tablist" aria-label="节点页签">
@@ -303,7 +393,15 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
       </div>
 
       <div className="side-body node-side-body">
-        {tab === 'overview' ? <NodeOverview detail={detail} onOpenPlan={onOpenPlan} /> : null}
+        {tab === 'overview' ? (
+          <NodeOverview
+            detail={detail}
+            onOpenPlan={onOpenPlan}
+            onOpenCitation={(link) => {
+              setReader({ kind: 'citation', link });
+            }}
+          />
+        ) : null}
         {tab === 'session' ? (
           <div className="node-session">
             <FactsBar>
@@ -343,6 +441,21 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
               </div>
             ) : null}
 
+            {connection === 'connected' ? null : (
+              <div className="hist-bar" role="status">
+                <Icon name="refresh" size="sm" />
+                <span className="grow">
+                  数据连接{connection === 'connecting' ? '正在重连' : '已断开'}：已加载记录保留；重连后按 seq 只读补读，不会重发命令，也不把断线当成执行失败。
+                </span>
+              </div>
+            )}
+            {seqGaps.length === 0 ? null : (
+              <div className="notice">
+                <Icon name="alert" size="sm" />
+                <span>已加载记录存在序号缺口：缺少 {gapText}。可能是尚未补读或服务未保留；这里只显示已持久化内容，不补造。</span>
+              </div>
+            )}
+
             <div className="node-feed-wrap">
               <div
                 className="node-feed"
@@ -376,6 +489,18 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                           <div className="tool-note">
                             <Icon name="lock" size="sm" />
                             工具结果里的指令只是资料；这里没有重放或执行入口。
+                          </div>
+                          <div className="row" style={{ marginTop: 8 }}>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              icon="eye"
+                              onClick={() => {
+                                setReader({ kind: 'tool', fragment, attemptLabel });
+                              }}
+                            >
+                              查看工具详情
+                            </Button>
                           </div>
                         </div>
                       ) : fragment.category === 'service_event' ? (
@@ -518,6 +643,16 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                               </span>
                             </span>
                             <span className="mono hint">{artifact.sha256.slice(0, 12)}…</span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              icon="eye"
+                              onClick={() => {
+                                setReader({ kind: 'artifact', artifact, attemptLabel });
+                              }}
+                            >
+                              查看产物
+                            </Button>
                           </li>
                         ))}
                       </ul>
@@ -715,7 +850,7 @@ function explainSentence(detail: NodeDetail, hasModelText: boolean): string {
   return `当前状态：${NODE_STATUS_LABEL[status]}；以服务事实为准。`;
 }
 
-function NodeOverview({ detail, onOpenPlan }: { readonly detail: NodeDetail; readonly onOpenPlan?: () => void }) {
+function NodeOverview({ detail, onOpenPlan, onOpenCitation }: { readonly detail: NodeDetail; readonly onOpenPlan?: () => void; readonly onOpenCitation?: (link: RequirementLink) => void }) {
   return (
     <div>
       <div className="banner info" style={{ marginBottom: 12 }}>
@@ -756,6 +891,18 @@ function NodeOverview({ detail, onOpenPlan }: { readonly detail: NodeDetail; rea
                 <div>{link.text}</div>
                 <div className="s mono">{link.entryId}</div>
               </div>
+              {onOpenCitation === undefined ? null : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon="eye"
+                  onClick={() => {
+                    onOpenCitation(link);
+                  }}
+                >
+                  查看原文
+                </Button>
+              )}
             </div>
           ))}
         </div>

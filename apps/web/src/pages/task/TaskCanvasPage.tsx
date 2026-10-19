@@ -14,8 +14,10 @@ import {
   cancelExecution,
   pauseExecution,
   resumeExecution,
+  retryExecution,
   setExecutionAutoAdvance,
   startExecution,
+  useExecutionView,
   useTaskDetail,
   useTaskLiveUpdates,
   useWorkflowCommand,
@@ -45,6 +47,9 @@ export function TaskCanvasPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const live = useTaskLiveUpdates(taskId);
   const detailQuery = useTaskDetail(taskId, live.refetchInterval);
+  // Task detail is built from the raw execution row; `/execution` overlays the
+  // W0-4b human-acceptance gate. Reading it keeps the acceptance projection real.
+  const executionViewQuery = useExecutionView(taskId, live.refetchInterval);
   const command = useWorkflowCommand(taskId ?? '');
 
   const [editMode, setEditMode] = useState(false);
@@ -62,6 +67,35 @@ export function TaskCanvasPage() {
   const actions: Record<string, ActionAvailability> = detail?.capabilities ?? {};
   const nodeId = searchParams.get('node') ?? undefined;
   const deliveryOpen = searchParams.get('delivery') === '1';
+  const acceptFocusToken = searchParams.get('accept') ?? undefined;
+  const acceptFocus = acceptFocusToken !== undefined;
+
+  const acceptanceExecution = executionViewQuery.data?.execution;
+  const acceptance = acceptanceExecution?.acceptance;
+  const pendingAcceptance = acceptance?.pending ?? [];
+  const rejectedAcceptance = acceptance?.rejected ?? [];
+  /**
+   * Older services do not overlay `execution.acceptance` on the task detail read
+   * model. Fall back to plan criteria + node statuses and say so in the banner;
+   * the per-node verdict itself is only read from the node detail panel.
+   */
+  const acceptanceFallbackIds =
+    acceptance === undefined && !executionViewQuery.isLoading && execution !== undefined && plan !== undefined
+      ? execution.nodes
+          .filter((node) => node.status === 'succeeded' && (plan.graph.nodes.find((item) => item.id === node.nodeId)?.acceptance.length ?? 0) > 0)
+          .map((node) => node.nodeId)
+      : [];
+  const pendingAcceptanceCount = pendingAcceptance.length > 0 ? pendingAcceptance.length : acceptanceFallbackIds.length;
+  const firstAcceptanceNodeId = pendingAcceptance[0] ?? acceptanceFallbackIds[0];
+  const firstRejectedNodeId = rejectedAcceptance[0];
+  const planNodeTitle = (targetNodeId: string | undefined): string =>
+    targetNodeId === undefined ? '该步骤' : plan?.graph.nodes.find((item) => item.id === targetNodeId)?.title ?? targetNodeId;
+  const acceptancePaused = execution?.status === 'paused';
+  const acceptanceUserPaused = acceptancePaused && execution?.pause?.requestKey !== undefined;
+  const reuseRefresh = () => {
+    void detailQuery.refetch();
+    void executionViewQuery.refetch();
+  };
 
   useEffect(() => {
     if (execution?.editSession !== undefined && (execution.editSession.state === 'editing' || execution.editSession.state === 'conflict' || execution.editSession.state === 'saved')) {
@@ -109,11 +143,16 @@ export function TaskCanvasPage() {
   );
 
   const openNode = (nextNodeId: string) => {
-    patchParams({ node: nextNodeId });
+    patchParams({ node: nextNodeId, accept: undefined });
+  };
+
+  const goAccept = (targetNodeId: string | undefined) => {
+    if (targetNodeId === undefined) return;
+    patchParams({ node: targetNodeId, accept: String(Date.now()), delivery: undefined });
   };
 
   const closeNode = () => {
-    patchParams({ node: undefined });
+    patchParams({ node: undefined, accept: undefined });
   };
 
   const openRequirement = () => {
@@ -169,6 +208,11 @@ export function TaskCanvasPage() {
       const count = Array.isArray(released) ? released.length : 0;
       setLastCommand(count > 0 ? `推进直接后继 · 已放行 ${String(count)} 步` : '推进直接后继');
     });
+  };
+  const runRetryRejected = () => {
+    if (taskId === undefined) return;
+    setLastCommand('按原配置重试失败 / 被退回步骤');
+    void command.run(() => retryExecution(taskId, execution?.status));
   };
 
   if (taskId === undefined) {
@@ -328,6 +372,18 @@ export function TaskCanvasPage() {
           <span className="k">自动推进</span>
           {execution === undefined ? '—' : execution.autoAdvance ? '开启' : '关闭'}
         </span>
+        {pendingAcceptanceCount > 0 ? (
+          <span className="situ-kv warn">
+            <span className="k">待验收</span>
+            {pendingAcceptanceCount}
+          </span>
+        ) : null}
+        {rejectedAcceptance.length > 0 ? (
+          <span className="situ-kv warn">
+            <span className="k">已退回</span>
+            {rejectedAcceptance.length}
+          </span>
+        ) : null}
         {editSession === undefined ? null : (
           <span className="situ-kv warn">
             <span className="k">调整</span>
@@ -344,6 +400,78 @@ export function TaskCanvasPage() {
         <CommandErrorNotice error={command.state.error} />
         <ReceiptNotice receipt={command.state.receipt} successMessage={lastCommand === undefined ? undefined : `${lastCommand} · 服务回执 succeeded`} />
         <ReceiptNotice receipt={pageReceipt} successMessage={pageReceiptMessage} />
+        {pendingAcceptance.length > 0 ? (
+          <div className="banner warn" role="status">
+            <Icon name="eye" />
+            <div className="grow">
+              <b>{String(pendingAcceptance.length)} 个已执行步骤待人工验收</b>
+              <br />
+              {acceptancePaused
+                ? acceptanceUserPaused
+                  ? '任务已被你暂停：验收结论不会自动恢复执行；验收后点页面上的“继续”按钮。'
+                  : '执行已停在验收点：全部待验收步骤通过后服务会自动继续；退回修改后需按原配置重试。'
+                : execution?.status === 'waiting_confirmation'
+                  ? '执行在等待重新确认；验收结论不会跳过计划确认。'
+                  : '验收通过前不会结束执行或放行下游步骤；退回修改后可按原配置重试。'}
+              {execution?.notice === undefined ? null : ` ${execution.notice.message}`}
+            </div>
+            <div className="actions">
+              <Button
+                variant="primary"
+                size="sm"
+                icon="check"
+                title={`打开「${planNodeTitle(firstAcceptanceNodeId)}」的验收区`}
+                onClick={() => goAccept(firstAcceptanceNodeId)}
+              >
+                去验收
+              </Button>
+              <Button variant="ghost" size="sm" icon="refresh" onClick={reuseRefresh}>
+                重新读取
+              </Button>
+            </div>
+          </div>
+        ) : acceptanceFallbackIds.length > 0 ? (
+          <div className="banner info" role="status">
+            <Icon name="info" />
+            <div className="grow">
+              <b>{String(acceptanceFallbackIds.length)} 个已执行步骤可能有待人工验收。</b>
+              <br />
+              {executionViewQuery.isError
+                ? '验收投影读取失败；这里只按计划验收条款与节点成功状态降级提示，结论需逐个打开节点按服务事实核对。'
+                : '服务未返回验收投影（旧版读模型）；这里只按计划验收条款与节点成功状态降级提示，结论需逐个打开节点按服务事实核对。'}
+            </div>
+            <div className="actions">
+              <Button variant="secondary" size="sm" icon="eye" onClick={() => goAccept(acceptanceFallbackIds[0])}>
+                逐个打开核对
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {rejectedAcceptance.length > 0 ? (
+          <div className="banner danger" role="alert">
+            <Icon name="alert" />
+            <div className="grow">
+              <b>{String(rejectedAcceptance.length)} 个步骤已被退回修改</b>
+              <br />
+              「{planNodeTitle(firstRejectedNodeId)}」等需要按原配置重试后再验收；重试会创建新的 attempt 并清除退回结论，已验收通过的步骤不受影响。
+            </div>
+            <div className="actions">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon="refresh"
+                disabled={command.state.busy}
+                disabledReason="正在提交，等待服务回执…"
+                onClick={runRetryRejected}
+              >
+                按原配置重试失败 / 被退回步骤
+              </Button>
+              <Button variant="ghost" size="sm" icon="eye" onClick={() => goAccept(firstRejectedNodeId)}>
+                查看退回原因
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {execution?.status === 'unknown' ? (
           <div className="banner unknown">
             <Icon name="help" />
@@ -418,6 +546,8 @@ export function TaskCanvasPage() {
             pollInterval={live.refetchInterval}
             plan={plan}
             execution={execution}
+            focusAcceptance={acceptFocus}
+            focusAcceptanceToken={acceptFocusToken}
             onClose={closeNode}
             onOpenPlan={openRequirement}
           />
