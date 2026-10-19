@@ -33,33 +33,19 @@ test('plan edit save applies prerequisite edges and rejects cycles', async () =>
     const plan = skeleton.json().data.resource.plan as { id: string; revisionNumber: number; graph: { nodes: { id: string }[]; edges: { from: string; to: string }[] } };
     assert.ok(plan.graph.nodes.length >= 3);
     const execution = app.store.executions.create({ taskId, planRevisionId: plan.id, graph: plan.graph as never, autoAdvance: false });
-    app.store.executions.update(execution.id, {
+    const editing = app.store.executions.update(execution.id, {
       status: 'waiting_confirmation',
       editSession: { id: createId('es'), state: 'editing', requestKey: requestKey('es'), autoAdvanceBeforeEdit: true, lockedNodeIds: [], localChanges: [] },
     });
     app.store.tasks.update(taskId, { currentPlanRevisionId: plan.id, executionId: execution.id });
 
     const [first, second] = plan.graph.nodes;
-    const save = await app.app.inject({
-      method: 'POST',
-      url: `/api/tasks/${taskId}/plan/edit/save`,
-      payload: {
-        requestKey: requestKey('save'),
-        editSessionId: execution.editSession?.id ?? '',
-        changes: [{ nodeId: second!.id, prerequisites: [first!.id], acceptance: ['依赖已调整'] }],
-        expectedPlanRevisionNumber: plan.revisionNumber,
-      },
-    });
-    assert.equal(save.statusCode, 200, save.body);
-    const nextPlan = save.json().data.resource.plan as { graph: { edges: { from: string; to: string }[] } };
-    assert.ok(nextPlan.graph.edges.some((edge) => edge.from === first!.id && edge.to === second!.id));
-
     const cycle = await app.app.inject({
       method: 'POST',
       url: `/api/tasks/${taskId}/plan/edit/save`,
       payload: {
         requestKey: requestKey('cycle'),
-        editSessionId: execution.editSession?.id ?? '',
+        editSessionId: editing!.editSession!.id,
         changes: [
           { nodeId: first!.id, prerequisites: [second!.id] },
           { nodeId: second!.id, prerequisites: [first!.id] },
@@ -69,6 +55,21 @@ test('plan edit save applies prerequisite edges and rejects cycles', async () =>
     });
     assert.equal(cycle.statusCode, 400, cycle.body);
     assert.equal(cycle.json().error.code, 'VALIDATION_FAILED');
+
+    const save = await app.app.inject({
+      method: 'POST',
+      url: `/api/tasks/${taskId}/plan/edit/save`,
+      payload: {
+        requestKey: requestKey('save'),
+        editSessionId: editing!.editSession!.id,
+        changes: [{ nodeId: second!.id, prerequisites: [first!.id], acceptance: ['依赖已调整'] }],
+        expectedPlanRevisionNumber: plan.revisionNumber,
+      },
+    });
+    assert.equal(save.statusCode, 200, save.body);
+    const nextPlan = save.json().data.resource.plan as { graph: { edges: { from: string; to: string }[] } };
+    assert.ok(nextPlan.graph.edges.some((edge) => edge.from === first!.id && edge.to === second!.id));
+
   } finally {
     await app.close();
   }

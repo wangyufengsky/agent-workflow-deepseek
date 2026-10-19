@@ -6,6 +6,7 @@ import type {
   NodeStatusValue,
   OutputFragment,
   PlanGraph,
+  PlanNode,
   PlanNodeId,
   PlanningUsage,
   Attempt,
@@ -30,6 +31,7 @@ export interface CreateExecutionInput {
 }
 
 export interface ExecutionPatch {
+  readonly planRevisionId?: string;
   readonly status?: ExecutionStatusValue;
   readonly autoAdvance?: boolean;
   readonly progress?: ExecutionView['progress'];
@@ -135,6 +137,7 @@ export class ExecutionRepository {
     if (current === undefined) return undefined;
     const next: ExecutionView = {
       ...current,
+      planRevisionId: patch.planRevisionId ?? current.planRevisionId,
       status: patch.status ?? current.status,
       autoAdvance: patch.autoAdvance ?? current.autoAdvance,
       progress: patch.progress ?? current.progress,
@@ -146,9 +149,10 @@ export class ExecutionRepository {
     };
     this.#db
       .prepare(
-        `UPDATE executions SET status = ?, auto_advance = ?, progress_json = ?, started_at = ?, ended_at = ?, pause_json = ?, edit_session_json = ?, notice_json = ?, revision = revision + 1 WHERE id = ?`,
+        `UPDATE executions SET plan_revision_id = ?, status = ?, auto_advance = ?, progress_json = ?, started_at = ?, ended_at = ?, pause_json = ?, edit_session_json = ?, notice_json = ?, revision = revision + 1 WHERE id = ?`,
       )
       .run(
+        next.planRevisionId,
         next.status,
         fromBool(next.autoAdvance),
         jsonStringify(next.progress),
@@ -190,7 +194,37 @@ export class ExecutionRepository {
       .run(jsonStringify({ ...execution.progress, frontier }), executionId);
   }
 
-  createAttempt(input: { executionId: string; nodeId: string; ordinal: number }): Attempt {
+  /** Atomically change the current graph binding without erasing any attempted-node history. */
+  rebindPlan(executionId: string, planRevisionId: string, graph: PlanGraph): ExecutionView | undefined {
+    const current = this.get(executionId);
+    if (current === undefined) return undefined;
+    this.#db.transaction(() => {
+      const keep = new Set(graph.nodes.map((node) => node.id));
+      for (const node of current.nodes) {
+        if (!keep.has(node.nodeId) && node.attemptCount === 0) this.#db.prepare('DELETE FROM execution_nodes WHERE execution_id = ? AND node_id = ?').run(executionId, node.nodeId);
+      }
+      for (const definition of graph.nodes) {
+        const node = current.nodes.find((item) => item.nodeId === definition.id);
+        if (node === undefined) this.#db.prepare("INSERT INTO execution_nodes (execution_id,node_id,status,attempt_count) VALUES (?,?,'pending',0)").run(executionId, definition.id);
+        else if (node.attemptCount === 0 && ['ready', 'pending'].includes(node.status)) this.updateNode(executionId, node.nodeId, { status: 'pending' });
+      }
+      this.update(executionId, { planRevisionId });
+    });
+    return this.get(executionId);
+  }
+
+  preserveAttemptDefinition(attemptId: string, planRevisionId: string, node: PlanNode): void {
+    this.#db.prepare('INSERT INTO settings (key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO NOTHING')
+      .run(`execution.attempt-definition.${attemptId}`, jsonStringify({ planRevisionId, node }), nowIso());
+  }
+
+  #attempt(row: Row): Attempt {
+    const attempt = mapAttempt(row);
+    const definition = this.#db.prepare('SELECT value_json FROM settings WHERE key = ?').get(`execution.attempt-definition.${attempt.id}`) as { value_json: string } | undefined;
+    return definition === undefined ? attempt : { ...attempt, definition: jsonParse<Attempt['definition']>(definition.value_json, undefined) };
+  }
+
+  createAttempt(input: { executionId: string; nodeId: string; ordinal: number; definition?: { readonly planRevisionId: string; readonly node: PlanNode } }): Attempt {
     const dbRow = this.#db.prepare('SELECT MAX(ordinal) AS max FROM attempts WHERE execution_id = ? AND node_id = ?').get(input.executionId, input.nodeId) as { max: number | null };
     const ordinal = Math.max(Number(dbRow.max ?? 0) + 1, input.ordinal);
     const attempt: Attempt = {
@@ -202,22 +236,24 @@ export class ExecutionRepository {
       startedAt: nowIso(),
       readability: { output: 'ok', tools: 'ok', result: 'ok' },
     };
-    this.#db
-      .prepare('INSERT INTO attempts (id, execution_id, node_id, ordinal, status, started_at, result_json, readability_json) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)')
-      .run(attempt.id, attempt.executionId, attempt.nodeId, attempt.ordinal, attempt.status, attempt.startedAt ?? nowIso(), jsonStringify(attempt.readability));
-    return attempt;
+    this.#db.transaction(() => {
+      this.#db.prepare('INSERT INTO attempts (id, execution_id, node_id, ordinal, status, started_at, result_json, readability_json) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)')
+        .run(attempt.id, attempt.executionId, attempt.nodeId, attempt.ordinal, attempt.status, attempt.startedAt ?? nowIso(), jsonStringify(attempt.readability));
+      if (input.definition !== undefined) this.preserveAttemptDefinition(attempt.id, input.definition.planRevisionId, input.definition.node);
+    });
+    return this.getAttempt(attempt.id)!;
   }
 
   getAttempt(id: string): Attempt | undefined {
     const row = this.#db.prepare('SELECT * FROM attempts WHERE id = ?').get(id) as Row | undefined;
-    return row === undefined ? undefined : mapAttempt(row);
+    return row === undefined ? undefined : this.#attempt(row);
   }
 
   listAttempts(executionId: string, nodeId?: string): readonly Attempt[] {
     const rows = nodeId === undefined
       ? (this.#db.prepare('SELECT * FROM attempts WHERE execution_id = ? ORDER BY ordinal DESC').all(executionId) as unknown as Row[])
       : (this.#db.prepare('SELECT * FROM attempts WHERE execution_id = ? AND node_id = ? ORDER BY ordinal DESC').all(executionId, nodeId) as unknown as Row[]);
-    return rows.map(mapAttempt);
+    return rows.map((row) => this.#attempt(row));
   }
 
   /** Persist a submission before the remote session ends, without claiming execution success. */

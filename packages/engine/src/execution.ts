@@ -170,6 +170,7 @@ export class ExecutionService {
     const task = this.#requireTask(taskId);
     const execution = this.get(taskId);
     if (execution === undefined || execution.status !== 'paused') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有暂停的执行');
+    if (execution.editSession !== undefined && !['finished', 'abandoned'].includes(execution.editSession.state)) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '计划调整尚未结束，请先重新确认并结束调整');
     if (execution.nodes.some((node) => node.status === NodeStatus.FAILED) && executionPolicy(this.#store, execution.id, this.#context.settings().execution).pauseAfterFailure) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '先重试或处理失败步骤，再继续执行');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -289,6 +290,37 @@ export class ExecutionService {
     this.#commands.settle(input.requestKey, { released: release.ready, waitingFor: release.waitingFor });
     void this.#advance(execution.id);
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#viewResponse(taskId) };
+  }
+
+  /** Validate before switching; active attempts retain their original immutable definitions. */
+  validatePlanBinding(executionId: string, plan: PlanRevision): void {
+    const execution = this.#store.executions.get(executionId);
+    if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行不存在');
+    if (['unknown', 'stopping'].includes(execution.status)) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '原执行尚未核对停稳，不能切换计划');
+    const previous = this.#store.plans.get(execution.planRevisionId);
+    if (previous === undefined || plan.taskId !== execution.taskId) throw new AppError(ErrorCode.STALE_TARGET, '执行计划归属不匹配');
+    for (const state of execution.nodes) {
+      if (state.attemptCount === 0 && ['ready', 'pending'].includes(state.status)) continue;
+      const before = previous.graph.nodes.find((node) => node.id === state.nodeId);
+      const after = plan.graph.nodes.find((node) => node.id === state.nodeId);
+      const incoming = (graph: PlanRevision['graph']) => graph.edges.filter((edge) => edge.to === state.nodeId).map((edge) => ({ from: edge.from, kind: edge.kind })).sort((a, b) => a.from.localeCompare(b.from));
+      if (before === undefined || after === undefined || JSON.stringify(before) !== JSON.stringify(after) || JSON.stringify(incoming(previous.graph)) !== JSON.stringify(incoming(plan.graph))) {
+        throw new AppError(ErrorCode.STALE_TARGET, '已领取或已尝试的步骤及其前驱不能被计划调整改写', { details: { nodeId: state.nodeId } });
+      }
+    }
+  }
+
+  bindConfirmedPlan(executionId: string, plan: PlanRevision): void {
+    if (plan.status !== 'confirmed') throw new AppError(ErrorCode.PLAN_REVISION_CONFLICT, '只有已确认计划可以绑定到执行');
+    this.validatePlanBinding(executionId, plan);
+    const previous = this.#store.executions.get(executionId)!;
+    const graph = this.#store.plans.get(previous.planRevisionId)!.graph;
+    for (const attempt of this.#store.executions.listAttempts(executionId)) {
+      const node = graph.nodes.find((item) => item.id === attempt.nodeId);
+      if (node !== undefined) this.#store.executions.preserveAttemptDefinition(attempt.id, previous.planRevisionId, node);
+    }
+    const rebound = this.#store.executions.rebindPlan(executionId, plan.id, plan.graph)!;
+    this.#recomputeReady(rebound, plan);
   }
 
   /** Resume scheduling after a plan-edit action put an execution back to `running`. */
@@ -1066,7 +1098,7 @@ export class ExecutionService {
       this.#store.executions.updateNode(execution.id, node.id, { status: 'failed', error: { code: 'WORKSPACE_NOT_READY', message: '工作区不可用' } });
       return;
     }
-    const attempt = this.#store.executions.createAttempt({ executionId: execution.id, nodeId: node.id, ordinal: 1 });
+    const attempt = this.#store.executions.createAttempt({ executionId: execution.id, nodeId: node.id, ordinal: 1, definition: { planRevisionId: plan.id, node } });
     this.#store.executions.updateNode(execution.id, node.id, {
       status: 'running',
       currentAttemptId: attempt.id,

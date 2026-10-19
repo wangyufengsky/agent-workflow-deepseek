@@ -282,6 +282,7 @@ export const nodeMachine: StateMachineDef<NodeStatusValue> = {
     t([NodeStatus.PENDING], NodeStatus.READY, 'node.ready', '依赖满足'),
     t([NodeStatus.PENDING], NodeStatus.SKIPPED, 'node.skip', '跳过'),
     t([NodeStatus.PENDING], NodeStatus.CANCELLED, 'node.cancel', '取消'),
+    t([NodeStatus.READY], NodeStatus.PENDING, 'node.plan.rebound', '已确认的待执行计划改变前驱，重新等待依赖'),
     t([NodeStatus.READY], NodeStatus.RUNNING, 'node.claim', '领取'),
     t([NodeStatus.READY], NodeStatus.CANCELLED, 'node.cancel', '取消'),
     t([NodeStatus.RUNNING], NodeStatus.SUCCEEDED, 'node.succeed', '结果提交且验收通过'),

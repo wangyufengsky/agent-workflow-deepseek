@@ -725,6 +725,8 @@ export interface ArtifactRef {
 }
 
 export interface Attempt {
+  /** Immutable definition used by this attempt, retained across pending-plan edits. */
+  readonly definition?: { readonly planRevisionId: PlanId; readonly node: PlanNode };
   readonly id: AttemptId;
   readonly executionId: ExecutionId;
   readonly nodeId: PlanNodeId;

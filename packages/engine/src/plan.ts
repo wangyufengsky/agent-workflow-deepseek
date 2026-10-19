@@ -155,6 +155,11 @@ export class PlanService {
     const task = this.#assertWritable(taskId, '确认计划');
     const plan = this.#store.plans.get(input.planRevisionId);
     if (plan === undefined || plan.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '计划不存在');
+    const original = this.#commands.get(input.requestKey);
+    if (original !== undefined && original.status !== 'accepted') {
+      const replay = this.#commands.begin({ requestKey: input.requestKey, operation: 'plan.confirm', body: { taskId, planRevisionId: plan.id, expectedRevisionNumber: input.expectedRevisionNumber, confirmPlan: true }, target: { taskId } });
+      return { receipt: this.#commands.toReceipt(replay.record), resource: this.#tasks().detail(taskId) };
+    }
     if (plan.status !== 'unconfirmed' && plan.status !== 'draft') {
       throw new AppError(ErrorCode.PLAN_REVISION_CONFLICT, '只有未确认的计划可以确认');
     }
@@ -183,16 +188,19 @@ export class PlanService {
     }
     const settings = this.#context.settings();
     const project = this.#requireProject(task.projectId);
+    const priorExecution = this.#store.executions.byTask(taskId);
+    if (priorExecution !== undefined) this.#executions().validatePlanBinding(priorExecution.id, { ...plan, graph: confirmedGraph });
     freezeRequirement(this.#store, task, plan.id);
     this.#store.plans.updateGraph(plan.id, confirmedGraph);
     this.#store.plans.setStatus(plan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
-    const execution = this.#store.executions.byTask(taskId) ??
+    const execution = priorExecution ??
       this.#store.executions.create({
         taskId,
         planRevisionId: plan.id,
         graph: plan.graph,
         autoAdvance: settings.execution.autoAdvanceByDefault,
       });
+    if (priorExecution !== undefined) this.#executions().bindConfirmedPlan(execution.id, this.#store.plans.get(plan.id)!);
     executionPolicy(this.#store, execution.id, this.#store.settings.getJson<import('@agent-workflow/shared').ExecutionSettings>(`recovery.execution-settings.${taskId}`) ?? this.#store.settings.getJson<import('@agent-workflow/shared').ExecutionSettings>(`task.execution-settings.${taskId}`) ?? settings.execution);
     const workspace =
       this.#store.workspaces.byTask(taskId) ??
@@ -202,15 +210,16 @@ export class PlanService {
         originalRootDisplay: project.rootPath,
         baseRef: task.fixedTemplate?.snapshot?.targetSha ?? project.defaultBranch,
       });
+    const stage = priorExecution?.editSession?.state === 'saved' || priorExecution?.startedAt !== undefined ? TaskStage.EXECUTING : TaskStage.PREPARING;
     this.#store.tasks.update(taskId, {
-      stage: TaskStage.PREPARING,
+      stage,
       attention: TaskAttention.NONE,
       currentPlanRevisionId: plan.id,
       executionId: execution.id,
       workspaceId: workspace.id,
     });
     this.#store.events.publish('plan.changed', { taskId, planRevisionId: plan.id, revisionNumber: plan.revisionNumber, status: 'confirmed' });
-    this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: TaskStage.PREPARING, revision: 1 });
+    this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage, revision: 1 });
     this.#commands.settle(input.requestKey, { planRevisionId: plan.id, executionId: execution.id, workspaceId: workspace.id });
     this.#tasks().recomputeAttention(taskId);
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#tasks().detail(taskId) };
@@ -221,9 +230,6 @@ export class PlanService {
     if (task.fixedTemplate !== undefined) throw new AppError(ErrorCode.FIXED_TEMPLATE_LOCKED, '该任务使用固定模板，创建后不能修改步骤；要改要求，请新建模板任务。');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution === undefined) throw new AppError(ErrorCode.NOT_FOUND, '执行尚未创建');
-    if (execution.status !== 'running' && execution.status !== 'paused') {
-      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前执行状态不能调整计划');
-    }
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'plan.edit.begin',
@@ -231,12 +237,18 @@ export class PlanService {
       target: { taskId },
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    if (execution.status !== 'running' && execution.status !== 'paused') {
+      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前执行状态不能调整计划');
+    }
+    if (input.planRevisionId !== execution.planRevisionId || task.currentPlanRevisionId !== execution.planRevisionId) throw new AppError(ErrorCode.STALE_TARGET, '执行计划已变化，请重新读取');
+    if (execution.editSession !== undefined && !['finished', 'abandoned'].includes(execution.editSession.state)) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '已有进行中的计划调整');
+    const editSessionId = createId('edit');
     const locked = execution.nodes.filter((node) => node.status !== 'pending' && node.status !== 'ready').map((node) => node.nodeId);
     const wasPausedBeforeEdit = execution.status === 'paused';
     this.#store.executions.update(execution.id, {
       status: 'paused',
       editSession: {
-        id: `edit_${execution.id}`,
+        id: editSessionId,
         state: 'editing',
         requestKey: input.requestKey,
         autoAdvanceBeforeEdit: execution.autoAdvance,
@@ -249,7 +261,7 @@ export class PlanService {
         message: wasPausedBeforeEdit ? '任务原为暂停；调整期间保持暂停，结束调整后仍需单独恢复任务' : '已暂停新增领取；运行中的步骤按原快照继续',
       },
     });
-    this.#commands.settle(input.requestKey, { editSessionId: `edit_${execution.id}` });
+    this.#commands.settle(input.requestKey, { editSessionId });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: 'paused', revision: 1 });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
   }
@@ -267,7 +279,10 @@ export class PlanService {
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
     const plan = task.currentPlanRevisionId === undefined ? undefined : this.#store.plans.get(task.currentPlanRevisionId);
     if (plan === undefined) throw new AppError(ErrorCode.NOT_FOUND, '计划不存在');
-    const locked = new Set(execution.editSession.lockedNodeIds);
+    if (input.editSessionId !== execution.editSession.id || !['editing', 'conflict'].includes(execution.editSession.state)) throw new AppError(ErrorCode.STALE_TARGET, '调整会话已变化或不在编辑状态');
+    if (plan.revisionNumber !== input.expectedPlanRevisionNumber) throw new AppError(ErrorCode.STALE_TARGET, '计划修订已变化，请重新读取并比对');
+    const locked = new Set([...execution.editSession.lockedNodeIds, ...execution.nodes.filter((node) => node.attemptCount > 0 || !['pending', 'ready'].includes(node.status)).map((node) => node.nodeId)]);
+
     const changes = input.changes.filter((change) => !locked.has(change.nodeId));
     if (changes.length !== input.changes.length) {
       this.#store.executions.update(execution.id, {
@@ -277,6 +292,7 @@ export class PlanService {
       throw new AppError(ErrorCode.STALE_TARGET, '有步骤已被领取，修改被移出；本地草稿保留', { details: { lockedNodeIds: [...locked] } });
     }
     const nodeIds = new Set(plan.graph.nodes.map((node) => node.id));
+    if (changes.some((change) => !nodeIds.has(change.nodeId))) throw new AppError(ErrorCode.STALE_TARGET, '修改引用的步骤不存在');
     const prerequisitesChanged = new Set(changes.filter((change) => change.prerequisites !== undefined).map((change) => change.nodeId));
     const nextEdges = plan.graph.edges.filter((edge) => !prerequisitesChanged.has(edge.to));
     for (const change of changes) {
@@ -288,9 +304,6 @@ export class PlanService {
         }
         if (prerequisite === change.nodeId) {
           throw new AppError(ErrorCode.VALIDATION_FAILED, '步骤不能依赖自身', { details: { nodeId: change.nodeId } });
-        }
-        if (locked.has(prerequisite)) {
-          throw new AppError(ErrorCode.STALE_TARGET, '前置步骤已被领取，不能调整依赖', { details: { nodeId: change.nodeId, prerequisite } });
         }
         if (seen.has(prerequisite)) continue;
         seen.add(prerequisite);
@@ -339,7 +352,6 @@ export class PlanService {
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
     if (execution?.editSession === undefined) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前没有进行中的调整');
     const nextPlan = task.currentPlanRevisionId === undefined ? undefined : this.#store.plans.get(task.currentPlanRevisionId);
-    const confirmedGraph = nextPlan === undefined || !input.continueExecution ? undefined : freezeGraphRoles(nextPlan.graph, this.#catalog.roles);
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'plan.edit.finish',
@@ -347,11 +359,9 @@ export class PlanService {
       target: { taskId },
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
-    if (nextPlan !== undefined && input.continueExecution) {
-      freezeRequirement(this.#store, task, nextPlan.id);
-      this.#store.plans.updateGraph(nextPlan.id, confirmedGraph!);
-      this.#store.plans.setStatus(nextPlan.id, 'confirmed', { confirmedBy: 'user', supersedeSiblingsForTaskId: taskId });
-    }
+    if (input.editSessionId !== execution.editSession.id || !['editing', 'saved', 'conflict'].includes(execution.editSession.state)) throw new AppError(ErrorCode.STALE_TARGET, '调整会话已变化或已结束');
+    if (nextPlan === undefined || nextPlan.status !== 'confirmed') throw new AppError(ErrorCode.PLAN_REVISION_CONFLICT, '调整后的计划需要单独重新确认，确认不会自动继续执行');
+    this.#executions().bindConfirmedPlan(execution.id, nextPlan);
     // W2-15: a task that was already paused before the edit stays paused; only an
     // explicit resume (not "结束调整") may continue it.
     const keepPaused = input.continueExecution !== true || execution.editSession.wasPausedBeforeEdit === true;
@@ -359,9 +369,11 @@ export class PlanService {
       status: keepPaused ? 'paused' : 'running',
       autoAdvance: execution.editSession.autoAdvanceBeforeEdit,
       editSession: { ...execution.editSession, state: 'finished' },
+      endedAt: null,
+      pause: keepPaused ? execution.pause : null,
       notice: keepPaused
         ? { kind: 'paused', message: execution.editSession.wasPausedBeforeEdit === true ? '调整已结束；任务保持调整前的暂停状态，恢复任务需单独操作' : '调整已保存，执行保持暂停' }
-        : undefined,
+        : null,
     });
     this.#store.events.publish('execution.changed', { taskId, executionId: execution.id, status: keepPaused ? 'paused' : 'running', revision: 1 });
     this.#commands.settle(input.requestKey, { continued: !keepPaused, ...(keepPaused ? { keptPaused: true } : {}) });
