@@ -185,6 +185,7 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
           <InfoRow label="并发会话">
             <span className="row wrap" style={{ gap: 8 }}>
               <span className="mono">{String(status.sessions ?? 0)} / {String(status.maxSessions ?? '—')}</span>
+              {status.totalSessions === undefined ? null : <span className="hint">累计历史会话 {String(status.totalSessions)}，不计入并发上限</span>}
               {sessionAlert ? (
                 <Badge tone={(status.sessions ?? 0) >= (status.maxSessions ?? Number.POSITIVE_INFINITY) ? 'danger' : 'warn'} icon="alert">
                   {(status.sessions ?? 0) >= (status.maxSessions ?? Number.POSITIVE_INFINITY) ? '已达上限，新会话会被拒绝' : `已达告警阈值 ${String(alertThreshold)}`}

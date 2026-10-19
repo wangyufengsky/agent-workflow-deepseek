@@ -194,11 +194,13 @@ export class OpenCodeAdapter implements OpenCodePort {
   }
 
   /** For diagnostics only; never exposes provider keys. */
-  async diagnostics(): Promise<{ mcp: Record<string, { status: string }>; sessions: number }> {
-    if (this.#manager.status.state !== 'ready') return { mcp: {}, sessions: 0 };
+  async diagnostics(): Promise<{ mcp: Record<string, { status: string }>; sessions: number; totalSessions: number }> {
+    if (this.#manager.status.state !== 'ready') return { mcp: {}, sessions: 0, totalSessions: 0 };
     const client = this.#manager.client;
     const [mcp, sessions] = await Promise.all([client.mcpStatus().catch(() => ({})), client.listSessions().catch(() => [])]);
-    return { mcp, sessions: sessions.length };
+    // `sessions` is the enforced concurrency counter; listSessions includes
+    // historical sessions that must not be compared with the live limit.
+    return { mcp, sessions: this.#activeSessions, totalSessions: sessions.length };
   }
 }
 

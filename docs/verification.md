@@ -305,3 +305,10 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 服务页在 `managed=false` 时显示明确原因：“受管 OpenCode 未启用（opencode.enabled=false 或启动环境 AGENT_WORKFLOW_DISABLE_OPENCODE=1），请启用后重启 Agent Workflow 服务”，不再把重启的 NOT_CONFIGURED 误报成“本地后端未连接”。
 - 重启按钮在未加载适配器时禁用；重启错误直接显示服务返回文案。
 - 测试：disabledOpenCode 应用 status 返回 stopped/managed=false/enabled=true/MCP 未连接 0 工具。
+
+### 第 86 轮整栈重启与并发会话计数（2026-10-19）
+
+- 停止旧 5177/5173 开发进程（旧 5177 运行时带 `AGENT_WORKFLOW_DISABLE_OPENCODE=1`、数据目录 `.tmp/view-data`）。
+- 以 `AGENT_WORKFLOW_DATA_DIR=.tmp/view-data AGENT_WORKFLOW_PORT=5177 npm run dev` 重启：health 200；OpenCode 状态 `ready`（1.19.0，managed/enabled=true）；MCP `agent-workflow` 已连接 **13 个工具**。
+- 修复并发会话误报：`/api/opencode/status` 的 `sessions` 改为受管运行中的活动会话数（强制上限使用同一计数），新增 `totalSessions` 表示 OpenCode 历史会话总数；当前 `sessions=0/8`、`totalSessions=46`，历史会话不再触发“已达上限”。
+- Vite 开发地址 `http://127.0.0.1:5173`，服务地址 `http://127.0.0.1:5177`。

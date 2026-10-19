@@ -977,6 +977,7 @@ export interface OpenCodeStatusResponse {
     readonly startedAt?: IsoDateTime;
     readonly lastError?: string;
     readonly sessions?: number;
+    readonly totalSessions?: number;
     readonly maxSessions?: number;
   };
 }
