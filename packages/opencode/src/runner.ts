@@ -78,7 +78,39 @@ export class SessionRunner {
           const properties = event.properties;
           const sessionId = typeof properties.sessionID === 'string' ? properties.sessionID : typeof properties.sessionId === 'string' ? properties.sessionId : undefined;
           if (sessionId !== undefined && sessionId !== this.#sessionId) continue;
-          if (event.type === 'session.next.text.delta') {
+          if (event.type === 'message.part.delta') {
+            const delta = typeof properties.delta === 'string' ? properties.delta : '';
+            const messageId = String(properties.messageID ?? '');
+            const partId = String(properties.partID ?? '');
+            if (delta) {
+              if (properties.field === 'reasoning' || properties.field === 'reasoning_content') this.#sink.onReasoningDelta?.(delta);
+              else this.#sink.onTextDelta?.(delta, { messageId, partId });
+            }
+          } else if (event.type === 'message.part.updated') {
+            const part = properties.part as OpenCodePart | undefined;
+            if (part !== undefined) {
+              if (part.type === 'tool') {
+                const status = part.state?.status;
+                const kind = status === 'completed' || status === 'success'
+                  ? 'success'
+                  : status === 'error' || status === 'failed'
+                    ? 'failed'
+                    : status === 'running'
+                      ? 'progress'
+                      : 'called';
+                this.#sink.onTool?.(part, kind);
+              } else if (part.type === 'text' && typeof part.text === 'string' && part.text !== '') {
+                const ended = (part as { time?: { end?: number } }).time?.end !== undefined;
+                if (ended) this.#sink.onTextEnded?.(part.text, { messageId: String(part.messageID ?? ''), partId: String(part.id ?? '') });
+              }
+            }
+          } else if (event.type === 'message.updated') {
+            const info = properties.info as { role?: string; error?: { message?: string; name?: string } } | undefined;
+            if (info?.role === 'assistant' && info.error !== undefined) {
+              error = info.error.message ?? info.error.name ?? 'OpenCode 会话错误';
+              this.#sink.onError?.(error);
+            }
+          } else if (event.type === 'session.next.text.delta') {
             const delta = typeof properties.delta === 'string' ? properties.delta : '';
             const messageId = String(properties.assistantMessageID ?? '');
             const partId = String(properties.textID ?? '');

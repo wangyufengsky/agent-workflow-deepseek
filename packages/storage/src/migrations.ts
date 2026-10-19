@@ -304,4 +304,12 @@ CREATE TABLE IF NOT EXISTS secrets (
 );
 `,
   },
+  {
+    version: 2,
+    name: 'planning_session_binding',
+    sql: `
+ALTER TABLE planning_rounds ADD COLUMN session_id TEXT;
+ALTER TABLE planning_rounds ADD COLUMN abort_requested INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

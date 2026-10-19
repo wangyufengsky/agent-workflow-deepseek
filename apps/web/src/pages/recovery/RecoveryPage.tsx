@@ -1,0 +1,319 @@
+import { useMemo, useState, type ReactNode } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { TASK_ATTENTION_LABEL, TaskAttention, type TaskSummary } from '@agent-workflow/shared';
+import { useBootstrap } from '../../api/hooks.ts';
+import { formatRelativeTime } from '../../app/format.ts';
+import { deriveTaskStatus, taskHref, taskProgressText } from '../../app/taskStatus.ts';
+import { Badge } from '../../components/Badge.tsx';
+import { Button, LinkButton } from '../../components/Button.tsx';
+import { PageHeader } from '../../components/Card.tsx';
+import { EmptyState } from '../../components/EmptyState.tsx';
+import { Icon } from '../../components/Icon.tsx';
+import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { StageCapsule } from '../../components/StageCapsule.tsx';
+
+type RecoveryMode = 'from_failed_stage' | 'all_stages' | 'verify_only';
+
+const MODES: readonly { readonly id: RecoveryMode; readonly title: string; readonly description: string; readonly permission: string }[] = [
+  {
+    id: 'from_failed_stage',
+    title: '从失败阶段恢复',
+    description: '复制失败阶段与后续阶段，保留既有上下文。',
+    permission: '可执行修改',
+  },
+  {
+    id: 'all_stages',
+    title: '复制全部阶段',
+    description: '从冻结任务设置复制完整阶段，按开始时冻结的设置重新来过。',
+    permission: '可执行修改',
+  },
+  {
+    id: 'verify_only',
+    title: '只读验证',
+    description: '复用已有产物核对结果，不执行文件修改。',
+    permission: '只读验证',
+  },
+];
+
+const RECOVERY_BLOCKED_REASON = '恢复创建接口尚未接通：服务端没有 POST /api/tasks/:id/recovery，本页不会创建派生草稿。';
+const HISTORY_BLOCKED_REASON = '派生草稿记录接口尚未接通：服务端没有恢复记录查询，无法展示历史派生草稿。';
+
+function TaskContext({ task }: { readonly task: TaskSummary }) {
+  const status = deriveTaskStatus(task);
+  return (
+    <section className="card solid" aria-label="失败上下文">
+      <div className="card-head">
+        <span className="tile">
+          <Icon name="alert" />
+        </span>
+        <div className="grow" style={{ minWidth: 0 }}>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <span className="section-title">哪里失败了</span>
+            <Badge tone={status.tone} icon={status.icon}>
+              {status.label}
+            </Badge>
+          </div>
+          <div className="hint" style={{ marginTop: 2 }}>
+            原任务、执行证据与失败记录保持不变；恢复只生成派生草稿。
+          </div>
+        </div>
+      </div>
+      <div className="card-body">
+        <div style={{ fontSize: 15, fontWeight: 500 }}>{task.title}</div>
+        <p className="hint" style={{ marginTop: 6 }}>
+          {task.projectName} · {task.methodName} · 更新 {formatRelativeTime(task.updatedAt)}
+        </p>
+        <div style={{ marginTop: 12 }}>
+          <StageCapsule compact current={task.stage} lifecycle={task.lifecycle} attention={task.attention} />
+        </div>
+        <dl className="kv" style={{ gridTemplateColumns: '92px minmax(0,1fr)', fontSize: 12.5, marginTop: 16 }}>
+          <dt>项目</dt>
+          <dd>{task.projectName}</dd>
+          <dt>阶段</dt>
+          <dd>{status.label}</dd>
+          <dt>执行进度</dt>
+          <dd>{taskProgressText(task)}</dd>
+          <dt>需要处理</dt>
+          <dd>{TASK_ATTENTION_LABEL[task.attention] === '' ? '—' : TASK_ATTENTION_LABEL[task.attention]}</dd>
+          <dt>任务</dt>
+          <dd className="mono-wrap">{task.id}</dd>
+        </dl>
+        <div className="banner info" style={{ marginTop: 14 }}>
+          <Icon name="info" />
+          <div className="grow">
+            失败原因、尝试次数与阶段明细来自任务画布；本页只读取任务摘要，不补写失败记录。
+          </div>
+        </div>
+        <div className="row wrap" style={{ gap: 8, marginTop: 14 }}>
+          <LinkButton to={taskHref(task)} variant="secondary" size="sm" icon="arrowLeft">
+            返回原任务
+          </LinkButton>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export function RecoveryPage() {
+  const params = useParams<{ taskId?: string }>();
+  const [search] = useSearchParams();
+  const bootstrap = useBootstrap();
+  const [mode, setMode] = useState<RecoveryMode>('from_failed_stage');
+
+  const taskId = params.taskId ?? search.get('taskId') ?? '';
+  const tasks = bootstrap.data?.tasks ?? [];
+  const task = tasks.find((item) => item.id === taskId);
+  const candidates = useMemo(
+    () => tasks.filter((item) => item.attention !== TaskAttention.NONE),
+    [tasks],
+  );
+
+  let body: ReactNode;
+  if (bootstrap.isLoading) {
+    body = <p className="hint">正在读取恢复上下文…</p>;
+  } else if (bootstrap.isError) {
+    body = (
+      <ServiceNotice
+        error={bootstrap.error}
+        onRetry={() => {
+          void bootstrap.refetch();
+        }}
+      />
+    );
+  } else if (taskId.length > 0 && task === undefined) {
+    body = (
+      <div className="card">
+        <EmptyState
+          icon="search"
+          title="没有可读取的父任务"
+          description="这个恢复地址对应的任务不存在或已不可见。请返回任务列表核对。"
+          action={
+            <LinkButton to="/tasks" variant="secondary" size="sm" icon="arrowLeft">
+              返回任务列表
+            </LinkButton>
+          }
+        />
+      </div>
+    );
+  } else if (taskId.length === 0) {
+    body = (
+      <div className="col" style={{ gap: 16 }}>
+        <div className="banner info">
+          <Icon name="info" />
+          <div className="grow">
+            <b>选择要恢复的任务</b>
+            <br />
+            只列出需要处理或已取消的任务；也可以从任务画布进入恢复页。
+          </div>
+        </div>
+        {candidates.length === 0 ? (
+          <div className="card">
+            <EmptyState icon="check" title="没有需要恢复的任务" description="当前没有失败、受阻或待核对的任务。" />
+          </div>
+        ) : (
+          <section className="card" aria-label="可恢复任务">
+            <div className="list" style={{ padding: 6 }}>
+              {candidates.map((item) => {
+                const status = deriveTaskStatus(item);
+                return (
+                  <Link key={item.id} className="list-row" to={`/recovery?taskId=${encodeURIComponent(item.id)}`}>
+                    <span className="tile">
+                      <Icon name="alert" />
+                    </span>
+                    <span className="grow" style={{ minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 13.5 }}>{item.title}</span>
+                      <span className="hint" style={{ display: 'block', marginTop: 2 }}>
+                        {item.projectName} · 更新 {formatRelativeTime(item.updatedAt)}
+                      </span>
+                    </span>
+                    <Badge tone={status.tone} icon={status.icon}>
+                      {status.label}
+                    </Badge>
+                    <Icon name="chevRight" size="sm" />
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        )}
+        <div className="card pad">
+          <div className="section-title">恢复会做什么</div>
+          <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
+            恢复只生成一个派生草稿，不会开始执行。原任务、执行证据和失败记录保持不变；创建前由服务端核对原任务已停止与权限。
+          </p>
+          <Button variant="primary" icon="layers" disabled disabledReason={RECOVERY_BLOCKED_REASON} style={{ marginTop: 12 }}>
+            创建恢复草稿
+          </Button>
+        </div>
+      </div>
+    );
+  } else if (task !== undefined) {
+    body = (
+      <div className="col" style={{ gap: 16 }}>
+        <div className="grid-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', alignItems: 'start' }}>
+          <TaskContext task={task} />
+          <section className="card solid" aria-label="恢复草稿设置">
+            <div className="card-head">
+              <span className="tile">
+                <Icon name="layers" />
+              </span>
+              <div className="grow">
+                <span className="section-title">怎样恢复</span>
+                <div className="hint" style={{ marginTop: 2 }}>
+                  新建派生草稿 · 当前页只读
+                </div>
+              </div>
+            </div>
+            <div className="card-body">
+              <div className="banner unknown" style={{ marginBottom: 14 }}>
+                <Icon name="lock" />
+                <div className="grow">
+                  <b>恢复能力尚未接通</b>
+                  <br />
+                  选项可以查看，但创建草稿需要服务端接口；当前不会发出任何恢复写操作。
+                </div>
+              </div>
+              <div role="radiogroup" aria-label="恢复方式" className="col" style={{ gap: 10 }}>
+                {MODES.map((item) => {
+                  const checked = mode === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={checked}
+                      className="card"
+                      onClick={() => {
+                        setMode(item.id);
+                      }}
+                      style={{
+                        textAlign: 'left',
+                        padding: 14,
+                        opacity: 0.72,
+                        borderColor: checked ? 'var(--accent-line)' : undefined,
+                        background: checked ? 'var(--accent-fill)' : undefined,
+                      }}
+                    >
+                      <span className="row wrap" style={{ gap: 8 }}>
+                        <span className="grow" style={{ fontSize: 13.5, fontWeight: 500 }}>
+                          {item.title}
+                        </span>
+                        <Badge tone={item.id === 'verify_only' ? 'idle' : 'accent'} icon={item.id === 'verify_only' ? 'eye' : 'edit'}>
+                          {item.permission}
+                        </Badge>
+                      </span>
+                      <span className="hint" style={{ display: 'block', marginTop: 4, lineHeight: 1.6 }}>
+                        {item.description}
+                      </span>
+                      {checked ? (
+                        <span className="hint" style={{ display: 'block', marginTop: 6 }}>
+                          <Icon name="check" size="sm" /> 已选择（未提交）
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="hint" style={{ marginTop: 14, lineHeight: 1.7 }}>
+                <b>只创建草稿，不会开始执行。</b>草稿准备好后，到任务页单独开始；创建前由服务端核对原任务已停止、你有权限。
+              </p>
+              <Button variant="primary" icon="layers" disabled disabledReason={RECOVERY_BLOCKED_REASON} style={{ marginTop: 12 }}>
+                创建恢复草稿
+              </Button>
+            </div>
+          </section>
+        </div>
+
+        <section className="card solid" aria-label="派生草稿记录">
+          <div className="card-head">
+            <span className="tile">
+              <Icon name="archive" />
+            </span>
+            <div className="grow">
+              <span className="section-title">派生草稿</span>
+              <div className="hint" style={{ marginTop: 2 }}>
+                尚无派生草稿
+              </div>
+            </div>
+            <Badge tone="idle" icon="lock">
+              只读
+            </Badge>
+          </div>
+          <div className="card-body">
+            <EmptyState
+              compact
+              icon="archive"
+              title="还没有可读取的恢复记录"
+              description={HISTORY_BLOCKED_REASON}
+            />
+          </div>
+        </section>
+
+        <div className="banner info">
+          <Icon name="info" />
+          <div className="grow">
+            本页路径约定：<span className="mono">/recovery?taskId=…</span> 或 <span className="mono">/tasks/:taskId/recovery</span>。
+            接入恢复接口后，这里会显示服务端返回的派生草稿与执行权限。
+          </div>
+        </div>
+      </div>
+    );
+  } else {
+    body = null;
+  }
+
+  return (
+    <div className="page">
+      <PageHeader
+        title="任务恢复"
+        lede="为失败或受阻的任务创建派生草稿。原任务、执行证据和失败记录保持不变；当前恢复接口尚未接通，本页只展示真实任务摘要。"
+        actions={
+          <LinkButton to="/tasks" variant="secondary" size="sm" icon="list">
+            任务列表
+          </LinkButton>
+        }
+      />
+      {body}
+    </div>
+  );
+}

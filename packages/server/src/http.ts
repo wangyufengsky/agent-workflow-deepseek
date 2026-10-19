@@ -1,0 +1,573 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { extname, join, normalize } from 'node:path';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type {
+  ApiEnvelope,
+  PlanningPreviewRequest,
+  CommandRequest,
+  CreateProjectRequest,
+  CreateTaskRequest,
+  ExecutionCommandRequest,
+  ListTasksQuery,
+  PrepareWorkspaceRequest,
+  UpdateDraftRequest,
+  UpdateProjectRequest,
+  UpdateSettingsRequest,
+  UseSkeletonRequest,
+  ConfirmPlanRequest,
+  EditBeginRequest,
+  EditSaveRequest,
+  EditFinishRequest,
+  PlanningStartRequest,
+  PlanningStopRequest,
+  PlanningApplyRequest,
+  PlanningRejectRequest,
+  SaveAnswerRequest,
+  DeliverySelectRequest,
+  DeliveryCommitRequest,
+  DeliveryPushRequest,
+  DeliveryMergeRequestRequest,
+} from '@agent-workflow/shared';
+import { AppError, ErrorCode, THEMES, THEME_ORDER, createId, mergeSettings, nowIso, validateSettings, type AppSettings } from '@agent-workflow/shared';
+import type { Store } from '@agent-workflow/storage';
+import type { Engine } from '@agent-workflow/engine';
+import type { OpenCodeAdapter } from './adapters/opencode.ts';
+import type { RuntimePaths } from './runtime.ts';
+
+export interface HttpDependencies {
+  readonly engine: Engine;
+  readonly store: Store;
+  readonly opencode: OpenCodeAdapter | undefined;
+  readonly paths: RuntimePaths;
+  readonly internalToken: string;
+  readonly appVersion: string;
+  readonly startedAt: string;
+}
+
+const REQUEST_ID = Symbol('requestId');
+
+export function envelope<T>(data: T, requestId: string, revision?: string): ApiEnvelope<T> {
+  return { data, meta: { requestId, at: nowIso(), ...(revision === undefined ? {} : { revision }) } };
+}
+
+export function mapError(error: unknown): { status: number; body: { error: { code: string; message: string; details?: Record<string, unknown>; retryable: boolean } } } {
+  if (error instanceof AppError) {
+    const status = error.httpStatus;
+    return {
+      status,
+      body: {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          retryable: status >= 500 || status === 409,
+        },
+      },
+    };
+  }
+  const message = error instanceof Error ? error.message : '未知错误';
+  return { status: 500, body: { error: { code: ErrorCode.INTERNAL_ERROR, message, retryable: true } } };
+}
+
+export function registerErrorHandler(app: FastifyInstance, log?: (error: unknown) => void): void {
+  app.setErrorHandler((error, request, reply) => {
+    const requestId = String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
+    const mapped = mapError(error);
+    if (mapped.status >= 500) log?.(error);
+    reply.status(mapped.status).send({
+      error: { ...mapped.body.error, requestId, at: nowIso() },
+    });
+  });
+  app.setNotFoundHandler((request, reply) => {
+    reply.status(404).send({
+      error: { code: ErrorCode.NOT_FOUND, message: `未知路由 ${request.method} ${request.url}`, requestId: createId('req'), at: nowIso(), retryable: false },
+    });
+  });
+}
+
+export function registerCors(app: FastifyInstance, allowedOrigins: readonly string[]): void {
+  app.addHook('onRequest', async (request, reply) => {
+    const origin = request.headers.origin;
+    if (origin !== undefined && (allowedOrigins.includes(origin) || allowedOrigins.includes('*'))) {
+      reply.header('access-control-allow-origin', origin);
+      reply.header('access-control-allow-credentials', 'true');
+      reply.header('access-control-allow-headers', 'content-type, x-request-id');
+      reply.header('access-control-allow-methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+    }
+    if (request.method === 'OPTIONS') {
+      reply.status(204).send();
+    }
+  });
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.map': 'application/json',
+};
+
+export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): void {
+  const { engine, store, opencode, paths } = deps;
+  const requestId = (request: FastifyRequest): string => String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
+
+  app.get('/api/health', async (request) => ({
+    status: 'ok',
+    name: 'agent-workflow',
+    version: deps.appVersion,
+    node: process.version,
+    platform: process.platform,
+    startedAt: deps.startedAt,
+    requestId: requestId(request),
+  }));
+
+  app.get('/api/bootstrap', async (request) => {
+    const settings = engine.publicSettings();
+    const projects = engine.projects.list();
+    const tasks = engine.tasks.list({ limit: 100 });
+    const opencodeStatus = opencode?.status();
+    const integration = {
+      opencode: {
+        status: opencodeStatus?.state ?? 'stopped',
+        version: opencodeStatus?.version,
+        port: opencodeStatus?.port,
+      },
+      git: {
+        provider: settings.git.defaultProvider,
+        github: { configured: false, authState: 'not_configured' },
+        gitlab: { configured: settings.git.defaultProvider === 'gitlab', authState: 'not_configured' },
+      },
+      database: { configured: settings.database.connections.length, connected: 0 },
+    };
+    return envelope(
+      {
+        app: { name: 'Agent Workflow', version: deps.appVersion, nodeVersion: process.version, platform: process.platform, startedAt: deps.startedAt },
+        settings,
+        themes: THEME_ORDER.map((id) => THEMES[id]),
+        catalog: engine.catalog,
+        projects,
+        tasks,
+        inbox: engine.inbox.list(),
+        integration,
+        counts: {
+          activeTasks: tasks.filter((task) => task.lifecycle === 'active').length,
+          waitingUser: tasks.filter((task) => task.attention === 'waiting_user').length,
+          openPlannings: tasks.filter((task) => task.planning !== undefined && task.planning.status === 'running').length,
+        },
+        data: { dataDir: paths.dataDir, dbPath: paths.dbPath, jsonlPath: paths.jsonlDir },
+      },
+      requestId(request),
+    );
+  });
+
+  // Projects
+  app.get('/api/projects', async (request) => envelope({ items: engine.projects.list() }, requestId(request)));
+  app.post('/api/projects', async (request, reply) => {
+    const body = request.body as CreateProjectRequest;
+    const result = await engine.projects.register(body);
+    reply.status(201);
+    return envelope(result, requestId(request));
+  });
+  app.get<{ Params: { id: string } }>('/api/projects/:id', async (request) => envelope(engine.projects.detail(request.params.id), requestId(request)));
+  app.patch<{ Params: { id: string } }>('/api/projects/:id', async (request) => {
+    const body = request.body as UpdateProjectRequest;
+    return envelope(engine.projects.update(request.params.id, body), requestId(request));
+  });
+
+  // Tasks
+  app.get('/api/tasks', async (request) => {
+    const query = request.query as ListTasksQuery;
+    return envelope({ items: engine.tasks.list(query) }, requestId(request));
+  });
+  app.post('/api/tasks', async (request, reply) => {
+    const body = request.body as CreateTaskRequest;
+    const result = engine.tasks.create(body);
+    reply.status(201);
+    return envelope(result, requestId(request));
+  });
+  app.get<{ Params: { id: string } }>('/api/tasks/:id', async (request) => envelope(engine.tasks.detail(request.params.id), requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/detail', async (request) => envelope(engine.tasks.detail(request.params.id), requestId(request)));
+  app.patch<{ Params: { id: string } }>('/api/tasks/:id', async (request) => {
+    const body = request.body as UpdateDraftRequest;
+    return envelope(engine.tasks.updateDraft(request.params.id, body), requestId(request));
+  });
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/requirement', async (request) => {
+    const detail = engine.tasks.detail(request.params.id);
+    return envelope(
+      {
+        taskId: request.params.id,
+        requirement: detail.task.requirement,
+        method: engine.catalog.methods.find((method) => method.id === detail.task.methodId) ?? null,
+        capabilities: detail.capabilities,
+      },
+      requestId(request),
+    );
+  });
+
+  // Planning
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/planning', async (request) => envelope(engine.planning.planningResponse(request.params.id), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/preview', async (request) => {
+    const body = (request.body ?? {}) as PlanningPreviewRequest;
+    const preview = engine.planning.preview(request.params.id, body);
+    return envelope({ preview, taskId: request.params.id, blockers: preview.blockers }, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/start', async (request) => {
+    const body = request.body as PlanningStartRequest;
+    return envelope(engine.planning.start(request.params.id, body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/stop', async (request) => {
+    const body = request.body as PlanningStopRequest;
+    return envelope(engine.planning.stop(request.params.id, body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/reconcile', async (request) => {
+    const body = request.body as { roundId: string };
+    return envelope({ round: await engine.planning.reconcile(request.params.id, body.roundId) }, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/apply', async (request) => {
+    const body = request.body as PlanningApplyRequest;
+    return envelope(engine.planning.apply(request.params.id, body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/reject', async (request) => {
+    const body = request.body as PlanningRejectRequest;
+    return envelope(engine.planning.reject(request.params.id, body), requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/planning/answers', async (request) => {
+    const body = request.body as SaveAnswerRequest;
+    return envelope(engine.planning.saveAnswer(request.params.id, body), requestId(request));
+  });
+  app.get<{ Params: { id: string }; Querystring: { roundId?: string; afterSeq?: string; limit?: string } }>('/api/tasks/:id/planning/record', async (request) => {
+    const query = request.query;
+    return envelope(engine.planning.record(request.params.id, query.roundId, Number(query.afterSeq ?? 0), Number(query.limit ?? 500)), requestId(request));
+  });
+
+  // Plan
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/plan', async (request) => envelope(engine.plans.view(request.params.id), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/skeleton', async (request) => envelope(engine.plans.useSkeleton(request.params.id, request.body as UseSkeletonRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/confirm', async (request) => envelope(engine.plans.confirm(request.params.id, request.body as ConfirmPlanRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/begin', async (request) => envelope(engine.plans.editBegin(request.params.id, request.body as EditBeginRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/save', async (request) => envelope(engine.plans.editSave(request.params.id, request.body as EditSaveRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit/finish', async (request) => envelope(engine.plans.editFinish(request.params.id, request.body as EditFinishRequest), requestId(request)));
+  app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/plan/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId), requestId(request)));
+  app.get<{ Params: { id: string; revisionId: string } }>('/api/tasks/:id/plan/revisions/:revisionId', async (request) => {
+    const plan = store.plans.get(request.params.revisionId);
+    if (plan === undefined || plan.taskId !== request.params.id) throw new AppError(ErrorCode.NOT_FOUND, '计划修订不存在');
+    return envelope({ plan }, requestId(request));
+  });
+
+  // Workspace
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/workspace', async (request) => {
+    const workspace = engine.workspaces.get(request.params.id);
+    return envelope({ taskId: request.params.id, workspace, actions: {} }, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/workspace/prepare', async (request) => envelope(await engine.workspaces.prepare(request.params.id, request.body as PrepareWorkspaceRequest), requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/changes', async (request) => envelope({ changes: await engine.workspaces.changes(request.params.id) }, requestId(request)));
+  app.get<{ Params: { id: string; fileId: string } }>('/api/tasks/:id/changes/files/:fileId/diff', async (request) => envelope({ diff: await engine.workspaces.diff(request.params.id, request.params.fileId) }, requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/workspace/cleanup/preview', async (request) => envelope({ preview: engine.workspaces.cleanupPreview(request.params.id) }, requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/workspace/cleanup/confirm', async (request) => {
+    const body = request.body as { requestKey: string; previewRef: string; workspaceRevision: string; confirmCleanup: true };
+    return envelope(await engine.workspaces.cleanupConfirm(request.params.id, body), requestId(request));
+  });
+
+  // Execution
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/execution', async (request) => {
+    const execution = engine.executions.get(request.params.id);
+    const workspace = engine.workspaces.get(request.params.id);
+    return envelope({ execution, workspace, actions: {} }, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/start', async (request) => envelope(engine.executions.start(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/pause', async (request) => envelope(engine.executions.pause(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/resume', async (request) => envelope(engine.executions.resume(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/execution/cancel', async (request) => envelope(await engine.executions.cancel(request.params.id, request.body as ExecutionCommandRequest), requestId(request)));
+  app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId', async (request) => envelope(engine.plans.nodeDetail(request.params.id, request.params.nodeId), requestId(request)));
+  app.get<{ Params: { id: string; nodeId: string } }>('/api/tasks/:id/nodes/:nodeId/attempts', async (request) => {
+    const execution = engine.executions.get(request.params.id);
+    if (execution === undefined) return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attempts: [] }, requestId(request));
+    const attempts = store.executions.listAttempts(execution.id, request.params.nodeId).map((attempt) => ({
+      attemptId: attempt.id,
+      ordinal: attempt.ordinal,
+      status: attempt.status,
+      isCurrent: execution.nodes.find((node) => node.nodeId === request.params.nodeId)?.currentAttemptId === attempt.id,
+      startedAt: attempt.startedAt,
+      endedAt: attempt.endedAt,
+      reasonSummary: attempt.result?.summary,
+    }));
+    return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attempts }, requestId(request));
+  });
+  app.get<{ Params: { id: string; nodeId: string }; Querystring: { attemptId?: string; afterSeq?: string } }>('/api/tasks/:id/nodes/:nodeId/output', async (request) => {
+    const execution = engine.executions.get(request.params.id);
+    const node = execution?.nodes.find((item) => item.nodeId === request.params.nodeId);
+    const attemptId = request.query.attemptId ?? node?.currentAttemptId;
+    const fragments = attemptId === undefined ? [] : store.executions.listOutput(attemptId, Number(request.query.afterSeq ?? 0));
+    return envelope({ taskId: request.params.id, nodeId: request.params.nodeId, attemptId, fragments, terminal: false }, requestId(request));
+  });
+
+  // Delivery
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/delivery', async (request) => {
+    const delivery = engine.deliveries.get(request.params.id);
+    return envelope({ delivery, actions: {} }, requestId(request));
+  });
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/select', async (request) => envelope(await engine.deliveries.select(request.params.id, request.body as DeliverySelectRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/commit', async (request) => envelope(await engine.deliveries.commit(request.params.id, request.body as DeliveryCommitRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/push', async (request) => envelope(await engine.deliveries.push(request.params.id, request.body as DeliveryPushRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/merge-request', async (request) => envelope(await engine.deliveries.createMergeRequest(request.params.id, request.body as DeliveryMergeRequestRequest), requestId(request)));
+
+  // Git read models (local Git CLI; remote providers are wired separately)
+  app.get('/api/git/repos', async (request) => {
+    const repos = [];
+    for (const project of engine.projects.list()) {
+      repos.push(await buildGitRepoView(engine, project.id));
+    }
+    return envelope(
+      {
+        connection: {
+          provider: engine.publicSettings().git.defaultProvider,
+          state: 'not_configured',
+          message: 'GitHub/GitLab 令牌尚未配置；本地 Git 读取可用',
+        },
+        repos,
+        capability: { allowed: true },
+      },
+      requestId(request),
+    );
+  });
+
+  app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId', async (request) => {
+    const repo = await buildGitRepoView(engine, request.params.projectId);
+    return envelope({ repo, projectId: request.params.projectId }, requestId(request));
+  });
+
+  app.get<{ Params: { projectId: string }; Querystring: { ref?: string; limit?: string; cursor?: string; author?: string; q?: string } }>('/api/git/repos/:projectId/commits', async (request) => {
+    const project = requireProject(engine, request.params.projectId);
+    const result = await engine.ports.git.listCommits({
+      rootPath: project.rootPath,
+      ref: request.query.ref,
+      limit: Number(request.query.limit ?? 50),
+      cursor: request.query.cursor,
+      author: request.query.author,
+      query: request.query.q,
+    });
+    const status = await engine.ports.git.status(project.rootPath).catch(() => undefined);
+    return envelope(
+      { commits: result.commits, nextCursor: result.nextCursor, resolvedTipSha: status?.head.sha, shallowBoundaryReached: status?.shallow !== undefined },
+      requestId(request),
+    );
+  });
+
+  app.get<{ Params: { projectId: string; sha: string } }>('/api/git/repos/:projectId/commits/:sha', async (request) => {
+    const project = requireProject(engine, request.params.projectId);
+    const commit = await engine.ports.git.commitShow(project.rootPath, request.params.sha);
+    if (commit === undefined) throw new AppError(ErrorCode.REVISION_NOT_FOUND, '提交不存在');
+    return envelope({ commit }, requestId(request));
+  });
+
+  app.get<{ Params: { projectId: string; sha: string }; Querystring: { compareId?: string } }>('/api/git/repos/:projectId/commits/:sha/files', async (request) => {
+    const project = requireProject(engine, request.params.projectId);
+    const commit = await engine.ports.git.commitShow(project.rootPath, request.params.sha);
+    if (commit === undefined) throw new AppError(ErrorCode.REVISION_NOT_FOUND, '提交不存在');
+    const baseSha = resolveCompareBase(commit, request.query.compareId);
+    const files = await engine.ports.git.diffFiles({ repoRoot: project.rootPath, baseSha, headSha: request.params.sha });
+    return envelope({ files, truncated: false, reviewBadges: [] as { fileId: string; findingCount: number }[] }, requestId(request));
+  });
+
+  app.get<{ Params: { projectId: string }; Querystring: { path?: string; baseSha?: string; headSha?: string; ignoreWhitespace?: string } }>('/api/git/repos/:projectId/diff', async (request) => {
+    const project = requireProject(engine, request.params.projectId);
+    if (request.query.path === undefined || request.query.baseSha === undefined) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 path/baseSha');
+    }
+    const diff = await engine.ports.git.diffPage({
+      repoRoot: project.rootPath,
+      baseSha: request.query.baseSha,
+      headSha: request.query.headSha,
+      path: request.query.path,
+      ignoreWhitespace: request.query.ignoreWhitespace === '1' || request.query.ignoreWhitespace === 'true',
+    });
+    return envelope({ diff }, requestId(request));
+  });
+
+  app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId/branches', async (request) => {
+    const project = requireProject(engine, request.params.projectId);
+    const branches = await engine.ports.git.branches(project.rootPath);
+    return envelope({ branches }, requestId(request));
+  });
+
+  app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId/merge-requests', async (request) => {
+    requireProject(engine, request.params.projectId);
+    return envelope({ mergeRequests: [], nextCursor: undefined }, requestId(request));
+  });
+
+  app.post<{ Params: { projectId: string } }>('/api/git/repos/:projectId/fetch', async (request) => {
+    requireProject(engine, request.params.projectId);
+    throw new AppError(ErrorCode.NOT_IMPLEMENTED, '远端获取尚未接通：GitHub/GitLab 适配已实现，凭据配置与注入待接线');
+  });
+
+  // Operations
+  app.get<{ Params: { key: string } }>('/api/operations/:key', async (request) => {
+    const operation = engine.commands.get(request.params.key);
+    if (operation === undefined) throw new AppError(ErrorCode.NOT_FOUND, '操作记录不存在');
+    return envelope({ operation, stillUnknown: operation.status === 'unknown' || operation.status === 'accepted' }, requestId(request));
+  });
+
+  // Settings
+  app.get('/api/settings', async (request) => {
+    const settings = engine.publicSettings();
+    return envelope({ settings, issues: validateSettings(settings), catalog: engine.catalog }, requestId(request));
+  });
+  app.patch('/api/settings', async (request) => {
+    const body = request.body as UpdateSettingsRequest;
+    const current = engine.publicSettings();
+    const merged = mergeSettings(current, body.patch) as AppSettings;
+    const issues = validateSettings(merged);
+    if (issues.length > 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '设置校验失败', { details: { issues } });
+    engine.updateSettings(merged);
+    return envelope({ settings: merged, issues, catalog: engine.catalog }, requestId(request));
+  });
+
+  // OpenCode
+  app.get('/api/opencode/status', async (request) => {
+    const status = opencode?.status() ?? { state: 'stopped' };
+    const diagnostics = opencode === undefined ? undefined : await opencode.diagnostics().catch(() => undefined);
+    const setting = engine.publicSettings();
+    const planner = setting.models.find((model) => model.enabled && model.roles.includes('planner')) ?? setting.models[0];
+    return envelope(
+      {
+        status: {
+          state: status.state,
+          version: status.version,
+          binaryPath: setting.opencode.binaryPath,
+          host: status.host,
+          port: status.port,
+          pid: status.pid,
+          model: planner === undefined ? '未配置' : `${planner.provider}/${planner.model}`,
+          agent: setting.opencode.agent,
+          mcp: {
+            name: setting.opencode.mcpServerName,
+            connected: diagnostics === undefined ? false : Object.values(diagnostics.mcp).some((item) => item.status === 'connected'),
+            tools: 0,
+          },
+          startedAt: status.startedAt,
+          lastError: status.lastError,
+        },
+      },
+      requestId(request),
+    );
+  });
+  app.post('/api/opencode/restart', async (request) => {
+    if (opencode === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'OpenCode 服务未启用');
+    await opencode.stop();
+    await opencode.ensureReady().catch((error: unknown) => {
+      throw error instanceof AppError ? error : new AppError(ErrorCode.OPENCODE_NOT_READY, String(error));
+    });
+    return envelope({ status: opencode.status() }, requestId(request));
+  });
+
+  // SSE events
+  app.get<{ Querystring: { afterSeq?: string } }>('/api/events', async (request, reply) => {
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    const write = (event: unknown) => {
+      raw.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+    write({ type: 'ready', seq: store.events.lastSeq, at: nowIso(), payload: { serverStartedAt: deps.startedAt } });
+    const afterSeq = Number(request.query.afterSeq ?? 0);
+    for (const event of store.events.replay(afterSeq, 1000)) write(event);
+    const unsubscribe = store.events.subscribe((event) => write(event));
+    const heartbeat = setInterval(() => raw.write(': heartbeat\n\n'), 15000);
+    const close = () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      raw.end();
+    };
+    request.raw.on('close', close);
+    request.raw.on('error', close);
+  });
+
+  // Static Web bundle (production/Electron). In development Vite serves the app.
+  const webDist = process.env.AGENT_WORKFLOW_WEB_DIST ?? join(paths.repoRoot, 'apps', 'web', 'dist');
+  const indexHtml = join(webDist, 'index.html');
+  if (existsSync(indexHtml)) {
+    const serveFile = (filePath: string, reply: FastifyReply) => {
+      const safe = normalize(filePath);
+      if (!safe.startsWith(webDist)) {
+        reply.status(403).send({ error: { code: 'FORBIDDEN', message: '非法路径' } });
+        return;
+      }
+      const type = MIME[extname(safe)] ?? 'application/octet-stream';
+      reply.header('content-type', type).status(200).send(readFileSync(safe));
+    };
+    app.get('/assets/*', async (request, reply) => {
+      const wildcard = (request.params as { '*': string })['*'];
+      serveFile(join(webDist, 'assets', wildcard), reply);
+    });
+    app.get('/*', async (request, reply) => {
+      const wildcard = (request.params as { '*': string })['*'];
+      if (wildcard.includes('..')) {
+        reply.status(400).send({ error: { code: 'FORBIDDEN', message: '非法路径' } });
+        return;
+      }
+      const candidate = join(webDist, wildcard);
+      if (existsSync(candidate) && !candidate.endsWith('/')) {
+        serveFile(candidate, reply);
+        return;
+      }
+      reply.header('content-type', 'text/html; charset=utf-8').status(200).send(readFileSync(indexHtml));
+    });
+  } else {
+    app.get('/', async (_request, reply) => {
+      reply.status(200).send({ name: 'agent-workflow', hint: 'Web UI is served by Vite in development or apps/web/dist in production.' });
+    });
+  }
+}
+
+function requireProject(engine: Engine, projectId: string) {
+  const project = engine.store.projects.get(projectId);
+  if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
+  return project;
+}
+
+async function buildGitRepoView(engine: Engine, projectId: string): Promise<Record<string, unknown>> {
+  const project = requireProject(engine, projectId);
+  const detection = await engine.ports.git.detect(project.rootPath).catch(() => ({ gitState: 'path_unavailable' as const, detail: '无法读取项目路径' }));
+  let status: Awaited<ReturnType<Engine['ports']['git']['status']>> | undefined;
+  let lastCommit;
+  if (detection.gitState === 'git') {
+    status = await engine.ports.git.status(project.rootPath).catch(() => undefined);
+    const log = await engine.ports.git.listCommits({ rootPath: project.rootPath, limit: 1 }).catch(() => ({ commits: [] }));
+    lastCommit = log.commits[0];
+  }
+  return {
+    projectId,
+    projectName: project.name,
+    gitState: detection.gitState,
+    displayRoot: project.rootPath,
+    defaultBranch: project.defaultBranch ?? ('defaultBranch' in detection ? detection.defaultBranch : undefined),
+    remote: detection.gitState === 'git' && project.remoteDisplayUrl !== undefined ? { name: 'origin', displayUrl: project.remoteDisplayUrl } : undefined,
+    gitStateDetail: 'detail' in detection ? detection.detail : undefined,
+    status,
+    summary: { lastCommit, openMrCount: null, pendingFindingCount: 0 },
+    gitlab: 'not_configured',
+  };
+}
+
+const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+function resolveCompareBase(commit: { parents: readonly string[] }, compareId: string | undefined): string {
+  if (compareId !== undefined && compareId.startsWith('parent:')) {
+    const index = Number(compareId.slice('parent:'.length));
+    const parent = commit.parents[index];
+    if (parent !== undefined) return parent;
+  }
+  return commit.parents[0] ?? EMPTY_TREE_SHA;
+}

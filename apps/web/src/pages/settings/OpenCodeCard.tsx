@@ -1,0 +1,175 @@
+import type { ReactNode } from 'react';
+import { OpencodeServiceStatus, type IntegrationStatus, type OpencodeServiceStatusValue } from '@agent-workflow/shared';
+import { isServiceUnavailable } from '../../api/client.ts';
+import { useOpenCodeStatus, useRestartOpenCode } from '../../api/hooks.ts';
+import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
+import { Badge, type BadgeTone } from '../../components/Badge.tsx';
+import { Button } from '../../components/Button.tsx';
+import { Icon } from '../../components/Icon.tsx';
+import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+
+const STATE_LABEL: Record<OpencodeServiceStatusValue, string> = {
+  stopped: '已停止',
+  starting: '启动中',
+  ready: '已就绪',
+  degraded: '部分可用',
+  failed: '失败',
+};
+
+const STATE_TONE: Record<OpencodeServiceStatusValue, BadgeTone> = {
+  stopped: 'idle',
+  starting: 'wait',
+  ready: 'ok',
+  degraded: 'wait',
+  failed: 'danger',
+};
+
+function isOpenCodeState(value: string): value is OpencodeServiceStatusValue {
+  return (Object.values(OpencodeServiceStatus) as readonly string[]).includes(value);
+}
+
+function InfoRow({ label, children, hint }: { readonly label: string; readonly children: ReactNode; readonly hint?: string }) {
+  return (
+    <div className="frow">
+      <div className="l">
+        {label}
+        {hint === undefined ? null : <span className="hint">{hint}</span>}
+      </div>
+      <div className="v">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * OpenCode runtime status + restart. The restart command is only enabled when
+ * /api/opencode/status answers; otherwise it is disabled with the reason shown.
+ */
+export function OpenCodeCard({ integration }: { readonly integration?: IntegrationStatus }) {
+  const statusQuery = useOpenCodeStatus();
+  const restart = useRestartOpenCode();
+  const status = statusQuery.data;
+  const disconnected = statusQuery.isError && isServiceUnavailable(statusQuery.error);
+  const restartBlockedReason = disconnected
+    ? '服务未连接：无法读取 OpenCode 状态，也不能提交重启请求。'
+    : statusQuery.isError
+      ? 'OpenCode 状态读取失败，先修复状态接口再重启。'
+      : '正在读取 OpenCode 状态…';
+
+  return (
+    <div className="sect">
+      <h2>OpenCode 运行状态</h2>
+      <p className="lede">通过本机受管运行时调用模型。重启会结束当前会话，正在执行的任务会暂停。</p>
+
+      {statusQuery.isLoading ? (
+        <div className="card card-sec" style={{ padding: '18px 22px' }}>
+          <span className="row hint" style={{ height: 32 }}>
+            <span className="spin" />
+            正在读取 OpenCode 状态…
+          </span>
+        </div>
+      ) : null}
+
+      {statusQuery.isError ? (
+        <div style={{ marginTop: 16 }}>
+          <ServiceNotice
+            error={statusQuery.error}
+            onRetry={() => {
+              void statusQuery.refetch();
+            }}
+          />
+          <p className="hint" style={{ marginTop: 10 }}>
+            POST /api/opencode/restart 在状态不可读时不会发送。
+          </p>
+        </div>
+      ) : null}
+
+      {status === undefined ? null : (
+        <div className="card card-sec">
+          <InfoRow label="状态">
+            <div className="row wrap" style={{ gap: 8 }}>
+              {isOpenCodeState(status.state) ? (
+                <Badge tone={STATE_TONE[status.state]} icon={status.state === 'ready' ? 'check' : status.state === 'failed' ? 'alert' : 'clock'}>
+                  {STATE_LABEL[status.state]}
+                </Badge>
+              ) : (
+                <Badge tone="unknown" icon="help">
+                  未知状态：{status.state}
+                </Badge>
+              )}
+              {status.version === undefined ? null : <span className="hint">版本 {status.version}</span>}
+              {integration === undefined ? null : (
+                <span className="hint">bootstrap 集成状态：{integration.opencode.status}</span>
+              )}
+            </div>
+          </InfoRow>
+          <InfoRow label="可执行文件">
+            <span className="mono-wrap">{status.binaryPath}</span>
+          </InfoRow>
+          <InfoRow label="服务地址" hint="由受管进程启动时分配">
+            <span className="mono-wrap">
+              {status.host ?? '—'}
+              {status.port === undefined ? '' : `:${String(status.port)}`}
+            </span>
+          </InfoRow>
+          <InfoRow label="进程">
+            <span className="row" style={{ gap: 8 }}>
+              <span className="mono">{status.pid === undefined ? '—' : `PID ${String(status.pid)}`}</span>
+              <span className="hint">启动于 {formatAbsoluteTime(status.startedAt)}（{formatSince(status.startedAt)}）</span>
+            </span>
+          </InfoRow>
+          <InfoRow label="默认模型 / Agent">
+            <span className="mono-wrap">
+              {status.model} · agent {status.agent}
+            </span>
+          </InfoRow>
+          <InfoRow label="MCP">
+            <span className="row wrap" style={{ gap: 8 }}>
+              <span className="mono">{status.mcp.name}</span>
+              <Badge tone={status.mcp.connected ? 'ok' : 'unknown'} icon={status.mcp.connected ? 'check' : 'help'}>
+                {status.mcp.connected ? '已连接' : '未连接'}
+              </Badge>
+              <span className="hint">{String(status.mcp.tools)} 个工具</span>
+            </span>
+          </InfoRow>
+          {status.lastError === undefined ? null : (
+            <InfoRow label="最近错误">
+              <span className="error-text">
+                <Icon name="alert" size="sm" />
+                <span>{status.lastError}</span>
+              </span>
+            </InfoRow>
+          )}
+          <div className="frow">
+            <div className="l">
+              重启 OpenCode
+              <span className="hint">只重启受管进程，不修改设置。</span>
+            </div>
+            <div className="v">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon="refresh"
+                title="重启 OpenCode 受管进程（会结束当前会话）"
+                disabled={statusQuery.isError || restart.isPending}
+                disabledReason={restartBlockedReason}
+                onClick={() => restart.mutate()}
+              >
+                {restart.isPending ? '正在提交重启…' : '重启 OpenCode'}
+              </Button>
+              {restart.isSuccess ? (
+                <div className="banner ok" style={{ marginTop: 10 }}>
+                  <Icon name="check" />
+                  <span>
+                    已提交重启请求 · 回执 {restart.data.receipt.status}
+                    {restart.data.receipt.status === 'unknown' ? '（结果未明，按原请求核对后再操作）' : ''}
+                  </span>
+                </div>
+              ) : null}
+              {restart.isError ? <ServiceNotice className="inline-banner" error={restart.error} /> : null}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

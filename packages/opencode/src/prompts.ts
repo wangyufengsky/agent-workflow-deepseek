@@ -137,6 +137,8 @@ export const PLANNING_OUTPUT_SCHEMA: Record<string, unknown> = {
 };
 
 export interface PlanningPromptInput {
+  readonly taskId: string;
+  readonly roundId: string;
   readonly taskTitle: string;
   readonly requirementText: string;
   readonly projectName: string;
@@ -153,20 +155,26 @@ export interface PlanningPromptInput {
 }
 
 export const PLANNING_SYSTEM_PROMPT = `你是「需求分析师（规划职责）」，只负责把需求转成可确认的具体计划，不执行开发、不修改代码。
-必须遵守：
-1. 只读资料与需求；不得调用任何写入、命令或网络工具。
-2. 输出必须是一个具体可执行的 DAG：每个步骤有明确标题、分组、输入、输出、验收条款与读写资源。
-3. 不能编造需求；信息不足时在 questions 中提出必须由用户回答的问题（required=true），或写入 assumptions 并标记 critical。
-4. 不要输出百分比、时间估计或“已完成”之类状态；你只提交候选计划。
-5. 方法骨架的必经步骤必须保留；可按需求细化可细化分组。
-6. 写资源冲突必须避免；无法避免时在 humanDecisions 中说明并建议改为先后执行。
-7. 提交前使用 workflow.plan.submit 工具；工具返回校验错误时，根据错误码修正后重新提交。`;
+硬性规则：
+1. 你只能通过 MCP 工具 workflow.plan.submit 提交候选计划（参数 taskId、roundId、candidate）。正文不得超过 200 字；禁止在正文输出完整计划或 JSON。
+2. 只读需求与方法骨架；可以调用 workspace.file.list / workspace.file.read 查看项目结构（最多 2 次）。**不要读取 Git 历史、不要调用 git.* 工具**。
+3. candidate 结构示例：
+   {"summary":"一句话","groups":[{"id":"g1","label":"实现","kind":"implementation"}],
+    "nodes":[{"key":"骨架步骤 key","title":"标题","kind":"implementation","groupId":"g1","summary":"做什么","inputs":[{"name":"上游","source":"upstream","fromKey":"上游 key"}],"outputs":[{"name":"产物","kind":"artifact"}],"acceptance":["可核对验收"],"resources":{"read":[{"kind":"file","label":"路径"}],"write":[{"kind":"file","label":"路径"}]},"roleId":"role.developer"}],
+    "edges":[{"fromKey":"a","toKey":"b","kind":"order"}],
+    "questions":[{"question":"必须由用户回答的问题","required":true,"nodeKeys":["a"]}],
+    "assumptions":[{"statement":"假设","critical":false,"nodeKeys":["a"]}],
+    "humanDecisions":[{"title":"需人工判断项","detail":"说明","nodeKeys":["a"]}]}
+4. 必须保留方法骨架里每个必经步骤的 key（key 完全一致）；可在可细化分组内新增子步骤。
+5. 提交成功后立即停止，不要再解释或重复输出。工具返回校验错误时，按 problems 修正后重新提交（最多 3 次）。`;
 
 export function buildPlanningPrompt(input: PlanningPromptInput): string {
   const steps = input.requiredSteps.map((step) => `- ${step.key}（${step.title}，${step.kind}，分组：${step.group}）`).join('\n');
   const supplements = input.supplements.length === 0 ? '（无）' : input.supplements.map((text, index) => `补充 ${index + 1}：${text}`).join('\n');
   const answers = input.answers.length === 0 ? '（无）' : input.answers.map((pair) => `Q: ${pair.question}\nA: ${pair.answer}`).join('\n\n');
   return `# 任务
+任务 ID：${input.taskId}
+规划轮次 ID：${input.roundId}
 ${input.taskTitle}
 
 # 项目
@@ -192,7 +200,7 @@ ${steps}
 最多 ${input.limits.maxNodes} 个步骤、${input.limits.maxEdges} 条依赖、${input.limits.maxGroups} 个分组、深度 ≤ ${input.limits.maxDepth}。
 
 # 本轮要求
-生成完整候选计划（覆盖全部必经步骤），提交到 workflow.plan.submit。
+直接构造候选计划并调用一次 workflow.plan.submit（taskId="${input.taskId}"、roundId="${input.roundId}"、candidate=完整 JSON），不要先在正文写计划。最多用 1 次 workspace.file.list 查看项目结构；不要调用 git.*。提交成功后立即结束；如工具返回校验错误，按 problems 修正后重新提交（最多 3 次）。
 ${input.previousRoundSummary === undefined ? '' : `\n# 上一轮摘要\n${input.previousRoundSummary}\n`}`;
 }
 

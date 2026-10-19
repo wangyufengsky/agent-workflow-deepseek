@@ -118,10 +118,12 @@ export interface AppSettings {
 export type PublicSettings = AppSettings;
 
 export const DEFAULT_MODEL_PROFILES: readonly ModelProfile[] = [
-  { id: 'planner-go-flash', label: '规划 · opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: ['planner'], enabled: true },
-  { id: 'coder-go-flash', label: '开发 · opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: ['coder'], enabled: true },
+  { id: 'planner-go-pro', label: '规划 · opencode-go/deepseek-v4-pro', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: ['planner'], enabled: true },
+  { id: 'coder-go-pro', label: '开发 · opencode-go/deepseek-v4-pro', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: ['coder'], enabled: true },
   { id: 'reviewer-go-pro', label: '审查 · opencode-go/deepseek-v4-pro', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: ['reviewer'], enabled: true },
-  { id: 'repairer-go-flash', label: '修复 · opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: ['repairer'], enabled: true },
+  { id: 'repairer-go-pro', label: '修复 · opencode-go/deepseek-v4-pro', provider: 'opencode-go', model: 'deepseek-v4-pro', roles: ['repairer'], enabled: true },
+  // deepseek-v4.1-flash rejects tool_choice while thinking; keep it only for tool-free calls.
+  { id: 'planner-go-flash', label: '规划（无工具）· opencode-go/deepseek-v4.1-flash', provider: 'opencode-go', model: 'deepseek-v4.1-flash', roles: [], enabled: false },
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {

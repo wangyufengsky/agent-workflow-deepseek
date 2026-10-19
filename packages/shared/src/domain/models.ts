@@ -456,6 +456,7 @@ export interface PlanningRound {
     readonly detail?: string;
   };
   readonly previousRoundId?: PlanningRoundId;
+  readonly sessionId?: string;
   readonly recordSeq: { readonly first: number; readonly last: number; readonly gaps: readonly PlanningRecordGap[] };
 }
 

@@ -714,6 +714,7 @@ export const ROUTES = {
   planEditFinish: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/edit/finish`,
   planEditAbandon: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/edit/abandon`,
   planNode: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/plan/nodes/${encodeURIComponent(nodeId)}`,
+  planRevision: (id: string, revisionId: string) => `/api/tasks/${encodeURIComponent(id)}/plan/revisions/${encodeURIComponent(revisionId)}`,
   workspace: (id: string) => `/api/tasks/${encodeURIComponent(id)}/workspace`,
   workspacePrepare: (id: string) => `/api/tasks/${encodeURIComponent(id)}/workspace/prepare`,
   workspaceCleanupPreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/workspace/cleanup/preview`,

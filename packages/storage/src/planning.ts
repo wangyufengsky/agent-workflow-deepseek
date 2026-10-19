@@ -154,6 +154,7 @@ export interface CreatePlanningRoundInput {
   readonly model: ModelProfile;
   readonly usage: PlanningUsage;
   readonly previousRoundId?: string;
+  readonly sessionId?: string;
 }
 
 export interface PlanningRoundPatch {
@@ -174,6 +175,7 @@ export interface PlanningRoundPatch {
   readonly gaps?: readonly PlanningRecordGap[];
   readonly recordFirstSeq?: number;
   readonly recordLastSeq?: number;
+  readonly sessionId?: string;
 }
 
 export interface PlanningRecordInput {
@@ -222,6 +224,7 @@ export class PlanningRepository {
       questions: [],
       assumptions: [],
       previousRoundId: input.previousRoundId,
+    sessionId: undefined,
       recordSeq: { first: 1, last: 0, gaps: [] },
     };
     this.#db
@@ -289,12 +292,13 @@ export class PlanningRepository {
       ...(patch.gaps === undefined ? {} : { recordSeq: { ...current.recordSeq, gaps: patch.gaps } }),
       ...(patch.recordFirstSeq === undefined ? {} : { recordSeq: { ...current.recordSeq, first: patch.recordFirstSeq } }),
       ...(patch.recordLastSeq === undefined ? {} : { recordSeq: { ...current.recordSeq, last: patch.recordLastSeq } }),
+      ...(patch.sessionId === undefined ? {} : { sessionId: patch.sessionId }),
     };
     this.#db
       .prepare(
         `UPDATE planning_rounds SET status = ?, stage = ?, apply_status = ?, stage_runs_json = ?, usage_json = ?, started_at = ?, ended_at = ?,
            last_activity = ?, candidate_json = ?, questions_json = ?, assumptions_json = ?, stop_json = ?, failure_json = ?, reconcile_json = ?,
-           record_first_seq = ?, record_last_seq = ?, gaps_json = ?, revision = revision + 1
+           record_first_seq = ?, record_last_seq = ?, gaps_json = ?, session_id = ?, revision = revision + 1
          WHERE id = ?`,
       )
       .run(
@@ -315,6 +319,7 @@ export class PlanningRepository {
         next.recordSeq.first,
         next.recordSeq.last,
         jsonStringify(next.recordSeq.gaps),
+        next.sessionId ?? null,
         id,
       );
     return this.get(id);
@@ -395,6 +400,7 @@ function mapRound(row: Row): PlanningRound {
     failure: jsonParse<PlanningRound['failure'] | undefined>(row.failure_json as string | null, undefined),
     reconcile: jsonParse<PlanningRound['reconcile'] | undefined>(row.reconcile_json as string | null, undefined),
     previousRoundId: row.previous_round_id === null ? undefined : String(row.previous_round_id),
+    sessionId: row.session_id === null || row.session_id === undefined ? undefined : String(row.session_id),
     recordSeq: {
       first: Number(row.record_first_seq ?? 1),
       last: Number(row.record_last_seq ?? 0),
