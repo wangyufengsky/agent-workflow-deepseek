@@ -1,3 +1,4 @@
+import { validQualityReviewContract } from '@agent-workflow/shared';
 import { createHash } from 'node:crypto';
 import {
   AppError,
@@ -313,6 +314,7 @@ export class MethodCatalogService {
       if (typeof step.title !== 'string' || step.title.trim() === '' || step.title.length > MAX_TITLE) {
         push('STEP_TITLE_INVALID', `步骤「${key || '?'}」缺少名称或名称过长`, { field: 'requiredSteps', stepKey: key });
       }
+      if (step.qualityReview !== undefined && !validQualityReviewContract(step.qualityReview, step.kind)) push('STEP_REVIEW_INVALID', '独立评审仅支持verify步骤且必须指定非空评审条款', { field: 'requiredSteps', stepKey: key });
       if (typeof step.group !== 'string' || step.group.trim() === '' || step.group.length > MAX_GROUP_LABEL) {
         push('STEP_GROUP_INVALID', `步骤「${key || '?'}」分组不合法`, { field: 'requiredSteps', stepKey: key });
       }
@@ -523,6 +525,7 @@ export class MethodCatalogService {
       group: step.group.trim(),
       ...(step.optional === true ? { optional: true } : {}),
       ...(step.roleId === undefined ? {} : { roleId: step.roleId }),
+      ...(step.qualityReview === undefined ? {} : { qualityReview: structuredClone(step.qualityReview) }),
       ...(step.summary === undefined ? {} : { summary: step.summary }),
       ...(step.inputs === undefined ? {} : { inputs: structuredClone(step.inputs) }),
       ...(step.outputs === undefined ? {} : { outputs: structuredClone(step.outputs) }),
@@ -633,6 +636,7 @@ function normalizeStoredRecord(raw: unknown): StoredCustomMethod | undefined {
       group: typeof step['group'] === 'string' ? step['group'] : '实现',
       ...(step['optional'] === true ? { optional: true } : {}),
       ...(typeof step['roleId'] === 'string' ? { roleId: step['roleId'] } : {}),
+      ...(step['qualityReview'] === undefined ? {} : { qualityReview: step['qualityReview'] as MethodStepDefinition['qualityReview'] }),
       ...(typeof step['summary'] === 'string' ? { summary: step['summary'] } : {}),
       ...(Array.isArray(step['inputs']) ? { inputs: step['inputs'] as MethodStepDefinition['inputs'] } : {}),
       ...(Array.isArray(step['outputs']) ? { outputs: step['outputs'] as MethodStepDefinition['outputs'] } : {}),
@@ -735,6 +739,7 @@ function cloneSteps(steps: readonly MethodStepView[]): MethodStepView[] {
     group: step.group,
     ...(step.optional === true ? { optional: true } : {}),
     ...(step.roleId === undefined ? {} : { roleId: step.roleId }),
+      ...(step.qualityReview === undefined ? {} : { qualityReview: structuredClone(step.qualityReview) }),
     ...(step.summary === undefined ? {} : { summary: step.summary }),
     ...(step.inputs === undefined ? {} : { inputs: structuredClone(step.inputs) }),
     ...(step.outputs === undefined ? {} : { outputs: structuredClone(step.outputs) }),

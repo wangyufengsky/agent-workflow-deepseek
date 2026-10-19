@@ -1,3 +1,4 @@
+import { validQualityReviewContract } from './quality-review.ts';
 import type { QuestionChoices } from './questions.ts';
 import type { NodeKindValue } from '../domain/enums.ts';
 import { createId, type IsoDateTime } from '../ids.ts';
@@ -25,6 +26,7 @@ export interface PlanningCandidateGroup {
 }
 
 export interface PlanningCandidateNode {
+  readonly qualityReview?: import('./quality-review.ts').QualityReviewContract;
   readonly key: string;
   readonly title: string;
   readonly kind: NodeKindValue;
@@ -68,7 +70,7 @@ export interface PlanningCandidateHumanDecision {
 
 export interface PlanningValidationInput {
   readonly candidate: PlanningCandidatePayload;
-  readonly requiredSteps: readonly { readonly key: string; readonly title?: string; readonly kind: NodeKindValue; readonly group: string; readonly optional?: boolean; readonly requires?: readonly string[] }[];
+  readonly requiredSteps: readonly { readonly key: string; readonly title?: string; readonly kind: NodeKindValue; readonly group: string; readonly optional?: boolean; readonly requires?: readonly string[]; readonly qualityReview?: import('./quality-review.ts').QualityReviewContract }[];
   readonly refinableGroups: readonly string[];
   readonly limits: { readonly maxNodes: number; readonly maxEdges: number; readonly maxGroups: number; readonly maxDepth: number };
 }
@@ -118,6 +120,7 @@ export function validatePlanningCandidate(input: PlanningValidationInput): Plann
   if (candidate.groups.length > limits.maxGroups) push('LIMIT_GROUPS', '分组数超过上限', `候选 ${candidate.groups.length} 个分组，上限 ${limits.maxGroups}`);
 
   for (const node of candidate.nodes) {
+    if (node.qualityReview !== undefined && !validQualityReviewContract(node.qualityReview, node.kind)) push('INVALID_QUALITY_REVIEW', '独立评审配置无效', '只能在verify步骤配置需求/风险评审及非空条款', node.key);
     if (!NODE_KEY_PATTERN.test(node.key)) push('INVALID_KEY', '步骤键不合法', `键 ${node.key} 不符合 ${NODE_KEY_PATTERN.source}`, node.key);
     if (!node.title.trim()) push('EMPTY_TITLE', '步骤缺少名称', `步骤 ${node.key} 没有名称`, node.key);
     for (const inputRef of node.inputs ?? []) {
@@ -147,6 +150,9 @@ export function validatePlanningCandidate(input: PlanningValidationInput): Plann
   const cycle = findCycle(candidate.nodes.map((n) => n.key), candidate.edges);
   if (cycle !== null) push('CYCLE', '存在循环依赖', cycle.join(' → '));
 
+  for (const step of input.requiredSteps) {
+    if (step.qualityReview !== undefined && !candidate.nodes.some(node => node.key === step.key && JSON.stringify(node.qualityReview) === JSON.stringify(step.qualityReview))) push('REVIEW_CONTRACT_LOST', '独立评审配置丢失或改变', '已配置评审类型与条款必须保留到同一步骤，修改须回到流程配置', step.key);
+  }
   const requiredKeys = new Set(candidate.nodes.map((n) => n.key));
   for (const step of input.requiredSteps) {
     if (step.optional) continue;
@@ -442,6 +448,7 @@ function scopedProblem(
 }
 
 export interface ScopeValidationInput {
+  readonly requiredSteps?: PlanningValidationInput['requiredSteps'];
   readonly candidate: PlanningCandidatePayload;
   readonly baseGraph: PlanGraph;
   readonly scope: PlanningRoundScope;
@@ -500,7 +507,7 @@ export function validateScopedCandidate(input: ScopeValidationInput): ScopeValid
   const structuralCandidate: PlanningCandidatePayload = { ...candidate, edges: scopedEdges, questions: [], assumptions: [], humanDecisions: [] };
   const structural = validatePlanningCandidate({
     candidate: structuralCandidate,
-    requiredSteps: [],
+    requiredSteps: input.requiredSteps ?? [],
     refinableGroups: [],
     limits: { ...input.limits, maxNodes: Number.MAX_SAFE_INTEGER, maxEdges: Number.MAX_SAFE_INTEGER, maxGroups: Number.MAX_SAFE_INTEGER, maxDepth: Number.MAX_SAFE_INTEGER },
   });
@@ -560,6 +567,7 @@ export function mergeScopedCandidate(base: PlanGraph, candidate: PlanningCandida
         write: (node.resources?.write ?? []).map((resource) => ({ ...resource, basis: 'declared' as const })),
       },
       roleId: node.roleId,
+      ...(node.qualityReview === undefined ? {} : { qualityReview: structuredClone(node.qualityReview) }),
       position: { x: 80 + groupIndex * 300, y: 80 + index * 130 },
     };
   });

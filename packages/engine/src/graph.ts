@@ -62,6 +62,7 @@ export function methodToGraph(method: WorkflowMethod): PlanGraph {
       outputs: step.outputs ?? [{ name: `${step.title}产物`, kind: 'artifact' }],
       acceptance: step.acceptance ?? [`${step.title}完成，且有可核对的证据`],
       resources: { read: [], write: [] },
+      ...(step.qualityReview === undefined ? {} : { qualityReview: structuredClone(step.qualityReview) }),
       roleId: step.roleId ?? (step.kind === 'test' ? 'role.tester' : step.kind === 'verify' ? 'role.reviewer' : 'role.developer'),
       templateRevision: `${method.id}@${method.revision}`,
       position: step.position ?? positionFor(groupIndex.get(group) ?? 0, indexInGroup),
@@ -116,6 +117,7 @@ export function candidateToGraph(candidate: PlanningCandidatePayload): PlanGraph
         write: (node.resources?.write ?? []).map((resource) => ({ ...resource, basis: 'declared' })),
       },
       roleId: node.roleId,
+      ...(node.qualityReview === undefined ? {} : { qualityReview: structuredClone(node.qualityReview) }),
       position: positionFor(groupIndex, indexInGroup),
     };
   });

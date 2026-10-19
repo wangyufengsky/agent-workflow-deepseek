@@ -1,3 +1,4 @@
+import { QualityReviewFields } from '../../flow/QualityReviewFields.tsx';
 import { useMemo, useState } from 'react';
 import {
   NODE_STATUS_LABEL,
@@ -18,6 +19,7 @@ import { ActionReasonLine, CommandErrorNotice, ReceiptNotice, ServiceActionButto
 import { PanelEmpty, Section } from '../requirement/requirement-ui.tsx';
 
 interface LocalChange {
+  readonly qualityReview?: PlanNode['qualityReview'] | null;
   readonly title?: string;
   readonly acceptance?: readonly string[];
   readonly prerequisites?: readonly string[];
@@ -62,6 +64,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
   const changeFor = (node: PlanNode): LocalChange => {
     const local = localChanges[node.id] ?? {};
     return {
+      qualityReview: local.qualityReview === undefined ? node.qualityReview : local.qualityReview,
       title: local.title ?? node.title,
       acceptance: local.acceptance ?? node.acceptance,
       prerequisites: local.prerequisites ?? currentPrerequisites(node),
@@ -75,6 +78,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
   const dirtyChanges = Object.entries(localChanges).filter(([nodeId, change]) => {
     const node = nodes.find((item) => item.id === nodeId);
     if (node === undefined) return false;
+    if (change.qualityReview !== undefined && JSON.stringify(change.qualityReview ?? undefined) !== JSON.stringify(node.qualityReview)) return true;
     if (change.title !== undefined && change.title !== node.title) return true;
     if (change.acceptance !== undefined && change.acceptance.join('\n') !== node.acceptance.join('\n')) return true;
     if (change.prerequisites !== undefined) {
@@ -97,6 +101,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
       const node = nodes.find((item) => item.id === nodeId);
       return {
         nodeId,
+        ...(change.qualityReview === undefined ? {} : { qualityReview: change.qualityReview }),
         ...(node === undefined || change.title === undefined || change.title === node.title ? {} : { title: change.title }),
         ...(node === undefined || change.acceptance === undefined ? {} : { acceptance: change.acceptance }),
         ...(node === undefined || change.prerequisites === undefined ? {} : { prerequisites: change.prerequisites }),
@@ -343,6 +348,7 @@ export function PlanEditPanel({ taskId, execution, plan, actions, onRefresh, onO
                     updateLocal(selectedNode, { title: event.target.value });
                   }}
                 />
+                {selectedNode.kind === 'verify' ? <QualityReviewFields id="edit-review" value={changeFor(selectedNode).qualityReview} onChange={qualityReview => updateLocal(selectedNode, { qualityReview: qualityReview ?? null })} /> : null}
                 <label className="label" htmlFor="edit-acceptance" style={{ marginTop: 12 }}>
                   验收条款（每行一条）
                 </label>

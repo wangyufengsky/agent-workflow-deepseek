@@ -142,6 +142,7 @@ export interface ProjectSummary extends Project {
 /* ------------------------------------------------------------------ */
 
 export interface MethodStepDefinition {
+  readonly qualityReview?: import('./quality-review.ts').QualityReviewContract;
   readonly sourceStage?: import('./enums.ts').SourceEvidenceStageValue;
   readonly key: string;
   readonly title: string;
@@ -428,6 +429,7 @@ export interface ResourceRef {
 }
 
 export interface PlanNode {
+  readonly qualityReview?: import('./quality-review.ts').QualityReviewContract;
   readonly sourceEvidence?: { readonly version: 1; readonly testCommand?: string; readonly reportPatterns?: readonly string[]; readonly stage: import('./enums.ts').SourceEvidenceStageValue; readonly filePaths: readonly string[] };
   readonly id: PlanNodeId;
   readonly key: string;
@@ -696,6 +698,7 @@ export interface EditSession {
   readonly localChanges: readonly {
     readonly nodeId: PlanNodeId;
     readonly title?: string;
+    readonly qualityReview?: import('./quality-review.ts').QualityReviewContract | null;
     readonly prerequisites?: readonly PlanNodeId[];
     readonly acceptance?: readonly string[];
   }[];
@@ -737,6 +740,7 @@ export interface ExecutionNodeState {
 }
 
 export interface AttemptResult {
+  readonly qualityReview?: import('./quality-review.ts').QualityReviewReport;
   readonly fileEvidence?: readonly import('./file-evidence.ts').SourceFileEvidence[];
   readonly testRun?: import('./file-evidence.ts').ControlledTestRun;
   readonly resultRevision: string;

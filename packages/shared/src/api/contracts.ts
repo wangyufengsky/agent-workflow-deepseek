@@ -1434,6 +1434,7 @@ export interface EditSaveRequest extends CommandRequest {
   readonly changes: readonly {
     readonly nodeId: string;
     readonly title?: string;
+    readonly qualityReview?: import('../domain/quality-review.ts').QualityReviewContract | null;
     readonly prerequisites?: readonly string[];
     readonly acceptance?: readonly string[];
   }[];

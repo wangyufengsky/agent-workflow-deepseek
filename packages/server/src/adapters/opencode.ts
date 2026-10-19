@@ -206,9 +206,7 @@ export class OpenCodeAdapter implements OpenCodePort {
       {
         timeoutMs: request.timeoutMs,
         abortOnEvent: (event) => {
-          if (event.type !== 'session.next.tool.success' && event.type !== 'session.next.tool.called') return false;
-          const haystack = JSON.stringify(event.properties).toLowerCase();
-          return (request.abortOnToolCall ?? []).some((name) => haystack.includes(name.toLowerCase()));
+          return completedTerminalTool(event, request.abortOnToolCall ?? []);
         },
         abortGraceMs: 1500,
       },
@@ -301,3 +299,14 @@ export class OpenCodeAdapter implements OpenCodePort {
 }
 
 export type { SessionSink };
+
+/** A tool call is intent, not a committed result. Keep scope alive through the response. */
+export function completedTerminalTool(event: { type: string; properties: Record<string, unknown> }, names: readonly string[]): boolean {
+  if (event.type !== 'session.next.tool.success') return false;
+  const part = event.properties.part as { tool?: unknown; state?: { error?: unknown } } | undefined;
+  if (part?.state?.error || event.properties.error) return false;
+  const tool = part?.tool ?? event.properties.tool ?? event.properties.name;
+  if (typeof tool !== 'string') return false;
+  const normalized = tool.toLowerCase().replace(/[._-]/g, '');
+  return names.some(name => normalized.endsWith(name.toLowerCase().replace(/[._-]/g, '')));
+}

@@ -869,7 +869,7 @@ export const ProjectBindingRepositoryState = { CONNECTED: 'connected', NOT_CONFI
 export type ProjectBindingRepositoryStateValue = (typeof ProjectBindingRepositoryState)[keyof typeof ProjectBindingRepositoryState];
 
 /** Availability and conclusion of an Insights evidence source, never an inferred result. */
-export const QualityCheckStatus = { NOT_CONFIGURED: 'not_configured', NOT_REQUIRED: 'not_required', NOT_REVIEWED: 'not_reviewed', IN_PROGRESS: 'in_progress', PASSED: 'passed', FAILED: 'failed', UNKNOWN: 'unknown' } as const;
+export const QualityCheckStatus = { NOT_CONFIGURED: 'not_configured', NOT_REQUIRED: 'not_required', NOT_REVIEWED: 'not_reviewed', IN_PROGRESS: 'in_progress', NEEDS_DECISION: 'needs_decision', PASSED: 'passed', FAILED: 'failed', UNKNOWN: 'unknown' } as const;
 export type QualityCheckStatusValue = typeof QualityCheckStatus[keyof typeof QualityCheckStatus];
 export const ProjectGitAccountSource = { INHERIT: 'inherit', CUSTOM: 'custom' } as const;
 export type ProjectGitAccountSourceValue = (typeof ProjectGitAccountSource)[keyof typeof ProjectGitAccountSource];
@@ -877,3 +877,10 @@ export const GitAuthentication = { TOKEN: 'token', PASSWORD: 'password' } as con
 export type GitAuthenticationValue = (typeof GitAuthentication)[keyof typeof GitAuthentication];
 export const TaskListGroup={ATTENTION:'attention',ACTIVE:'active',CLOSED:'closed'} as const;
 export type TaskListGroupValue=(typeof TaskListGroup)[keyof typeof TaskListGroup];
+
+/** Explicit independent review types; never inferred from generic verification. */
+export const QualityReviewKind = { REQUIREMENT: 'requirement', RISK: 'risk' } as const;
+export type QualityReviewKindValue = typeof QualityReviewKind[keyof typeof QualityReviewKind];
+
+export const QualityReviewVerdict = { PASSED: 'passed', FAILED: 'failed', UNKNOWN: 'unknown' } as const;
+export type QualityReviewVerdictValue = typeof QualityReviewVerdict[keyof typeof QualityReviewVerdict];

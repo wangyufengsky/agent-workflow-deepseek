@@ -1,4 +1,5 @@
 import {pendingIdentityForPath,usePendingIdentity} from '../../api/pending-identity.ts';
+import { QualityReviewFields } from '../../flow/QualityReviewFields.tsx';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -720,6 +721,7 @@ export function WorkflowEditorPage() {
             </div>
             <div className="field"><label className="label" htmlFor="wfe-step-summary">这一步做什么</label><textarea id="wfe-step-summary" className="textarea" value={selectedStep.summary ?? ''} readOnly={!canEdit} onChange={(event) => { updateStep({ summary: event.target.value }); }} /></div>
             <div className="field"><label className="label" htmlFor="wfe-step-outputs">产出（每行一项，执行后才有实际产物）</label><textarea id="wfe-step-outputs" className="textarea" value={(selectedStep.outputs ?? []).map((item) => item.name).join('\n')} readOnly={!canEdit} onChange={(event) => { updateStep({ outputs: event.target.value.split('\n').filter(Boolean).map((name) => ({ name, kind: 'artifact' })) }); }} /></div>
+            {selectedStep.kind === 'verify' ? <QualityReviewFields id="wfe-review" value={selectedStep.qualityReview} disabled={!canEdit} onChange={qualityReview => updateStep({ qualityReview })} /> : null}
             <div className="field"><label className="label" htmlFor="wfe-step-acceptance">验收标准（每行一项）</label><textarea id="wfe-step-acceptance" className="textarea" value={(selectedStep.acceptance ?? []).join('\n')} readOnly={!canEdit} onChange={(event) => { updateStep({ acceptance: event.target.value.split('\n').filter(Boolean) }); }} /></div>
             <div className="grid-2" style={{ gap: 12 }}>
               <div className="field" style={{ margin: 0 }}>

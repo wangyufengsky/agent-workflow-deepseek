@@ -1,3 +1,4 @@
+import { validQualityReviewContract } from '@agent-workflow/shared';
 import { boundAttempt, readableAttempt, readableOutput } from './node-read.ts';
 import { freezeRequirement, requirementLinks as sourceLinks, readRequirementSource } from './requirement-source.ts';
 import { executionPolicy } from './execution-policy.ts';
@@ -301,6 +302,7 @@ export class PlanService {
       });
       throw new AppError(ErrorCode.STALE_TARGET, '有步骤已被领取，修改被移出；本地草稿保留', { details: { lockedNodeIds: [...locked] } });
     }
+    for (const change of changes) if (change.qualityReview != null && !validQualityReviewContract(change.qualityReview, plan.graph.nodes.find(node => node.id === change.nodeId)?.kind ?? '')) throw new AppError(ErrorCode.VALIDATION_FAILED, '独立评审配置需要verify步骤与非空条款');
     const nodeIds = new Set(plan.graph.nodes.map((node) => node.id));
     if (changes.some((change) => !nodeIds.has(change.nodeId))) throw new AppError(ErrorCode.STALE_TARGET, '修改引用的步骤不存在');
     const prerequisitesChanged = new Set(changes.filter((change) => change.prerequisites !== undefined).map((change) => change.nodeId));
@@ -333,6 +335,7 @@ export class PlanService {
           ...node,
           title: change.title ?? node.title,
           acceptance: change.acceptance ?? node.acceptance,
+          qualityReview: change.qualityReview === undefined ? node.qualityReview : change.qualityReview ?? undefined,
         };
       }),
     };

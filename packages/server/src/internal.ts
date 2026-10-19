@@ -1,3 +1,4 @@
+import { qualityReadKey } from '../../engine/src/quality-review.ts';
 import { matchesEvidencePath } from '../../engine/src/project-evidence.ts';
 import { sourceArtifact, sourceAncestors, sourceReadKey, recordArtifactRead } from '../../engine/src/template-file-evidence.ts';
 import { readArtifactBytes } from '../../engine/src/artifacts.ts';
@@ -26,6 +27,16 @@ const MAX_FILE_BYTES = 512 * 1024;
 const MAX_EXEC_OUTPUT = 64 * 1024;
 
 export function registerInternalRoutes(app: FastifyInstance, deps: InternalDependencies): void {
+  const recordQualityFileRead = (request: FastifyRequest, path: string, sha256: string, text: string) => {
+    const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
+    const attempt = dispatch.metadata.attemptId ? deps.store.executions.getAttempt(dispatch.metadata.attemptId) : undefined;
+    const sessionId = attempt ? deps.store.settings.getJson<{ sessionId: string }>(`execution.session.${attempt.id}`)?.sessionId : undefined;
+    if (!attempt?.definition?.node.qualityReview || !sessionId) return;
+    const key = qualityReadKey(attempt.id, path); const old = deps.store.settings.getJson<{sessionId:string;sha256:string;text:string}>(key);
+    const combined = old?.sessionId === sessionId && old.sha256 === sha256 ? old.text.includes(text) ? old.text : `${old.text}\n${text}` : text;
+    deps.store.settings.putJson(key, { sessionId, path, sha256, text: combined.slice(-1024 * 1024) });
+  };
+
   const guard = (request: FastifyRequest): void => {
     const header = request.headers.authorization ?? '';
     if (header !== `Bearer ${deps.token}`) {
@@ -175,6 +186,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
       const selected = limit > 0 ? lines.slice(offset, offset + limit) : lines.slice(offset);
       const scope = requireSessionScope(request.headers['x-agent-workflow-scope']);
       if (offset === 0 && selected.length === lines.length && scope.request.metadata.attemptId !== undefined) deps.store.settings.putJson(`snapshot.read.${scope.request.metadata.attemptId}.${unit.id}`, { blobSha: unit.blobSha, readAt: nowIso(), totalLines: lines.length });
+      recordQualityFileRead(request, unit.path, sha256(content), selected.join('\n'));
       return { path: unit.path, blobSha: unit.blobSha, targetSha: snapshot.targetSha, sourceSha: unit.deletedAtTarget ? snapshot.baselineSha : snapshot.targetSha, deletedAtTarget: unit.deletedAtTarget ?? false, sha: sha256(content), sizeBytes: Buffer.byteLength(content), totalLines: lines.length, offset, lines: selected, truncated: offset + selected.length < lines.length, readOnly: true };
     }
     const templateScope = snapshotTask?.fixedTemplate?.scope;
@@ -194,11 +206,13 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
         for (const line of lines.slice(offset, offset + limit)) { const size = Buffer.byteLength(line) + 1; if (selectedBytes + size > 512 * 1024) break; selected.push(line); selectedBytes += size; }
         if (!selected.length && offset < lines.length) throw new AppError(ErrorCode.VALIDATION_FAILED, '单行超过读取上限，不能作为文本证据读取');
         recordArtifactRead(deps.store, attempt!.id, ref, lines.length, offset, selected.length);
+        recordQualityFileRead(request, query.path, ref.sha256, selected.join('\n'));
         return { path: query.path, artifactId: ref.id, sourceAttemptId: ref.sourceAttemptId, sha: ref.sha256, sizeBytes: bytes.length, totalLines: lines.length, offset, lines: selected, truncated: offset + selected.length < lines.length, readOnly: true };
       }
       const lines = file.text.split('\n'); const offset = Math.max(0, Number(query.offset ?? 0)); const limit = Number(query.limit ?? 0); const selected = limit > 0 ? lines.slice(offset, offset + limit) : lines.slice(offset);
       const { request: dispatch } = requireSessionScope(request.headers['x-agent-workflow-scope']);
       if (offset === 0 && selected.length === lines.length && dispatch.metadata.attemptId) deps.store.settings.putJson(sourceReadKey(dispatch.metadata.attemptId, file.path), { blobSha: file.blobSha, readAt: nowIso() });
+      recordQualityFileRead(request, file.path, sha256(file.text), selected.join('\n'));
       return { path: file.path, blobSha: file.blobSha, targetSha: templateScope.targetSha, sourceSha: templateScope.targetSha, sha: sha256(file.text), sizeBytes: Buffer.byteLength(file.text), totalLines: lines.length, offset, lines: selected, truncated: offset + selected.length < lines.length, readOnly: true };
     }
     if (query.artifactId) throw new AppError(ErrorCode.FORBIDDEN, '当前任务没有可读取的冻结上游产物');
@@ -213,6 +227,7 @@ export function registerInternalRoutes(app: FastifyInstance, deps: InternalDepen
     const offset = Math.max(0, Number(query.offset ?? 0));
     const limit = Number(query.limit ?? 0);
     const selected = limit > 0 ? lines.slice(offset, offset + limit) : lines;
+    recordQualityFileRead(request, query.path, sha256(content), selected.join('\n'));
     return {
       path: query.path,
       sizeBytes: stat.size,

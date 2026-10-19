@@ -1,3 +1,4 @@
+import { QualityReviewVerdict } from '@agent-workflow/shared';
 import type { Attempt, ControlledTestRun, InsightsQuality, PlanNode, Task, TaskQualityCheck, TaskQualityEvidence, QualityEvidenceSource } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import { readArtifactBytes } from './artifacts.ts';
@@ -57,7 +58,27 @@ export function taskQualityEvidence(store: Store, task: Task): TaskQualityEviden
     const state = missing && !unknown && !failed ? 'not_reviewed' : 'unknown';
     requirement = check('requirement', state, true, state === 'not_reviewed' ? '已配置需求代码评审，当前范围尚未完成独立复核' : failed ? '需求评审产物复核存在拒绝项，不能据此确认业务需求结论' : unknown ? '需求资料、文件版本、当前尝试或读取权限不足以证明需求评审结论' : `逐文件评审过程已完成，依据${task.fixedTemplate.scope?.documents.length ?? 0}份冻结资料；现有合同未结构化需求通过/失败，不能把产物复核成立当需求全部满足`, sources);
   }
-  const risk = check('risk', 'not_configured', false, '此任务未配置独立风险评审来源；security等通用审查维度不等于独立风险评审');
+  let risk = check('risk', 'not_configured', false, '此任务未配置独立风险评审来源；security等通用审查维度不等于独立风险评审');
+  for (const kind of ['requirement','risk'] as const) {
+    const nodes = plan?.graph.nodes.filter(node => node.qualityReview?.kind === kind) ?? [];
+    if (!nodes.length) continue;
+    const sources: QualityEvidenceSource[] = []; const states: TaskQualityCheck['state'][] = []; const opinions = new Map<string, Set<string>>();
+    for (const node of nodes) {
+      const attempt = current(node); const report = attempt?.readability.result !== 'forbidden' ? attempt?.result?.qualityReview : undefined;
+      if (!attempt) { states.push('not_reviewed'); continue; }
+      if (attempt.readability.result === 'forbidden') { states.push('unknown'); continue; }
+      if (attempt.status === 'running') { states.push('in_progress'); continue; }
+      if (!report) { states.push('unknown'); continue; }
+      const sessionId = store.settings.getJson<{sessionId:string}>(`execution.session.${attempt.id}`)?.sessionId;
+      if (!report.source || !Array.isArray(report.findings) || report.findings.length !== node.qualityReview!.criteria.length || !(Object.values(QualityReviewVerdict) as readonly string[]).includes(report.verdict) || !sessionId || report.source.sessionId !== sessionId || report.source.taskId !== task.id || report.source.executionId !== execution?.id || report.source.planRevisionId !== attempt.definition?.planRevisionId || report.source.nodeId !== node.id || report.source.attemptId !== attempt.id || JSON.stringify(report.contract) !== JSON.stringify(node.qualityReview) || report.kind !== kind || !['succeeded','failed'].includes(attempt.status)) { states.push('unknown'); continue; }
+      states.push(report.verdict === 'unknown' ? 'unknown' : report.verdict); sources.push(source(attempt));
+      const contractKey = JSON.stringify(report.contract); const group = opinions.get(contractKey) ?? new Set<string>(); group.add(report.verdict); opinions.set(contractKey, group);
+    }
+    const disagrees = [...opinions.values()].some(group => group.has('passed') && group.has('failed'));
+    const state = disagrees ? 'needs_decision' : states.includes('failed') ? 'failed' : states.includes('unknown') ? 'unknown' : states.includes('in_progress') ? 'in_progress' : states.includes('not_reviewed') ? 'not_reviewed' : 'passed';
+    const value = check(kind, state, true, disagrees ? '两位或多位独立评审结论不一致，待人工；各来源原结论均保留，人工意见不改写AI结论' : `显式配置的独立${kind === 'requirement' ? '需求' : '风险'}AI评审；仅采用当前尝试同会话的逐条结论与受控读取依据，人工意见不改写原结论`, sources);
+    if (kind === 'requirement') requirement = value; else risk = value;
+  }
   const humanRecord = store.acceptances.get(task.id);
   const human = check('human', humanRecord ? humanRecord.verdict === 'accepted' ? 'passed' : 'failed' : 'not_reviewed', false, humanRecord ? `人工${humanRecord.verdict === 'accepted' ? '认定通过' : '认定未通过'}；单独记录，不改写程序与AI评审原结论` : '尚未人工认定；人工认定不替代程序或AI证据', humanRecord ? [{ kind: 'human', id: task.id, label: '原人工意见', href: `/api/tasks/${encodeURIComponent(task.id)}/acceptance` }] : []);
   const reviewRow = execution ? store.db.prepare('SELECT id, findings_json FROM reviews WHERE execution_id=? ORDER BY rowid DESC LIMIT 1').get(execution.id) as { id: string; findings_json: string } | undefined : undefined;

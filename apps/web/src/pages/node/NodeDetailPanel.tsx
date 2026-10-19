@@ -1,3 +1,4 @@
+import { QualityReviewResult } from './QualityReviewResult.tsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { toolFeed } from './tool-feed.ts';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -639,6 +640,7 @@ export function NodeDetailPanel({ taskId, nodeId, connection, pollInterval, plan
                         结果修订 {selectedAttempt.result.resultRevision}
                       </span>
                     </div>
+                    <QualityReviewResult report={selectedAttempt.result.qualityReview} configured={detail.node.qualityReview} />
                     <p className="node-result-summary">{selectedAttempt.result.summary}</p>
                     {selectedAttempt.result.verification?.summary === undefined ? null : (
                       <p className="hint">{selectedAttempt.result.verification.summary}</p>

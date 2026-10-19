@@ -446,7 +446,7 @@ export class PlanningService {
       projectRoot: project.rootPath,
       methodName: method.name,
       methodRevision: method.revision,
-      requiredSteps: method.requiredSteps.map((step) => ({ key: step.key, title: step.title, kind: step.kind, group: step.group })),
+      requiredSteps: method.requiredSteps.map((step) => ({ key: step.key, title: step.title, kind: step.kind, group: step.group, ...(step.qualityReview === undefined ? {} : { qualityReview: step.qualityReview }) })),
       refinableGroups: method.refinableGroups,
       supplements: task.requirement.supplements.map((supplement) => supplement.text),
       answers: round.questions.filter((question) => question.answer !== undefined).map((question) => ({ question: question.question, answer: question.answer! })),
@@ -851,6 +851,7 @@ export class PlanningService {
     const validationResult = validateScopedCandidate({
       candidate,
       baseGraph: base.graph,
+      requiredSteps: this.#method(task).requiredSteps.filter(step => step.group === scope.groupTitle && step.qualityReview !== undefined),
       scope,
       limits: {
         maxNodes: settings.planning.maxNodes,

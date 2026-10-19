@@ -1,3 +1,4 @@
+import { materializeQualityReview, qualityReviewPrompt } from './quality-review.ts';
 import { prepareSourceSubmission, sourceEvidencePrompt } from './template-file-evidence.ts';
 import { boundAttempt } from './node-read.ts';
 import { templateScopePrompt } from './template-scope.ts';
@@ -824,11 +825,13 @@ export class ExecutionService {
     if ((input.artifacts?.length ?? 0) > 0 && (!workspace?.displayRoot || !role)) throw new AppError(ErrorCode.WORKSPACE_NOT_READY, '产物工作区或职业权限不可用');
     if (input.artifacts !== undefined && !Array.isArray(input.artifacts)) throw new AppError(ErrorCode.VALIDATION_FAILED, 'artifacts必须是数组');
     const node = this.#store.plans.get(execution.planRevisionId)?.graph.nodes.find((item) => item.id === input.nodeId);
+    const qualityReview = materializeQualityReview(this.#store, task.id, execution.planRevisionId, node, attempt, input.payload);
     const source = prepareSourceSubmission(this.#store, task, node, attempt, input);
     const artifacts = input.artifacts === undefined || input.artifacts.length === 0 ? [] : captureArtifacts(this.#store.dataDir, workspace!.displayRoot!, attempt.id, input.artifacts, (path) => roleFileAllowed(role!, path, 'read'));
     const { serviceArtifacts, ...materialized } = source.materialize(artifacts);
     const result: AttemptResult = {
       ...materialized,
+      ...(qualityReview === undefined ? {} : { qualityReview }),
       resultRevision: createId('res'),
       summary: input.summary,
       payload: input.payload,
@@ -1302,7 +1305,7 @@ export class ExecutionService {
       }, attemptUsage);
       return;
     }
-    const verificationFailed = settled.verification?.state === 'failed';
+    const verificationFailed = settled.verification?.state === 'failed' || settled.qualityReview?.verdict === 'failed';
     this.#finishNode(execution.id, node.id, attempt.id, verificationFailed ? NodeStatus.FAILED : NodeStatus.SUCCEEDED, settled, verificationFailed ? { code: 'VALIDATION_FAILED', message: '验证未通过' } : undefined, attemptUsage);
   }
 
@@ -1361,7 +1364,7 @@ export class ExecutionService {
     const evidence = snapshot === undefined ? undefined : snapshotEvidenceState(this.#store, task.id);
     const unitIds = snapshot === undefined || evidence === undefined ? [] : snapshotExpectedUnitIds(snapshot, node, evidence);
     const snapshotPrompt = snapshot === undefined ? '' : `\n# 固定源码审查\n目标 ${snapshot.targetSha}；${snapshot.mode}/${snapshot.depth}；当前阶段 ${node.snapshotStage}。只读分析，禁止修改任何源码。\n逐个使用 workspace.file.read 读取下列冻结blob；工具返回的是固定版本而非当前工作树。\n${JSON.stringify(snapshot.units.filter((unit) => unitIds.includes(unit.id)))}\n${node.snapshotStage === 'verification' ? `独立检查以下上游候选，逐项给出 confirmed/rejected 与 rationale，不能遗漏候选：${JSON.stringify(unitIds.map((id) => evidence?.analyzed.get(id)))}` : ''}\n结果 payload 必须包含 snapshotUnits: [{unitId, blobSha, summary, findings:[{id,title,detail,line,severity:'high'|'medium'|'low'${node.snapshotStage === 'verification' ? ",verdict:'confirmed'|'rejected',rationale" : ''}}]}]；每个分配单元都必须出现。没有问题的单元 findings 为[]。不得给未读取的单元生成证据。\n`;
-    return `${snapshotPrompt}\n# 任务
+    return `${qualityReviewPrompt(node)}${snapshotPrompt}\n# 任务
 ${task.title}
 
 # 项目与工作区
