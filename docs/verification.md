@@ -53,6 +53,11 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/node-skip | 跳过节点及全部下游 → cancelled；上游/无关节点不变；回执与操作登记 |
 | server/cleanup | 清理预览对执行中/规划中/交付中/工作区忙给出 blockers；确认拒绝 blockers 与过期预览；清理后状态 cleaned |
 
+## 2.5 最近一次模型冒烟（第 27 轮）
+
+`npm run test:model` PASS：受管 OpenCode **1.19.0** 启动成功（临时端口 59871），内部 MCP `agent-workflow: connected`，
+flash 模型经兼容网关返回文本 `OK`。验证发生在工具集过滤、会话上限、洞察统计等改动之后。
+
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
 ### 3.1 受管 OpenCode + MCP 注入
