@@ -400,6 +400,8 @@ export interface KnowledgeAskRequest extends CommandRequest {
   readonly projectId: string;
   readonly question: string;
   readonly conversationId?: string;
+  /** Inventory-relative paths selected for this round; omitted means all current sources. */
+  readonly sourcePaths?: readonly string[];
 }
 
 export interface KnowledgeCitation {
@@ -416,6 +418,12 @@ export interface KnowledgeAskResponse {
   readonly model: string;
   readonly generatedAt: IsoDateTime;
   readonly conversationId: string;
+  /** Actual frozen input selection and bounded excerpts used for this answer. */
+  readonly sources?: {
+    readonly selectedPaths: readonly string[];
+    readonly readPaths: readonly string[];
+    readonly truncatedPaths: readonly string[];
+  };
   readonly usage?: TokenUsage;
   /** Absent for legacy answers recorded before steps were observed. */
   readonly steps?: readonly KnowledgeStep[];
@@ -1889,6 +1897,7 @@ export const ROUTES = {
   knowledgeSourceContent: '/api/knowledge/source',
   knowledgeAsk: '/api/knowledge/ask',
   knowledgeHistory: '/api/knowledge/history',
+  knowledgeResult: (requestKey: string) => `/api/knowledge/results/${encodeURIComponent(requestKey)}`,
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;

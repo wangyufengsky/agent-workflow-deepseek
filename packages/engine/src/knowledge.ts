@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   AppError,
   ErrorCode,
@@ -19,11 +17,12 @@ import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { OpenCodePort } from './ports.ts';
 import type { OpenCodeMessage, OpenCodePart } from '@agent-workflow/opencode';
-import { listKnowledgeSources } from '../../server/src/knowledge.ts';
+import { listKnowledgeSources, readKnowledgeSource } from '../../server/src/knowledge.ts';
 import { usageFromMessages } from './token-usage.ts';
 
-const MAX_DOCS = 12;
+const MAX_SOURCES = 200;
 const MAX_DOC_CHARS = 6_000;
+const MAX_CONTEXT_CHARS = 96_000;
 
 export interface KnowledgeServiceOptions {
   readonly store: Store;
@@ -32,7 +31,7 @@ export interface KnowledgeServiceOptions {
   readonly opencode: OpenCodePort;
 }
 
-/** Single-shot, read-only document Q&A; no conversation history is persisted. */
+/** Read-only document Q&A with durable command receipts and frozen source selection. */
 export class KnowledgeService {
   readonly #store: Store;
   readonly #commands: CommandService;
@@ -52,49 +51,67 @@ export class KnowledgeService {
     if (question.length < 2 || question.length > 2_000) throw new AppError(ErrorCode.VALIDATION_FAILED, '问题长度需要在 2–2000 字之间');
     const project = this.#store.projects.get(input.projectId);
     if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
-    const model = this.#model();
-    if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法问答');
-    const retrieveStartedAt = nowIso();
-    const retrieveStartedMs = Date.now();
-    const sources = listKnowledgeSources(project.rootPath).slice(0, MAX_DOCS);
-    if (sources.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '项目里没有可读的文档来源');
-    const documents = sources.map((source) => {
-      let content = '';
-      try {
-        content = readFileSync(join(project.rootPath, source.path), 'utf8').slice(0, MAX_DOC_CHARS);
-      } catch {
-        content = '';
-      }
-      return { path: source.path, content };
-    }).filter((document) => document.content !== '');
-    if (documents.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '文档来源不可读');
-    const retrieveEndedAt = nowIso();
-    const steps: KnowledgeStep[] = [
-      {
-        id: 'step_retrieve',
-        kind: 'retrieve',
-        label: `读取 ${String(documents.length)} 份文档`,
-        status: 'succeeded',
-        startedAt: retrieveStartedAt,
-        endedAt: retrieveEndedAt,
-        durationMs: Math.max(0, Date.parse(retrieveEndedAt) - retrieveStartedMs),
-        detail: documents.map((document) => document.path).join('、').slice(0, 500),
-      },
-    ];
-    const conversationId = typeof input.conversationId === 'string' && input.conversationId.trim() !== ''
+    const requestedConversationId = typeof input.conversationId === 'string' && input.conversationId.trim() !== ''
       ? input.conversationId.trim().slice(0, 64)
-      : createId('conversation');
-    const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? [])
-      .filter((entry) => entry.conversationId === conversationId)
-      .slice(0, 3);
+      : undefined;
+    if (input.sourcePaths !== undefined && (!Array.isArray(input.sourcePaths) || input.sourcePaths.length === 0 || input.sourcePaths.length > MAX_SOURCES || input.sourcePaths.some((path) => typeof path !== 'string' || path.trim() === ''))) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '请选择 1–200 份资料来源');
+    }
+    const sourcePaths = input.sourcePaths === undefined ? undefined : [...new Set(input.sourcePaths)].sort();
+    // Hash only caller input. A generated conversation ID must not change the
+    // identity of a replayed first question.
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'knowledge.ask',
-      body: { projectId: input.projectId, question, conversationId },
+      body: { projectId: input.projectId, question, conversationId: requestedConversationId, sourcePaths },
       target: { projectId: input.projectId },
     });
-    if (replayed && record.status !== 'accepted') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已经受理，请按回执核对');
+    if (replayed) {
+      const resource = this.#store.settings.getJson<KnowledgeAskResponse>(resultKey(input.requestKey));
+      return { receipt: this.#commands.toReceipt(record), ...(resource === undefined ? {} : { resource }) };
+    }
     try {
+      const model = this.#model();
+      if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法问答');
+      const retrieveStartedAt = nowIso();
+      const retrieveStartedMs = Date.now();
+      const inventory = listKnowledgeSources(project.rootPath);
+      const available = new Set(inventory.map((source) => source.path));
+      const selectedPaths = sourcePaths ?? inventory.map((source) => source.path);
+      if (selectedPaths.some((path) => !available.has(path))) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '所选资料已不可读取，请刷新资料来源后重新选择');
+      }
+      const sources = selectedPaths;
+      if (sources.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '项目里没有可读的文档来源');
+      const perDocumentLimit = Math.min(MAX_DOC_CHARS, Math.floor(MAX_CONTEXT_CHARS / sources.length));
+      const truncatedPaths: string[] = [];
+      const documents = sources.map((path) => {
+        try {
+          const { content } = readKnowledgeSource(project.rootPath, path);
+          if (content.length > perDocumentLimit) truncatedPaths.push(path);
+          return { path, content: content.slice(0, perDocumentLimit) };
+        } catch {
+          throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '所选资料读取失败，请刷新来源后重试', { details: { path } });
+        }
+      }).filter((document) => document.content !== '');
+      if (documents.length === 0) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '文档来源不可读');
+      const retrieveEndedAt = nowIso();
+      const steps: KnowledgeStep[] = [
+        {
+          id: 'step_retrieve',
+          kind: 'retrieve',
+          label: `读取 ${String(documents.length)} 份文档`,
+          status: 'succeeded',
+          startedAt: retrieveStartedAt,
+          endedAt: retrieveEndedAt,
+          durationMs: Math.max(0, Date.parse(retrieveEndedAt) - retrieveStartedMs),
+          detail: documents.map((document) => document.path).join('、').slice(0, 500),
+        },
+      ];
+      const conversationId = requestedConversationId ?? createId('conversation');
+      const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? [])
+        .filter((entry) => entry.conversationId === conversationId)
+        .slice(0, 3);
       const result = await this.#opencode.runSession({
         kind: 'review',
         metadata: { projectId: input.projectId, purpose: 'knowledge.ask' },
@@ -103,6 +120,7 @@ export class KnowledgeService {
         system: SYSTEM_PROMPT,
         model,
         permission: 'read_only',
+        toolPolicy: 'none',
         sink: {},
         timeoutMs: 120_000,
       });
@@ -144,6 +162,7 @@ export class KnowledgeService {
         model: `${model.provider}/${model.model}`,
         generatedAt: nowIso(),
         conversationId,
+        sources: { selectedPaths, readPaths: documents.map((document) => document.path), truncatedPaths },
         usage: usageFromMessages(result.outcome.messages),
         steps: orderedSteps,
         ...(toolActivity.length === 0 ? {} : { toolActivity }),
@@ -152,12 +171,25 @@ export class KnowledgeService {
       const key = historyKey(input.projectId);
       const history = this.#store.settings.getJson<KnowledgeHistoryEntry[]>(key) ?? [];
       this.#store.settings.putJson(key, [entry, ...history].slice(0, 30));
-      this.#commands.settle(input.requestKey, { citations: citations.length, historyId: entry.id });
+      this.#store.settings.putJson(resultKey(input.requestKey), response);
+      this.#commands.settle(input.requestKey, { citations: citations.length, historyId: entry.id, conversationId });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: response };
     } catch (error) {
       this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('知识问答失败'));
       throw error;
     }
+  }
+
+  result(requestKey: string, projectId: string): KnowledgeAskResponse {
+    const operation = this.#commands.get(requestKey);
+    if (operation?.operation !== 'knowledge.ask' || operation.target.projectId !== projectId) {
+      throw new AppError(ErrorCode.NOT_FOUND, '问答操作不存在');
+    }
+    const result = this.#store.settings.getJson<KnowledgeAskResponse>(resultKey(requestKey));
+    if (operation.status !== 'succeeded' || result === undefined) {
+      throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '问答结果尚未就绪，请核对原操作');
+    }
+    return result;
   }
 
   history(projectId: string): KnowledgeHistoryResponse {
@@ -171,6 +203,10 @@ export class KnowledgeService {
     if (model === undefined) throw new AppError(ErrorCode.MODEL_NOT_CONFIGURED, '没有启用的模型可用于知识问答');
     return model;
   }
+}
+
+function resultKey(requestKey: string): string {
+  return `knowledge.result.${requestKey}`;
 }
 
 /** Real assistant-message timing (undefined when the runtime did not report it). */

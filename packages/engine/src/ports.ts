@@ -119,6 +119,8 @@ export interface OpenCodeRunRequest {
   readonly system?: string;
   readonly model: ModelProfile;
   readonly permission: 'read_only' | 'workspace_write';
+  /** No runtime tools; only the supplied context may be used. */
+  readonly toolPolicy?: 'none';
   readonly jsonSchema?: Record<string, unknown>;
   readonly sink: SessionSink;
   readonly timeoutMs: number;

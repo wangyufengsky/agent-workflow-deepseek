@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OpenCodeMessage } from '@agent-workflow/opencode';
@@ -12,6 +12,7 @@ class FakeOpenCode implements OpenCodePort {
   messages: readonly OpenCodeMessage[] = [];
   assistantText = '';
   timedOut = false;
+  gate?: Promise<void>;
 
   status(): ReturnType<OpenCodePort['status']> {
     return { state: 'ready' } as ReturnType<OpenCodePort['status']>;
@@ -23,6 +24,7 @@ class FakeOpenCode implements OpenCodePort {
 
   async runSession(request: OpenCodeRunRequest): Promise<OpenCodeRunResult> {
     this.requests.push(request);
+    await this.gate;
     return {
       sessionId: 'sess_knowledge_fake',
       outcome: { idle: true, timedOut: this.timedOut, assistantText: this.assistantText, messages: this.messages },
@@ -38,7 +40,7 @@ class FakeOpenCode implements OpenCodePort {
   }
 }
 
-function setup(): { store: Store; engine: Engine; opencode: FakeOpenCode; projectId: string; close: () => void } {
+function setup(): { store: Store; engine: Engine; opencode: FakeOpenCode; projectId: string; rootPath: string; close: () => void } {
   const dataDir = mkdtempSync(join(tmpdir(), 'aw-knowledge-steps-'));
   const rootPath = mkdtempSync(join(tmpdir(), 'aw-knowledge-repo-'));
   writeFileSync(join(rootPath, 'README.md'), '# Demo\n\n这是项目说明。\n', 'utf8');
@@ -47,7 +49,7 @@ function setup(): { store: Store; engine: Engine; opencode: FakeOpenCode; projec
   const ports = { git: {} as EnginePorts['git'], opencode } satisfies EnginePorts;
   const engine = new Engine({ store, ports, integration: { opencodeReady: () => true, gitlabConfigured: () => false } });
   const project = store.projects.create({ name: 'Knowledge', rootPath, gitState: 'not_git' });
-  return { store, engine, opencode, projectId: project.id, close: () => store.close() };
+  return { store, engine, opencode, projectId: project.id, rootPath, close: () => { store.close(); rmSync(dataDir, { recursive: true, force: true }); rmSync(rootPath, { recursive: true, force: true }); } };
 }
 
 function requestKey(prefix: string): string {
@@ -171,4 +173,51 @@ test('W3-4b knowledge: missing runtime timings are omitted (no steps invented) a
   } finally {
     fixture.close();
   }
+});
+
+// Offline fault fixtures verify dispatch/receipt semantics, not live model quality.
+test('knowledge accepted replay does not redispatch; first question identity and result survive history eviction', async () => {
+  const fixture = setup();
+  let release!: () => void;
+  fixture.opencode.gate = new Promise<void>((resolve) => { release = resolve; });
+  fixture.opencode.assistantText = ANSWER;
+  const input = { requestKey: requestKey('replay'), projectId: fixture.projectId, question: '这个项目是什么？' };
+  try {
+    const first = fixture.engine.knowledge.ask(input);
+    const second = await fixture.engine.knowledge.ask(input);
+    assert.equal(second.receipt.status, 'accepted');
+    assert.equal(fixture.opencode.requests.length, 1);
+    await assert.rejects(() => fixture.engine.knowledge.ask({ ...input, question: '不同的问题？' }), { code: 'REQUEST_KEY_REUSED' });
+    release();
+    const result = await first;
+    fixture.store.settings.putJson(`knowledge.history.${fixture.projectId}`, []);
+    const replay = await fixture.engine.knowledge.ask(input);
+    assert.equal(replay.receipt.status, 'succeeded');
+    assert.deepEqual(replay.resource, result.resource);
+    assert.deepEqual(fixture.engine.knowledge.result(input.requestKey, fixture.projectId), result.resource);
+    assert.throws(() => fixture.engine.knowledge.result(input.requestKey, 'wrong-project'), { code: 'NOT_FOUND' });
+    assert.equal(fixture.opencode.requests.length, 1);
+  } finally { release(); fixture.close(); }
+});
+
+test('knowledge freezes selected input, rejects outside inventory and includes sources beyond the old twelve limit', async () => {
+  const fixture = setup();
+  fixture.opencode.assistantText = ANSWER;
+  try {
+    writeFileSync(join(fixture.rootPath, 'private.md'), 'EXCLUDED_SECRET_MARKER');
+    for (let i = 0; i < 15; i++) writeFileSync(join(fixture.rootPath, `source-${i}.md`), `source marker ${i}`);
+    const selected = await fixture.engine.knowledge.ask({ requestKey: requestKey('selected'), projectId: fixture.projectId, question: '这个项目是什么？', sourcePaths: ['README.md'] });
+    assert.deepEqual(selected.resource?.sources?.readPaths, ['README.md']);
+    assert.ok(!fixture.opencode.requests[0]!.prompt.includes('EXCLUDED_SECRET_MARKER'));
+    assert.equal(fixture.opencode.requests[0]!.toolPolicy, 'none');
+    const all = await fixture.engine.knowledge.ask({ requestKey: requestKey('all'), projectId: fixture.projectId, question: '这些来源是什么？' });
+    assert.equal(all.resource?.sources?.readPaths.length, 17);
+    assert.ok(fixture.opencode.requests[1]!.prompt.includes('source marker 14'));
+    const count = fixture.opencode.requests.length;
+    await assert.rejects(() => fixture.engine.knowledge.ask({ requestKey: requestKey('escape'), projectId: fixture.projectId, question: '读外部文件？', sourcePaths: ['../outside.md'] }), { code: 'VALIDATION_FAILED' });
+    assert.equal(fixture.opencode.requests.length, count);
+    writeFileSync(join(fixture.rootPath, 'long.md'), 'a'.repeat(7000));
+    const clipped = await fixture.engine.knowledge.ask({ requestKey: requestKey('clipped'), projectId: fixture.projectId, question: '长文件是什么？', sourcePaths: ['long.md'] });
+    assert.deepEqual(clipped.resource?.sources?.truncatedPaths, ['long.md']);
+  } finally { fixture.close(); }
 });

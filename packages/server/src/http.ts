@@ -958,6 +958,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const body = request.body as KnowledgeAskRequest;
     return envelope(await engine.knowledge.ask(body), requestId(request));
   });
+  app.get<{ Params: { requestKey: string }; Querystring: { projectId?: string } }>('/api/knowledge/results/:requestKey', async (request) => {
+    const projectId = request.query.projectId ?? '';
+    if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
+    return envelope(engine.knowledge.result(request.params.requestKey, projectId), requestId(request));
+  });
   app.get<{ Querystring: { projectId?: string } }>('/api/knowledge/history', async (request) => {
     const projectId = request.query.projectId ?? '';
     if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');

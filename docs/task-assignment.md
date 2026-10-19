@@ -1,5 +1,7 @@
 # 任务分派文档：完成审查发现的所有剩余工作
 
+> **2026-10-20 重新打开验收**：第 8 节为历史结项记录，不能作为当前全功能完成证据。新审查确认配置未生效、停止/UNKNOWN 错误以及多项设计能力缺失。本轮目标是与只读设计稿的视觉、操作和中间状态完全对齐；全部完成并验证后推送 main。当前进度见第 9 节。
+
 > 依据：[`docs/review/2026-10-19-audit.md`](review/2026-10-19-audit.md) 及四份明细报告。
 > 目标：把审查确认的剩余任务拆成可并行、可验收的工作包，按波次分派给 agent 员工；Lead 负责整合、类型检查、测试、验收与记录。
 > 状态口径：`pending` 未开始 / `in_progress` 进行中 / `blocked` 阻塞（写明原因）/ `done` 完成（有验收证据）。所有任务最终必须是 `done`。
@@ -193,3 +195,27 @@ npm run build:server
 - 仅两项保留 `blocked`，原因是**本机没有真实环境/凭据**，不是代码未实现：
   - **W2-5 / W4-5**：真实 GitLab 写与真实 PostgreSQL 联调。需用户提供 `GITLAB_TEST_BASE_URL`、`GITLAB_TEST_API_URL`、`GITLAB_TEST_TOKEN`、`GITLAB_TEST_PROJECT` 或 `WF_PG_URL`、`WF_PG_USER`、`WF_PG_PASSWORD`；拿到后按 `docs/packaging.md` §7 与现有集成测试补齐即可复核，当前不以桩结果冒充 PASS。
 - 发布类遗留：macOS 未签名/未公证、无 dmg/Windows/Linux、自动更新未实现；详见 [docs/packaging.md](packaging.md)。
+
+## 9. 2026-10-20 设计一致性修复（进行中）
+
+本轮使用独立分支与 worktree，取代第 7 节历史共享工作区做法。Lead 分支为 `codex/design-parity-20261020`；各执行包独立分支，只有 Lead 整合验收后进入主分支。设计稿始终只读；不得把未实现能力改名为可选项结项。新增验收矩阵覆盖完整设计状态，不能仅凭离线测试或页面存在宣称完成。
+
+| ID | 原审查 | 工作包 | 当前负责人 | 状态 | 完成证据 |
+| --- | --- | --- | --- | --- | --- |
+| P01 | R01 | 停止确认、迟到回调、停止失败 UNKNOWN、只读核对 | execution_parity | in_progress | 待故障回归与实际界面 |
+| P02 | R02/R03 | 职业继承、修订冻结、指令/模型/时限/资源权限执行 | role_execution_parity | in_progress | 待派发与权限验证 |
+| P03 | R04/R05 | 幂等及全前端丢回执锁定/恢复 | Lead + design_acceptance_inventory | in_progress | 待断线/重复请求回归 |
+| P04 | R06 | 知识来源、实时研究、停止/继续、会话管理 | Lead | in_progress | 待全状态闭环 |
+| P05 | R07 | 公约生成、项目 GitLab、文档路径生效 | design_acceptance_inventory | in_progress | 待服务/界面验证 |
+| P06 | R08 | 快照评审模式、阶段报告、读取/下载 | 未分派 | pending | — |
+| P07 | R09 | 流程图编辑、并行/连线、模板/缩放/版本差异 | 未分派 | pending | PE28/PE38 仍遵守设计禁用 |
+| P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | 未分派 | pending | — |
+| P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | 未分派 | pending | — |
+| P10 | R13 | 任务归档、需求抽屉、模板范围/档案、首页进行中 | 未分派 | pending | — |
+| P11 | R14/R15 | 工具项目/来源/单工具策略、数据库授权/读取范围 | 未分派 | pending | — |
+| P12 | R16/R17 | 运行时启动/历史、职业预估/形象/统计 | 未分派 | pending | — |
+| P13 | R18/R19 | 恢复执行上下文、执行限制/重试/并发 | 未分派 | pending | — |
+| P14 | 全部 | 25 页与 planning/delivery/git/node 全设计状态验收矩阵 | design_acceptance_inventory | in_progress | 矩阵已提取，逐项验收待完成 |
+| P15 | R20 | 四主题/布局/操作/异常状态回归、文档证据、合并推送 main | Lead | pending | 所有功能包完成后执行 |
+
+每项实现、离线验证、真实服务验证、GUI 验证分别留证。任何未证明项维持未完成；真实环境缺口单列，不冒充已通过。

@@ -12,3 +12,4 @@ test-results/
 .tmp/
 *.tsbuildinfo
 release/
+data/worktrees/

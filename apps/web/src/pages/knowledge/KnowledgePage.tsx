@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
-  createRequestKey,
   type KnowledgeAskResponse,
   type KnowledgeCitation,
   type KnowledgeHistoryResponse,
@@ -10,7 +9,7 @@ import {
   type KnowledgeSourceContentResponse,
   type KnowledgeSourcesResponse,
 } from '@agent-workflow/shared';
-import { apiGet, apiPost, errorMessage } from '../../api/client.ts';
+import { apiGet, errorMessage } from '../../api/client.ts';
 import { useBootstrap } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
@@ -22,6 +21,7 @@ import { IconButton } from '../../components/IconButton.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { ResearchTimeline } from './ResearchTimeline.tsx';
+import { useKnowledgeAsk } from './useKnowledgeAsk.ts';
 import './knowledge.css';
 
 const NARROW_QUERY = '(max-width: 1200px)';
@@ -328,7 +328,7 @@ function ResearcherDrawer({
           <div className="kb-researcher-section">
             <span className="section-title">资料来源 · 已选 {String(selectedSources.length)} 份</span>
             {selectedSources.length === 0 ? (
-              <p className="hint">本页没有勾选资料；服务端当前仍按项目全量资料回答。</p>
+              <p className="hint">这条历史回答没有记录来源选择。</p>
             ) : (
               <div className="kb-researcher-sources">
                 {selectedSources.map((source) => (
@@ -337,7 +337,7 @@ function ResearcherDrawer({
               </div>
             )}
             <p className="hint" style={{ marginTop: 6 }}>
-              勾选只影响本页展示与提示；服务端问答接口没有 sources 字段，不能按勾选过滤。
+              这里显示本轮实际使用的来源；调整来源将在下一轮问答生效。
             </p>
           </div>
         </>
@@ -371,20 +371,21 @@ export function KnowledgePage() {
     enabled: projectId !== '',
     retry: false,
   });
-  const askMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiPost<{ receipt: { status: string }; resource: KnowledgeAskResponse }>('/api/knowledge/ask', { requestKey: createRequestKey(), projectId, question: question.trim(), ...(conversationId === undefined ? {} : { conversationId }) }, { timeoutMs: 130_000 });
-      if (response.data.receipt.status !== 'succeeded') throw new Error(`问答回执：${response.data.receipt.status}`);
-      return response.data.resource;
-    },
-    onSuccess: (result) => {
+  const askCommand = useKnowledgeAsk((result) => {
+      setSelectedProjectId(result.projectId);
       setAskResult(result);
       setConversationId(result.conversationId);
       setCitationIndex(null);
       setSourcePath(null);
-      void queryClient.invalidateQueries({ queryKey: ['knowledge', 'history', projectId] });
-    },
+      void queryClient.invalidateQueries({ queryKey: ['knowledge', 'history', result.projectId] });
   });
+  useEffect(() => {
+    const input = askCommand.pending?.input;
+    if (input === undefined) return;
+    setSelectedProjectId(input.projectId);
+    setQuestion(input.question);
+    setConversationId(input.conversationId);
+  }, [askCommand.pending?.input]);
   const contentQuery = useQuery({
     queryKey: ['knowledge', 'content', projectId, sourcePath],
     queryFn: async () => (await apiGet<KnowledgeSourceContentResponse>(`/api/knowledge/source?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(sourcePath ?? '')}`)).data,
@@ -407,7 +408,7 @@ export function KnowledgePage() {
   const sourceList = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data]);
   const activeCitation = citationIndex === null ? undefined : askResult?.citations[citationIndex];
 
-  // 资料来源选择只在本页生效；默认全选，切换项目时重新初始化。
+  // 默认全选，当前轮次的选择随请求冻结；切换项目时重新初始化。
   useEffect(() => {
     if (projectId === '' || sourcesQuery.data === undefined) return;
     const paths = sourceList.map((source) => source.path);
@@ -452,7 +453,7 @@ export function KnowledgePage() {
   }, [bootstrap.data, searchParams, setSearchParams]);
 
   const projectName = projects.find((project) => project.id === projectId)?.name ?? '未知项目';
-  const conversationLocked = conversationId !== undefined;
+  const conversationLocked = conversationId !== undefined || askCommand.pending !== undefined;
   const allSourcesSelected = sourceList.length > 0 && selectedSources.size === sourceList.length;
   const sourcesMissing = sourcesQuery.data !== undefined && sourceList.length === 0;
   const sourceBlocked = sourceList.length > 0 && selectedSources.size === 0;
@@ -468,8 +469,12 @@ export function KnowledgePage() {
       ? '先选择项目'
       : question.trim().length < 2
         ? '问题至少 2 个字'
-        : askMutation.isPending
+        : askCommand.busy
           ? '正在研究，等待服务返回回答…'
+          : askCommand.pending !== undefined
+            ? '原问答结果待核对，核对完成后才能再次发送。'
+          : sourcesQuery.isLoading || sourcesQuery.isError || sourcesMissing
+            ? '先读取可用的资料来源。'
           : sourceBlocked
             ? '至少选择一个资料来源。'
             : undefined;
@@ -509,6 +514,7 @@ export function KnowledgePage() {
   };
 
   const startNewConversation = () => {
+    if (askCommand.pending !== undefined) return;
     setConversationId(undefined);
     setAskResult(undefined);
     setQuestion('');
@@ -517,6 +523,7 @@ export function KnowledgePage() {
   };
 
   const openHistoryEntry = (entry: KnowledgeHistoryResponse['entries'][number]) => {
+    if (askCommand.pending !== undefined) return;
     setAskResult(entry);
     setConversationId(entry.conversationId);
     setQuestion(entry.question);
@@ -623,7 +630,7 @@ export function KnowledgePage() {
               >
                 查看资料清单
               </Button>
-              <span className="hint">勾选只用于本页提示；服务端按项目全量资料回答。</span>
+              <span className="hint">所选来源随本轮问题提交；下一轮可调整。</span>
             </div>
 
             <div style={{ marginTop: 10 }}>
@@ -650,7 +657,7 @@ export function KnowledgePage() {
                   <Icon name="sparkle" size="sm" />
                   模型由服务端决定
                 </span>
-                <span className="chip" title="服务端知识问答接口没有 sources 字段">
+                <span className="chip" title="仅将勾选来源作为本轮问答资料">
                   <Icon name="book" size="sm" />
                   来源 {sourcesQuery.isLoading ? '读取中' : sourcesQuery.isError ? '读取失败' : `${String(selectedSources.size)} / ${String(sourceList.length)}`}
                 </span>
@@ -662,12 +669,15 @@ export function KnowledgePage() {
                   icon="arrowUp"
                   disabled={askDisabledReason !== undefined}
                   disabledReason={askDisabledReason}
-                  onClick={() => { setAskResult(undefined); setSourcePath(null); setCitationIndex(null); askMutation.mutate(); }}
+                  onClick={() => {
+                    setAskResult(undefined); setSourcePath(null); setCitationIndex(null);
+                    void askCommand.ask({ projectId, question: question.trim(), conversationId, sourcePaths: [...selectedSources] });
+                  }}
                 >
-                  {askMutation.isPending ? '研究中…' : '发送'}
+                  {askCommand.busy ? '研究中…' : '发送'}
                 </Button>
                 {conversationId === undefined ? null : (
-                  <Button variant="ghost" size="sm" icon="refresh" onClick={startNewConversation}>
+                  <Button variant="ghost" size="sm" icon="refresh" onClick={startNewConversation} disabled={askCommand.pending !== undefined} disabledReason="先核对当前问答结果。">
                     新对话
                   </Button>
                 )}
@@ -676,23 +686,33 @@ export function KnowledgePage() {
                 问答使用受管 OpenCode（只读）基于项目文档回答；同一对话最近 3 条问答作为上下文，引用可点击回到原文。
               </p>
               <p className="hint" style={{ marginTop: 6 }}>
-                <b>服务端当前按项目全量资料回答；</b>
-                下方来源勾选只影响本页展示与提示，不会传给问答接口。
-                {sourcesMissing ? ' 项目没有找到可列出的文档来源；仍可提问，引用可能为空。' : ''}
+                只读取本轮选中的资料；较长资料会使用节选，回答后可核对实际读取范围。
+                {sourcesMissing ? ' 项目没有找到可读取的资料，请先添加项目资料。' : ''}
               </p>
-              {askMutation.isPending ? (
+              {askCommand.busy ? (
                 <div className="kb-research-note">
                   <Icon name="clock" size="sm" />
                   <span>研究中… 研究步骤与工具轨迹会在回答完成后由服务一次性返回；本轮非流式，不显示假进度。</span>
                 </div>
               ) : null}
-              {askMutation.isError ? (
-                <div className="banner danger" style={{ marginTop: 10 }} role="alert">
-                  <Icon name="alert" />
+              {askCommand.pending !== undefined && !askCommand.busy ? (
+                <div className="banner warn" style={{ marginTop: 10 }} role="status">
+                  <Icon name="help" />
                   <div className="grow">
-                    <b>问答失败</b>
+                    <b>{askCommand.pending.status === 'accepted' ? '问题已受理，等待结果' : '问答结果待核对'}</b>
+                    <p className="hint">原问题与来源选择已保留；核对不会重新发送或调用模型。</p>
+                    <code>{askCommand.pending.input.requestKey}</code>
+                  </div>
+                  <Button variant="secondary" size="sm" icon="refresh" disabled={askCommand.checking} disabledReason="正在核对原操作。" onClick={() => { void askCommand.reconcile(); }}>核对原操作</Button>
+                </div>
+              ) : null}
+              {askCommand.error !== undefined ? (
+                <div className={`banner ${askCommand.pending === undefined ? 'danger' : 'warn'}`} style={{ marginTop: 10 }} role="alert">
+                  <Icon name={askCommand.pending === undefined ? 'alert' : 'help'} />
+                  <div className="grow">
+                    <b>{askCommand.pending === undefined ? '问答未完成' : '结果尚未确认'}</b>
                     <br />
-                    {errorMessage(askMutation.error)}
+                    {askCommand.error}
                   </div>
                 </div>
               ) : null}
@@ -715,6 +735,12 @@ export function KnowledgePage() {
                     </Button>
                   </div>
                   <p style={{ marginTop: 10, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askResult.answer}</p>
+                  {askResult.sources === undefined ? null : (
+                    <p className="hint">
+                      本轮读取 {String(askResult.sources.readPaths.length)} 份所选资料。
+                      {askResult.sources.truncatedPaths.length === 0 ? '资料正文完整读取。' : `其中 ${String(askResult.sources.truncatedPaths.length)} 份使用节选：${askResult.sources.truncatedPaths.join('、')}`}
+                    </p>
+                  )}
                   <ResearchTimeline steps={askResult.steps} toolActivity={askResult.toolActivity} />
                   {askResult.citations.length === 0 ? <p className="hint">模型没有给出可验证的引用。</p> : (
                     <div className="kb-cite-list">
@@ -803,7 +829,7 @@ export function KnowledgePage() {
                   {sourcesQuery.isFetching ? '读取中…' : '读取来源'}
                 </Button>
                 <span className="hint">
-                  {conversationLocked ? '已有会话，项目与模型锁定；新建对话后可切换。' : '提问前可勾选要展示的资料。'}
+                  {conversationLocked ? '当前对话固定项目；来源调整在下一轮问答生效。' : '选择本轮问答要读取的资料。'}
                 </span>
               </div>
               <div className="kb-source-tools">
@@ -827,7 +853,7 @@ export function KnowledgePage() {
                 >
                   全不选
                 </Button>
-                <span className="hint">全部取消时不能发送；勾选不会改变服务端的全量资料读取。</span>
+                <span className="hint">至少选择一份资料；未勾选的资料不会作为本轮输入。</span>
               </div>
               {sourcesQuery.isLoading ? <SkeletonText lines={4} /> : null}
               {sourcesQuery.isError ? (
@@ -1074,7 +1100,7 @@ export function KnowledgePage() {
         result={askResult}
         projectId={projectId}
         projectName={projectName}
-        selectedSources={[...selectedSources]}
+        selectedSources={askResult?.sources?.selectedPaths ?? []}
         onClose={() => { setResearcherOpen(false); }}
         onOpenCitation={openCitation}
       />
