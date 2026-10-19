@@ -43,7 +43,7 @@ test('tool policies persist inheritance and freeze switches for existing session
   } finally { await restarted.close(); }
 });
 
-test('database authorization saves with receipts, retains secrets on blank password and offers only real drivers', async () => {
+test('database authorization saves with receipts, retains secrets on blank password and reports real versus unavailable drivers', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aw-db-policy-'));
   const app = await createApplication({ dataDir: join(root, 'data'), disableOpenCode: true, disableListen: true });
   try {
@@ -65,7 +65,8 @@ test('database authorization saves with receipts, retains secrets on blank passw
     assert.deepEqual(saved.connections[0].projectIds, [projectId]);
     assert.deepEqual(saved.connections[0].schemas, ['report']);
     assert.equal(JSON.stringify(saved).includes('temporary-test-only'), false);
-    assert.equal(saved.types.some((type: { driver: string }) => type.driver === 'planned'), false);
+    assert.equal(saved.types.filter((type: { available: boolean }) => type.available).some((type: { driver: string }) => type.driver === 'planned'), false);
+    assert.ok(saved.types.some((type: { driver: string; available: boolean; disabledReason?: string }) => type.driver === 'planned' && !type.available && !!type.disabledReason));
     const snapshot = sessionPolicy(app.store, app.engine, { kind: 'review', metadata: { projectId }, cwd: root, prompt: '', permission: 'read_only', model: DEFAULT_MODEL_PROFILES[0]!, sink: {}, timeoutMs: 1000 });
     assert.equal(snapshot.databaseAccess?.[0]?.connectionConfig?.passwordRef, originalRef);
     const unbound = sessionPolicy(app.store, app.engine, { ...snapshot, metadata: {} });
@@ -80,7 +81,11 @@ test('database MCP intersects frozen project/schema/table grants with immediate 
     const projectResponse = await app.app.inject({ method: 'POST', url: '/api/projects', payload: { requestKey: createRequestKey(), name: 'Scoped query', rootPath: root } });
     const projectId = projectResponse.json().data.resource.project.id as string;
     const connection = { id: 'db_scoped', name: 'Scoped database', type: 'mysql', host: 'original-host', port: 3306, database: 'report', user: 'readonly', password: 'only-test-secret', projectIds: [projectId], schemas: ['report'], tables: ['report.orders'], enabled: true };
-    const save = async (patch: Record<string, unknown>) => app.app.inject({ method: 'POST', url: '/api/settings/databases', payload: { requestKey: createRequestKey(), connection: { ...connection, password: '', ...patch } } });
+    const save = async (patch: Record<string, unknown>) => {
+      const response = await app.app.inject({ method: 'POST', url: '/api/settings/databases', payload: { requestKey: createRequestKey(), connection: { ...connection, password: '', ...patch } } });
+      assert.equal(response.statusCode, 200, response.body);
+      return response;
+    };
     await save({ password: connection.password });
     const taskResponse = await app.app.inject({ method: 'POST', url: '/api/tasks', payload: { requestKey: createRequestKey(), projectId, title: 'Scoped database read', requirementText: 'Read report orders', methodId: 'method.requirement-development' } });
     const taskId = taskResponse.json().data.resource.task.id as string;
@@ -98,11 +103,11 @@ test('database MCP intersects frozen project/schema/table grants with immediate 
     assert.equal(port.mock.calls.length, 1);
     assert.equal((await query('SELECT * FROM secret.orders')).statusCode, 403);
     assert.equal(port.mock.calls.length, 1, 'cross schema SQL never reaches driver');
-    await save({ host: 'new-host', tables: [] });
+    await save({ host: 'new-host', password: connection.password, tables: [] });
     assert.equal((await query('SELECT * FROM report.customers')).statusCode, 403, 'expanded tables do not extend the old session');
     const originalHost = await query('SELECT * FROM report.orders');
     assert.equal(originalHost.json().data.host, 'original-host', 'active session keeps original connection definition');
-    await save({ host: 'new-host', projectIds: [] });
+    await save({ host: 'new-host', password: connection.password, projectIds: [] });
     assert.equal((await query('SELECT * FROM report.orders')).statusCode, 403, 'project revocation applies to the next call');
     scope.revoke();
   } finally { await app.close(); }

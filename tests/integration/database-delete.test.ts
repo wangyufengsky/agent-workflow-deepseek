@@ -15,7 +15,7 @@ test('database connections can be deleted without touching the database', async 
     const created = await app.app.inject({
       method: 'POST',
       url: '/api/settings/databases',
-      payload: { requestKey: requestKey('db'), connection: { name: 'Temp', type: 'mysql', host: '127.0.0.1', port: 3306, database: 'temp_db', user: 'temp', password: 'temp', ssl: false, readOnly: true } },
+      payload: { requestKey: requestKey('db'), connection: { name: 'Temp', type: 'mysql', host: '127.0.0.1', port: 3306, database: 'temp_db', schemas: ['temp_db'], user: 'temp', password: 'temp', ssl: false, readOnly: true } },
     });
     assert.equal(created.statusCode, 200, created.body);
     const connectionId = created.json().data.connection.id as string;
@@ -23,7 +23,7 @@ test('database connections can be deleted without touching the database', async 
     const duplicate = await app.app.inject({
       method: 'POST',
       url: '/api/settings/databases',
-      payload: { requestKey: requestKey('dup'), connection: { name: 'Temp duplicate', type: 'mysql', host: '127.0.0.1', port: 3306, database: 'temp_db', user: 'temp2', password: 'temp2', ssl: false, readOnly: true } },
+      payload: { requestKey: requestKey('dup'), connection: { name: 'Temp duplicate', type: 'mysql', host: '127.0.0.1', port: 3306, database: 'temp_db', schemas: ['temp_db'], user: 'temp2', password: 'temp2', ssl: false, readOnly: true } },
     });
     assert.equal(duplicate.statusCode, 409, duplicate.body);
     assert.equal(duplicate.json().error.code, 'CONFLICT');

@@ -20,3 +20,4 @@ export * from './domain/method-graph.ts';
 export * from './domain/run-content.ts';
 
 export * from './domain/questions.ts';
+export * from './config/database-access.ts';

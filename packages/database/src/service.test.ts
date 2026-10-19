@@ -15,6 +15,8 @@ function config(overrides: Partial<DatabaseConnectionConfig> = {}): DatabaseConn
     host: '127.0.0.1',
     port: 3306,
     database: 'demo',
+    schemas: ['demo'],
+    tables: [],
     user: 'app',
     passwordRef: 'db.conn-1.password',
     readOnly: true,

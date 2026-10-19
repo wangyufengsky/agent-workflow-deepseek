@@ -2,7 +2,7 @@ import { normalizeQuestionAnswer, questionChoices } from '@agent-workflow/shared
 import { readableOutput } from '@agent-workflow/engine';
 import { registerRuntimeOperationRoutes } from './runtime-operations.ts';
 import { registerRoleInsightRoutes } from './role-insights.ts';
-import { DATABASE_TYPE_META } from '@agent-workflow/shared';
+import { DATABASE_TYPE_META, databaseScopeIssues, sameDatabaseTarget } from '@agent-workflow/shared';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
@@ -27,6 +27,7 @@ import type {
   RoleRestoreRequest,
   PptWorkUpdateRequest,
   DatabaseConnectionUpsertRequest,
+  DatabaseDraftProbeRequest,
   PlanningPreviewRequest,
   PlanningRefinePreviewRequest,
   CommandRequest,
@@ -1308,7 +1309,12 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   // Database connections (mysql2; read-only / probe)
   app.get('/api/settings/databases', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
-    return envelope({ connections: databaseService.list(), types: Object.entries(DATABASE_TYPE_META).filter(([, meta]) => meta.driver !== 'planned').map(([id, meta]) => ({ id, ...meta })) }, requestId(request));
+    return envelope({ connections: databaseService.list(), types: Object.entries(DATABASE_TYPE_META).map(([id, meta]) => ({ id, ...meta, available: meta.driver !== 'planned', ...(meta.driver === 'planned' ? { disabledReason: '此版本未提供对应驱动，不能测试或保存；历史连接仅可查看' } : {}) })) }, requestId(request));
+  });
+  app.post('/api/settings/databases/probe-draft', async (request) => {
+    if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
+    const body = request.body as DatabaseDraftProbeRequest;
+    return envelope({ probe: await databaseService.probeDraft(body?.connection) }, requestId(request));
   });
   app.post('/api/settings/databases', async (request) => {
     if (databaseService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, '数据库模块未接通');
@@ -1336,7 +1342,9 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       if (input.readOnly === false) throw new AppError(ErrorCode.VALIDATION_FAILED, '数据库连接必须保持只读');
       if (input.projectIds !== undefined && (!Array.isArray(input.projectIds) || input.projectIds.some((id) => typeof id !== 'string'))) throw new AppError(ErrorCode.VALIDATION_FAILED, 'projectIds 必须是项目 id 列表');
       for (const projectId of input.projectIds ?? []) if (store.projects.get(projectId) === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '授权项目不存在');
-      for (const [field, values] of Object.entries({ schemas: input.schemas ?? [], tables: input.tables ?? [] })) if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !/^[\p{L}\p{N}_$.-]+$/u.test(value))) throw new AppError(ErrorCode.VALIDATION_FAILED, `${field}范围格式无效`);
+      const scopeIssues = databaseScopeIssues(input);
+      if (scopeIssues.length > 0) throw new AppError(ErrorCode.VALIDATION_FAILED, scopeIssues.join('；'));
+      if ((input.password === undefined || input.password === '') && !sameDatabaseTarget(input, settings.database.connections.find((item) => item.id === input.id))) throw new AppError(ErrorCode.VALIDATION_FAILED, '新增连接或修改连接目标后，请重新输入密码');
       const id = input.id ?? `db_${Math.random().toString(36).slice(2, 12)}`;
       const passwordRef = input.password === undefined || input.password === '' ? settings.database.connections.find((item) => item.id === id)?.passwordRef : `db:${id}:${body.requestKey}`;
       const config = {

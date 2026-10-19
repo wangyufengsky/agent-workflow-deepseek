@@ -1,4 +1,5 @@
 import type { QuestionChoices, QuestionAnswer } from '../domain/questions.ts';
+import type { DatabaseTypeValue } from '../domain/enums.ts';
 import type { IsoDateTime, RequestKey, TaskId } from '../ids.ts';
 import type { ErrorCodeValue } from '../errors.ts';
 import type {
@@ -1789,7 +1790,13 @@ export interface DatabaseConnectionUpsertRequest {
 }
 
 export interface DatabaseConnectionsResponse {
+  readonly types?: readonly { readonly id: DatabaseTypeValue; readonly label: string; readonly driver: 'mysql2' | 'pg' | 'planned'; readonly available: boolean; readonly disabledReason?: string }[];
   readonly connections: readonly DatabaseConnection[];
+}
+
+export interface DatabaseDraftProbeRequest {
+  /** Temporary form values; the probe never saves settings or credentials. */
+  readonly connection: DatabaseConnectionUpsertRequest['connection'];
 }
 
 export interface DatabaseProbeResponse {
@@ -2044,6 +2051,7 @@ export const ROUTES = {
   gitlabConnectionTest: '/api/settings/gitlab/test',
   databaseConnections: '/api/settings/databases',
   databaseConnection: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}`,
+  databaseDraftProbe: '/api/settings/databases/probe-draft',
   databaseProbe: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/probe`,
   databaseQuery: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/query`,
   opencodeStatus: '/api/opencode/status',

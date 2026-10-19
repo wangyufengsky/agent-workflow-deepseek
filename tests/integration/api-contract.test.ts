@@ -390,7 +390,7 @@ test('W1-9: settings, database connections and gitlab writes carry receipts; mis
       url: '/api/settings/databases',
       payload: {
         requestKey: databaseKey,
-        connection: { name: 'Receipt DB', type: 'mysql', host: '127.0.0.1', port: 3307, database: 'receipt_db', user: 'receipt', password: 'secret', readOnly: true },
+        connection: { name: 'Receipt DB', type: 'mysql', host: '127.0.0.1', port: 3307, database: 'receipt_db', schemas: ['receipt_db'], user: 'receipt', password: 'secret', readOnly: true },
       },
     });
     assert.equal(created.statusCode, 200, created.body);
@@ -419,7 +419,7 @@ test('W1-9: settings, database connections and gitlab writes carry receipts; mis
       url: '/api/settings/databases',
       payload: {
         requestKey: legacyKey,
-        connection: { name: 'Legacy DB', type: 'mysql', host: '127.0.0.1', port: 3308, database: 'legacy_db', user: 'legacy', readOnly: true },
+        connection: { name: 'Legacy DB', type: 'mysql', host: '127.0.0.1', port: 3308, database: 'legacy_db', schemas: ['legacy_db'], user: 'legacy', password: 'offline-fixture', readOnly: true },
       },
     });
     assert.equal(legacyCreated.statusCode, 200, legacyCreated.body);

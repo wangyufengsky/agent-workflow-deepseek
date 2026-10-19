@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
   AppError,
+  databaseScopeIssues,
+  sameDatabaseTarget,
+  type DatabaseDraftProbeRequest,
   DATABASE_TYPE_META,
   DatabaseConnectionState,
   ErrorCode,
@@ -47,6 +50,7 @@ interface ConnectionRuntime {
   driver: MySqlDriver | undefined;
   fingerprint: string | undefined;
   sessionReadOnly?: boolean;
+  lastProbe?: DatabaseProbeResult;
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000;
@@ -92,11 +96,14 @@ export class DatabaseService {
     assertConnectionConfig(config);
     const existing = this.#connections.get(config.id);
     if (existing !== undefined) {
+      const unchanged = JSON.stringify(config) === JSON.stringify(existing.config);
       this.#connections.set(config.id, {
         config,
-        state: existing.state,
-        message: existing.message,
-        lastCheckedAt: existing.lastCheckedAt,
+        state: unchanged ? existing.state : DatabaseConnectionState.NOT_CONFIGURED,
+        message: unchanged ? existing.message : undefined,
+        lastCheckedAt: unchanged ? existing.lastCheckedAt : undefined,
+        sessionReadOnly: unchanged ? existing.sessionReadOnly : undefined,
+        lastProbe: unchanged ? existing.lastProbe : undefined,
         driver: existing.driver,
         fingerprint: existing.fingerprint,
       });
@@ -126,18 +133,19 @@ export class DatabaseService {
   /** Probe the connection; throws a mapped `AppError` on failure. */
   async probe(connectionId: string): Promise<DatabaseProbeResult> {
     const runtime = this.#runtime(connectionId);
-    this.#assertSupported(runtime);
-    const password = this.#resolvePassword(runtime);
-    const driver = await this.#getDriver(runtime, password);
     const checkedAt = this.#clock().toISOString();
+    let password = '';
     try {
+      this.#assertSupported(runtime);
+      password = this.#resolvePassword(runtime);
+      const driver = await this.#getDriver(runtime, password);
       const measurement = await driver.probe(this.#settings.queryTimeoutMs);
       runtime.state = DatabaseConnectionState.CONNECTED;
       runtime.message = undefined;
       runtime.lastCheckedAt = checkedAt;
-      runtime.sessionReadOnly = measurement.sessionReadOnly === true;
+      runtime.sessionReadOnly = measurement.sessionReadOnly;
       const capabilities = capabilitiesForVersion(measurement.serverVersion);
-      return {
+      const result: DatabaseProbeResult = {
         connectionId,
         state: DatabaseConnectionState.CONNECTED,
         checkedAt,
@@ -147,6 +155,8 @@ export class DatabaseService {
         sessionReadOnly: measurement.sessionReadOnly,
         readOnlyEnforced: measurement.sessionReadOnly,
       };
+      runtime.lastProbe = result;
+      return result;
     } catch (error) {
       const appError = mapMySqlError(error, {
         connectionId,
@@ -157,6 +167,8 @@ export class DatabaseService {
       runtime.state = this.#stateForFailure(runtime, appError.code);
       runtime.message = redactSecrets(appError.message, [password]);
       runtime.lastCheckedAt = checkedAt;
+      runtime.sessionReadOnly = undefined;
+      runtime.lastProbe = { connectionId, state: runtime.state, checkedAt, message: runtime.message, capabilities: { query: false, explain: false, schemaRead: false } };
       await this.#disposeDriver(runtime);
       throw appError;
     }
@@ -169,14 +181,34 @@ export class DatabaseService {
     } catch (error) {
       const appError = error instanceof AppError ? error : mapMySqlError(error, { connectionId, phase: 'probe' });
       const runtime = this.#connections.get(connectionId);
-      return {
+      const result: DatabaseProbeResult = {
         connectionId,
         state: runtime === undefined ? stateFromErrorCode(appError.code) : this.#stateForFailure(runtime, appError.code),
         checkedAt: this.#clock().toISOString(),
         message: appError.message,
         capabilities: { query: false, explain: false, schemaRead: false },
       };
+      if (runtime !== undefined) { runtime.lastProbe = result; runtime.lastCheckedAt = result.checkedAt; runtime.state = result.state; runtime.sessionReadOnly = undefined; }
+      return result;
     }
+  }
+
+  /** Probe a form in an isolated service; never register it or write a secret. */
+  async probeDraft(input: DatabaseDraftProbeRequest['connection']): Promise<DatabaseProbeResult> {
+    if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少连接草稿');
+    const issues = databaseScopeIssues(input);
+    if (issues.length > 0) throw new AppError(ErrorCode.VALIDATION_FAILED, issues.join('；'));
+    const original = input.id === undefined ? undefined : this.#connections.get(input.id)?.config;
+    if (input.id !== undefined && original === undefined) throw new AppError(ErrorCode.NOT_FOUND, '原连接不存在');
+    if (input.password !== undefined && typeof input.password !== 'string') throw new AppError(ErrorCode.VALIDATION_FAILED, '密码必须是字符串');
+    const passwordSupplied = typeof input.password === 'string' && input.password.length > 0;
+    const sameTarget = sameDatabaseTarget(input, original);
+    if (!passwordSupplied && !sameTarget) throw new AppError(ErrorCode.VALIDATION_FAILED, '新增连接或修改连接目标后，请重新输入密码再检查');
+    if (input.readOnly === false) throw new AppError(ErrorCode.VALIDATION_FAILED, '数据库连接必须保持只读');
+    const config: DatabaseConnectionConfig = { id: 'draft', name: input.name, type: input.type, host: input.host, port: input.port, database: input.database, user: input.user, ssl: input.ssl ?? false, readOnly: true, schemas: input.schemas, tables: input.tables ?? [], passwordRef: 'draft-password' };
+    assertConnectionConfig(config);
+    const temporary = new DatabaseService({ settings: { ...this.#settings, connections: [config] }, secrets: { get: () => passwordSupplied ? input.password : original?.passwordRef === undefined ? undefined : this.#secrets.get(original.passwordRef) }, driverFactory: this.#driverFactory, postgresDriverFactory: this.#postgresDriverFactory, connectTimeoutMs: this.#connectTimeoutMs, clock: this.#clock });
+    try { return await temporary.tryProbe('draft'); } finally { await temporary.closeAll(); }
   }
 
   /**
@@ -199,12 +231,12 @@ export class DatabaseService {
 
     const runtime = this.#runtime(connectionId);
     if (runtime.config.enabled === false) throw new AppError(ErrorCode.FORBIDDEN, '数据库连接已停用');
-    if (runtime.config.schemas !== undefined) assertDatabaseQueryAccess(String(sql), { connectionId, projectIds: runtime.config.projectIds ?? [], schemas: runtime.config.schemas, tables: runtime.config.tables ?? [], defaultSchema: runtime.config.type === 'postgresql' ? 'public' : runtime.config.database });
+    assertDatabaseQueryAccess(String(sql), { connectionId, projectIds: runtime.config.projectIds ?? [], schemas: runtime.config.schemas ?? [], tables: runtime.config.tables ?? [], defaultSchema: runtime.config.type === 'postgresql' ? 'public' : runtime.config.database });
     this.#assertSupported(runtime);
     const password = this.#resolvePassword(runtime);
-    const driver = await this.#getDriver(runtime, password);
     const startedAt = performance.now();
     try {
+      const driver = await this.#getDriver(runtime, password);
       const raw = await driver.query(prepared.sql, { timeoutMs });
       runtime.sessionReadOnly = raw.sessionReadOnly === true;
       const rows = raw.rows.map(normalizeRow);
@@ -275,11 +307,14 @@ export class DatabaseService {
     for (const config of configs) {
       const existing = this.#connections.get(config.id);
       if (existing !== undefined) {
+        const unchanged = JSON.stringify(config) === JSON.stringify(existing.config);
         this.#connections.set(config.id, {
           config,
-          state: existing.state,
-          message: existing.message,
-          lastCheckedAt: existing.lastCheckedAt,
+          state: unchanged ? existing.state : DatabaseConnectionState.NOT_CONFIGURED,
+          message: unchanged ? existing.message : undefined,
+          lastCheckedAt: unchanged ? existing.lastCheckedAt : undefined,
+          sessionReadOnly: unchanged ? existing.sessionReadOnly : undefined,
+          lastProbe: unchanged ? existing.lastProbe : undefined,
           driver: existing.driver,
           fingerprint: existing.fingerprint,
         });
@@ -403,6 +438,7 @@ function assertConnectionConfig(config: DatabaseConnectionConfig): void {
 function toConnectionModel(runtime: ConnectionRuntime): DatabaseConnection {
   return {
     id: runtime.config.id,
+    ...(runtime.lastProbe === undefined ? {} : { lastProbe: runtime.lastProbe }),
     enabled: runtime.config.enabled ?? true,
     projectIds: runtime.config.projectIds ?? [],
     schemas: runtime.config.schemas ?? [],

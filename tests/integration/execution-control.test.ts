@@ -429,7 +429,7 @@ test('W2-9: static path containment uses separator boundaries; legacy DELETE dat
     const created = await app.app.inject({
       method: 'POST',
       url: '/api/settings/databases',
-      payload: { requestKey: requestKey('db'), connection: { name: 'Legacy Delete', type: 'mysql', host: '127.0.0.1', port: 3310, database: 'legacy_delete', user: 'legacy', readOnly: true } },
+      payload: { requestKey: requestKey('db'), connection: { name: 'Legacy Delete', type: 'mysql', host: '127.0.0.1', port: 3310, database: 'legacy_delete', schemas: ['legacy_delete'], user: 'legacy', password: 'offline-fixture', readOnly: true } },
     });
     assert.equal(created.statusCode, 200, created.body);
     const connectionId = created.json().data.connection.id as string;

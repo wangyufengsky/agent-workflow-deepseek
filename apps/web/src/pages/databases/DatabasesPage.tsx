@@ -1,7 +1,8 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   DATABASE_TYPE_META,
+  databaseScopeIssues,
   DatabaseConnectionState,
   ROUTES,
   createRequestKey,
@@ -131,7 +132,12 @@ function validateForm(form: ConnectionFormState): string[] {
   if (form.database.trim().length === 0) issues.push('数据库');
   if (form.user.trim().length === 0) issues.push('用户名');
   if (form.password.length === 0 && form.id === undefined) issues.push('密码');
+  issues.push(...databaseScopeIssues({ schemas: form.schemas.split(',').map((item) => item.trim()).filter(Boolean), tables: form.tables.split(',').map((item) => item.trim()).filter(Boolean) }));
   return issues;
+}
+
+function formConnection(input: ConnectionFormState): DatabaseConnectionUpsertRequest['connection'] {
+  return { ...(input.id === undefined ? {} : { id: input.id }), name: input.name.trim(), type: input.type, host: input.host.trim(), port: Number(input.port), database: input.database.trim(), user: input.user.trim(), password: input.password, ssl: input.ssl, readOnly: true, enabled: input.enabled, projectIds: input.projectIds, schemas: input.schemas.split(',').map((item) => item.trim()).filter(Boolean), tables: input.tables.split(',').map((item) => item.trim()).filter(Boolean) };
 }
 
 async function fetchConnections(): Promise<readonly DatabaseConnection[]> {
@@ -197,8 +203,8 @@ export function DatabasesPage() {
     staleTime: 10_000,
   });
   const connections = listQuery.data ?? [];
-  const typeQuery = useQuery({ queryKey: ['settings', 'database-types'], queryFn: async () => (await apiGet<{ types: readonly { id: DatabaseTypeValue }[] }>(ROUTES.databaseConnections)).data.types, retry: false });
-  const supportedTypes = typeQuery.data?.map((type) => type.id) ?? [];
+  const typeQuery = useQuery({ queryKey: ['settings', 'database-types'], queryFn: async () => (await apiGet<DatabaseConnectionsResponse>(ROUTES.databaseConnections)).data.types ?? [], retry: false });
+  const supportedTypes = typeQuery.data?.filter((type) => type.available).map((type) => type.id) ?? [];
   const projectsQuery = useProjects();
   const [saveKey, setSaveKey] = useState<string | null>(null);
   const [saveUnknown, setSaveUnknown] = useState(false);
@@ -212,23 +218,27 @@ export function DatabasesPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [probeFeedback, setProbeFeedback] = useState<Record<string, ProbeFeedback>>({});
   const [queryState, setQueryState] = useState<QueryState | null>(null);
+  const [draftFeedback, setDraftFeedback] = useState<ProbeFeedback | undefined>(undefined);
+  const [draftProbing, setDraftProbing] = useState(false);
+  const draftGeneration = useRef(0);
+  useEffect(() => () => { draftGeneration.current++; }, []);
+  const resetDraftProbe = () => { draftGeneration.current++; setDraftFeedback(undefined); setDraftProbing(false); };
+  const runDraftProbe = async () => {
+    if (form === null || draftProbing || saveUnknown) return;
+    const generation = ++draftGeneration.current;
+    const connection = formConnection(form);
+    setDraftProbing(true); setDraftFeedback(undefined);
+    try {
+      const response = await apiPost<DatabaseProbeResponse>(ROUTES.databaseDraftProbe, { connection });
+      if (draftGeneration.current === generation) setDraftFeedback({ probe: response.data.probe });
+    } catch (error) {
+      if (draftGeneration.current === generation) setDraftFeedback({ error: apiErrorDetail(error) });
+    } finally { if (draftGeneration.current === generation) setDraftProbing(false); }
+  };
 
   const saveMutation = useMutation({
     mutationFn: async (input: ConnectionFormState) => {
-      const connection: DatabaseConnectionUpsertRequest['connection'] = {
-        ...(input.id === undefined ? {} : { id: input.id }),
-        name: input.name.trim(),
-        type: input.type,
-        host: input.host.trim(),
-        port: Number(input.port),
-        database: input.database.trim(),
-        user: input.user.trim(),
-        password: input.password,
-        ssl: input.ssl,
-        readOnly: true, enabled: input.enabled, projectIds: input.projectIds,
-        schemas: input.schemas.split(',').map((item) => item.trim()).filter(Boolean),
-        tables: input.tables.split(',').map((item) => item.trim()).filter(Boolean),
-      };
+      const connection = formConnection(input);
       const requestKey = createRequestKey();
       setWriteLabel('保存'); setSaveKey(requestKey); setSaveUnknown(false);
       const body: DatabaseConnectionUpsertRequest = { requestKey, connection };
@@ -242,6 +252,7 @@ export function DatabasesPage() {
       setNotice(
         `${created ? '已添加连接' : '已更新连接'}：${connection.name}。密码只保存在服务端凭据中，不会回显；未检查前状态为「未检查」。`,
       );
+      resetDraftProbe();
       setForm(null);
       setFormError(null);
     },
@@ -328,6 +339,7 @@ export function DatabasesPage() {
 
   const openCreate = () => {
     if (saveUnknown) return;
+    resetDraftProbe();
     setForm(emptyForm());
     setFormError(null);
     saveMutation.reset();
@@ -335,6 +347,7 @@ export function DatabasesPage() {
 
   const openEdit = (connection: DatabaseConnection) => {
     if (saveUnknown) return;
+    resetDraftProbe();
     setForm(formFrom(connection));
     setFormError(null);
     saveMutation.reset();
@@ -347,6 +360,7 @@ export function DatabasesPage() {
 
   const updateForm = (patch: Partial<ConnectionFormState>) => {
     if (saveUnknown) return;
+    resetDraftProbe();
     if (form?.id !== undefined) setProbeFeedback((current) => { const next = { ...current }; delete next[form.id!]; return next; });
     // Accept a pasted Spring datasource URL in either the host or database
     // field and split it into the discrete fields the service expects.
@@ -397,7 +411,7 @@ export function DatabasesPage() {
         <EmptyState
           icon="db"
           title="还没有数据库连接"
-          description="添加只读连接后，任务和知识库可以按授权范围读取表结构与数据。支持 MySQL / MariaDB / GoldenDB（mysql2）与 PostgreSQL（pg）；Oracle、达梦、DB2 的驱动仍在计划中，探针会返回不支持原因。"
+          description="添加只读连接后，任务和知识库可以按授权范围读取表结构与数据。可用类型与缺驱动原因由服务提供；未授权项目或 schema 时任务不能读取。"
           action={
             <Button variant="primary" icon="plus" disabled={typeQuery.isLoading || typeQuery.isError || supportedTypes.length === 0} disabledReason="数据库类型清单尚未成功读取" onClick={openCreate}>
               添加连接
@@ -414,7 +428,7 @@ export function DatabasesPage() {
         {filtered.map((connection) => {
           const meta = DATABASE_TYPE_META[connection.type];
           const state = STATE_META[connection.state];
-          const feedback = probeFeedback[connection.id];
+          const feedback = probeFeedback[connection.id]?.probe?.checkedAt === connection.lastCheckedAt ? probeFeedback[connection.id] : connection.lastProbe === undefined ? undefined : { probe: connection.lastProbe };
           const probing = probeMutation.isPending && probeMutation.variables === connection.id;
           return (
             <article key={connection.id} className="card pad" aria-label={connection.name} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -478,13 +492,13 @@ export function DatabasesPage() {
                   </span>
                   <span className="hint">
                     {feedback?.probe === undefined
-                      ? '列表接口只返回 state / lastCheckedAt；版本、延迟与能力只在本会话测试后显示。'
+                      ? '尚无探针详情；检查后显示服务确认的版本、延迟和能力。'
                       : `本次探针：${feedback.probe.serverVersion ?? '版本未知'} · ${feedback.probe.latencyMs === undefined ? '延迟未知' : `${String(feedback.probe.latencyMs)} ms`}`}
                   </span>
                 </div>
               </div>
 
-              <div className="db-probe-cells" aria-label="检查结果（三格降级）">
+              <div className="db-probe-cells" aria-label="最近检查结果">
                 <div className="db-probe-cell">
                   <span className="db-probe-k">已连接</span>
                   <span className="db-probe-v">
@@ -498,16 +512,16 @@ export function DatabasesPage() {
                 </div>
                 <div className="db-probe-cell">
                   <span className="db-probe-k">会话只读</span>
-                  <span className="db-probe-v">服务未提供</span>
-                  <span className="hint">探针结果没有会话只读标记。</span>
+                  <span className="db-probe-v"><Icon name={connection.sessionReadOnly === 'enforced' ? 'check' : feedback?.probe?.sessionReadOnly === false ? 'alert' : 'help'} size="sm" />{connection.sessionReadOnly === 'enforced' ? '已确认' : feedback?.probe?.sessionReadOnly === false ? '未通过' : '待核实'}</span>
+                  <span className="hint">{connection.sessionReadOnly === 'enforced' ? '最近检查确认只读事务。' : '未确认时不能视为会话只读。'}</span>
                 </div>
                 <div className="db-probe-cell">
                   <span className="db-probe-k">只读已强制</span>
-                  <span className="db-probe-v">查询接口强制</span>
-                  <span className="hint">只读 SQL 由服务端守卫；探针未返回该标记。</span>
+                  <span className="db-probe-v"><Icon name={feedback?.probe?.readOnlyEnforced === true ? 'shield' : feedback?.probe?.readOnlyEnforced === false ? 'alert' : 'help'} size="sm" />{feedback?.probe?.readOnlyEnforced === true ? '已强制' : feedback?.probe?.readOnlyEnforced === false ? '未通过' : '待核实'}</span>
+                  <span className="hint">只读 SQL 守卫独立生效；会话结论以最近探针为准。</span>
                 </div>
               </div>
-              <p className="hint">现场兼容性尚未验证：检查结果只代表最近一次探针；修改连接后旧结果作废。</p>
+              <p className="hint">检查结果代表最近一次探针；修改连接后旧结果作废。</p>
 
               {connection.message === undefined ? null : (
                 <div className="hint" style={{ color: 'var(--ink-2)', lineHeight: 1.55 }}>
@@ -522,8 +536,8 @@ export function DatabasesPage() {
                   variant="secondary"
                   size="sm"
                   icon="link"
-                  disabled={probing}
-                  disabledReason="探针进行中"
+                  disabled={probing || !supportedTypes.includes(connection.type)}
+                  disabledReason={!supportedTypes.includes(connection.type) ? '此版本未提供对应驱动，历史配置只能查看' : '探针进行中'}
                   onClick={() => {
                     probeMutation.mutate(connection.id);
                   }}
@@ -534,6 +548,8 @@ export function DatabasesPage() {
                   variant="ghost"
                   size="sm"
                   icon="terminal"
+                  disabled={!supportedTypes.includes(connection.type) || connection.enabled === false || (connection.schemas ?? []).length === 0}
+                  disabledReason={!supportedTypes.includes(connection.type) ? '此版本未提供对应驱动' : connection.enabled === false ? '连接已停用' : '未授权任何 schema，请先编辑明确范围'}
                   onClick={() => {
                     openQuery(connection);
                   }}
@@ -575,7 +591,7 @@ export function DatabasesPage() {
     <div className="page">
       <PageHeader
         title="数据库"
-        lede="管理只读数据库连接，决定哪些项目的任务可以读取、读取哪些库。连接列表、探针与只读查询来自 /api/settings/databases。"
+        lede="管理只读数据库连接，决定哪些项目的任务可以读取、读取哪些库。修改只影响新建会话。"
         actions={
           <>
             <Button
@@ -629,7 +645,7 @@ export function DatabasesPage() {
         </div>
         <SegmentedControl ariaLabel="数据库类型" options={typeOptions} value={typeFilter} onChange={setTypeFilter} />
         <span className="spacer" />
-        <span className="hint">共 {String(connections.length)} 个连接 · 查询只读 · 类型/驱动来自服务枚举，openGauss / GaussDB 没有类型与驱动契约</span>
+        <span className="hint">共 {String(connections.length)} 个连接 · 查询只读 · 类型与可用驱动以服务返回为准</span>
       </div>
 
       {typeQuery.isError ? <ServiceNotice error={typeQuery.error} compact onRetry={() => { void typeQuery.refetch(); }} /> : null}
@@ -664,6 +680,7 @@ export function DatabasesPage() {
         size="lg"
         onClose={() => {
           if (saveMutation.isPending || saveUnknown) return;
+          resetDraftProbe();
           setForm(null);
           setFormError(null);
         }}
@@ -674,11 +691,12 @@ export function DatabasesPage() {
                 ? ''
                 : formIssues.length > 0
                   ? `还缺：${formIssues.join('、')}`
-                  : '保存后需要「测试连接」确认可用；保存只影响新建会话。'}
+                  : '可先检查草稿；检查不会保存连接。保存只影响新建会话。'}
             </span>
             <Button
               variant="ghost"
               onClick={() => {
+                resetDraftProbe();
                 setForm(null);
                 setFormError(null);
               }}
@@ -686,6 +704,7 @@ export function DatabasesPage() {
             >
               取消
             </Button>
+            <Button variant="secondary" icon="link" disabled={!canSave || draftProbing} disabledReason={draftProbing ? '正在检查当前草稿' : formIssues.join('、') || '此类型没有可用驱动'} onClick={() => { void runDraftProbe(); }}>{draftProbing ? '检查草稿中…' : '检查草稿（不保存）'}</Button>
             <Button
               variant="primary"
               icon="check"
@@ -715,6 +734,7 @@ export function DatabasesPage() {
               </div>
             ) : null}
 
+            {draftFeedback === undefined ? null : <ProbeFeedbackView feedback={draftFeedback} />}
             {typeQuery.isError ? <ServiceNotice error={typeQuery.error} compact onRetry={() => { void typeQuery.refetch(); }} /> : null}
             {!supportedTypes.includes(form.type) ? <div className="banner warn"><Icon name="lock" />此类型不在服务提供的驱动清单中；历史连接只能查看。</div> : null}
             <fieldset disabled={saveUnknown || !supportedTypes.includes(form.type)} className="col" style={{ gap: 16, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
@@ -764,19 +784,19 @@ export function DatabasesPage() {
                   updateForm({ type, port: defaultPort(type), host: '', database: '' });
                 }}
               >
-                {supportedTypes.map((type) => (
-                  <option key={type} value={type}>
+                {(typeQuery.data ?? []).map(({ id: type, available, disabledReason }) => (
+                  <option key={type} value={type} disabled={!available} title={disabledReason}>
                     {DATABASE_TYPE_META[type].label}
-                    {DATABASE_TYPE_META[type].driver === 'planned' ? '（驱动计划中）' : ''}
+                    {DATABASE_TYPE_META[type].driver === 'planned' ? '（未提供驱动）' : ''}
                   </option>
                 ))}
               </select>
               <span className="hint">
                 {DATABASE_TYPE_META[form.type].urlExample}
-                {DATABASE_TYPE_META[form.type].driver === 'planned' ? ' · 当前无内置驱动，探针会返回不支持原因。' : ''}
+                {DATABASE_TYPE_META[form.type].driver === 'planned' ? ' · 当前未提供驱动，不能检查或保存。' : ''}
               </span>
               <span className="hint">
-                类型来自服务枚举与真实驱动（mysql2 / pg / planned）；openGauss、GaussDB 没有类型与驱动契约，不能在本页添加。
+                类型和驱动由服务提供；标记“未提供驱动”的类型只能查看历史配置，不能检查或保存。
               </span>
             </div>
 
@@ -850,14 +870,14 @@ export function DatabasesPage() {
                   type="password"
                   autoComplete="new-password"
                   value={form.password}
-                  placeholder={form.id === undefined ? '只保存在服务端凭据中' : '留空保留原密码'}
+                  placeholder={form.id === undefined ? '只保存在服务端凭据中' : '目标不变时留空保留；修改地址/账号后需重填'}
                   onChange={(event) => {
                     updateForm({ password: event.target.value });
                   }}
                 />
               </div>
             </div>
-            <p className="hint">密码从不回填；编辑时留空保留原密码版本。</p>
+            <p className="hint">密码从不回填。编辑时目标不变可留空保留；修改地址、账号或 SSL 后需重新输入。</p>
 
             <label className="check">
               <input
@@ -893,7 +913,7 @@ export function DatabasesPage() {
 
             <div className="section" style={{ marginTop: 4 }}>
               <div className="section-head"><span className="section-title">访问范围</span><Badge outline icon="shield">服务端执行授权</Badge></div>
-              <label className="field"><span className="label">允许访问的 schema（逗号分隔）</span><input className="input mono" value={form.schemas} disabled={saveUnknown} placeholder={form.type === 'postgresql' ? 'public, report' : 'app, report'} onChange={(event) => { updateForm({ schemas: event.target.value }); }} /><span className="hint">任务只能读取明确列出的 schema。空范围禁止任务读取。</span></label>
+              <label className="field"><span className="label">允许访问的 schema（必填，逗号分隔）</span><input className="input mono" value={form.schemas} disabled={saveUnknown} placeholder={form.type === 'postgresql' ? 'public, report' : 'app, report'} onChange={(event) => { updateForm({ schemas: event.target.value }); }} /><span className="hint">至少明确填写一项；未授权 schema 的旧配置禁止读取。</span></label>
               <label className="field"><span className="label">可读表（schema.table，逗号分隔）</span><input className="input mono" value={form.tables} disabled={saveUnknown} placeholder="report.orders, report.customers" onChange={(event) => { updateForm({ tables: event.target.value }); }} /><span className="hint">留空允许已授权 schema 中的全部表；填写后只允许这些表。</span></label>
               <div className="field"><span className="label">绑定项目</span>{projectsQuery.isError ? <ServiceNotice error={projectsQuery.error} compact onRetry={() => { void projectsQuery.refetch(); }} /> : (projectsQuery.data ?? []).map((project) => <label className="check" key={project.id}><input type="checkbox" checked={form.projectIds.includes(project.id)} disabled={saveUnknown} onChange={(event) => { updateForm({ projectIds: event.target.checked ? [...form.projectIds, project.id] : form.projectIds.filter((id) => id !== project.id) }); }} /><span>{project.name}</span></label>)}<span className="hint">未绑定项目时，任务无法发现此连接。撤销立即阻止后续查询；扩权供新会话使用。</span></div>
               <label className="check"><input type="checkbox" checked={form.enabled} disabled={saveUnknown} onChange={(event) => { updateForm({ enabled: event.target.checked }); }} /><span>启用连接，供绑定项目的新会话使用</span></label>

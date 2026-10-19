@@ -1291,6 +1291,7 @@ export interface PptWork {
 /* ------------------------------------------------------------------ */
 
 export interface DatabaseConnection {
+  readonly lastProbe?: DatabaseProbeResult;
   readonly enabled?: boolean;
   readonly projectIds?: readonly string[];
   readonly schemas?: readonly string[];
