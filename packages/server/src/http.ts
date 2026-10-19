@@ -52,7 +52,7 @@ import type { RemoteService } from './remote.ts';
 import { fileIdFor } from './adapters/git-cli.ts';
 import { detectOpenCodeBinaries } from './opencode-detect.ts';
 import { readOpenCodeLogTail } from './opencode-logs.ts';
-import { discoverSkills } from './skills.ts';
+import { discoverSkills, readSkillSource } from './skills.ts';
 import { listKnowledgeSources, readKnowledgeSource, searchKnowledgeSources } from './knowledge.ts';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
@@ -596,6 +596,14 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const projectId = request.query.projectId ?? '';
     if (projectId === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 projectId');
     return envelope(engine.knowledge.history(projectId), requestId(request));
+  });
+  app.get<{ Params: { id: string } }>('/api/skills/:id/source', async (request) => {
+    try {
+      return envelope(readSkillSource(request.params.id), requestId(request));
+    } catch (error) {
+      if (error instanceof Error && error.message === 'SKILL_NOT_FOUND') throw new AppError(ErrorCode.NOT_FOUND, 'Skill 不存在');
+      throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, 'Skill 源文不可读');
+    }
   });
   app.get('/api/skills', async (request) => envelope({ skills: discoverSkills() }, requestId(request)));
   app.get<{ Params: { id: string } }>('/api/tasks/:id/acceptance', async (request) => envelope(engine.acceptances.get(request.params.id), requestId(request)));

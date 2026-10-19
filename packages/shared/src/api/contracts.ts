@@ -268,6 +268,13 @@ export interface SkillInfo {
   readonly source: string;
 }
 
+export interface SkillSourceResponse {
+  readonly id: string;
+  readonly name: string;
+  readonly path: string;
+  readonly lines: readonly { readonly number: number; readonly text: string }[];
+}
+
 export interface SkillsResponse {
   readonly skills: readonly SkillInfo[];
 }
@@ -1085,6 +1092,7 @@ export const ROUTES = {
   insightsTaskQuality: '/api/insights/task-quality',
   insightsTaskAcceptance: '/api/insights/task-acceptance',
   skills: '/api/skills',
+  skillSource: (id: string) => `/api/skills/${encodeURIComponent(id)}/source`,
   knowledgeSources: '/api/knowledge/sources',
   knowledgeSearch: '/api/knowledge/search',
   knowledgeSourceContent: '/api/knowledge/source',

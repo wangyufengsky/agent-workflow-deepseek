@@ -50,6 +50,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/acceptance | 人工验收结论 accepted/rejected + 备注，可覆盖重录，requestKey 回执；未知任务 404 |
 | server/insights | 计数与用量；逐任务规划 tokens、节点通过/失败、审查次数/待处理问题 |
 | server/insights-old | 真实 SQLite 聚合：任务/规划/执行/尝试/审查/待处理 finding/修复/交付计数；规划成本从 usage_json 累计，未知预算轮次单独计数 |
+| server/skills-source | 读取单个 SKILL.md 带行号源文（≤2000 行），未知 id 404 |
 | server/skills | 只读扫描 ~/.claude/skills 与 ~/.agents/skills 的 SKILL.md 元数据；可配置扫描目录；不安装/不执行 |
 | server/projects | 名称/说明/项目级设置编辑；同目录重复登记幂等；重新检测路径/Git 状态并落库；归档/恢复 |
 | server/plan-edit | 执行中调整计划：标题/验收/前置依赖（order 边）；自依赖、缺失节点、已领取依赖与环路被拒绝 |

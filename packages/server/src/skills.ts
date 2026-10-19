@@ -71,3 +71,18 @@ function firstParagraph(markdown: string): string {
   const line = body.split(/\r?\n/).find((item) => item.trim() !== '' && !item.startsWith('#')) ?? '';
   return line.trim().slice(0, 500);
 }
+
+
+/** Read one discovered SKILL.md with line numbers; read-only and size-bounded. */
+export function readSkillSource(id: string): { id: string; name: string; path: string; lines: readonly { number: number; text: string }[] } {
+  const skill = discoverSkills().find((item) => item.id === id);
+  if (skill === undefined) throw new Error('SKILL_NOT_FOUND');
+  let markdown = '';
+  try {
+    markdown = readFileSync(skill.path, 'utf8');
+  } catch {
+    throw new Error('SKILL_UNREADABLE');
+  }
+  const lines = markdown.split(/\r?\n/).slice(0, 2_000).map((text, index) => ({ number: index + 1, text: text.slice(0, 2_000) }));
+  return { id: skill.id, name: skill.name, path: skill.path, lines };
+}

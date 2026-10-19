@@ -1,12 +1,13 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createRequestKey, type SkillsResponse } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, type SkillSourceResponse, type SkillsResponse } from '@agent-workflow/shared';
 import { apiGet, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { useBootstrap, useOpenCodeStatus } from '../../api/hooks.ts';
 import { MANAGED_MCP_TOOLS, MCP_TOOLSETS, TOOL_ACCESS_LABEL, toolsOfToolset, type ManagedToolMeta } from '../../api/catalog.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
+import { Modal } from '../../components/Modal.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon, type IconName } from '../../components/Icon.tsx';
 import { PendingBackendNotice, ServiceNotice } from '../../components/ServiceNotice.tsx';
@@ -186,6 +187,8 @@ function ToolsView() {
 }
 
 function SkillsView() {
+  const [source, setSource] = useState<SkillSourceResponse | null>(null);
+  const [sourceError, setSourceError] = useState<string | undefined>(undefined);
   const query = useQuery({
     queryKey: ['skills'],
     queryFn: async () => (await apiGet<SkillsResponse>('/api/skills')).data,
@@ -231,12 +234,45 @@ function SkillsView() {
                   <div style={{ fontSize: 13, marginTop: 3 }}>{skill.description === '' ? '没有描述' : skill.description}</div>
                   <div className="hint mono" style={{ marginTop: 3, wordBreak: 'break-all' }}>{skill.path}</div>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon="doc"
+                  onClick={() => {
+                    setSourceError(undefined);
+                    void (async () => {
+                      try {
+                        setSource((await apiGet<SkillSourceResponse>(ROUTES.skillSource(skill.id))).data);
+                      } catch (error) {
+                        setSourceError(errorMessage(error));
+                      }
+                    })();
+                  }}
+                >
+                  带行号源文
+                </Button>
               </div>
             ))}
           </div>
         </section>
       )}
       <p className="hint">Skill 正文与启用状态由 OpenCode 自身管理；本页只展示服务端扫描到的 SKILL.md 名称与描述。</p>
+      {sourceError === undefined ? null : <p className="hint" style={{ color: 'var(--danger)' }}>读取源文失败：{sourceError}</p>}
+      <Modal open={source !== null} title={source === null ? 'Skill 源文' : `Skill 源文 · ${source.name}`} onClose={() => { setSource(null); }} footer={<Button variant="ghost" onClick={() => { setSource(null); }}>关闭</Button>}>
+        {source === null ? null : (
+          <div className="col" style={{ gap: 8 }}>
+            <div className="hint mono" style={{ wordBreak: 'break-all' }}>{source.path}</div>
+            <div style={{ maxHeight: 520, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--fill-1)', padding: 8 }}>
+              {source.lines.map((line) => (
+                <div key={line.number} className="mono" style={{ display: 'flex', gap: 12, fontSize: 12.5, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  <span className="hint" style={{ width: 44, textAlign: 'right', flexShrink: 0 }}>{String(line.number)}</span>
+                  <span>{line.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
