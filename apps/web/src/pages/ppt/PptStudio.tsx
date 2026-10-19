@@ -24,7 +24,7 @@ function restoreStudio(id: string): {
         const value = JSON.parse(sessionStorage.getItem(`ppt.studio.${id}`) ?? 'null');
         if (!value || typeof value !== 'object')
             return {};
-        return { current: Number.isInteger(value.current) && value.current >= 0 ? value.current : 0, tab: ['chat', 'prop', 'check'].includes(value.tab) ? value.tab : 'chat', manual: value.manual === true, selected: ['title', 'body', 'tag'].includes(value.selected) ? value.selected : undefined, drafts: Object.fromEntries(Object.entries(value.drafts ?? {}).filter(([index, draft]) => /^\d+$/.test(index) && !!draft && typeof draft === 'object' && Number.isInteger((draft as PageDraft).revision) && typeof (draft as PageDraft).page?.title === 'string' && Array.isArray((draft as PageDraft).page?.bullets))) };
+        return { current: Number.isInteger(value.current) && value.current >= 0 ? value.current : 0, tab: ['chat', 'prop', 'check'].includes(value.tab) ? value.tab : 'chat', manual: value.manual === true, selected: ['title', 'body', 'tag'].includes(value.selected) ? value.selected : undefined, drafts: Object.fromEntries(Object.entries(value.drafts ?? {}).filter((entry): entry is [string, PageDraft] => { const [index, draft] = entry; return /^\d+$/.test(index) && !!draft && typeof draft === 'object' && Number.isInteger((draft as PageDraft).revision) && typeof (draft as PageDraft).page?.title === 'string' && Array.isArray((draft as PageDraft).page?.bullets); })) };
     }
     catch {
         return {};
@@ -51,7 +51,7 @@ export function PptStudio({ work, blocked, blockedReason, onCommand }: {
     const [current, setCurrent] = useState(restored.current ?? 0);
     const [tab, setTab] = useState<SideTab>(restored.tab ?? 'chat');
     const [manual, setManual] = useState(restored.manual ?? false);
-    const [selected, setSelected] = useState<ObjectKind>(restored.selected);
+    const [selected, setSelected] = useState<ObjectKind | undefined>(restored.selected);
     const [drafts, setDrafts] = useState<Record<number, PageDraft>>(restored.drafts ?? {});
     useEffect(() => {
         try {
