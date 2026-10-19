@@ -75,6 +75,15 @@ test('runtime command routes preserve accepted replay, settle ledger and reject 
     const history = (await server.inject({ method: 'GET', url: '/api/opencode/operations' })).json().data.operations;
     assert.equal(history.length, 6); assert.ok(history.some((operation: { status: string }) => operation.status === 'failed'));
     assert.equal((await server.inject({ method: 'POST', url: '/api/opencode/start', payload: {} })).statusCode, 400);
+    for (const operation of ['project.charter.generate', 'ppt.work.generate', 'ppt.work.slides'] as const) {
+      const pendingKey = createRequestKey();
+      app.engine.commands.begin({ requestKey: pendingKey, operation, body: {}, target: {} });
+      app.engine.commands.fail(pendingKey, new Error('服务重启后结果未知'), true);
+      const blocked = await post('restart');
+      assert.equal(blocked.statusCode, 400, blocked.body);
+      assert.equal(stops, 1, `${operation} unknown survives process-memory loss and blocks restart`);
+      app.engine.commands.settle(pendingKey, { reconciled: true });
+    }
   } finally { await server.close(); await app.close(); }
 });
 

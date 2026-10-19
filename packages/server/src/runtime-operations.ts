@@ -32,9 +32,9 @@ export function registerRuntimeOperationRoutes(app: FastifyInstance, store: Stor
           const projects = store.projects.list(true);
           const reviewIds = projects.flatMap((project) => store.reviews.listByProject(project.id)).filter((review) => ['queued', 'running', 'stopping', 'unknown'].includes(review.state)).map((review) => review.reviewRunId);
           const fixIds = projects.flatMap((project) => store.fixes.listByProject(project.id)).filter((fix) => ['preparing', 'editing', 'verifying', 'stopping', 'unknown'].includes(fix.state)).map((fix) => fix.fixRunId);
-          const pendingKnowledge = store.operations.listPending().filter((operation) => operation.operation === 'knowledge.ask').map((operation) => operation.requestKey);
+          const pendingModelOperations = store.operations.listPending().filter((operation) => ['knowledge.ask', 'project.charter.generate', 'ppt.work.generate', 'ppt.work.slides'].includes(operation.operation)).map((operation) => ({ requestKey: operation.requestKey, operation: operation.operation }));
           const diagnostics = await opencode.diagnostics();
-          if (taskIds.length + planningRoundIds.length + reviewIds.length + fixIds.length + pendingKnowledge.length > 0 || diagnostics.sessions > 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '存在活动或待核对会话，请先停止并核对任务、规划或知识对话后重启', { details: { taskIds, planningRoundIds, reviewIds, fixIds, pendingKnowledge, sessions: diagnostics.sessions } });
+          if (taskIds.length + planningRoundIds.length + reviewIds.length + fixIds.length + pendingModelOperations.length > 0 || diagnostics.sessions > 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '存在活动或待核对会话，请先停止并核对任务、规划、知识对话、公约或演示生成后重启', { details: { taskIds, planningRoundIds, reviewIds, fixIds, pendingModelOperations, sessions: diagnostics.sessions } });
           await opencode.verifyMaintenanceIdle();
           await opencode.stop();
         }
