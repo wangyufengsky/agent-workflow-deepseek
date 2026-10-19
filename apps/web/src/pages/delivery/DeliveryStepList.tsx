@@ -227,7 +227,7 @@ export function DeliveryStepList({
         <StepCard
           ordinal="①"
           title="提交"
-          desc="作者取自设置 → Git 账号，不可在此修改；可只提交部分已选文件。提交成功只记一步：提交回执未成功时不会继续推送。"
+          desc={goal === 'local_commit' ? '作者取自设置 → Git 账号；仅提交确认文件。提交成功即完成本地交付目标。' : '作者取自设置 → Git 账号；仅提交确认文件。提交成功后仍需独立确认后续步骤。'}
           state={commitStep}
           current={commitStep === undefined || commitStep.state === 'not_started'}
           fallbackReason={goal === 'local_commit' || goal === 'push_branch' || goal === 'create_merge_request' ? commitAllowedReason : '当前目标不需要提交。'}

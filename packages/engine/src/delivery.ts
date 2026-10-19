@@ -95,13 +95,14 @@ export class DeliveryService {
       target: { taskId },
     });
     if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
-    const changes = await this.#workspaces.changes(taskId);
-    if (input.expectedChangesRevision !== undefined && changes.changesRevision !== input.expectedChangesRevision) {
-      throw new AppError(ErrorCode.STALE_TARGET, '内容版本已变化，请重新读取后确认', { details: { actual: changes.changesRevision } });
-    }
-    const paths = input.fileIds.map(decodeFileId).filter((path) => changes.files.some((file) => file.path === path));
-    if (paths.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '没有选择可提交的文件');
     try {
+      const changes = await this.#workspaces.changes(taskId);
+      if (input.expectedChangesRevision !== undefined && changes.changesRevision !== input.expectedChangesRevision) {
+        throw new AppError(ErrorCode.STALE_TARGET, '内容版本已变化，请重新读取后确认', { details: { actual: changes.changesRevision } });
+      }
+      const selectedPaths = input.fileIds.map(decodeFileId);
+      const paths = [...new Set(changes.files.filter((file) => selectedPaths.includes(file.path)).flatMap((file) => file.status === 'R' && file.oldPath !== undefined ? [file.oldPath, file.path] : [file.path]))];
+      if (paths.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '没有选择可提交的文件');
       const commit = await this.#git.commit({
         worktreePath: workspace.displayRoot,
         filePaths: paths,
@@ -117,16 +118,26 @@ export class DeliveryService {
         commitSha: commit.sha,
       });
       const updated = this.#store.deliveries.update(delivery.id, {
-        projection: 'awaiting_confirmation',
-        projectionReason: '提交完成，等待推送或创建合并请求确认',
+        projection: (delivery.goal ?? 'local_commit') === 'local_commit' ? 'delivered' : 'awaiting_confirmation',
+        projectionReason: (delivery.goal ?? 'local_commit') === 'local_commit' ? '本地提交目标已完成' : '提交完成，等待推送确认',
+        ...((delivery.goal ?? 'local_commit') === 'local_commit' ? { taskCompletionRef: `commit:${commit.sha}`, verificationOutcome: delivery.verificationOutcome ?? 'not_run' } : {}),
         goal: delivery.goal ?? 'local_commit',
         steps,
       });
       this.#store.events.publish('task.delivery.updated', { taskId, deliveryId: delivery.id, revision: updated!.revision, projection: updated!.projection });
+      if (updated!.projection === 'delivered') {
+        this.#store.tasks.update(taskId, { attention: TaskAttention.NONE, lifecycle: TaskLifecycle.COMPLETED });
+        this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: task.stage, revision: 1 });
+      }
       this.#commands.settle(input.requestKey, { commitSha: commit.sha });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { delivery: updated!, changes, actions: {} } };
     } catch (error) {
-      this.#commands.fail(input.requestKey, error as Error);
+      const unknown = error instanceof AppError && error.code === ErrorCode.RECEIPT_UNKNOWN;
+      this.#commands.fail(input.requestKey, error as Error, unknown);
+      if (unknown) {
+        const updated = this.#store.deliveries.update(delivery.id, { projection: 'unknown_receipt', projectionReason: error.message, steps: updateStep(delivery.steps, { step: 'commit', state: 'unknown', requestKey: input.requestKey, settledAt: nowIso(), error: { code: error.code, message: error.message } }) });
+        this.#store.events.publish('task.delivery.updated', { taskId, deliveryId: delivery.id, revision: updated!.revision, projection: 'unknown_receipt' });
+      }
       throw error;
     }
   }
@@ -145,8 +156,8 @@ export class DeliveryService {
       target: { taskId },
     });
     if (replayed) return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
-    if (project.gitState !== 'git') throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '非 Git 项目不支持推送');
     try {
+      if (project.gitState !== 'git') throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '非 Git 项目不支持推送');
       const result = await this.#git.push({
         projectId: task.projectId,
         repoRoot: project.rootPath,
@@ -163,11 +174,16 @@ export class DeliveryService {
         pushedSha: result.pushedSha,
       });
       const updated = this.#store.deliveries.update(delivery.id, {
-        projection: 'awaiting_confirmation',
-        projectionReason: '推送完成，等待创建合并请求确认',
+        projection: delivery.goal === 'push_branch' ? 'delivered' : 'awaiting_confirmation',
+        projectionReason: delivery.goal === 'push_branch' ? '分支推送目标已完成' : '推送完成，等待创建合并请求确认',
+        ...(delivery.goal === 'push_branch' ? { taskCompletionRef: `push:${result.remoteRef}@${result.pushedSha}`, verificationOutcome: delivery.verificationOutcome ?? 'not_run' } : {}),
         steps,
       });
       this.#store.events.publish('task.delivery.updated', { taskId, deliveryId: delivery.id, revision: updated!.revision, projection: updated!.projection });
+      if (updated!.projection === 'delivered') {
+        this.#store.tasks.update(taskId, { attention: TaskAttention.NONE, lifecycle: TaskLifecycle.COMPLETED });
+        this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: task.stage, revision: 1 });
+      }
       this.#commands.settle(input.requestKey, { remoteRef: result.remoteRef, pushedSha: result.pushedSha });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { delivery: updated!, actions: {} } };
     } catch (error) {

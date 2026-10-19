@@ -816,7 +816,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
           ) : null}
           <div className="dialog-warning">
             <Icon name="info" />
-            <span>提交后任务仍未交付；推送与创建 MR 是两次独立确认，不会自动连锁。</span>
+            <span>{goal === 'local_commit' ? '本地提交成功即完成所选交付目标；不会推送或创建 MR。' : '提交后仍需完成所选目标；推送与创建 MR 分别确认，不会自动连锁。'}</span>
           </div>
           {commitMutation.isError ? <FailureNotice error={commitMutation.error} compact /> : null}
         </div>

@@ -395,27 +395,43 @@ export class GitCliAdapter implements GitPort {
   }
 
   async commit(input: { worktreePath: string; filePaths: readonly string[]; message: string; author: { name: string; email: string }; expectedHeadSha?: string }): Promise<{ sha: string }> {
-    if (input.expectedHeadSha !== undefined) {
-      const head = (await this.#run(['rev-parse', 'HEAD'], input.worktreePath)).stdout.trim();
-      if (head !== input.expectedHeadSha) throw new AppError(ErrorCode.STALE_TARGET, '分支 HEAD 已变化，请重新读取');
-    }
-    for (const path of input.filePaths) {
-      await this.#run(['add', '--', path], input.worktreePath);
-    }
+    const headBefore = await this.#run(['rev-parse', '--verify', 'HEAD'], input.worktreePath).then((result) => result.stdout.trim()).catch(() => undefined);
+    if (input.expectedHeadSha !== undefined && headBefore !== input.expectedHeadSha) throw new AppError(ErrorCode.STALE_TARGET, '分支 HEAD 已变化，请重新读取');
+    const paths = [...new Set(input.filePaths)];
+    if (paths.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '没有选择可提交的文件');
     const env = {
+      GIT_LITERAL_PATHSPECS: '1',
       GIT_AUTHOR_NAME: input.author.name,
       GIT_AUTHOR_EMAIL: input.author.email,
       GIT_COMMITTER_NAME: input.author.name,
       GIT_COMMITTER_EMAIL: input.author.email,
     };
-    const result = await this.#run(['commit', '-m', input.message], input.worktreePath, env).catch((error: unknown) => {
+    // Preserve only selected index entries. Never reset the user's entire index or working tree.
+    const index = (await this.#run(['ls-files', '--stage', '-z', '--', ...paths], input.worktreePath, env)).stdout;
+    const entries = index.split('\0').filter(Boolean).map((entry) => {
+      const tab = entry.indexOf('\t');
+      const [mode, sha, stage] = entry.slice(0, tab).split(' ');
+      return { mode: mode!, sha: sha!, stage, path: entry.slice(tab + 1) };
+    });
+    if (entries.some((entry) => entry.stage !== '0')) throw new AppError(ErrorCode.DELIVERY_BLOCKED, '所选文件仍有合并冲突，请先解决冲突');
+    try {
+      const addPaths = paths.filter((path) => existsSync(join(input.worktreePath, path)) || entries.some((entry) => entry.path === path));
+      if (addPaths.length > 0) await this.#run(['add', '--', ...addPaths], input.worktreePath, env);
+      await this.#run(['commit', '--only', '-m', input.message, '--', ...paths], input.worktreePath, env);
+    } catch (error) {
+      const headAfter = await this.#run(['rev-parse', '--verify', 'HEAD'], input.worktreePath).then((result) => result.stdout.trim()).catch(() => undefined);
+      if (headAfter !== headBefore) throw new AppError(ErrorCode.RECEIPT_UNKNOWN, '提交调用失败但 HEAD 已变化，请核对原请求，勿重复提交');
+      try {
+        await this.#run(['update-index', '--force-remove', '--', ...paths], input.worktreePath, env);
+        for (const entry of entries) await this.#run(['update-index', '--add', '--cacheinfo', entry.mode, entry.sha, entry.path], input.worktreePath, env);
+      } catch {
+        throw new AppError(ErrorCode.RECEIPT_UNKNOWN, '提交失败后无法恢复所选暂存记录，请核对 HEAD 与暂存区，勿重复提交');
+      }
       if (error instanceof AppError && /nothing to commit|no changes added/i.test(error.message)) throw new AppError(ErrorCode.FIX_NO_CHANGES, '没有可提交的改动');
       if (error instanceof AppError && /hook/i.test(error.message)) throw new AppError(ErrorCode.HOOK_REJECTED, '提交被 Git hook 拒绝', { details: { output: error.message } });
       throw error;
-    });
-    const sha = (await this.#run(['rev-parse', 'HEAD'], input.worktreePath)).stdout.trim();
-    void result;
-    return { sha };
+    }
+    return { sha: (await this.#run(['rev-parse', 'HEAD'], input.worktreePath)).stdout.trim() };
   }
 
   async push(input: { projectId?: string; repoRoot: string; localSha: string; remote: string; remoteRef: string; token?: string }): Promise<{ remoteRef: string; pushedSha: string; created: boolean }> {
