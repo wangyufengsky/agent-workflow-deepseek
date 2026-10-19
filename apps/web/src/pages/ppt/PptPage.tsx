@@ -45,13 +45,13 @@ export function PptPage() {
   });
   const generateSlides = useMutation({
     mutationFn: async (id: string) => {
-      await apiPost(ROUTES.pptWorkGenerateSlides(id), { requestKey: createRequestKey(), confirmGenerate: true });
+      await apiPost(ROUTES.pptWorkGenerateSlides(id), { requestKey: createRequestKey(), confirmGenerate: true }, { timeoutMs: 150_000 });
     },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
   });
   const generateDraft = useMutation({
     mutationFn: async (id: string) => {
-      await apiPost(ROUTES.pptWorkGenerate(id), { requestKey: createRequestKey(), confirmGenerate: true });
+      await apiPost(ROUTES.pptWorkGenerate(id), { requestKey: createRequestKey(), confirmGenerate: true }, { timeoutMs: 120_000 });
     },
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ppt', 'works'] }); },
   });

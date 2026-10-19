@@ -37,7 +37,7 @@ export function KnowledgePage() {
   });
   const askMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiPost<{ receipt: { status: string }; resource: KnowledgeAskResponse }>('/api/knowledge/ask', { requestKey: createRequestKey(), projectId, question: question.trim(), ...(conversationId === undefined ? {} : { conversationId }) });
+      const response = await apiPost<{ receipt: { status: string }; resource: KnowledgeAskResponse }>('/api/knowledge/ask', { requestKey: createRequestKey(), projectId, question: question.trim(), ...(conversationId === undefined ? {} : { conversationId }) }, { timeoutMs: 130_000 });
       if (response.data.receipt.status !== 'succeeded') throw new Error(`问答回执：${response.data.receipt.status}`);
       return response.data.resource;
     },
@@ -157,6 +157,7 @@ export function KnowledgePage() {
           <p className="hint" id="kb-disabled-note" style={{ marginTop: 8 }}>
             问答使用受管 OpenCode（只读）基于项目文档回答；同一对话最近 3 条问答作为上下文，引用可点击回到原文。
           </p>
+          {askMutation.isPending ? <p className="hint" style={{ marginTop: 8 }}>模型正在阅读文档并核对引用，通常需要 15–90 秒；请勿重复提交。</p> : null}
           {askMutation.isError ? <p className="hint" style={{ marginTop: 8, color: 'var(--danger)' }}>问答失败：{String((askMutation.error as Error).message)}</p> : null}
           {askResult === undefined ? null : (
             <div className="card pad" style={{ marginTop: 12 }}>
