@@ -82,7 +82,8 @@ outcome=fixed(exact)、`app.ts` 为唯一变更 → `fixes/:id/commit` 成功 �
 凭据来自 `opencode-workflow-java-test/src/main/resources/application.yml`，通过环境变量注入（不入库）：
 
 ```sh
-set -a; source .tmp/mysql-env; set +a
+export WF_DB_URL='jdbc:mysql://127.0.0.1:3306/opencode_workflow_test?...'
+export WF_DB_USER='<user>' WF_DB_PASSWORD='<password>'
 node --import tsx --test --test-force-exit tests/integration/database-live.test.ts
 ```
 
@@ -92,7 +93,7 @@ node --import tsx --test --test-force-exit tests/integration/database-live.test.
 ### 3.6 GitHub 只读联调（PASS）
 
 ```sh
-set -a; source .tmp/github-env; set +a
+export GITHUB_TEST_TOKEN='<pat>'
 node --import tsx --test --test-force-exit tests/integration/github-live.test.ts
 ```
 
