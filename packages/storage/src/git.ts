@@ -156,6 +156,14 @@ export class ReviewRepository {
     return rows.map(mapReview).filter((review) => review.subject.commitSha === sha);
   }
 
+  /** Reviews that were in flight when the process stopped (used for recovery). */
+  listActive(): readonly ReviewRun[] {
+    const rows = this.#db
+      .prepare("SELECT * FROM reviews WHERE state IN ('queued','running','stopping') ORDER BY rowid ASC")
+      .all() as unknown as Row[];
+    return rows.map(mapReview);
+  }
+
   count(projectId: string): number {
     const row = this.#db.prepare('SELECT COUNT(*) AS n FROM reviews WHERE project_id = ?').get(projectId) as { n: number };
     return Number(row.n);
@@ -257,6 +265,14 @@ export class FixRepository {
 
   listByProject(projectId: string): readonly FixRun[] {
     const rows = this.#db.prepare('SELECT * FROM fixes WHERE project_id = ? ORDER BY rowid DESC').all(projectId) as unknown as Row[];
+    return rows.map(mapFix);
+  }
+
+  /** Runs that were in flight when the process stopped (used for recovery). */
+  listActive(): readonly FixRun[] {
+    const rows = this.#db
+      .prepare("SELECT * FROM fixes WHERE state IN ('preparing','editing','verifying','stopping') ORDER BY rowid ASC")
+      .all() as unknown as Row[];
     return rows.map(mapFix);
   }
 

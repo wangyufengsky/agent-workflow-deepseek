@@ -85,7 +85,14 @@ export class WorkspaceService {
           throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '非 Git 目录适配尚未接通');
         }
         const target = `${this.#context.store.dataDir}/workspaces/${taskId}`;
-        await this.#git.copyToDirectory({ sourceRoot: project.rootPath, targetRoot: target });
+        const baselineRoot = `${this.#context.store.dataDir}/baselines/${workspace.id}`;
+        await this.#git.copyToDirectory({ sourceRoot: project.rootPath, targetRoot: baselineRoot });
+        await this.#git.copyToDirectory({ sourceRoot: baselineRoot, targetRoot: target });
+        this.#context.store.settings.putJson(`directory.baseline.${workspace.id}`, {
+          baselineRoot,
+          sourceRoot: project.rootPath,
+          createdAt: nowIso(),
+        });
         const updated = this.#store.workspaces.update(workspace.id, {
           state: 'ready',
           displayRoot: target,

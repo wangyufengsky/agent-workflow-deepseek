@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import type {
   ActionAvailability,
@@ -70,6 +71,8 @@ export interface StoredFixWorktree {
   readonly branch: string;
   readonly baseSha: string;
   readonly createdAt: string;
+  readonly startRequestKey?: string;
+  readonly stopRequestKey?: string;
 }
 
 /** Server-owned restore capability (the engine Git port has no restore method). */
@@ -176,6 +179,28 @@ export class FixService {
     this.#timeoutMs = options.timeoutMs;
   }
 
+  /**
+   * Runs left in flight by a previous process can never be resumed safely: mark
+   * them unknown and settle the persisted start/stop receipts so the UI can
+   * reconcile instead of showing a forever-spinning fix.
+   */
+  recoverOnStartup(): number {
+    const active = this.#store.fixes.listActive();
+    for (const fix of active) {
+      const interrupted = new AppError(ErrorCode.INTERNAL_ERROR, '进程重启，修复会话中断；请核对工作区后重新开始或放弃');
+      const next: FixRun = { ...fix, state: FixRunState.UNKNOWN, fixRevision: nextFixRevision(fix.fixRevision) };
+      const updated = this.#store.fixes.update({ ...next, actions: fixActions(next) });
+      const mapping = this.#store.settings.getJson<StoredFixWorktree>(`${WORKTREE_SETTING_PREFIX}${fix.fixRunId}`);
+      for (const requestKey of [mapping?.startRequestKey, mapping?.stopRequestKey]) {
+        if (requestKey === undefined) continue;
+        const record = this.#commands.get(requestKey);
+        if (record !== undefined && record.status === 'accepted') this.#commands.fail(requestKey, interrupted, true);
+      }
+      this.#publish(updated);
+    }
+    return active.length;
+  }
+
   async start(projectId: string, input: FixStartRequest): Promise<CommandResponse<FixResponse>> {
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '修复请求体不合法');
     const project = this.#requireProject(projectId);
@@ -263,6 +288,7 @@ export class FixService {
         branch: handle.branch,
         baseSha: base.tipSha,
         createdAt: nowIso(),
+        startRequestKey: input.requestKey,
       } satisfies StoredFixWorktree);
     } catch (error) {
       this.#pendingStarts.delete(guardKey);
@@ -354,6 +380,8 @@ export class FixService {
       this.#publish(updated);
     }
     this.#stopKeys.set(fixRunId, input.requestKey);
+    const mapping = this.#store.settings.getJson<StoredFixWorktree>(`${WORKTREE_SETTING_PREFIX}${fixRunId}`);
+    if (mapping !== undefined) this.#store.settings.putJson(`${WORKTREE_SETTING_PREFIX}${fixRunId}`, { ...mapping, stopRequestKey: input.requestKey });
     const sessionId = this.#sessions.get(fixRunId);
     if (sessionId !== undefined) await this.#opencode.abortSession(sessionId).catch(() => undefined);
     return {
@@ -664,7 +692,9 @@ export class FixService {
       if (current === undefined) return;
       const changes = await this.#readChanges(current);
       const outcomes = parseOutcomes(parsed.outcomes, current);
-      const verification = parseVerification(parsed.verification, current);
+      const verification = current.verifyCommand === null
+        ? parseVerification(parsed.verification, current)
+        : await this.#runVerification(current.fixRunId, current.verifyCommand.display);
       const summary = typeof parsed.summary === 'string' ? parsed.summary.trim().slice(0, 2_000) : '';
       const state = changes.files.length === 0 ? FixRunState.NO_CHANGES : FixRunState.READY;
       const next: FixRun = {
@@ -688,6 +718,27 @@ export class FixService {
       this.#fail(fixRunId, error, false);
     } finally {
       this.#sessions.delete(fixRunId);
+    }
+  }
+
+  async #runVerification(fixRunId: string, command: string): Promise<FixRun['verification']> {
+    const mapping = this.#store.settings.getJson<StoredFixWorktree>(`${WORKTREE_SETTING_PREFIX}${fixRunId}`);
+    if (mapping === undefined) return { state: 'error', summary: '修复工作区不存在，无法执行校验命令' };
+    const args = splitCommandLine(command);
+    if (args.length === 0) return { state: 'error', summary: '校验命令为空或无法解析' };
+    const timeout = Math.min(this.#context.settings().git.commandTimeoutMs, 180_000);
+    const started = Date.now();
+    try {
+      const result = await runProcess(args, mapping.path, timeout);
+      return {
+        state: result.code === 0 ? 'passed' : 'failed',
+        passed: result.code === 0 ? 1 : 0,
+        failed: result.code === 0 ? 0 : 1,
+        summary: `服务独立执行：${command}（退出码 ${String(result.code)}，${String(Date.now() - started)}ms）${result.output === '' ? '' : `
+${result.output}`.slice(0, 1_000)}`,
+      };
+    } catch (error) {
+      return { state: 'error', summary: `服务执行校验命令失败：${error instanceof Error ? error.message : String(error)}` };
     }
   }
 
@@ -1117,4 +1168,67 @@ function requireNonEmpty(value: unknown, label: string): string {
 
 function shortSha(sha: string): string {
   return sha.slice(0, 8);
+}
+
+
+function splitCommandLine(command: string): string[] {
+  const args: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+  for (const char of command.trim()) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\' && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote !== undefined) {
+      if (char === quote) quote = undefined;
+      else current += char;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (current !== '') {
+        args.push(current);
+        current = '';
+      }
+      continue;
+    }
+    current += char;
+  }
+  if (escaped) current += '\\';
+  if (quote !== undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '校验命令引号不闭合');
+  if (current !== '') args.push(current);
+  return args;
+}
+
+function runProcess(args: readonly string[], cwd: string, timeoutMs: number): Promise<{ code: number; output: string }> {
+  return new Promise((resolveRun, rejectRun) => {
+    execFile(args[0]!, args.slice(1), {
+      cwd,
+      timeout: timeoutMs,
+      maxBuffer: 2 * 1024 * 1024,
+      shell: false,
+      env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: process.env.HOME ?? cwd, CI: '1' },
+    }, (error, stdout, stderr) => {
+      const output = `${stdout}${stderr}`.trim();
+      if (error !== null && typeof error === 'object' && 'code' in error && typeof error.code === 'number') {
+        resolveRun({ code: error.code, output });
+        return;
+      }
+      if (error !== null) {
+        rejectRun(error);
+        return;
+      }
+      resolveRun({ code: 0, output });
+    });
+  });
 }

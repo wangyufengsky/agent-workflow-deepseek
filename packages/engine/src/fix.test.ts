@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -81,8 +81,10 @@ class FakeGit implements GitPort {
 
   async createWorktree(input: { taskId: string; branch: string; baseSha: string; worktreesRoot: string }): Promise<{ path: string; handle: string; branch: string; headSha: string }> {
     this.createdWorktrees.push(input);
+    const path = join(this.worktreeRoot, input.taskId);
+    mkdirSync(path, { recursive: true });
     return {
-      path: join(this.worktreeRoot, input.taskId),
+      path,
       handle: `wt_${input.taskId}`,
       branch: input.branch,
       headSha: input.baseSha,
@@ -217,7 +219,7 @@ function harness(): Harness {
     rootPath: mkdtempSync(join(tmpdir(), 'aw-fix-repo-')),
     gitState: 'git',
     defaultBranch: 'main',
-    settings: { testCommand: 'npm test' },
+    settings: { testCommand: 'node -e "process.exit(0)"' },
   });
   const git = new FakeGit();
   git.branchList = [
@@ -361,10 +363,10 @@ test('fix start runs in an ai-fix worktree, records authoritative changes, and c
     assert.equal(ready.outcomes[0]?.outcome, 'fixed');
     assert.equal(ready.outcomes[1]?.outcome, 'partial');
     assert.equal(ready.verification?.state, 'passed');
-    assert.match(ready.verification?.summary ?? '', /^模型自报：/);
+    assert.match(ready.verification?.summary ?? '', /^服务独立执行：/);
     assert.match(ready.commitDraft?.message ?? '', /^fix: 修复审查问题/);
     assert.equal(ready.base.commitsAfterReviewed, 0);
-    assert.equal(ready.verifyCommand?.display, 'npm test');
+    assert.equal(ready.verifyCommand?.display, 'node -e "process.exit(0)"');
     assert.match(ready.fixBranch, /^ai-fix\/[0-9a-f]{7}-\d{4}$/);
     assert.equal(h.git.createdWorktrees.length, 1);
     assert.equal(h.git.createdWorktrees[0]?.taskId, fixRunId);

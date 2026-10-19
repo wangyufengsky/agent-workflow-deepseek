@@ -56,6 +56,9 @@ export function registerReviewRoutes(app: FastifyInstance, deps: ReviewRoutesDep
     workspace: deps.workspace ?? createGitWorkspacePort(),
     remote: engine.ports.remote,
   });
+  // Runs left in flight by a previous process can never be resumed safely.
+  reviews.recoverOnStartup();
+  fixes.recoverOnStartup();
 
   /* ---------------------------------------------------------------- */
   /* Reviews                                                           */

@@ -41,6 +41,8 @@ test('live: AI fix produces an isolated worktree change, commits it, then discar
     const requestKey = (): string => `req_${Math.random().toString(36).slice(2, 21)}`;
     const project = await app.app.inject({ method: 'POST', url: '/api/projects', payload: { requestKey: requestKey(), name: 'Live Fix', rootPath: repo.root } });
     const projectId = project.json().data.resource.project.id as string;
+    const projectRecord = app.store.projects.get(projectId)!;
+    app.store.projects.update(projectId, { settings: { ...projectRecord.settings, testCommand: 'node -e "process.exit(0)"' } });
 
     const findingId = createId('finding');
     const createdReview = app.store.reviews.create({
@@ -117,6 +119,9 @@ test('live: AI fix produces an isolated worktree change, commits it, then discar
     assert.ok(fix.fixBranch.startsWith('ai-fix/'));
     assert.ok((fix.changes?.files.length ?? 0) > 0);
     assert.equal(fix.outcomes.every((outcome) => outcome.findingId === findingId), true);
+    assert.equal(fix.verifyCommand?.display, 'node -e "process.exit(0)"');
+    assert.equal(fix.verification?.state, 'passed');
+    assert.match(fix.verification?.summary ?? '', /^服务独立执行：/);
 
     const commit = await app.app.inject({
       method: 'POST',

@@ -21,7 +21,7 @@ function createRepo(): string {
   return root;
 }
 
-async function createPreparedTask(app: Awaited<ReturnType<typeof createApplication>>, projectId: string, title: string): Promise<{ taskId: string; workspace: { id: string; displayRoot: string; branch: string } }> {
+async function createPreparedTask(app: Awaited<ReturnType<typeof createApplication>>, projectId: string, title: string): Promise<{ taskId: string; workspace: { id: string; displayRoot: string; branch: string; state: string } }> {
   const task = await app.app.inject({
     method: 'POST',
     url: '/api/tasks',

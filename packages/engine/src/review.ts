@@ -207,6 +207,30 @@ export class ReviewService {
     this.#timeoutMs = options.timeoutMs;
   }
 
+  /** Mark reviews interrupted by a process restart as unknown and settle receipts. */
+  recoverOnStartup(): number {
+    const active = this.#store.reviews.listActive();
+    for (const review of active) {
+      const failure = new AppError(ErrorCode.INTERNAL_ERROR, '进程重启，审查会话中断；请重新发起审查');
+      const next: ReviewRun = {
+        ...review,
+        state: ReviewRunState.UNKNOWN,
+        stage: 'interrupted',
+        endedAt: nowIso(),
+        receipt: {
+          ...review.receipt,
+          status: 'unknown',
+          settledAt: nowIso(),
+          error: { code: ErrorCode.INTERNAL_ERROR, message: failure.message },
+        },
+      };
+      const updated = this.#store.reviews.update(next);
+      if (review.receipt.status === 'accepted') this.#commands.fail(review.receipt.requestKey, failure, true);
+      this.#publish(updated, ReviewRunState.UNKNOWN);
+    }
+    return active.length;
+  }
+
   async start(projectId: string, input: ReviewStartRequest): Promise<CommandResponse<ReviewResponse>> {
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '审查请求体不合法');
     const project = this.#requireProject(projectId);
