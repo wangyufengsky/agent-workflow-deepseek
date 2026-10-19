@@ -53,7 +53,7 @@ export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
                 {settings.opencode.enabled ? '已启用' : '已禁用'}
               </Badge>
               <span className="hint">
-                {settings.opencode.autoStart ? '由程序托管' : '连接已有服务'} · 权限模式 {settings.opencode.permissionMode}
+                {settings.opencode.autoStart ? '随服务自动启动' : '手动启动受管进程'} · 工具权限按职业与项目策略限制
               </span>
             </span>
           </SettingsRow>

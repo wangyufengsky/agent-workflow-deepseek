@@ -267,7 +267,7 @@ export function RuntimePage() {
           </div>
         </section>
 
-        <RuntimeControls state={state} blockedReason={restartBlockedReason} onRefresh={() => { void statusQuery.refetch(); }} />
+        <RuntimeControls state={state} blockedReason={restartBlockedReason} onRefresh={() => { void statusQuery.refetch(); void bootstrap.refetch(); }} />
       </>
     );
   }
@@ -276,7 +276,7 @@ export function RuntimePage() {
     <div className="page">
       <PageHeader
         title="运行环境"
-        lede="opencode-workflow 通过本机的 OpenCode 执行任务与对话。这里查看连接是否正常，并在需要时重启受管进程。"
+        lede="agent-workflow 通过本机的 OpenCode 执行任务与对话。这里查看连接是否正常，并在需要时重启受管进程。"
         actions={
           <Button
             variant="secondary"

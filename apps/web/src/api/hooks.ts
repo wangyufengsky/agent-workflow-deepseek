@@ -137,6 +137,7 @@ export function useInboxLiveSummary() {
     else {
       try { stream = openEventStream({ onEvent: (event) => {
         if (fallback !== undefined) { clearInterval(fallback); fallback = undefined; }
+        if (event.type === 'opencode.status.changed') { refresh(); void client.invalidateQueries({ queryKey: queryKeys.opencodeStatus }); }
         if (['ready', 'inbox.changed', 'task.changed', 'planning.changed', 'execution.changed'].includes(event.type)) refresh();
       }, onError: poll }); } catch { poll(); }
     }

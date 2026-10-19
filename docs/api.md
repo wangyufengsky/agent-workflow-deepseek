@@ -249,12 +249,19 @@
 | GET | `/api/catalog/role-images` | （待补说明：catalogRoleImages） | 读口；无写回执 |
 | GET | `/api/catalog/roles/:id/insights` | （待补说明：catalogRoleInsights） | 读口；无写回执 |
 | GET | `/api/catalog/roles/:id/permission-preview` | （待补说明：catalogRolePermissionPreview） | 读口；无写回执 |
+| POST | `/api/catalog/roles/package/publish` | （待补说明：catalogRolePackagePublish） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/catalog/roles/package/validate` | （待补说明：catalogRolePackageValidate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/knowledge/conversations/:id` | （待补说明：knowledgeConversation） | 读口；无写回执 |
+| POST | `/api/knowledge/conversations/:id/archive` | （待补说明：knowledgeConversationArchive） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/knowledge/conversations/:id/rename` | （待补说明：knowledgeConversationRename） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/knowledge/conversations/:id/restore` | （待补说明：knowledgeConversationRestore） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET / PATCH | `/api/knowledge/projects/:id/permissions` | （待补说明：knowledgePermissions） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/knowledge/results/:requestKey` | （待补说明：knowledgeResult） | 读口；无写回执 |
 | GET | `/api/knowledge/runs/:key` | （待补说明：knowledgeProgress） | 读口；无写回执 |
 | POST | `/api/knowledge/runs/:key/stop` | （待补说明：knowledgeStop） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/opencode/operations` | （待补说明：opencodeOperations） | 读口；无写回执 |
 | POST | `/api/opencode/start` | （待补说明：opencodeStart） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/ppt-generations/:key/stop` | （待补说明：pptGenerationStop） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/ppt/works/:id/archive` | （待补说明：pptWorkArchive） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET / POST | `/api/ppt/works/:id/assistant` | （待补说明：pptAssistant） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/ppt/works/:id/assistant/decide` | （待补说明：pptAssistantDecide） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
@@ -269,6 +276,10 @@
 | POST | `/api/projects/:id/charter/generate` | （待补说明：projectCharterGenerate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/stop` | （待补说明：projectCharterStop） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/projects/:id/source-path` | （待补说明：projectSourcePath） | 读口；无写回执 |
+| GET | `/api/runtime-interactions` | （待补说明：runtimeInteractions） | 读口；无写回执 |
+| GET | `/api/runtime-interactions/:id` | （待补说明：runtimeInteraction） | 读口；无写回执 |
+| POST | `/api/runtime-interactions/:id/resolve` | （待补说明：runtimeInteractionResolve） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/settings/databases/probe-draft` | （待补说明：databaseDraftProbe） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/tasks/:id/archive` | （待补说明：taskArchive） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/tasks/:id/attempts/:attemptId/artifacts/:artifactId` | （待补说明：taskArtifact） | 读口；无写回执 |
 | GET | `/api/tasks/:id/audit` | （待补说明：taskAudit） | 读口；无写回执 |

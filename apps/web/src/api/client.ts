@@ -1,4 +1,4 @@
-import { commandScope, pendingCommands, pendingForScope, rememberCommand, settleCommand } from './pending-commands.ts';
+import { commandScope, pendingCommands, pendingForScope, rememberCommand, settleCommand, setCommandInFlight } from './pending-commands.ts';
 import {
   ROUTES,
   EventType,
@@ -189,8 +189,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const tracked = scope !== undefined && key !== undefined && options.method !== undefined && options.method !== 'GET';
   if (tracked) {
     const pending = pendingCommands().find((v) => v.scope === scope && (v.phase !== 'accepted' || v.path === path));
-    if (pending !== undefined) throw new ApiClientError({ kind: 'protocol', message: `${pending.phase === 'accepted' ? '原请求已受理，等待完成' : '操作结果待核对'}，请核对原请求号 ${pending.requestKey}，不会重复提交。`, details: { requestKey: pending.requestKey } });
+    if (pending !== undefined) throw new ApiClientError({ kind: 'protocol', message: `${pending.phase === 'sending' ? '原请求正在发送，等待回执' : pending.phase === 'accepted' ? '原请求已受理，等待完成' : '操作结果待核对'}，请核对原请求号 ${pending.requestKey}，不会重复提交。`, details: { requestKey: pending.requestKey } });
     rememberCommand({ scope, path, requestKey: key });
+    setCommandInFlight(key, true);
   }
   try {
     const response = await performRequest<T>(path, options);
@@ -217,7 +218,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (tracked && error instanceof ApiClientError && error.kind === 'http' && error.status !== null && error.status < 500 && error.code !== null && !/UNKNOWN|IN_PROGRESS/.test(error.code)) settleCommand(key);
     if (tracked && pendingForScope(scope) !== undefined) throw new ApiClientError({ kind: 'protocol', message: `结果待核对：${errorMessage(error)} 原请求号 ${key}。`, details: { requestKey: key } });
     throw error;
-  }
+  } finally { if (tracked) setCommandInFlight(key, false); }
 }
 
 export function apiGet<T>(path: string, options: Omit<RequestOptions, 'method' | 'body'> = {}): Promise<ApiEnvelope<T>> {

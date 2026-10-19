@@ -4,10 +4,20 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
-import { AppError, ErrorCode, createRequestKey } from '@agent-workflow/shared';
+import { AppError, ErrorCode, DEFAULT_SETTINGS, createRequestKey } from '@agent-workflow/shared';
 import { createApplication, OpenCodeAdapter } from '../../packages/server/src/index.ts';
 import { methodToGraph } from '../../packages/engine/src/graph.ts';
 import { registerRuntimeOperationRoutes } from '../../packages/server/src/runtime-operations.ts';
+
+test('disabled auto-start retains a managed stopped runtime and creates no manual operation', async () => {
+  const app = await createApplication({ dataDir: mkdtempSync(join(tmpdir(), 'aw-runtime-manual-')), disableListen: true, settings: { opencode: { ...DEFAULT_SETTINGS.opencode, autoStart: false, binaryPath: '/nonexistent/agent-workflow-test-opencode' } } });
+  try {
+    assert.ok(app.adapter, 'manual mode still creates a managed adapter');
+    assert.equal(app.adapter.status().state, 'stopped');
+    assert.equal(app.adapter.status().pid, undefined);
+    assert.deepEqual(app.store.operations.listRecentFor(['opencode.start', 'opencode.restart']), []);
+  } finally { await app.close(); }
+});
 
 test('published role preview uses exact revision and slot, never draft; usage/images are real catalogs', async () => {
   const app = await createApplication({ dataDir: mkdtempSync(join(tmpdir(), 'aw-insights-')), disableListen: true, disableOpenCode: true });

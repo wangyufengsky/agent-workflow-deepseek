@@ -43,7 +43,6 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
   const [runtimeDraft, setRuntimeDraft] = useState({
     enabled: settings.opencode.enabled,
     autoStart: settings.opencode.autoStart,
-    permissionMode: settings.opencode.permissionMode,
     agent: settings.opencode.agent,
   });
   const statusQuery = useOpenCodeStatus();
@@ -69,7 +68,7 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
       if (runtimeDraft.agent.trim() === '') throw new Error('Agent 名称不能为空');
       await request('/api/settings', {
         method: 'PATCH',
-        body: { requestKey: createRequestKey(), patch: { opencode: { enabled: runtimeDraft.enabled, autoStart: runtimeDraft.autoStart, permissionMode: runtimeDraft.permissionMode, agent: runtimeDraft.agent.trim() } } },
+        body: { requestKey: createRequestKey(), patch: { opencode: { enabled: runtimeDraft.enabled, autoStart: runtimeDraft.autoStart, agent: runtimeDraft.agent.trim() } } },
       });
     },
     onSuccess: invalidate,
@@ -184,15 +183,8 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
                 自动启动
               </label>
             </div>
+            <p className="hint">工具权限由职业、项目工具策略与当前任务授权共同确定；运行中请求在待处理中心答复。</p>
             <div className="row wrap" style={{ gap: 12 }}>
-              <label className="row" style={{ gap: 6, whiteSpace: 'nowrap' }}>
-                权限
-                <select className="select" style={{ width: 200 }} value={runtimeDraft.permissionMode} onChange={(event) => { setRuntimeDraft({ ...runtimeDraft, permissionMode: event.target.value as typeof runtimeDraft.permissionMode }); }}>
-                  <option value="ask">ask（逐项询问）</option>
-                  <option value="allow">allow（自动允许受控工具）</option>
-                  <option value="deny">deny（全部拒绝）</option>
-                </select>
-              </label>
               <label className="row" style={{ gap: 6, whiteSpace: 'nowrap' }}>
                 Agent
                 <input className="input" style={{ width: 120 }} value={runtimeDraft.agent} onChange={(event) => { setRuntimeDraft({ ...runtimeDraft, agent: event.target.value }); }} />

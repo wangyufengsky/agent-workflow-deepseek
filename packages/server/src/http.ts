@@ -1067,7 +1067,9 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     const projectId = request.query.projectId ?? '';
     return envelope({ conversation: engine.knowledge.conversations.get(projectId, request.params.id), entries: engine.knowledge.history(projectId).entries.filter((entry) => entry.conversationId === request.params.id) }, requestId(request));
   });
-  for (const action of ['rename','archive','restore'] as const) app.post<{ Params: { id: string } }>(`/api/knowledge/conversations/:id/${action}`, async (request) => envelope(engine.knowledge.conversations.update(request.params.id, action, request.body as import('@agent-workflow/shared').KnowledgeConversationCommand), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/knowledge/conversations/:id/rename', async (request) => envelope(engine.knowledge.conversations.update(request.params.id, 'rename', request.body as import('@agent-workflow/shared').KnowledgeConversationCommand), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/knowledge/conversations/:id/archive', async (request) => envelope(engine.knowledge.conversations.update(request.params.id, 'archive', request.body as import('@agent-workflow/shared').KnowledgeConversationCommand), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/knowledge/conversations/:id/restore', async (request) => envelope(engine.knowledge.conversations.update(request.params.id, 'restore', request.body as import('@agent-workflow/shared').KnowledgeConversationCommand), requestId(request)));
   app.get<{ Params: { id: string } }>('/api/skills/:id/source', async (request) => {
     try {
       return envelope(readSkillSource(request.params.id), requestId(request));

@@ -29,3 +29,5 @@ Chrome CUA连接独立实际服务5517/Web5513和真实临时Git/manifest：
 截图：/tmp/project-stack-list.png、/tmp/project-stack-detail-source.png、/tmp/project-stack-recheck-vue.png。本批未做四主题三尺寸/所有文件系统竞争GUI验收；严格路径/恶意输入由针对测试覆盖。
 
 另只报告未扩范围：项目GitLab配置卡“证据来源配置服务未提供”需要下一独立包按设计具体行为核对；Lead当前Charter真实上下文读取批与本批不交叉。
+
+Lead已保留三张真实CUA截图到 `docs/evidence/project-technology-2026-10-20/`；该基线证据来源配置的旧禁用提示由后续项目证据来源批次继续修复。

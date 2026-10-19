@@ -11,8 +11,8 @@ export function PendingCommands() {
   const [checking, setChecking] = useState(false);
   useEffect(() => subscribePending(() => setCommands(pendingCommands())), []);
   if (commands.length === 0) return null;
-  const unknown = commands.some((command) => command.phase !== 'accepted');
-  return <div className={`banner ${unknown ? 'unknown' : 'info'}`} role={unknown ? 'alert' : 'status'}><Icon name={unknown ? 'help' : 'clock'} /><div className="grow"><b>{unknown ? '操作结果待核对' : '请求已受理，等待完成'}</b>{commands.map((command) => <div key={command.requestKey}>{command.phase === 'accepted' ? '已受理' : '待核对'} · 请求号 {command.requestKey}</div>)}{message}</div><Button disabled={checking} onClick={() => {
+  const unknown = commands.some((command) => command.phase !== 'accepted' && command.phase !== 'sending');
+  return <div className={`banner ${unknown ? 'unknown' : 'info'}`} role={unknown ? 'alert' : 'status'}><Icon name={unknown ? 'help' : 'clock'} /><div className="grow"><b>{unknown ? '操作结果待核对' : commands.some((command) => command.phase === 'sending') ? '正在发送请求，等待回执' : '请求已受理，等待完成'}</b>{commands.map((command) => <div key={command.requestKey}>{command.phase === 'sending' ? '发送中' : command.phase === 'accepted' ? '已受理' : '待核对'} · 请求号 {command.requestKey}</div>)}{message}</div><Button disabled={checking} onClick={() => {
     setChecking(true);
     void Promise.all(commands.map(async (command) => {
       const response = await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(command.requestKey));

@@ -28,3 +28,5 @@
 本机证据 `/tmp/p08-page-evidence/`：`live-partial-second.json`、`real-stop-receipt.json`、`real-stopped-work.json`；`real-one-complete-one-generating-one-waiting.png`、`real-completed.png`、`real-stopped-final.png`、`real-stopped-warm.png`、`real-stopped-spdb.png`、`real-stopped-github-white.png`、`real-partial-export-disabled.png`。运行数据、截图和个人路径不作为产品配置提交。
 
 本轮没有重新执行原生Electron PDF导出；此前PDF／助手应用真实证据见 `ppt-assistant-pdf-2026-10-20.md`。本轮助手并行、故障与重启是离线可控回归，不能冒充本轮真实助手模型或原生桌面验收。未执行全仓测试，由Lead整合回归。
+
+Lead已将上述逐页/停止/四主题/导出禁用截图复制到 `docs/evidence/ppt-page-progress-2026-10-20/` 便于长期复查；运行数据仍仅保留本机。

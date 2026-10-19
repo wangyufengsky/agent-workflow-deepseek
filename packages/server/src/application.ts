@@ -209,7 +209,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
       });
       opencodeRef.current = adapter;
       // Start in the background: the HTTP API must be reachable immediately.
-      void adapter.ensureReady().catch((error: unknown) => {
+      if (baseSettings.opencode.autoStart) void adapter.ensureReady().catch((error: unknown) => {
         const message = error instanceof Error ? error.message : 'OpenCode 启动失败';
         store.events.publish('opencode.status.changed', { status: 'failed', message });
       });

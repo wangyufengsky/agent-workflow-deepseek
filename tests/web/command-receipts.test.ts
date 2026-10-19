@@ -55,6 +55,17 @@ test('original lookup distinguishes an accepted request from an unknown result w
   assert.equal(writes, 1);
 });
 
+test('an in-flight write shows sending only in this page lifetime, then a lost response remains unknown', async () => {
+  let rejectResponse: ((error: Error) => void) | undefined;
+  globalThis.fetch = async () => new Promise<Response>((_resolve, reject) => { rejectResponse = reject; });
+  const pending = request('/api/opencode/start', { method: 'POST', body: { requestKey: 'runtime-sending' } });
+  assert.equal(pendingCommands()[0]?.phase, 'sending');
+  assert.equal(JSON.parse([...values.values()][0] ?? '[]')[0]?.phase, undefined);
+  rejectResponse!(new Error('connection lost'));
+  await assert.rejects(pending, /runtime-sending/);
+  assert.equal(pendingCommands()[0]?.phase, undefined);
+});
+
 test('valid envelope without receipt retains key; create project and task are tracked too', async () => {
   globalThis.fetch = async () => envelope({});
   await assert.rejects(request('/api/projects', { method: 'POST', body: { requestKey: 'missing-receipt' } }), /missing-receipt/);
