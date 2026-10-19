@@ -293,6 +293,10 @@ export interface PptWorkExportResponse {
   readonly content: string;
 }
 
+export interface PptWorkGenerateContentRequest extends CommandRequest {
+  readonly confirmGenerate: true;
+}
+
 export interface PptWorkUpdateRequest extends CommandRequest {
   readonly title?: string;
   readonly topic?: string;
@@ -917,6 +921,7 @@ export const ROUTES = {
   taskDetail: (id: string) => `/api/tasks/${encodeURIComponent(id)}/detail`,
   pptWorks: '/api/ppt/works',
   pptWork: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
+  pptWorkGenerateSlides: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate-slides`,
   pptWorkExport: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/export`,
   pptWorkUpdate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}`,
   pptWorkGenerate: (id: string) => `/api/ppt/works/${encodeURIComponent(id)}/generate`,

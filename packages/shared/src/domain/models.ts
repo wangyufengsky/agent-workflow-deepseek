@@ -962,6 +962,11 @@ export interface FixRun {
   readonly actions: Record<string, ActionAvailability>;
 }
 
+export interface PptSlide {
+  readonly title: string;
+  readonly bullets: readonly string[];
+}
+
 export interface PptWork {
   readonly id: string;
   readonly projectId?: ProjectId;
@@ -969,6 +974,7 @@ export interface PptWork {
   readonly topic: string;
   readonly status: PptWorkStatusValue;
   readonly outline: readonly string[];
+  readonly slides: readonly PptSlide[];
   readonly createdAt: IsoDateTime;
   readonly updatedAt: IsoDateTime;
 }

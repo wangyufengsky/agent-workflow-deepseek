@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppError, ErrorCode, nowIso, type CommandResponse, type PptWork, type PptWorkCreateRequest, type PptWorkGenerateRequest,
-  type PptWorkUpdateRequest, type PptWorksResponse } from '@agent-workflow/shared';
+  type PptWorkUpdateRequest,
+  type PptWorkGenerateContentRequest,
+  type PptSlide, type PptWorksResponse } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { CommandService } from './operations.ts';
 import type { EngineContext } from './actions.ts';
@@ -74,6 +76,49 @@ export class PptService {
     const updated = this.#store.pptWorks.update({ ...work, title, topic, outline });
     this.#commands.settle(input.requestKey, { workId: id, slides: outline.length });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
+  }
+
+  async generateSlides(id: string, input: PptWorkGenerateContentRequest): Promise<CommandResponse<PptWork>> {
+    if (input?.confirmGenerate !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '生成逐页内容需要显式确认');
+    const work = this.#store.pptWorks.get(id);
+    if (work === undefined) throw new AppError(ErrorCode.NOT_FOUND, 'PPT 草稿不存在');
+    if (work.outline.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '先生成或编辑大纲');
+    if (this.#context.opencodeReady() !== true) throw new AppError(ErrorCode.OPENCODE_NOT_READY, '受管 OpenCode 未就绪，无法生成逐页内容');
+    const model = this.#context.settings().models.find((item) => item.enabled && item.roles.includes('planner')) ?? this.#context.settings().models.find((item) => item.enabled);
+    if (model === undefined) throw new AppError(ErrorCode.MODEL_NOT_CONFIGURED, '没有启用的模型可用于 PPT 内容');
+    const { replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'ppt.work.slides',
+      body: { workId: id, outline: work.outline },
+      target: { ref: id },
+    });
+    if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
+    this.#store.pptWorks.update({ ...work, status: 'generating' });
+    try {
+      const documents = work.projectId === undefined ? [] : this.#documents(work.projectId);
+      const result = await this.#opencode.runSession({
+        kind: 'review',
+        metadata: { ...(work.projectId === undefined ? {} : { projectId: work.projectId }), pptWorkId: id, purpose: 'ppt.slides' },
+        cwd: this.#store.projects.get(work.projectId ?? '')?.rootPath ?? this.#store.dataDir,
+        prompt: `演示标题：${work.title}\n主题：${work.topic}\n大纲：\n${work.outline.map((slide, index) => `${String(index + 1)}. ${slide}`).join('\n')}\n\n项目资料：\n${documents.join('\n\n') || '（无）'}`,
+        system: '你是演示内容助手。只输出 JSON：{"slides":[{"title":"页标题","bullets":["要点1","要点2"]}]}，与给定大纲一一对应，每页 2–6 条要点，不要 Markdown。',
+        model,
+        permission: 'read_only',
+        sink: {},
+        timeoutMs: 120_000,
+      });
+      if (result.outcome.timedOut) throw new AppError(ErrorCode.MODEL_BUDGET_EXCEEDED, '逐页内容生成超时');
+      if (result.outcome.error !== undefined && result.outcome.error !== '') throw new AppError(ErrorCode.OPENCODE_PROVIDER_FAILED, `逐页生成失败：${result.outcome.error}`);
+      const slides = extractSlides(result.outcome.assistantText ?? '');
+      if (slides.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '模型输出没有可用逐页内容');
+      const updated = this.#store.pptWorks.update({ ...work, status: 'ready', slides });
+      this.#commands.settle(input.requestKey, { workId: id, slides: slides.length });
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
+    } catch (error) {
+      this.#store.pptWorks.update({ ...work, status: 'failed' });
+      this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('逐页内容生成失败'));
+      throw error;
+    }
   }
 
   async generate(id: string, input: PptWorkGenerateRequest): Promise<CommandResponse<PptWork>> {
@@ -156,6 +201,27 @@ function extractOutline(text: string): readonly string[] {
     const parsed = JSON.parse(text.slice(start, end + 1)) as { outline?: unknown };
     if (!Array.isArray(parsed.outline)) return [];
     return parsed.outline.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+
+function extractSlides(text: string): readonly PptSlide[] {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return [];
+  try {
+    const parsed = JSON.parse(text.slice(start, end + 1)) as { slides?: unknown };
+    if (!Array.isArray(parsed.slides)) return [];
+    return parsed.slides
+      .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object' && typeof (item as { title?: unknown }).title === 'string')
+      .map((item) => ({
+        title: String(item.title).slice(0, 200),
+        bullets: Array.isArray(item.bullets) ? item.bullets.filter((bullet): bullet is string => typeof bullet === 'string' && bullet.trim() !== '').map((bullet) => bullet.trim().slice(0, 300)).slice(0, 8) : [],
+      }))
+      .filter((slide) => slide.title !== '')
+      .slice(0, 24);
   } catch {
     return [];
   }

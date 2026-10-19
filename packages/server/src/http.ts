@@ -12,6 +12,7 @@ import type {
   KnowledgeAskRequest,
   PptWorkCreateRequest,
   PptWorkGenerateRequest,
+  PptWorkGenerateContentRequest,
   PptWorkUpdateRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
@@ -522,6 +523,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(engine.ppt.create(body), requestId(request));
   });
   app.get<{ Params: { id: string } }>('/api/ppt/works/:id/export', async (request) => envelope(engine.ppt.exportMarkdown(request.params.id), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/ppt/works/:id/generate-slides', async (request) => {
+    const body = request.body as PptWorkGenerateContentRequest;
+    return envelope(await engine.ppt.generateSlides(request.params.id, body), requestId(request));
+  });
   app.patch<{ Params: { id: string } }>('/api/ppt/works/:id', async (request) => {
     const body = request.body as PptWorkUpdateRequest;
     return envelope(engine.ppt.update(request.params.id, body), requestId(request));

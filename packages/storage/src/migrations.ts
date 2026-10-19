@@ -328,4 +328,11 @@ CREATE TABLE IF NOT EXISTS ppt_works (
 );
 `,
   },
+  {
+    version: 4,
+    name: 'ppt_slides',
+    sql: `
+ALTER TABLE ppt_works ADD COLUMN slides_json TEXT NOT NULL DEFAULT '[]';
+`,
+  },
 ];

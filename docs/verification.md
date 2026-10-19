@@ -42,7 +42,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
 | server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
-| server/ppt | PPT 草稿创建/列表/编辑大纲/删除/Markdown 导出；真实模型生成大纲（12 页 live PASS） |
+| server/ppt | PPT 草稿 CRUD/大纲编辑/Markdown 导出；真实模型生成大纲 + 逐页要点（12 页 live PASS） |
 | server/templates | 固定模板详情/任务数/JSON 导出；按模板生成计划（template source，5 步/4 边）；按模板查历史 |
 | server/settings | 断连轮询间隔持久化/校验、模型档案启停、工具集启停（非空/合法校验）、数据库概览跳转；任务页轮询使用该设置 |
 | mcp/runtime | 工具集过滤：只注入启用前缀的工具；空/未知工具集回退默认；设置经 AGENT_WORKFLOW_TOOLSETS 注入 |
@@ -71,8 +71,8 @@ flash 模型返回答案并给出 `README.md:3`、`README.md:4` 两条引用（�
 
 ## 2.7 PPT 大纲生成（真实模型，PASS）
 
-`AGENT_WORKFLOW_LIVE=1 tests/integration/ppt-live.test.ts`：草稿“季度汇报/交付质量计划” → flash 模型生成 12 页大纲并落库，
-列表读取一致，**PASS 16s**。仅生成大纲，逐页视觉/文件导出未实现。
+`AGENT_WORKFLOW_LIVE=1 tests/integration/ppt-live.test.ts`：草稿“季度汇报/交付质量计划” → flash 模型生成 12 页大纲，
+再生成逐页标题+要点（每页 2–6 条）并落库，列表读取一致，**PASS 32s**。PPTX 视觉/文件导出未实现。
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
