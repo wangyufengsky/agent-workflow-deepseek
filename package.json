@@ -2,7 +2,7 @@
   "name": "agent-workflow",
   "private": true,
   "version": "0.1.0",
-  "description": "Agent Workflow — local AI development workflow desktop app",
+  "description": "Agent Workflow \u2014 local AI development workflow desktop app",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -32,7 +32,9 @@
     "build:mcp": "node scripts/build-mcp.mjs",
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "dist": "npm run build && electron-builder --config electron-builder.yml",
-    "dist:dir": "npm run build && electron-builder --dir --config electron-builder.yml"
+    "dist:dir": "npm run build && electron-builder --dir --config electron-builder.yml",
+    "ui:capture": "env -u ELECTRON_RUN_AS_NODE electron scripts/capture-ui.cjs",
+    "ui:smoke": "env -u ELECTRON_RUN_AS_NODE electron scripts/capture-ui.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

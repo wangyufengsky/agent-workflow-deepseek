@@ -264,6 +264,6 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 
 ### 第 77 轮 UI 截图冒烟（2026-10-19）
 
-`npx electron scripts/capture-ui.cjs`：以真实服务（隔离数据目录 + 演示 Git 仓库）渲染并截图 10 个路由：
+`npm run ui:smoke`（即 `env -u ELECTRON_RUN_AS_NODE electron scripts/capture-ui.cjs`）：以真实服务（隔离数据目录 + 演示 Git 仓库）渲染、断言并截图 10 个路由：
 `/`、`/tasks`、`/requirement/:id`、`/tasks/:id`、`/start`、`/git`、`/settings` 以及 3 个非默认主题首页。
-全部页面成功渲染；`evidence/ui-git.png`、`ui-requirement-canvas.png`、`ui-settings.png`、`ui-task-canvas.png` 已更新为当前实现。
+断言每个页面的期望文案非空且存在，并校验主题 `data-theme`；全部通过；`evidence/ui-git.png`、`ui-requirement-canvas.png`、`ui-settings.png`、`ui-task-canvas.png` 已更新为当前实现。

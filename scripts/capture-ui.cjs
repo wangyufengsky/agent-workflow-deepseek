@@ -112,12 +112,24 @@ async function seed() {
   return { projectId, taskId, task2Id: task2.data.resource.task.id };
 }
 
-async function capture(window, url, file, waitMs = 2600) {
+async function capture(window, url, file, options = {}) {
+  const { waitMs = 2600, expect = [], theme } = options;
   await window.loadURL(`${base}${url}`);
   await sleep(waitMs);
+  const text = await window.webContents.executeJavaScript('document.body.innerText');
+  if (typeof text !== 'string' || text.trim().length < 20) {
+    throw new Error(`UI smoke: ${url} rendered an empty page`);
+  }
+  for (const phrase of expect) {
+    if (!text.includes(phrase)) throw new Error(`UI smoke: ${url} is missing expected text: ${phrase}`);
+  }
+  if (theme !== undefined) {
+    const actual = await window.webContents.executeJavaScript('document.documentElement.dataset.theme');
+    if (actual !== theme) throw new Error(`UI smoke: ${url} theme expected ${theme}, got ${String(actual)}`);
+  }
   const image = await window.webContents.capturePage();
   writeFileSync(join(evidenceDir, file), image.toPNG());
-  console.log(`[capture] ${url} → evidence/${file}`);
+  console.log(`[smoke] ${url} ok (${expect.join('/') || 'render'}) → evidence/${file}`);
 }
 
 async function main() {
@@ -156,16 +168,16 @@ async function main() {
       show: false,
       webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false },
     });
-    await capture(window, '/', 'ui-home-deepseek.png');
-    await capture(window, '/tasks', 'ui-tasks-deepseek.png');
-    await capture(window, `/requirement/${seeded.taskId}`, 'ui-requirement-canvas.png');
-    await capture(window, `/tasks/${seeded.taskId}`, 'ui-task-canvas.png');
-    await capture(window, '/start', 'ui-start.png');
-    await capture(window, '/git', 'ui-git.png');
-    await capture(window, '/settings', 'ui-settings.png');
-    await capture(window, '/?theme=warm', 'ui-home-warm.png');
-    await capture(window, '/?theme=spdb', 'ui-home-spdb.png');
-    await capture(window, '/?theme=github-white', 'ui-home-github-white.png');
+    await capture(window, '/', 'ui-home-deepseek.png', { expect: ['工作区', '主页'], theme: 'deepseek' });
+    await capture(window, '/tasks', 'ui-tasks-deepseek.png', { expect: ['任务列表'] });
+    await capture(window, `/requirement/${seeded.taskId}`, 'ui-requirement-canvas.png', { expect: ['需求'] });
+    await capture(window, `/tasks/${seeded.taskId}`, 'ui-task-canvas.png', { expect: ['执行面板', '开始执行'] });
+    await capture(window, '/start', 'ui-start.png', { expect: ['开始任务'] });
+    await capture(window, '/git', 'ui-git.png', { expect: ['Git'] });
+    await capture(window, '/settings', 'ui-settings.png', { expect: ['设置'] });
+    await capture(window, '/?theme=warm', 'ui-home-warm.png', { expect: ['工作区'], theme: 'warm' });
+    await capture(window, '/?theme=spdb', 'ui-home-spdb.png', { expect: ['工作区'], theme: 'spdb' });
+    await capture(window, '/?theme=github-white', 'ui-home-github-white.png', { expect: ['工作区'], theme: 'github-white' });
     window.destroy();
   } finally {
     server?.kill('SIGTERM');
