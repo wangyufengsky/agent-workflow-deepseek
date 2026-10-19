@@ -1,3 +1,4 @@
+import { ProjectBranchValue, ProjectTechnologyValue } from './ProjectFacts.tsx';
 import './projects.css';
 import { useNavigate } from 'react-router-dom';
 import { useMemo, useState, type ReactNode } from 'react';
@@ -98,12 +99,16 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
         </p>
       )}
 
-      <div className="grid-3" style={{ gap: 8 }}>
+      <div className="grid-2" style={{ gap: 8 }}>
         <div>
-          <div className="eyebrow">分支</div>
+          <div className="eyebrow">当前分支</div>
           <div className="mono" style={{ fontSize: 13 }}>
-            {project.defaultBranch ?? '—'}
+            <ProjectBranchValue project={project} />
           </div>
+        </div>
+        <div>
+          <div className="eyebrow">技术栈</div>
+          <div style={{ fontSize: 13 }}><ProjectTechnologyValue project={project} /></div>
         </div>
         <div>
           <div className="eyebrow">进行中任务</div>
@@ -119,6 +124,7 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
         </div>
       </div>
 
+      {project.facts ? <p className="hint">事实检测于 {new Date(project.facts.technology.checkedAt).toLocaleString('zh-CN')} · 重新检测可更新</p> : <p className="hint">技术栈与当前分支待识别；可重新检测</p>}
       {project.remoteDisplayUrl === undefined ? null : (
         <div className="hint mono" style={{ overflowWrap: 'anywhere' }}>
           <Icon name="link" size="sm" /> {project.remoteDisplayUrl}

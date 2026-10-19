@@ -101,7 +101,22 @@ export interface ProjectSettings {
   readonly gitlab?: ProjectGitlabSettings;
 }
 
+export interface ProjectTechnology {
+  readonly state: import('./enums.ts').ProjectTechnologyStateValue;
+  readonly technologies: readonly string[];
+  readonly sources: readonly { readonly path: string; readonly sha256: string; readonly bytes: number; readonly technologies: readonly string[] }[];
+  readonly checkedAt: IsoDateTime;
+  readonly warnings: readonly string[];
+  readonly truncated: boolean;
+  readonly reason?: string;
+}
+export interface ProjectFacts {
+  readonly technology: ProjectTechnology;
+  readonly branch: { readonly checkedAt: IsoDateTime; readonly kind?: 'branch' | 'detached' | 'unborn'; readonly name?: string; readonly sha?: string; readonly reason?: string };
+}
+
 export interface Project {
+  readonly facts?: ProjectFacts;
   readonly id: ProjectId;
   readonly name: string;
   readonly description: string;

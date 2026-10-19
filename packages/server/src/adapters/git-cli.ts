@@ -139,6 +139,17 @@ export class GitCliAdapter implements GitPort {
     return 'main';
   }
 
+  async head(rootPath: string): Promise<NonNullable<GitRepo['status']>['head']> {
+    const [symbolic, commit] = await Promise.all([
+      this.#run(['symbolic-ref', '--quiet', '--short', 'HEAD'], rootPath).catch(() => undefined),
+      this.#run(['rev-parse', '--verify', 'HEAD^{commit}'], rootPath).catch(() => undefined),
+    ]);
+    const branch = symbolic?.stdout.trim(); const sha = commit?.stdout.trim();
+    if (branch) return sha && /^[a-f0-9]{40,64}$/.test(sha) ? { kind: 'branch', branch, sha } : { kind: 'unborn', branch };
+    if (sha && /^[a-f0-9]{40,64}$/.test(sha)) return { kind: 'detached', sha };
+    throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '无法读取 Git HEAD');
+  }
+
   async status(rootPath: string): Promise<GitRepo['status'] | undefined> {
     const headSha = await this.#run(['rev-parse', 'HEAD'], rootPath).catch(() => undefined);
     if (headSha === undefined) {

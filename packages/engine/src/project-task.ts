@@ -1,3 +1,4 @@
+import { detectProjectTechnology } from './project-technology.ts';
 import { isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview, isPlanningQuestionAnswered, type RuntimeInteraction } from '@agent-workflow/shared';
 import { captureCharterContext, readCharterSource } from './project-charter-context.ts';
 import { runtimeTaskAttention } from './runtime-interactions.ts';
@@ -64,7 +65,7 @@ export class ProjectService {
   }
 
   list(includeArchived = false): readonly ProjectSummary[] {
-    return this.#store.projects.listSummaries(includeArchived);
+    return this.#store.projects.listSummaries(includeArchived).map((project) => this.#withFacts(project));
   }
 
   async sourcePath(projectId: string, picked: string): Promise<{ path: string }> {
@@ -80,7 +81,16 @@ export class ProjectService {
   get(projectId: string): ProjectSummary {
     const project = this.#store.projects.listSummaries(true).find((item) => item.id === projectId);
     if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
-    return project;
+    return this.#withFacts(project);
+  }
+
+  #withFacts(project: ProjectSummary): ProjectSummary { return { ...project, facts: this.#store.settings.getJson<import('@agent-workflow/shared').ProjectFacts>(`project.facts.${project.id}`) }; }
+
+  async #refreshFacts(projectId: string, rootPath: string, gitState: ProjectSummary['gitState']): Promise<void> {
+    const technology = await detectProjectTechnology(rootPath);
+    let branch: import('@agent-workflow/shared').ProjectFacts['branch'] = { checkedAt: nowIso(), reason: gitState === 'not_git' ? '非 Git 项目，直接执行目录' : '当前分支未能读取' };
+    if (gitState === 'git') { try { const head = await this.#git.head?.(rootPath); if (head) branch = { checkedAt: nowIso(), kind: head.kind, name: head.branch, sha: head.sha }; } catch { /* A branch read failure never substitutes the default branch. */ } }
+    this.#store.settings.putJson(`project.facts.${projectId}`, { technology, branch });
   }
 
   async register(input: CreateProjectRequest): Promise<CommandResponse<ProjectDetailResponse>> {
@@ -117,6 +127,7 @@ export class ProjectService {
         defaultBranch: detection.defaultBranch,
         remote: detection.remoteDisplayUrl === undefined ? undefined : { name: 'origin', displayUrl: detection.remoteDisplayUrl },
       });
+      await this.#refreshFacts(project.id, rootPath, detection.gitState);
       this.#store.events.publish('task.changed', { taskId: '', projectId: project.id, stage: 'draft', revision: 0 });
       this.#commands.settle(input.requestKey, { projectId: project.id });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.detail(project.id) };
@@ -181,6 +192,7 @@ export class ProjectService {
         defaultBranch: detection.defaultBranch,
         remoteDisplayUrl: detection.remoteDisplayUrl,
       });
+      await this.#refreshFacts(projectId, project.rootPath, detection.gitState);
       this.#commands.settle(input.requestKey, { projectId, gitState: detection.gitState });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.detail(projectId) };
     } catch (error) {

@@ -84,6 +84,8 @@ export interface RemotePort {
 }
 
 export interface GitPort {
+  /** Read refs only; must not run status/fsmonitor or project code. */
+  head?(rootPath: string): Promise<NonNullable<GitRepo['status']>['head'] | undefined>;
   snapshotInventory?(input: { readonly repoRoot: string; readonly targetRef: string; readonly baselineRef?: string }): Promise<import('@agent-workflow/shared').GitSnapshotInventory>;
   snapshotFile?(repoRoot: string, blobSha: string): Promise<string>;
   detect(rootPath: string): Promise<GitRepoDetection>;

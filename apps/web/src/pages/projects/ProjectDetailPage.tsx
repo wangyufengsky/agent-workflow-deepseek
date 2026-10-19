@@ -1,3 +1,4 @@
+import { ProjectBranchValue, ProjectTechnologyValue } from './ProjectFacts.tsx';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -439,7 +440,7 @@ function GitTab({
       <dt>Git 状态</dt>
       <dd><GitStateBadge gitState={gitState} /></dd>
       <dt>当前分支</dt>
-      <dd className="mono">{repo?.status?.head.branch ?? repo?.defaultBranch ?? '未知'}</dd>
+      <dd className="mono">{repo?.status?.head.kind === 'detached' ? '分离 HEAD' : repo?.status?.head.branch ?? '未知'}</dd>
       <dt>HEAD</dt>
       <dd className="mono">{repo?.status?.head.kind === 'detached' ? '分离 HEAD' : repo?.status?.head.sha?.slice(0, 12) ?? '未知'}</dd>
       <dt>上游</dt>
@@ -1492,7 +1493,9 @@ export function ProjectDetailPage() {
                 <dt>说明</dt>
                 <dd>{project.description.trim().length === 0 ? <span className="muted">未填写</span> : project.description}</dd>
                 <dt>当前分支</dt>
-                <dd className="mono">{project.defaultBranch ?? '未知'}</dd>
+                <dd className="mono"><ProjectBranchValue project={project} /></dd>
+                <dt>技术栈</dt>
+                <dd><ProjectTechnologyValue project={project} detailed /></dd>
                 <dt>Git 状态</dt>
                 <dd>{GIT_STATE_LABEL[project.gitState]}{gitStateDetail === undefined ? '' : ` · ${gitStateDetail}`}</dd>
                 <dt>Git Provider</dt>

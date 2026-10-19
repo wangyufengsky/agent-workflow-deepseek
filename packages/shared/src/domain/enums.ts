@@ -841,3 +841,6 @@ export const SourceEvidenceStage = { PREPARE: 'prepare', WRITE: 'write', REVIEW:
 export type SourceEvidenceStageValue = (typeof SourceEvidenceStage)[keyof typeof SourceEvidenceStage];
 export const TestCaseStatus = { PASSED: 'passed', FAILED: 'failed', SKIPPED: 'skipped' } as const;
 export type TestCaseStatusValue = (typeof TestCaseStatus)[keyof typeof TestCaseStatus];
+
+export const ProjectTechnologyState = { DETECTED: 'detected', UNKNOWN: 'unknown', UNAVAILABLE: 'unavailable' } as const;
+export type ProjectTechnologyStateValue = (typeof ProjectTechnologyState)[keyof typeof ProjectTechnologyState];
