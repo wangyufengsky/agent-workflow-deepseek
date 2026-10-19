@@ -101,9 +101,9 @@ AGENT_WORKFLOW_LIVE=1 node --import tsx --test --test-force-exit tests/integrati
 ```
 
 结果（PASS，25s）：构造真实 finding → 在 `ai-fix/*` 隔离 worktree 内用 MCP 文件工具修复 →
-outcome=fixed(exact)、`app.ts` 为唯一变更 → `fixes/:id/commit` 成功 → discard 清理 worktree、本地分支与
-`fix.worktree.<id>` 映射；用户工作区未被触碰（独立测试同样覆盖）。修复分支可直接合并回基线：
-`POST /fixes/:id/merge`（no-ff + 目标 tip CAS；二次合并与漂移拒绝），离线测试覆盖。
+outcome=fixed(exact)、`app.ts` 为唯一变更 → `fixes/:id/commit` 成功 → `fixes/:id/merge` 在真实仓库把修复分支
+合并回 main（verify merge commit 出现在 main 历史）→ discard 清理 worktree、本地分支与 `fix.worktree.<id>` 映射；
+用户工作区未被触碰。真实 live 36s PASS。
 
 ### 3.5 真实 MySQL（PASS）
 

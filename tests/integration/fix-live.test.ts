@@ -132,6 +132,19 @@ test('live: AI fix produces an isolated worktree change, commits it, then discar
     const afterCommit = commit.json().data.fix as FixRun;
     assert.ok(afterCommit.steps.some((step) => step.step === 'commit' && step.state === 'succeeded'));
 
+    const merge = await app.app.inject({
+      method: 'POST',
+      url: `/api/git/repos/${projectId}/fixes/${fixRunId}/merge`,
+      payload: { requestKey: requestKey(), projectId, fixRunId, expectedBaseTip: repo.head, confirmMerge: true },
+    });
+    assert.equal(merge.statusCode, 200, merge.body);
+    const mergedFix = merge.json().data.resource.fix as FixRun;
+    const mergeStep = mergedFix.steps.find((step) => step.step === 'merge');
+    assert.equal(mergeStep?.state, 'succeeded');
+    assert.ok(mergeStep?.commitSha !== undefined);
+    const mainLog = execFileSync('git', ['log', '--oneline', 'main'], { cwd: repo.root }).toString();
+    assert.ok(mainLog.includes(mergeStep.commitSha.slice(0, 7)));
+
     const discard = await app.app.inject({
       method: 'POST',
       url: `/api/git/repos/${projectId}/fixes/${fixRunId}/discard`,
