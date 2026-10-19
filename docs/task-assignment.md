@@ -206,14 +206,14 @@ npm run build:server
 | P02 | R02/R03 | 职业继承、修订冻结、指令/模型/时限/资源权限执行 | role_execution_parity | in_progress | 待派发与权限验证 |
 | P03 | R04/R05 | 幂等及全前端丢回执锁定/恢复 | Lead + design_acceptance_inventory | in_progress | 核心域/HTTP/项目/角色/模板原回执防重已整合，真实文件不覆写回归通过；完整断线GUI继续 |
 | P04 | R06 | 知识来源、实时研究、停止/继续、会话管理 | role_execution_parity + Lead | in_progress | 冻结代码/文档/数据库/网络来源与原会话恢复已整合；许可/模型UI已整合，真实知识问答/引用通过；全状态验收继续 |
-| P05 | R07 | 公约生成、项目 GitLab、文档路径生效 | design_acceptance_inventory | in_progress | 待服务/界面验证 |
+| P05 | R07 | 公约生成、项目 GitLab、文档路径生效 | Lead + role_execution_parity | in_progress | 公约实际快照与真实模型/GUI写入通过；技术栈/当前分支通过；项目证据来源契约继续 |
 | P06 | R08 | 快照评审模式、阶段报告、读取/下载 | role_execution_parity | in_progress | 两批已整合，真实Git/blob范围及离线调用回归通过；真实模型/专门阅读GUI待验收 |
 | P07 | R09 | 流程图编辑、并行/连线、模板/缩放/版本差异 | execution_parity | in_progress | 图编辑与执行计划重绑定已整合；真实GUI保存/历史/拖动及实际调度回归通过，完整状态待验收 |
-| P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | design_acceptance_inventory | in_progress | 真实助手候选/明确应用、原生PDF/PPTX保存/取消/文件核验已整合；三栏与三页签已修复；逐页生成持久状态继续 |
+| P08 | R10 | PPT 简报/视觉方向/检查/作品管理 | design_acceptance_inventory | in_progress | 真实助手候选/明确应用、原生PDF/PPTX保存/取消/文件核验已整合；三栏与三页签已修复；逐页真实制作与第二轮停止2/3、四主题保留已通过 |
 | P09 | R11/R12 | 节点产物、工具详情、引用、运行内容接口 | Lead | in_progress | 专门报告/批次与历史节点阅读已整合，撤权同步隐藏与报告下载鉴权回归通过；新合同逐文件证据、真实5步/3项JUnit/独立复核及Run GUI已通过；多文件/异常GUI继续 |
 | P10 | R13 | 任务归档、需求抽屉、模板范围/档案、首页进行中 | design_acceptance_inventory | in_progress | 已整合归档/需求来源/模板范围/文件上传，8项定向验证通过；GUI逐态继续 |
 | P11 | R14/R15 | 工具项目/来源/单工具策略、数据库授权/读取范围 | role_execution_parity | in_progress | 45ed378已整合；离线权限/查询回归通过，真实环境与GUI待验收 |
-| P12 | R16/R17 | 运行时启动/历史、职业预估/形象/统计 | role_execution_parity + Lead | in_progress | 已整合精确职业修订预估、维护锁与持久化pending防重启；真实运行时GUI待验收 |
+| P12 | R16/R17 | 运行时启动/历史、职业预估/形象/统计 | role_execution_parity + Lead | in_progress | 已整合职业修订预估、维护锁与pending；真实autoStart关闭/手动启动/重启/历史GUI两轮通过 |
 | P13 | R18/R19 | 恢复执行上下文、执行限制/重试/并发 | execution_parity | in_progress | 两批已整合，批次限定重试已接后端；业务时限/并发/停稳定向回归通过 |
 | P14 | 全部 | 25 页与 planning/delivery/git/node 全设计状态验收矩阵 | design_acceptance_inventory | in_progress | 矩阵已提取，逐项验收待完成 |
 | P15 | R20 | 四主题/布局/操作/异常状态回归、文档证据、合并推送 main | Lead | in_progress | 原生preload修复，产物保存/取消与哈希实证、四主题截图；完整矩阵未通过，尚未推送 |
@@ -238,3 +238,12 @@ npm run build:server
 | P15 | 逐页逐态证据回填、更新旧 design-coverage 与 acceptance 矩阵，最终全仓回归和 main 推送 | Lead，尚未完成 |
 
 v5 明确排除的 PE38 边界替换、PE28 子隔离汇合以及未安装驱动、未配置外部服务可保持明确禁用；这些边界不用于豁免上述正常流程。
+
+### 第三轮实际流程复核（继续原编号）
+
+- P04 知识历史已整合 d659fe9：真实问题等待→Inbox答复→原session完成；同conversation追问开启新session，保留引用/上下文。历史重命名/归档/恢复与刷新通过。
+- P05 公约实际上下文修复 a65f331 已实测写入；项目技术栈与当前分支9f56eef已整合。GitLab+JUnit/日志来源配置与消费仍由role_execution_parity补齐。
+- P08 逐页制作2ff4fa4已整合：完成页/生成页/等待页来自真实会话，停止保留2/3输出；四主题刷新和部分导出保护通过。
+- P12/P03 c3fcc3f修autoStart实际消费、发送中/accepted/UNKNOWN分离和侧栏实时状态；真实启动重启两轮通过。
+- P06 snapshot专用full/light实际模型与专门报告GUI由execution_parity验收；P13恢复三模式GUI复核发现缺差异预览/确认与错误回执处理，design_acceptance_inventory继续修复。
+- 当前未推送main。全仓回归正在进行；完整逐态矩阵仍不得仅因这些主链通过而标全PASS。
