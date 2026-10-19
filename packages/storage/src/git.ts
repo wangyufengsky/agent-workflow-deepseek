@@ -118,8 +118,8 @@ export class ReviewRepository {
     const record: ReviewRun = { ...review, reviewRunId, ordinal, receipt };
     this.#db
       .prepare(
-        `INSERT INTO reviews (id, project_id, ordinal, execution_id, subject_json, dimensions_json, context, profession_json, state, stage, started_at, ended_at, findings_json, summary_json, receipt_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO reviews (id, project_id, ordinal, execution_id, subject_json, dimensions_json, context, profession_json, state, stage, started_at, ended_at, findings_json, summary_json, receipt_json, usage_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         reviewRunId,
@@ -137,6 +137,7 @@ export class ReviewRepository {
         jsonStringify(record.findings),
         record.summary === undefined ? null : jsonStringify(record.summary),
         jsonStringify(record.receipt),
+        record.usage === undefined ? null : jsonStringify(record.usage),
       );
     return record;
   }
@@ -171,7 +172,7 @@ export class ReviewRepository {
 
   update(review: ReviewRun): ReviewRun {
     this.#db
-      .prepare('UPDATE reviews SET state = ?, stage = ?, started_at = ?, ended_at = ?, findings_json = ?, summary_json = ?, receipt_json = ? WHERE id = ?')
+      .prepare('UPDATE reviews SET state = ?, stage = ?, started_at = ?, ended_at = ?, findings_json = ?, summary_json = ?, receipt_json = ?, usage_json = ? WHERE id = ?')
       .run(
         review.state,
         review.stage ?? null,
@@ -180,6 +181,7 @@ export class ReviewRepository {
         jsonStringify(review.findings),
         review.summary === undefined ? null : jsonStringify(review.summary),
         jsonStringify(review.receipt),
+        review.usage === undefined ? null : jsonStringify(review.usage),
         review.reviewRunId,
       );
     return review;
@@ -202,6 +204,7 @@ function mapReview(row: Row): ReviewRun {
     endedAt: row.ended_at === null ? undefined : String(row.ended_at),
     findings: jsonParse<ReviewRun['findings']>(row.findings_json as string, []),
     summary: jsonParse<ReviewRun['summary'] | undefined>(row.summary_json as string | null, undefined),
+    usage: jsonParse<ReviewRun['usage']>(row.usage_json as string | null, undefined),
     receipt: jsonParse<ReviewRun['receipt']>(row.receipt_json as string, {
       operation: 'review.start',
       requestKey: '',
@@ -232,8 +235,8 @@ export class FixRepository {
     this.#db
       .prepare(
         `INSERT INTO fixes (id, project_id, execution_id, review_run_id, finding_ids_json, base_json, fix_branch, worktree_id, profession_json,
-           verify_command_json, state, outcomes_json, changes_json, verification_json, steps_json, commit_draft_json, fix_revision, actions_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           verify_command_json, state, outcomes_json, changes_json, verification_json, steps_json, commit_draft_json, fix_revision, actions_json, usage_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         fixRunId,
@@ -254,6 +257,7 @@ export class FixRepository {
         record.commitDraft === undefined ? null : jsonStringify(record.commitDraft),
         record.fixRevision,
         jsonStringify(record.actions),
+        record.usage === undefined ? null : jsonStringify(record.usage),
       );
     return record;
   }
@@ -279,7 +283,7 @@ export class FixRepository {
   update(fix: FixRun): FixRun {
     this.#db
       .prepare(
-        `UPDATE fixes SET state = ?, outcomes_json = ?, changes_json = ?, verification_json = ?, steps_json = ?, commit_draft_json = ?, fix_revision = ?, actions_json = ? WHERE id = ?`,
+        `UPDATE fixes SET state = ?, outcomes_json = ?, changes_json = ?, verification_json = ?, steps_json = ?, commit_draft_json = ?, fix_revision = ?, actions_json = ?, usage_json = ? WHERE id = ?`,
       )
       .run(
         fix.state,
@@ -290,6 +294,7 @@ export class FixRepository {
         fix.commitDraft === undefined ? null : jsonStringify(fix.commitDraft),
         fix.fixRevision,
         jsonStringify(fix.actions),
+        fix.usage === undefined ? null : jsonStringify(fix.usage),
         fix.fixRunId,
       );
     return fix;
@@ -316,5 +321,6 @@ function mapFix(row: Row): FixRun {
     commitDraft: jsonParse<FixRun['commitDraft'] | undefined>(row.commit_draft_json as string | null, undefined),
     fixRevision: String(row.fix_revision),
     actions: jsonParse<FixRun['actions']>(row.actions_json as string, {}),
+    usage: jsonParse<FixRun['usage']>(row.usage_json as string | null, undefined),
   };
 }

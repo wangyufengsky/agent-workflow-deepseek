@@ -943,6 +943,7 @@ export interface ReviewRun {
     readonly countsBySeverity: Record<SeverityValue, number>;
     readonly countsByDimension: Partial<Record<DimensionValue, number>>;
   };
+  readonly usage?: TokenUsage;
   readonly receipt: OperationReceipt;
 }
 
@@ -969,6 +970,7 @@ export interface FixRun {
   readonly steps: readonly DeliveryStepState[];
   readonly commitDraft?: { readonly message: string; readonly author: GitPerson };
   readonly fixRevision: Revision;
+  readonly usage?: TokenUsage;
   readonly actions: Record<string, ActionAvailability>;
 }
 

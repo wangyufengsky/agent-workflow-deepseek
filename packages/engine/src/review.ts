@@ -33,6 +33,7 @@ import {
 import type { SessionSink } from '@agent-workflow/opencode';
 import type { Store } from '@agent-workflow/storage';
 import type { EngineContext } from './actions.ts';
+import { usageFromMessages } from './token-usage.ts';
 import type { CommandService } from './operations.ts';
 import type { GitPort, OpenCodePort } from './ports.ts';
 
@@ -446,7 +447,7 @@ export class ReviewService {
       if (summaryText === '') notes.push('模型没有给出结论摘要。');
       if (discarded > 0) notes.push(`服务丢弃了 ${discarded} 条无法在本次 diff 中定位或字段不合法的问题。`);
       if (unverified > 0) notes.push(`${unverified} 条问题的行号因二进制/截断的 diff 无法核对，已保留但未校验。`);
-      this.#complete(reviewRunId, startKey, findings, [summaryText, ...notes].filter((part) => part !== '').join('\n'));
+      this.#complete(reviewRunId, startKey, findings, [summaryText, ...notes].filter((part) => part !== '').join('\n'), usageFromMessages(result.outcome.messages));
     } catch (error) {
       if (this.#isStopping(reviewRunId)) {
         this.#markStopped(reviewRunId);
@@ -458,7 +459,7 @@ export class ReviewService {
     }
   }
 
-  #complete(reviewRunId: string, startKey: string, findings: readonly ReviewFinding[], summaryText: string): void {
+  #complete(reviewRunId: string, startKey: string, findings: readonly ReviewFinding[], summaryText: string, usage?: import('@agent-workflow/shared').TokenUsage): void {
     const current = this.#store.reviews.get(reviewRunId);
     if (current === undefined) return;
     const record = this.#commands.get(startKey);
@@ -469,6 +470,7 @@ export class ReviewService {
       stage: 'completed',
       endedAt: nowIso(),
       findings,
+      ...(usage === undefined ? {} : { usage }),
       summary: buildSummary(summaryText, findings),
       receipt: this.#commands.toReceipt(this.#commands.get(startKey)!),
     };

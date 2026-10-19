@@ -57,12 +57,22 @@ export class InsightsService {
         total: count('SELECT COUNT(*) AS n FROM reviews'),
         completed: count("SELECT COUNT(*) AS n FROM reviews WHERE state = 'completed'"),
         failed: count("SELECT COUNT(*) AS n FROM reviews WHERE state = 'failed'"),
+        tokens: {
+          input: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.input') AS INTEGER)), 0) AS n FROM reviews"),
+          output: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.output') AS INTEGER)), 0) AS n FROM reviews"),
+          total: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.total') AS INTEGER)), 0) AS n FROM reviews"),
+        },
         openFindings: count("SELECT COUNT(*) AS n FROM reviews r, json_each(r.findings_json) j WHERE json_extract(j.value, '$.status') = 'open'"),
       },
       fixes: {
         total: count('SELECT COUNT(*) AS n FROM fixes'),
         ready: count("SELECT COUNT(*) AS n FROM fixes WHERE state = 'ready'"),
         discarded: count("SELECT COUNT(*) AS n FROM fixes WHERE state = 'discarded'"),
+        tokens: {
+          input: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.input') AS INTEGER)), 0) AS n FROM fixes"),
+          output: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.output') AS INTEGER)), 0) AS n FROM fixes"),
+          total: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.total') AS INTEGER)), 0) AS n FROM fixes"),
+        },
       },
       deliveries: {
         delivered: count("SELECT COUNT(*) AS n FROM deliveries WHERE projection = 'delivered'"),

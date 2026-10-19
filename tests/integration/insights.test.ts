@@ -114,6 +114,10 @@ test('insights aggregate real task/review counters from SQLite', async () => {
     assert.equal(data.reviews.total, 1);
     assert.equal(data.reviews.completed, 1);
     assert.equal(data.reviews.openFindings, 1);
+    app.store.db.prepare('UPDATE reviews SET usage_json = ? WHERE id = ?').run('{"input":140,"output":100,"reasoning":0,"cache":0,"total":240}', review.reviewRunId);
+    const withReviewUsage = await app.app.inject({ method: 'GET', url: '/api/insights' });
+    const reviewTokens = (withReviewUsage.json().data as { reviews: { tokens: { total: number } } }).reviews.tokens;
+    assert.equal(reviewTokens.total, 240);
   } finally {
     await app.close();
   }

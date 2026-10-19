@@ -342,4 +342,12 @@ ALTER TABLE ppt_works ADD COLUMN slides_json TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE attempts ADD COLUMN usage_json TEXT;
 `,
   },
+  {
+    version: 6,
+    name: 'review_fix_usage',
+    sql: `
+ALTER TABLE reviews ADD COLUMN usage_json TEXT;
+ALTER TABLE fixes ADD COLUMN usage_json TEXT;
+`,
+  },
 ];

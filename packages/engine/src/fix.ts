@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
+import { usageFromMessages } from './token-usage.ts';
 import type {
   ActionAvailability,
   CatalogSnapshot,
@@ -759,6 +760,7 @@ export class FixService {
         ...(verification === undefined ? {} : { verification }),
         commitDraft: { message: draftCommitMessage(review, summary), author: toGitPerson(this.#context.settings().git.author) },
         fixRevision: nextFixRevision(current.fixRevision),
+        usage: usageFromMessages(result.outcome.messages),
       };
       const updated = this.#store.fixes.update({ ...next, actions: fixActions(next) });
       this.#linkFindings(updated, outcomes);
