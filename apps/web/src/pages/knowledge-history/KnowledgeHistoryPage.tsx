@@ -96,7 +96,7 @@ function CitationList({ row, term }: { readonly row: HistoryRow; readonly term: 
         <Link
           key={`${citation.path}:${String(citation.line)}`}
           className="list-row kh-cite"
-          to={`/knowledge?project=${encodeURIComponent(row.projectId)}&source=${encodeURIComponent(citation.path)}`}
+          to={`/knowledge?project=${encodeURIComponent(row.projectId)}&source=${encodeURIComponent(citation.path)}${row.entry.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(row.entry.requestKey)}`}`}
           title={`打开原文 ${citation.path}:${String(citation.line)}`}
         >
           <span className="tile">
@@ -225,6 +225,7 @@ export function KnowledgeHistoryPage() {
   const projectIds = projects.map((project) => project.id).join('|');
   const historyQuery = useQuery({
     queryKey: ['knowledge', 'history', 'all', projectIds],
+    refetchInterval: 5000,
     queryFn: async (): Promise<readonly ProjectHistorySlice[]> => {
       return Promise.all(
         projects.map(async (project): Promise<ProjectHistorySlice> => {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { OpenCodeMessage } from '@agent-workflow/opencode';
+import type { OpenCodeMessage, OpenCodeSession } from '@agent-workflow/opencode';
 import { Engine, type EnginePorts, type OpenCodePort, type OpenCodeRunRequest, type OpenCodeRunResult } from '../../packages/engine/src/index.ts';
 import { Store } from '@agent-workflow/storage';
 
@@ -29,6 +29,7 @@ class FakeOpenCode implements OpenCodePort {
     this.requests.push(request);
     request.onSessionId?.('sess_knowledge_fake');
     await this.gate;
+    if (this.lateError !== undefined) throw this.lateError;
     return {
       sessionId: 'sess_knowledge_fake',
       outcome: { idle: true, timedOut: this.timedOut, assistantText: this.assistantText, messages: this.messages },
@@ -41,10 +42,12 @@ class FakeOpenCode implements OpenCodePort {
   }
   async inspectSession() { return this.sessionState; }
 
+  lateError?: Error;
   async sessionMessages() { return this.messages; }
 
-  async findSessions(): Promise<readonly never[]> {
-    return [];
+  sessions: readonly OpenCodeSession[] = [];
+  async findSessions(): Promise<readonly OpenCodeSession[]> {
+    return this.sessions;
   }
 }
 
@@ -114,7 +117,7 @@ test('W3-4b knowledge: real tool parts and message timing become steps/toolActiv
     assert.ok(kinds.includes('tool'), JSON.stringify(kinds));
     assert.ok(kinds.includes('validate'), JSON.stringify(kinds));
     const retrieve = steps.find((step) => step.kind === 'retrieve')!;
-    assert.match(retrieve.label, /读取 1 份文档/);
+    assert.match(retrieve.label, /读取 1 份资料/);
     assert.match(String(retrieve.detail), /README\.md/);
     assert.ok(retrieve.startedAt.length > 0);
     const model = steps.find((step) => step.kind === 'model')!;
@@ -330,12 +333,17 @@ test('knowledge completed response is restored by original key from real session
     fixture.opencode.sessionState = 'idle';
     fixture.opencode.messages = [{ ...assistantMessage({ withTime: true, withTool: false }), parts: [{ type: 'text', text: ANSWER }] }];
     const recreated = new Engine({ store: fixture.store, ports: { git: {} as EnginePorts['git'], opencode: fixture.opencode }, integration: { opencodeReady: () => true, gitlabConfigured: () => false } });
+    const saved = fixture.store.settings.getJson<Record<string, unknown>>(`knowledge.progress.${key}`)!; delete saved.sessionId; fixture.store.settings.putJson(`knowledge.progress.${key}`, saved);
+    fixture.opencode.sessions = [{ id: 'sess_knowledge_fake' }];
     assert.equal(recreated.knowledge.progress(key, fixture.projectId).status, 'unknown');
     await recreated.knowledge.reconcileOperation(key);
     const result = recreated.knowledge.result(key, fixture.projectId);
     assert.equal(result.status, 'completed'); assert.equal(result.answer, '这是一个演示项目。');
     assert.equal(fixture.opencode.requests.length, 1); assert.equal(recreated.knowledge.history(fixture.projectId).entries.length, 1);
-    release(); await first;
+    fixture.opencode.assistantText = JSON.stringify({ answer: 'LATE_CONFLICT_MUST_NOT_REPLACE', citations: [] });
+    release(); const late = await first;
+    assert.equal(late.resource?.answer, result.answer);
+    assert.equal(recreated.knowledge.result(key, fixture.projectId).answer, result.answer);
     assert.equal(recreated.knowledge.history(fixture.projectId).entries.length, 1);
   } finally { release(); fixture.close(); }
 });
@@ -348,4 +356,50 @@ test('knowledge explicit model controls dispatch and an existing conversation re
     assert.equal(fixture.opencode.requests[0]!.model.id, model.id);
     await assert.rejects(() => fixture.engine.knowledge.ask({ requestKey: requestKey('replace'), projectId: fixture.projectId, question: '换模型？', conversationId: first.resource!.conversationId, modelId: 'other-model' }), { code: 'VALIDATION_FAILED' });
   } finally { fixture.close(); }
+});
+
+
+test('knowledge revoked inputs cannot leak via successful POST replay, result or history', async () => {
+  const fixture = setup(); fixture.opencode.assistantText = ANSWER;
+  const input = { requestKey: requestKey('revoked-replay'), projectId: fixture.projectId, question: '问答来源？', sourcePaths: ['README.md'] };
+  try {
+    await fixture.engine.knowledge.ask(input);
+    fixture.engine.knowledge.inputs.updatePermissions(fixture.projectId, { requestKey: requestKey('revoke'), originalRead: false });
+    await assert.rejects(() => fixture.engine.knowledge.ask(input), { code: 'REVOKED' });
+    assert.throws(() => fixture.engine.knowledge.result(input.requestKey, fixture.projectId), { code: 'REVOKED' });
+    assert.equal(fixture.engine.knowledge.history(fixture.projectId).entries[0]?.answer, '');
+    await assert.rejects(() => fixture.engine.knowledge.readSource(fixture.projectId, 'README.md', input.requestKey), { code: 'REVOKED' });
+    assert.equal(fixture.opencode.requests.length, 1);
+  } finally { fixture.close(); }
+});
+
+test('knowledge stops during input retrieval without dispatching a model or pretending a complete frozen input exists', async () => {
+  const fixture = setup(); fixture.opencode.assistantText = ANSWER;
+  try {
+    const key = requestKey('retrieval-stop');
+    const first = fixture.engine.knowledge.ask({ requestKey: key, projectId: fixture.projectId, question: '读取前停止？', sourcePaths: ['README.md'] });
+    const stopped = await fixture.engine.knowledge.stop(key, { requestKey: requestKey('early-stop'), projectId: fixture.projectId });
+    assert.equal(stopped.receipt.status, 'succeeded');
+    const response = await first;
+    assert.equal(response.resource?.status, 'stopped'); assert.equal(response.resource?.continueAvailability?.allowed, false);
+    assert.equal(fixture.opencode.requests.length, 0);
+  } finally { fixture.close(); }
+});
+
+
+test('knowledge late transport failure cannot replace a reconciled successful receipt', async () => {
+  const fixture = setup(); let release!: () => void;
+  fixture.opencode.gate = new Promise<void>((resolve) => { release = resolve; });
+  const key = requestKey('late-transport');
+  try {
+    const active = fixture.engine.knowledge.ask({ requestKey: key, projectId: fixture.projectId, question: '已经恢复的原结果？' });
+    await waitForDispatch(fixture.opencode);
+    fixture.opencode.messages = [{ ...assistantMessage({ withTime: true, withTool: false }), parts: [{ type: 'text', text: ANSWER }] }]; fixture.opencode.sessionState = 'idle';
+    const recreated = new Engine({ store: fixture.store, ports: { git: {} as EnginePorts['git'], opencode: fixture.opencode }, integration: { opencodeReady: () => true, gitlabConfigured: () => false } });
+    await recreated.knowledge.reconcileOperation(key);
+    fixture.opencode.lateError = new Error('old transport lost after recovery'); release();
+    const result = await active;
+    assert.equal(result.receipt.status, 'succeeded'); assert.equal(result.resource?.answer, '这是一个演示项目。');
+    assert.equal(fixture.store.operations.get(key)?.status, 'succeeded'); assert.equal(recreated.knowledge.history(fixture.projectId).entries.length, 1);
+  } finally { release(); fixture.close(); }
 });

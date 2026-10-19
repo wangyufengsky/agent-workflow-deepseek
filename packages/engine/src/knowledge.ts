@@ -72,6 +72,8 @@ export class KnowledgeService {
 
   async ask(input: KnowledgeAskRequest): Promise<CommandResponse<KnowledgeAskResponse>> {
     if (input === null || typeof input !== 'object') throw new AppError(ErrorCode.VALIDATION_FAILED, '知识库请求体不合法');
+    if (input.networkSearch !== undefined && typeof input.networkSearch !== 'boolean') throw new AppError(ErrorCode.VALIDATION_FAILED, '网络检索选择必须为布尔值');
+    if (input.modelId !== undefined && (typeof input.modelId !== 'string' || input.modelId.length > 120)) throw new AppError(ErrorCode.VALIDATION_FAILED, '模型ID不合法');
     const question = typeof input.question === 'string' ? input.question.trim() : '';
     if (question.length < 2 || question.length > 2_000) throw new AppError(ErrorCode.VALIDATION_FAILED, '问题长度需要在 2–2000 字之间');
     const project = this.#store.projects.get(input.projectId);
@@ -92,7 +94,7 @@ export class KnowledgeService {
       target: { projectId: input.projectId },
     });
     if (replayed) {
-      const resource = this.#store.settings.getJson<KnowledgeAskResponse>(resultKey(input.requestKey));
+      const resource = record.status === 'succeeded' ? this.result(input.requestKey, input.projectId) : undefined;
       return { receipt: this.#commands.toReceipt(record), ...(resource === undefined ? {} : { resource }) };
     }
     try {
@@ -102,6 +104,7 @@ export class KnowledgeService {
       }
       if (requestedConversationId !== undefined) {
         const owner = this.#store.settings.getJson<string>(`knowledge.project.${requestedConversationId}`);
+        if (owner === undefined && !(this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? []).some((entry) => entry.conversationId === requestedConversationId)) throw new AppError(ErrorCode.NOT_FOUND, '对话不存在，请新建对话');
         if (owner !== undefined && owner !== input.projectId) throw new AppError(ErrorCode.VALIDATION_FAILED, '已有会话不可更换项目');
         const outstandingKey = this.#store.settings.getJson<string>(`knowledge.pending.${requestedConversationId}`);
         const status = outstandingKey === undefined ? undefined : this.#commands.get(outstandingKey)?.status;
@@ -147,7 +150,7 @@ export class KnowledgeService {
         {
           id: 'step_retrieve',
           kind: 'retrieve',
-          label: `读取 ${String(documents.length)} 份文档`,
+          label: `读取 ${String(documents.length)} 份资料`,
           status: 'succeeded',
           startedAt: retrieveStartedAt,
           endedAt: retrieveEndedAt,
@@ -157,7 +160,7 @@ export class KnowledgeService {
       ];
       const sourceSnapshot = { frozenAt: snapshot.frozenAt, contentHashes: Object.fromEntries(documents.map((document) => [document.path, document.sha256])), networkSearch, selectedPaths, readPaths: documents.map((document) => document.path), truncatedPaths };
       this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId,
-        model: `${model.provider}/${model.model}`, status: 'researching', startedAt: nowIso(), updatedAt: nowIso(), answer: '', sources: sourceSnapshot, roleEvidence });
+        model: `${model.provider}/${model.model}`, status: 'researching', startedAt: retrieveStartedAt, updatedAt: nowIso(), answer: '', sources: sourceSnapshot, roleEvidence });
       let streamText = '';
       const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? [])
         .filter((entry) => { if (entry.conversationId !== conversationId) return false; const old = entry.requestKey === undefined ? undefined : this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${entry.requestKey}`); try { if (old !== undefined) this.inputs.assertCurrent(input.projectId, old); return old !== undefined; } catch { return false; } })
@@ -199,6 +202,7 @@ export class KnowledgeService {
       });
       this.inputs.assertCurrent(input.projectId, snapshot);
       const progress = this.progress(input.requestKey, input.projectId);
+      if (progress.status === 'completed') return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
       if (progress.status === 'stopped' || (progress.stopRequestKey !== undefined && result.outcome.idle)) {
         this.#finishStopped(progress);
         return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
@@ -251,8 +255,10 @@ export class KnowledgeService {
         ...(toolActivity.length === 0 ? {} : { toolActivity }),
       };
       this.#complete(input.requestKey, response);
-      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: response };
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
     } catch (error) {
+      const settled = this.#commands.get(input.requestKey);
+      if (settled?.status === 'succeeded') return { receipt: this.#commands.toReceipt(settled), resource: this.result(input.requestKey, input.projectId) };
       const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(input.requestKey));
       if (progress?.status === 'stopped') return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
       const revoked = error instanceof AppError && error.code === ErrorCode.REVOKED;
@@ -309,16 +315,24 @@ export class KnowledgeService {
     if (operation === undefined || !['knowledge.ask', 'knowledge.stop'].includes(operation.operation) || !['accepted', 'unknown'].includes(operation.status)) return;
     const askKey = operation.operation === 'knowledge.ask' ? key : this.#store.settings.getJson<string>(`knowledge.stop-target.${key}`);
     if (askKey === undefined) return;
-    const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(askKey));
-    if (progress?.sessionId === undefined) return;
+    let progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(askKey));
+    if (progress === undefined) return;
     try {
-      const status = await this.#opencode.inspectSession?.(progress.sessionId);
+      if (progress.sessionId === undefined) {
+        if (this.#store.settings.getJson(`knowledge.input.${askKey}`) === undefined) return;
+        const sessions = await this.#opencode.findSessions({ projectId: progress.projectId, purpose: 'knowledge.ask', requestKey: askKey });
+        if (sessions.length !== 1) return;
+        progress = { ...progress, sessionId: sessions[0]!.id };
+        this.#saveProgress(progress);
+      }
+      const sessionId = progress.sessionId; if (sessionId === undefined) return;
+      const status = await this.#opencode.inspectSession?.(sessionId);
       if (status !== 'idle') return;
       if (progress.stopRequestKey !== undefined) { this.#finishStopped(progress); return; }
       const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${askKey}`);
       if (input === undefined || this.#opencode.sessionMessages === undefined) return;
       this.inputs.assertCurrent(progress.projectId, input);
-      const messages = await this.#opencode.sessionMessages(progress.sessionId);
+      const messages = await this.#opencode.sessionMessages(sessionId);
       const assistant = [...messages].reverse().find((message) => message.info.role === 'assistant');
       if (assistant?.info.time?.completed === undefined || assistant.info.error !== undefined) return;
       const text = assistant.parts.filter((part) => part.type === 'text').map((part) => part.text ?? '').join('');
@@ -343,7 +357,9 @@ export class KnowledgeService {
       if (document === undefined) throw new AppError(ErrorCode.FORBIDDEN, '来源不在该轮冻结输入内');
       return { path, content: document.content, bytes: Buffer.byteLength(document.content), sha256: document.sha256 };
     }
-    return this.inputs.read(projectId, path);
+    const source = await this.inputs.read(projectId, path);
+    this.inputs.requireOriginal(projectId);
+    return source;
   }
 
   #saveProgress(progress: KnowledgeRunProgress): void {
@@ -382,7 +398,7 @@ export class KnowledgeService {
       throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '问答结果尚未就绪，请核对原操作');
     }
     const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${requestKey}`);
-    if (input !== undefined) this.inputs.assertCurrent(projectId, input);
+    if (input !== undefined) this.inputs.assertCurrent(projectId, input); else this.inputs.requireOriginal(projectId);
     return result;
   }
 
@@ -397,7 +413,7 @@ export class KnowledgeService {
         answer: progress.answer, model: progress.model, generatedAt: progress.startedAt, sources: progress.sources,
         runStatus: progress.status, citations: [] }];
     });
-    return { entries: [...pending, ...completed].map((entry) => { const input = entry.requestKey === undefined ? undefined : this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${entry.requestKey}`); try { if (input !== undefined) this.inputs.assertCurrent(projectId, input); return entry; } catch { return { ...entry, answer: '', citations: [] }; } }).sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)) };
+    return { entries: [...pending, ...completed].map((entry) => { const input = entry.requestKey === undefined ? undefined : this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${entry.requestKey}`); try { if (input !== undefined) this.inputs.assertCurrent(projectId, input); else this.inputs.requireOriginal(projectId); return entry; } catch { return { ...entry, answer: '', citations: [] }; } }).sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)) };
   }
 
   #model(): ModelProfile {
@@ -492,7 +508,7 @@ function toolStepsFrom(messages: readonly OpenCodeMessage[]): KnowledgeStep[] {
   });
 }
 
-const SYSTEM_PROMPT = `你是项目知识库的研究员。只依据用户提供的文档回答问题，不要编造文档之外的事实。
+const SYSTEM_PROMPT = `你是项目知识库的研究员。只依据本轮提供的代码、文档、获准数据库样本与公共检索摘要回答，不要编造这些输入之外的事实。公共检索摘要不等于已打开网页全文；不能用自由工具补读。
 只输出一个 JSON 对象，不要 Markdown：
 {"answer":"回答（可多句）","citations":[{"path":"文档相对路径","line":行号,"snippet":"该行原文"}]}
 line 必须来自文档真实行号；answer 中引用的每个关键结论都要有 citation。文档不足时明确说“文档中没有足够依据”。`;
@@ -519,7 +535,7 @@ function extractJson(text: string): { answer?: unknown; citations?: unknown } | 
 
 function validateCitations(raw: unknown, documents: readonly { path: string; content: string }[]): KnowledgeAskResponse['citations'] {
   if (!Array.isArray(raw)) return [];
-  const byPath = new Map(documents.map((document) => [document.path, document.content.split(/\r?\n/).length]));
+  const byPath = new Map(documents.map((document) => [document.path, document.content.split(/\r?\n/)]));
   const citations: KnowledgeAskResponse['citations'][number][] = [];
   for (const entry of raw.slice(0, 12)) {
     if (entry === null || typeof entry !== 'object') continue;
@@ -527,8 +543,8 @@ function validateCitations(raw: unknown, documents: readonly { path: string; con
     const path = typeof record.path === 'string' ? record.path : '';
     const line = typeof record.line === 'number' && Number.isInteger(record.line) ? record.line : 0;
     const total = byPath.get(path);
-    if (total === undefined || line < 1 || line > total) continue;
-    const snippet = typeof record.snippet === 'string' ? record.snippet.trim().slice(0, 300) : '';
+    if (total === undefined || line < 1 || line > total.length) continue;
+    const snippet = (total[line - 1] ?? '').trim().slice(0, 300);
     citations.push({ path, line, ...(snippet === '' ? {} : { snippet }) });
   }
   return citations;

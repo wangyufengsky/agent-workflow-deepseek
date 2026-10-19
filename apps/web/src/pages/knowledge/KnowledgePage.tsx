@@ -1,8 +1,10 @@
+import { KnowledgePermissions } from './KnowledgePermissions.tsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
   type KnowledgeAskResponse,
+  type KnowledgePermissions as KnowledgePermissionState,
   type KnowledgeCitation,
   type KnowledgeHistoryResponse,
   type KnowledgeSearchResponse,
@@ -218,6 +220,12 @@ export function KnowledgePage() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [submittedTerm, setSubmittedTerm] = useState('');
+  const [permissions, setPermissions] = useState<KnowledgePermissionState>();
+  const [permissionLocked, setPermissionLocked] = useState(false);
+  const [modelId, setModelId] = useState('');
+  const [sourceKind, setSourceKind] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [sourceRequestKey, setSourceRequestKey] = useState<string>();
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const [citationIndex, setCitationIndex] = useState<number | null>(null);
   const [researcherOpen, setResearcherOpen] = useState(false);
@@ -250,25 +258,35 @@ export function KnowledgePage() {
     setConversationId(input.conversationId);
   }, [askCommand.pending?.input]);
   const contentQuery = useQuery({
-    queryKey: ['knowledge', 'content', projectId, sourcePath],
-    queryFn: async () => (await apiGet<KnowledgeSourceContentResponse>(`/api/knowledge/source?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(sourcePath ?? '')}`)).data,
+    queryKey: ['knowledge', 'content', projectId, sourcePath, sourceRequestKey, permissions?.revision],
+    queryFn: async () => (await apiGet<KnowledgeSourceContentResponse>(`/api/knowledge/source?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(sourcePath ?? '')}${sourceRequestKey === undefined ? '' : `&requestKey=${encodeURIComponent(sourceRequestKey)}`}`)).data,
     enabled: projectId !== '' && sourcePath !== null,
     retry: false,
   });
   const searchQuery = useQuery({
-    queryKey: ['knowledge', 'search', projectId, submittedTerm],
+    queryKey: ['knowledge', 'search', projectId, submittedTerm, permissions?.revision],
     queryFn: async () => (await apiGet<KnowledgeSearchResponse>(`/api/knowledge/search?projectId=${encodeURIComponent(projectId)}&q=${encodeURIComponent(submittedTerm)}`)).data,
-    enabled: projectId !== '' && submittedTerm.trim().length >= 2,
+    enabled: projectId !== '' && permissions?.originalRead === true && submittedTerm.trim().length >= 2,
     retry: false,
   });
   const sourcesQuery = useQuery({
     queryKey: ['knowledge', 'sources', projectId],
+    refetchInterval: 3000,
     queryFn: async () => (await apiGet<KnowledgeSourcesResponse>(`/api/knowledge/sources?projectId=${encodeURIComponent(projectId)}`)).data,
     enabled: projectId !== '',
     retry: false,
   });
 
+  useEffect(() => { const current = sourcesQuery.data?.permissions; if (current === undefined) return; setPermissions((previous) => previous?.projectId === current.projectId && previous.revision > current.revision ? previous : current); }, [sourcesQuery.data?.permissions]);
+  useEffect(() => { try { setPermissionLocked(sessionStorage.getItem(`agent-workflow.knowledge.permissions.${projectId}`) !== null); } catch { setPermissionLocked(true); } }, [projectId]);
+  const canPresent = (sources: KnowledgeAskResponse['sources']) => permissions?.projectId === projectId && permissions !== undefined && ((sources?.readPaths.some((path) => !path.startsWith('web:')) ?? true) ? permissions.originalRead : true) && (!sources?.networkSearch || permissions.publicSearch);
+  useEffect(() => {
+    if (permissions?.projectId !== projectId) return;
+    if (askResult !== undefined && !canPresent(askResult.sources)) setAskResult(undefined);
+    if (!permissions.originalRead || !permissions.publicSearch) { setSourcePath(null); setCitationIndex(null); void queryClient.invalidateQueries({ queryKey: ['knowledge', 'history', projectId] }); }
+  }, [permissions?.projectId, permissions?.revision, projectId]);
   const sourceList = useMemo(() => sourcesQuery.data?.sources ?? [], [sourcesQuery.data]);
+  const filteredSources = sourceList.filter((source) => (sourceKind === '' || (source.kind ?? 'document') === sourceKind) && `${source.label ?? ''} ${source.path}`.toLowerCase().includes(sourceFilter.trim().toLowerCase()));
   const activeCitation = citationIndex === null ? undefined : askResult?.citations[citationIndex];
 
   // 默认全选，当前轮次的选择随请求冻结；切换项目时重新初始化。
@@ -302,11 +320,12 @@ export function KnowledgePage() {
     const requestParam = searchParams.get('requestKey');
     if (projectParam === null && sourceParam === null && conversationParam === null && requestParam === null) return;
     if (askCommand.pending !== undefined && requestParam !== askCommand.pending.input.requestKey) return;
-    if (requestParam !== null && projectParam !== null) void askCommand.openRun(requestParam, projectParam);
+    if (requestParam !== null && projectParam !== null) void askCommand.openRun(requestParam, projectParam).then(() => { if (sourceParam !== null && sourceParam !== '') { setSourcePath(sourceParam); setSourceRequestKey(requestParam); } });
     if (projectParam !== null && bootstrap.data.projects.some((project) => project.id === projectParam)) {
       setSelectedProjectId(projectParam);
     }
-    if (sourceParam !== null && sourceParam !== '') {
+    if (sourceParam !== null && sourceParam !== '' && requestParam === null) {
+      setSourceRequestKey(undefined);
       setCitationIndex(null);
       setSourcePath(sourceParam);
     }
@@ -322,18 +341,20 @@ export function KnowledgePage() {
   const projectName = projects.find((project) => project.id === projectId)?.name ?? '未知项目';
   const conversationLocked = conversationId !== undefined || askCommand.pending !== undefined;
   const allSourcesSelected = sourceList.length > 0 && selectedSources.size === sourceList.length;
-  const sourcesMissing = sourcesQuery.data !== undefined && sourceList.length === 0;
-  const sourceBlocked = sourceList.length > 0 && selectedSources.size === 0;
+  const sourcesMissing = sourcesQuery.data !== undefined && sourceList.length === 0 && !permissions?.publicSearch;
+  const sourceBlocked = selectedSources.size === 0 && !permissions?.publicSearch;
   const sourceInventoryLabel = sourcesQuery.isLoading
     ? '正在读取真实资料清单…'
     : sourcesQuery.isError
       ? '资料清单读取失败'
       : sourcesMissing
-        ? '项目没有可列出的文档来源'
+        ? '项目没有可列出的原资料来源'
         : `已加载 ${String(sourceList.length)} 份资料，已选 ${String(selectedSources.size)} 份`;
   const askDisabledReason =
     projectId === ''
       ? '先选择项目'
+      : permissionLocked
+        ? '许可变更尚未核对，请先核对原许可操作。'
       : sourcesQuery.data?.askAvailability?.allowed === false
         ? sourcesQuery.data.askAvailability.reason ?? '问答暂不可用'
       : question.trim().length < 2
@@ -359,6 +380,7 @@ export function KnowledgePage() {
 
   const closeReader = () => {
     setSourcePath(null);
+    setSourceRequestKey(undefined);
     setCitationIndex(null);
   };
 
@@ -366,6 +388,7 @@ export function KnowledgePage() {
     setSourcesOpen(false);
     setResearcherOpen(false);
     setCitationIndex(null);
+    setSourceRequestKey(undefined);
     setSourcePath(path);
   };
 
@@ -374,6 +397,7 @@ export function KnowledgePage() {
     if (citation === undefined) return;
     setResearcherOpen(false);
     setCitationIndex(index);
+    setSourceRequestKey(askResult?.requestKey);
     setSourcePath(citation.path);
   };
 
@@ -381,12 +405,14 @@ export function KnowledgePage() {
     const citation = askResult?.citations[nextIndex];
     if (citation === undefined) return;
     setCitationIndex(nextIndex);
+    setSourceRequestKey(askResult?.requestKey);
     setSourcePath(citation.path);
   };
 
   const startNewConversation = () => {
     if (askCommand.pending !== undefined) return;
     setConversationId(undefined);
+    setModelId('');
     setAskResult(undefined);
     setQuestion('');
     closeReader();
@@ -415,7 +441,7 @@ export function KnowledgePage() {
     <CitationBody
       sourcePath={sourcePath}
       citation={activeCitation}
-      content={contentQuery.data?.content}
+      content={contentQuery.isError ? undefined : contentQuery.data?.content}
       bytes={contentQuery.data?.bytes}
       loading={contentQuery.isLoading}
       error={contentQuery.error}
@@ -486,7 +512,7 @@ export function KnowledgePage() {
 
             <div className="row wrap" style={{ gap: 8, marginTop: 16 }}>
               <Icon name="book" size="sm" />
-              <span className="hint">{sourceInventoryLabel}</span>
+              <span className="hint">{sourceInventoryLabel} · 代码 {sourceList.filter((source) => source.kind === 'code' && selectedSources.has(source.path)).length} · 文档 {sourceList.filter((source) => (source.kind ?? 'document') === 'document' && selectedSources.has(source.path)).length} · 数据库 {sourceList.filter((source) => source.kind === 'database' && selectedSources.has(source.path)).length} · 网络检索{permissions?.publicSearch ? '已开启' : '关闭'}</span>
               <Button
                 variant="ghost"
                 size="sm"
@@ -520,10 +546,7 @@ export function KnowledgePage() {
                 >
                   资料来源
                 </Button>
-                <span className="chip" title="问答模型由服务端按已启用的 reviewer 模型选择">
-                  <Icon name="sparkle" size="sm" />
-                  模型由服务端决定
-                </span>
+                <label className="hint" htmlFor="kb-model">模型</label><select id="kb-model" className="select" style={{ width: 'auto' }} value={conversationLocked ? 'locked' : modelId} disabled={conversationLocked} title={conversationLocked ? '已有会话不可更换模型；新建对话后可切换' : undefined} onChange={(event) => setModelId(event.target.value)}>{conversationLocked ? <option value="locked">🔒 {askResult?.model ?? askCommand.progress?.model ?? '会话冻结模型'}</option> : <><option value="">服务默认模型</option>{bootstrap.data?.settings.models.filter((model) => model.enabled).map((model) => <option key={model.id} value={model.id}>{model.label} · {model.provider}/{model.model}</option>)}</>}</select>
                 <span className="chip" title="仅将勾选来源作为本轮问答资料">
                   <Icon name="book" size="sm" />
                   来源 {sourcesQuery.isLoading ? '读取中' : sourcesQuery.isError ? '读取失败' : `${String(selectedSources.size)} / ${String(sourceList.length)}`}
@@ -538,7 +561,7 @@ export function KnowledgePage() {
                   disabledReason={askDisabledReason}
                   onClick={() => {
                     setAskResult(undefined); setSourcePath(null); setCitationIndex(null);
-                    void askCommand.ask({ projectId, question: question.trim(), conversationId, sourcePaths: [...selectedSources] });
+                    void askCommand.ask({ projectId, question: question.trim(), conversationId, sourcePaths: [...selectedSources], networkSearch: permissions?.publicSearch ?? false, ...(!conversationLocked && modelId !== '' ? { modelId } : {}) });
                   }}
                 >
                   {askCommand.busy ? '研究中…' : '发送'}
@@ -550,7 +573,7 @@ export function KnowledgePage() {
                 )}
               </div>
               <p className="hint" id="kb-ask-note" style={{ marginTop: 8 }}>
-                问答使用受管 OpenCode（只读）基于项目文档回答；同一对话最近 3 条问答作为上下文，引用可点击回到原文。
+                问答使用受管 OpenCode（禁用自由工具），基于本轮冻结的代码、文档、获准数据库样本与已许可公共检索摘要回答；同一对话最近 3 条问答作为上下文，引用可点击回到原文。
               </p>
               <p className="hint" style={{ marginTop: 6 }}>
                 只读取本轮选中的资料；较长资料会使用节选，回答后可核对实际读取范围。
@@ -565,7 +588,7 @@ export function KnowledgePage() {
                     <span className="spacer" />
                     <Button variant="secondary" size="sm" onClick={() => { void askCommand.stop(); }} disabled={askCommand.stopping || askCommand.progress?.stopRequestKey !== undefined} disabledReason="停止请求已发送，请核对原操作。">停止生成</Button>
                   </div>
-                  {askCommand.progress?.answer ? <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askCommand.progress.answer}</p> : <p className="hint">正在依据所选资料组织回答…</p>}
+                  {askCommand.progress?.answer && canPresent(askCommand.progress.sources) ? <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askCommand.progress.answer}</p> : <p className="hint">正在依据所选资料组织回答…</p>}
                 </div>
               )}
               {askCommand.pending !== undefined && !askCommand.busy ? (
@@ -610,12 +633,12 @@ export function KnowledgePage() {
                   <p style={{ marginTop: 10, whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{askResult.answer}</p>
                   {askResult.sources === undefined ? null : (
                     <p className="hint">
-                      本轮读取 {String(askResult.sources.readPaths.length)} 份所选资料。
+                      本轮读取 {String(askResult.sources.readPaths.length)} 份资料{askResult.sources.networkSearch ? '（含公共检索URL与摘要，不代表网页全文）' : ''}。{askResult.sources.frozenAt === undefined ? '' : `输入冻结于 ${new Date(askResult.sources.frozenAt).toLocaleString('zh-CN')}。`}
                       {askResult.sources.truncatedPaths.length === 0 ? '资料正文完整读取。' : `其中 ${String(askResult.sources.truncatedPaths.length)} 份使用节选：${askResult.sources.truncatedPaths.join('、')}`}
                     </p>
                   )}
                   {askResult.status !== 'stopped' ? null : (
-                    <Button variant="secondary" size="sm" disabled={askCommand.pending !== undefined} disabledReason="先核对当前问答结果。" onClick={() => { void askCommand.ask({ projectId: askResult.projectId, question: askResult.question, conversationId: askResult.conversationId, sourcePaths: askResult.sources?.selectedPaths, continueFromRequestKey: askResult.requestKey }); }}>继续生成</Button>
+                    <Button variant="secondary" size="sm" disabled={askCommand.pending !== undefined || askResult.continueAvailability?.allowed === false} disabledReason={askResult.continueAvailability?.reason ?? '先核对当前问答结果。'} onClick={() => { void askCommand.ask({ projectId: askResult.projectId, question: askResult.question, conversationId: askResult.conversationId, sourcePaths: askResult.sources?.selectedPaths, continueFromRequestKey: askResult.requestKey }); }}>继续生成</Button>
                   )}
                   <ResearchTimeline steps={askResult.steps} toolActivity={askResult.toolActivity} />
                   {askResult.citations.length === 0 ? <p className="hint">模型没有给出可验证的引用。</p> : (
@@ -791,8 +814,10 @@ export function KnowledgePage() {
                 </Badge>
               </div>
               <p className="hint" style={{ marginTop: 8, lineHeight: 1.7 }}>
-                服务端只读扫描项目目录中的文档（md/mdx/txt/rst/json/yaml）；回答会引用这些来源，点击引用可回到原文。
+                服务端列出当前可读的代码、文档和获准数据库。数据库使用已有只读驱动读取有界结构/样本；引用回到本轮冻结内容。
               </p>
+              {permissions?.projectId === projectId ? <KnowledgePermissions key={projectId} permissions={permissions} onLocked={setPermissionLocked} onChange={(next) => { setPermissions(next); closeReader(); if (!next.originalRead) setSelectedSources(new Set()); if (!next.originalRead || !next.publicSearch) { setAskResult(undefined); queryClient.setQueryData(['knowledge', 'history', projectId], { entries: [] }); } void sourcesQuery.refetch(); void historyQuery.refetch(); }} /> : null}
+              <div className="row wrap" style={{ gap: 8, marginTop: 10 }}><input className="input" aria-label="筛选资料来源" placeholder="搜索来源名称或路径" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} /><select className="select" aria-label="来源类型" value={sourceKind} onChange={(event) => setSourceKind(event.target.value)}><option value="">全部类型</option><option value="code">代码</option><option value="document">文档</option><option value="database">数据库</option></select></div>
               <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
                 <select
                   className="select"
@@ -840,7 +865,7 @@ export function KnowledgePage() {
                 >
                   全不选
                 </Button>
-                <span className="hint">至少选择一份资料；未勾选的资料不会作为本轮输入。</span>
+                <span className="hint">请选择资料或独立开启网络检索；未勾选的原资料不会作为本轮输入。</span>
               </div>
               {sourcesQuery.isLoading ? <SkeletonText lines={4} /> : null}
               {sourcesQuery.isError ? (
@@ -848,11 +873,12 @@ export function KnowledgePage() {
                   <ServiceNotice error={sourcesQuery.error} title="资料来源读取失败" onRetry={() => { void sourcesQuery.refetch(); }} />
                 </div>
               ) : null}
+              {sourceList.length > 0 && filteredSources.length === 0 ? <p className="hint">没有匹配当前名称和类型筛选的来源。</p> : null}
               {sourcesQuery.data === undefined ? null : sourceList.length === 0 ? (
-                <p className="hint" style={{ marginTop: 10 }}>项目目录里没有找到支持的资料来源，请先添加资料后提问。</p>
+                <p className="hint" style={{ marginTop: 10 }}>当前没有获准原资料。可以核对读取许可、数据库项目授权，或独立开启公共网络检索。</p>
               ) : (
                 <div className="list" style={{ marginTop: 10, maxHeight: 280, overflow: 'auto' }}>
-                  {sourceList.map((source) => (
+                  {filteredSources.map((source) => (
                     <div key={source.path} className="kb-source-row">
                       <input
                         type="checkbox"
@@ -862,8 +888,8 @@ export function KnowledgePage() {
                       />
                       <button type="button" className="kb-source-open" onClick={() => { openSource(source.path); }}>
                         <Icon name="doc" size="sm" />
-                        <span className="path grow">{source.path}</span>
-                        <span className="hint">{Math.max(1, Math.round(source.bytes / 1024))} KB</span>
+                        <span className="path grow">{source.label ?? source.path}<span className="hint"> · {source.kind === 'code' ? '代码' : source.kind === 'database' ? '数据库' : '文档'}</span></span>
+                        <span className="hint">{source.kind === 'database' ? '只读有界样本' : `${Math.max(1, Math.round(source.bytes / 1024))} KB`}</span>
                         <Icon name="chevRight" size="sm" />
                       </button>
                     </div>
@@ -874,7 +900,7 @@ export function KnowledgePage() {
                 <input
                   className="input"
                   style={{ flex: 1, minWidth: 180 }}
-                  placeholder="在文档来源中搜索（至少 2 字）"
+                  placeholder="在代码/文档中搜索（至少 2 字）"
                   value={searchTerm}
                   onChange={(event) => { setSearchTerm(event.target.value); }}
                   onKeyDown={(event) => { if (event.key === 'Enter') setSubmittedTerm(searchTerm.trim()); }}
@@ -884,8 +910,8 @@ export function KnowledgePage() {
                   variant="secondary"
                   size="sm"
                   icon="search"
-                  disabled={projectId === '' || searchTerm.trim().length < 2}
-                  disabledReason={projectId === '' ? '先选择项目。' : '搜索至少 2 个字。'}
+                  disabled={projectId === '' || searchTerm.trim().length < 2 || permissions?.originalRead !== true}
+                  disabledReason={permissions?.originalRead !== true ? '原资料读取许可关闭或尚未核对。' : projectId === '' ? '先选择项目。' : '搜索至少 2 个字。'}
                   onClick={() => { setSubmittedTerm(searchTerm.trim()); }}
                 >
                   搜索
@@ -896,7 +922,7 @@ export function KnowledgePage() {
                   <ServiceNotice error={searchQuery.error} title="来源搜索失败" onRetry={() => { void searchQuery.refetch(); }} />
                 </div>
               ) : null}
-              {searchQuery.data === undefined ? null : searchQuery.data.matches.length === 0 ? (
+              {permissions?.originalRead !== true || searchQuery.isError || searchQuery.data === undefined ? null : searchQuery.data.matches.length === 0 ? (
                 <p className="hint" style={{ marginTop: 8 }}>没有匹配的文档行。</p>
               ) : (
                 <div className="list" style={{ marginTop: 8, maxHeight: 260, overflow: 'auto' }}>

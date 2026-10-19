@@ -79,14 +79,25 @@ export class KnowledgeInputs {
       const result = await this.database.query(id, `SELECT * FROM ${quote(schema)}.${quote(table)}`, 5, connection) as DatabaseQueryResult;
       blocks.push(`${schema}.${table}\n${JSON.stringify(result.columns)}\n${JSON.stringify(result.rows)}`);
     }
-    this.connection(projectId, id); this.requireOriginal(projectId);
+    this.assertCurrent(projectId, { documents: [{ path, content: '', sha256: '', databaseGrant: { schemas: connection.schemas ?? [], tables: connection.tables ?? [] } }], networkSearch: false });
     const content = blocks.join('\n\n').slice(0, 48000);
     return { path, content, bytes: Buffer.byteLength(content) };
   }
   async collect(projectId: string, paths: readonly string[], networkSearch: boolean, question: string) {
     const documents: KnowledgeInputSnapshot['documents'][number][] = []; const truncatedPaths: string[] = [];
     const limit = Math.min(6000, Math.floor(96000 / Math.max(paths.length, 1)));
-    for (const path of paths) { const source = await this.read(projectId, path); if (source.content.length > limit) truncatedPaths.push(path); const content = source.content.slice(0, limit); if (content !== '') documents.push({ path, content, sha256: createHash('sha256').update(content).digest('hex'), ...(path.startsWith('database:') ? { databaseGrant: { schemas: [...this.connection(projectId, path.slice(9)).schemas ?? []], tables: [...this.connection(projectId, path.slice(9)).tables ?? []] } } : {}) }); }
+    for (const path of paths) {
+      const connection = path.startsWith('database:') ? this.connection(projectId, path.slice(9)) : undefined;
+      const databaseGrant = connection === undefined ? undefined : { schemas: [...connection.schemas ?? []], tables: [...connection.tables ?? []] };
+      const source = await this.read(projectId, path);
+      if (source.content.length > limit) truncatedPaths.push(path);
+      const content = source.content.slice(0, limit);
+      if (content !== '') {
+        const document = { path, content, sha256: createHash('sha256').update(content).digest('hex'), ...(databaseGrant === undefined ? {} : { databaseGrant }) };
+        this.assertCurrent(projectId, { documents: [document], networkSearch: false });
+        documents.push(document);
+      }
+    }
     if (networkSearch) {
       const policy = this.permissions(projectId); if (!policy.publicSearch || this.publicSearch === undefined) throw new AppError(ErrorCode.FORBIDDEN, '网络公共检索未获独立许可');
       const results = await this.publicSearch.search(question);

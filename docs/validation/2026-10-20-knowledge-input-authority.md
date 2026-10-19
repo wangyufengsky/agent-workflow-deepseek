@@ -15,3 +15,14 @@
 真实公共检索端口验证：`TypeScript documentation` 返回 5 个实际 URL，包含 typescriptlang.org；标题/摘要非空。日志 `/tmp/parity-p04-public-search-live.log`。此证据仅证明本机公共搜索端点可达，不证明模型问答或 GUI。
 
 下一 UI 批次接入来源分类/筛选、两项许可与 UNKNOWN 核对、模型选择、冻结引用读取及撤销时清空。真实 MySQL/PostgreSQL 数据源问答、opencode-go 与 Electron 四主题验收尚未执行。
+
+## UI 与竞态补充批次
+
+- 来源面板显示实际代码/文档/数据库分类、搜索过滤和已选数量；两项独立许可接入服务写入，保留未知请求号与只读核对入口，许可不确定时禁止继续发送。撤销后立即清空当前引用、回答、所选原资料与历史缓存，并隐藏旧搜索结果；服务端继续拒绝新读取及迟到内容。
+- 首次模型下拉来自真实启用模型，实际 modelId 随请求提交；已有会话显示冻结模型并锁定。历史引用携带原 requestKey，读取相应冻结正文而不是当前磁盘内容。原始输入时间与公共检索“URL/摘要而非网页全文”口径可见。
+- 撤销不能通过成功 POST 重放、结果读取或历史摘要绕过。数据库读取完成后再次核对最初 grant，收紧不能让之前读取的更大范围内容混入新 grant。
+- 恢复与原 active callback 并发时以原 key 持久终态为准：已恢复结果不会被迟到输出或迟到传输失败覆盖，不会重复追加历史。新增这两类竞态回归与“输入检索期间停止、未派发模型”的回归；尚无完整冻结输入时继续按钮显示服务原因。
+- 引用摘录由服务从冻结正文的真实行生成，模型提供的伪造 snippet 不被作为原文显示。
+- 首批新增数据库 fixture 的 passwordRef/readOnly/ssl 类型字段已修正；完整最终类型证据以 `/tmp/parity-p04-ui-typecheck.log` 的真正完成结果为准。
+
+最终 focused 回归：22/22 通过，含知识步骤/来源/许可、ROUTES 与工具/数据库权限回归。全仓 typecheck、Web build 均等待进程完成后确认退出码 0。日志：`/tmp/parity-p04-ui-tests.log`、`/tmp/parity-p04-ui-typecheck.log`、`/tmp/parity-p04-ui-build.log`。构建保留已有 duplicate-case/大 chunk 提示。无真实模型、真实数据库协议或原生 Electron GUI 验收声明。
