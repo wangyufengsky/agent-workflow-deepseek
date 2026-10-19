@@ -8,6 +8,7 @@ import {
   fetchSettings,
   fetchTasks,
   restartOpenCode,
+  fetchOpenCodeDetect,
 } from './endpoints.ts';
 
 /** Retry only transient, non-connection failures; a down service should surface immediately. */
@@ -57,6 +58,10 @@ export function useSettings() {
     retry: shouldRetry,
     staleTime: 30_000,
   });
+}
+
+export function useOpenCodeDetect(enabled = false) {
+  return useQuery({ queryKey: ['opencode', 'detect'] as const, queryFn: fetchOpenCodeDetect, enabled, retry: false });
 }
 
 export function useOpenCodeStatus() {

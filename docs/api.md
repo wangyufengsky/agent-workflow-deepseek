@@ -100,6 +100,7 @@ Git 读模型会把已存审查投影到 `commit.review`、`reviewBadges` 与仓
 | GET | `/api/settings/databases` | 数据库连接列表 |
 | POST | `/api/settings/databases` | 注册/更新连接（密码进 secrets，返回不含密码） |
 | POST | `/api/settings/databases/:id/probe`、`/query` | 探针 / 只读查询 |
+| GET | `/api/opencode/detect` | 扫描本机 OpenCode 候选与版本（只读） |
 | GET | `/api/opencode/status` | 受管服务状态、模型、MCP 连接、provider 网关计数 |
 | POST | `/api/opencode/restart` | 重启受管服务 |
 

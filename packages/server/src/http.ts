@@ -39,6 +39,7 @@ import type { Store } from '@agent-workflow/storage';
 import type { DatabaseService } from '@agent-workflow/database';
 import type { RemoteService } from './remote.ts';
 import { fileIdFor } from './adapters/git-cli.ts';
+import { detectOpenCodeBinaries } from './opencode-detect.ts';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
@@ -607,6 +608,9 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       },
       requestId(request),
     );
+  });
+  app.get('/api/opencode/detect', async (request) => {
+    return envelope(await detectOpenCodeBinaries(engine.publicSettings().opencode.binaryPath), requestId(request));
   });
   app.post('/api/opencode/restart', async (request) => {
     const opencode = opencodeRef.current;

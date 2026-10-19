@@ -1,7 +1,9 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { createRequestKey } from '@agent-workflow/shared';
 import { OpencodeServiceStatus, type IntegrationStatus, type OpencodeServiceStatusValue } from '@agent-workflow/shared';
-import { isServiceUnavailable } from '../../api/client.ts';
-import { useOpenCodeStatus, useRestartOpenCode } from '../../api/hooks.ts';
+import { isServiceUnavailable, request } from '../../api/client.ts';
+import { useBootstrap, useOpenCodeDetect, useOpenCodeStatus, useRestartOpenCode } from '../../api/hooks.ts';
 import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
@@ -45,7 +47,27 @@ function InfoRow({ label, children, hint }: { readonly label: string; readonly c
  * /api/opencode/status answers; otherwise it is disabled with the reason shown.
  */
 export function OpenCodeCard({ integration }: { readonly integration?: IntegrationStatus }) {
+  const queryClient = useQueryClient();
+  const bootstrap = useBootstrap();
   const statusQuery = useOpenCodeStatus();
+  const [scanEnabled, setScanEnabled] = useState(false);
+  const detectQuery = useOpenCodeDetect(scanEnabled);
+  const currentBinary = bootstrap.data?.settings.opencode.binaryPath ?? detectQuery.data?.current ?? '';
+  const useBinary = useMutation({
+    mutationFn: async (binaryPath: string) => {
+      await request('/api/settings', {
+        method: 'PATCH',
+        body: { requestKey: createRequestKey(), patch: { opencode: { binaryPath } } },
+      });
+      return binaryPath;
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+        queryClient.invalidateQueries({ queryKey: ['settings'] }),
+      ]);
+    },
+  });
   const restart = useRestartOpenCode();
   const status = statusQuery.data;
   const disconnected = statusQuery.isError && isServiceUnavailable(statusQuery.error);
@@ -170,6 +192,58 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
           </div>
         </div>
       )}
+
+        <div style={{ marginTop: 20 }}>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <div className="grow">
+              <div className="section-title">自动检测本机 OpenCode</div>
+              <p className="hint" style={{ marginTop: 4 }}>
+                只扫描 PATH 与 ~/.opencode/versions，并执行候选的 <span className="mono">--version</span>；不会改动设置，选择后才保存。
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="search"
+              disabled={detectQuery.isFetching}
+              onClick={() => { setScanEnabled(true); void detectQuery.refetch(); }}
+            >
+              {detectQuery.isFetching ? '扫描中…' : '扫描本机版本'}
+            </Button>
+          </div>
+          {detectQuery.isError ? <ServiceNotice className="inline-banner" error={detectQuery.error} /> : null}
+          {detectQuery.data === undefined ? null : detectQuery.data.candidates.length === 0 ? (
+            <p className="hint" style={{ marginTop: 10 }}>没有发现可用的 OpenCode 可执行文件；可手动填写路径。</p>
+          ) : (
+            <div className="list" style={{ marginTop: 10 }}>
+              {detectQuery.data.candidates.map((candidate) => (
+                <div key={candidate.path} className="list-row">
+                  <span className="tile"><Icon name="terminal" /></span>
+                  <span className="grow" style={{ minWidth: 0 }}>
+                    <span className="mono" style={{ display: 'block', fontSize: 12.5 }}>{candidate.path}</span>
+                    <span className="hint" style={{ display: 'block', marginTop: 2 }}>
+                      {candidate.version === undefined ? '版本未识别' : `版本 ${candidate.version}`} · {candidate.source === 'versions-dir' ? '版本目录' : candidate.source === 'current' ? '当前配置' : 'PATH'}
+                    </span>
+                  </span>
+                  {candidate.path === currentBinary ? (
+                    <Badge tone="ok" icon="check">当前使用</Badge>
+                  ) : (
+                    <Button variant="secondary" size="sm" icon="check" disabled={useBinary.isPending} onClick={() => { useBinary.mutate(candidate.path); }}>
+                      使用此版本
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {useBinary.isSuccess ? (
+            <div className="banner ok" style={{ marginTop: 10 }}>
+              <Icon name="check" />
+              <span>已保存可执行路径；重启受管 OpenCode 后生效。</span>
+            </div>
+          ) : null}
+          {useBinary.isError ? <ServiceNotice className="inline-banner" error={useBinary.error} /> : null}
+        </div>
     </div>
   );
 }

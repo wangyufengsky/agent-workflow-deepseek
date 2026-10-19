@@ -4,6 +4,7 @@ import {
   type BootstrapResponse,
   type CommandResponse,
   type ListTasksQuery,
+  type OpenCodeDetectResponse,
   type OpenCodeRestartRequest,
   type OpenCodeStatusResponse,
   type Page,
@@ -46,6 +47,11 @@ export async function fetchSettings(): Promise<SettingsResponse> {
 export async function fetchOpenCodeStatus(): Promise<OpenCodeStatusResponse['status']> {
   const response = await apiGet<OpenCodeStatusResponse>(ROUTES.opencodeStatus);
   return response.data.status;
+}
+
+export async function fetchOpenCodeDetect(): Promise<OpenCodeDetectResponse> {
+  const response = await apiGet<OpenCodeDetectResponse>('/api/opencode/detect');
+  return response.data;
 }
 
 export async function restartOpenCode(): Promise<CommandResponse> {

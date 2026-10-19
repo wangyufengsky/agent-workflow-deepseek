@@ -189,6 +189,12 @@ export interface UpdateDraftRequest {
   readonly expected?: { readonly requirementRevision?: number };
 }
 
+export interface OpenCodeDetectResponse {
+  readonly current: string;
+  readonly scannedAt: IsoDateTime;
+  readonly candidates: readonly { readonly path: string; readonly version?: string; readonly source: 'current' | 'path' | 'versions-dir' }[];
+}
+
 export interface TemplateTasksResponse {
   readonly tasks: readonly TaskSummary[];
 }
@@ -853,6 +859,7 @@ export const ROUTES = {
   databaseQuery: (id: string) => `/api/settings/databases/${encodeURIComponent(id)}/query`,
   opencodeStatus: '/api/opencode/status',
   opencodeRestart: '/api/opencode/restart',
+  opencodeDetect: '/api/opencode/detect',
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;
