@@ -1,5 +1,5 @@
 import { PptPlanBrief, PptPlanNarrative, PptPlanSlides, PptPlanVisual, PptPlanAssets, PptPlanNotes, PptPlanDelivery } from './PptPlanSections.tsx';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createRequestKey, type PptWork, type PptSlide, type PptProductionPlan, type PptBrief } from '@agent-workflow/shared';
 import { Drawer } from '../../components/Drawer.tsx';
 import { Button } from '../../components/Button.tsx';
@@ -23,6 +23,8 @@ export function PptPlanDrawer({ work, open, onClose, blocked, onCommand }: {
     const [revision, setRevision] = useState(work.revision ?? 1);
     const [leave, setLeave] = useState(false);
     const [direction, setDirection] = useState(work.direction ?? 'restrained');
+    const priorSource=useRef({brief,plan,slides,direction});
+    useEffect(()=>{const next={brief:work.brief??{audience:'',objective:'',length:'',style:'',sources:''},plan:work.plan??defaultPptPlan(work),slides:work.slides.length?work.slides:work.outline.map(title=>({title,bullets:[]})),direction:work.direction??'restrained'};const current={brief,plan,slides,direction};if(JSON.stringify(current)===JSON.stringify(priorSource.current)||JSON.stringify(current)===JSON.stringify(next)){setBrief(next.brief);setPlan(next.plan);setSlides(next.slides);setDirection(next.direction);setRevision(work.revision??1);}priorSource.current=next;},[work.revision]);
     useEffect(() => {
         if (!open || leave)
             return;

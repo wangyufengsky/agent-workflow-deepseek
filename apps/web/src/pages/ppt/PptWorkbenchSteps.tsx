@@ -38,8 +38,9 @@ export function PptStepDiscussion({ work, busyKind, blocked, blockedReason, proj
   const [baselineRevision, setBaselineRevision] = useState(work.revision ?? 1);
   const [topic, setTopic] = useState(work.topic);
   const [outlineText, setOutlineText] = useState(work.outline.join('\n'));
+  const previousText=useRef({title:work.title,topic:work.topic,outlineText:work.outline.join('\n')});
   const [error, setError] = useState<string | undefined>(undefined);
-  useEffect(() => { if (title === work.title && topic === work.topic && outlineText === work.outline.join('\n')) setBaselineRevision(work.revision ?? 1); }, [work.revision, title, topic, outlineText, work]);
+  useEffect(()=>{const next={title:work.title,topic:work.topic,outlineText:work.outline.join('\n')};const current={title,topic,outlineText};if(JSON.stringify(current)===JSON.stringify(previousText.current)||JSON.stringify(current)===JSON.stringify(next)){setTitle(next.title);setTopic(next.topic);setOutlineText(next.outlineText);setBaselineRevision(work.revision??1);}previousText.current=next;},[work.revision]);
 
   const submit = (): void => {
     const trimmedTitle = title.trim();
@@ -329,11 +330,12 @@ export function PptStepDesign({ work, busyKind, blocked, blockedReason, onComman
 
 /** ③ 制作检查：真实计数与附件管理；当前修订逐页检查。 */
 export interface PptStepCheckProps extends PptStepCommonProps {
+  readonly attachmentsOnly?: boolean;
   readonly lastResult: PptCommandSignal | null;
   readonly onGoDesign: () => void;
 }
 
-export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResult, onCommand, onGoDesign }: PptStepCheckProps) {
+export function PptStepCheck({ attachmentsOnly=false, work, busyKind, blocked, blockedReason, lastResult, onCommand, onGoDesign }: PptStepCheckProps) {
   const anyBusy = busyKind !== null;
   const status = pptStatusMeta(work.status);
   const counts = pptPageCount(work);
@@ -406,7 +408,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
 
   return (
     <div className="col" style={{ gap: 18 }}>
-      <PptPageChecks {...{ work, blocked, onCommand }} />
+      {!attachmentsOnly ? <><PptPageChecks {...{ work, blocked, onCommand }} />
 
       <div className="row wrap" style={{ gap: 8 }}>
         <Button variant="secondary" size="sm" icon="arrowLeft" onClick={onGoDesign} disabled={blocked} disabledReason={blockedReason}>
@@ -456,6 +458,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
         </div>
       </div>
 
+      </> : null}
       <div>
         <div className="row" style={{ gap: 8, marginBottom: 8 }}>
           <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>附件</h4>
@@ -493,8 +496,8 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
                   variant="ghost"
                   size="sm"
                   icon="trash"
-                  disabled={anyBusy}
-                  disabledReason={anyBusy ? blockedReason : undefined}
+                  disabled={blocked}
+                  disabledReason={blockedReason}
                   onClick={() => {
                     onCommand({ kind: 'detach', workId: work.id, name: attachment.name });
                   }}
@@ -510,7 +513,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
           className="ppt-attach-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (anyBusy) return;
+            if (blocked) return;
             submitAttachment();
           }}
         >
@@ -530,7 +533,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
                 className="input"
                 value={attachName}
                 placeholder="例如 notes.md"
-                disabled={anyBusy}
+                disabled={blocked}
                 onChange={(event) => {
                   setAttachName(event.target.value);
                   setAttachError(undefined);
@@ -545,7 +548,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
                 id={`ppt-attach-kind-${work.id}`}
                 className="select"
                 value={attachKind}
-                disabled={anyBusy}
+                disabled={blocked}
                 onChange={(event) => {
                   setAttachKind(event.target.value === 'image' ? 'image' : 'text');
                   setAttachError(undefined);
@@ -567,7 +570,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
                 className="textarea"
                 value={attachText}
                 placeholder="粘贴资料、要点或会议记录；生成时最多取前 4000 字送入模型。"
-                disabled={anyBusy}
+                disabled={blocked}
                 onChange={(event) => {
                   setAttachText(event.target.value);
                   setAttachError(undefined);
@@ -589,8 +592,8 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
                   variant="secondary"
                   size="sm"
                   icon="upload"
-                  disabled={anyBusy}
-                  disabledReason={anyBusy ? blockedReason : undefined}
+                  disabled={blocked}
+                  disabledReason={blockedReason}
                   onClick={() => {
                     imageInputRef.current?.click();
                   }}
@@ -620,7 +623,7 @@ export function PptStepCheck({ work, busyKind, blocked, blockedReason, lastResul
 
           <div className="row">
             <span className="grow" />
-            <Button type="submit" variant="primary" size="sm" icon="plus" disabled={anyBusy} disabledReason={blockedReason}>
+            <Button type="submit" variant="primary" size="sm" icon="plus" disabled={blocked} disabledReason={blockedReason}>
               {busyKind === 'attach' ? '正在添加…' : '添加附件'}
             </Button>
           </div>

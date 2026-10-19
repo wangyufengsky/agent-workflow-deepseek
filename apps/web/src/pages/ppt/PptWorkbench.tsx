@@ -1,8 +1,10 @@
+import { PptStudio } from './PptStudio.tsx';
+import { Drawer } from '../../components/Drawer.tsx';
 import { PptAssistantPanel } from './PptAssistantPanel.tsx';
 import { PptPlanDrawer } from './PptPlanDrawer.tsx';
 import { PptGenerationControls } from './PptGenerationControls.tsx';
 import { PptVersions } from './PptProductionPanels.tsx';
-import { useState } from 'react';
+import { useEffect,useState } from 'react';
 import type { PptWork } from '@agent-workflow/shared';
 import { formatRelativeTime } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -40,7 +42,10 @@ const STEP_TITLES: Record<PptStageKey, { readonly title: string; readonly hint: 
 export function PptWorkbench({ work, projectName, busyKind, lastResult, onCommand, onBack }: PptWorkbenchProps) {
   const progress = derivePptProgress(work);
   const [planOpen,setPlanOpen] = useState(false);
-  const [activeStep, setActiveStep] = useState<PptStageKey>(progress.current);
+  const [sourcesOpen,setSourcesOpen] = useState(false);
+  const [versionsOpen,setVersionsOpen] = useState(false);
+  const [activeStep, setActiveStep] = useState<PptStageKey>(()=>{try{const saved=sessionStorage.getItem(`ppt.step.${work.id}`);return PPT_STAGES.some(stage=>stage.key===saved)?saved as PptStageKey:progress.current;}catch{return progress.current;}});
+  useEffect(()=>{try{sessionStorage.setItem(`ppt.step.${work.id}`,activeStep);}catch{/* The current view remains in memory. */}},[work.id,activeStep]);
   const status = pptStatusMeta(work.status);
   const generating = work.status === 'generating';
   const anyBusy = busyKind !== null;
@@ -80,11 +85,12 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
               size="sm"
               icon="book"
               onClick={() => {
-                setActiveStep('check');
+                setSourcesOpen(true);
               }}
             >
               资料 {String(work.attachments.length)}
             </Button>
+            <Button variant="ghost" size="sm" icon="clock" onClick={()=>setVersionsOpen(true)}>版本</Button>
             <Button variant="secondary" size="sm" icon="layers" onClick={() => setPlanOpen(true)}>制作方案</Button>
             <Button
               variant="primary"
@@ -99,7 +105,7 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
           </div>
         </div>
 
-        <PptVersions {...{ work, blocked, onCommand }} />
+        <Drawer open={versionsOpen} title="版本与修订" size="lg" onClose={()=>setVersionsOpen(false)}><PptVersions expanded {...{work,blocked,onCommand}}/></Drawer>
 
         <div className="ppt-stepper" role="tablist" aria-label="制作步骤">
           {PPT_STAGES.map((stage, index) => {
@@ -126,7 +132,7 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
         </div>
 
         <div className="row wrap ppt-meta" style={{ marginTop: 10 }}>
-          <span>当前阶段：{progress.stageLabel}</span>
+          <span>修订 {work.revision??1} · {progress.stageLabel}</span>
           <span aria-hidden="true">·</span>
           <span>{progress.pageText}</span>
           <span aria-hidden="true">·</span>
@@ -136,58 +142,18 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
           <span aria-hidden="true">·</span>
           <span>{progress.nextHint}</span>
         </div>
-        <p className="hint" style={{ marginTop: 6 }}>
-          四步进度只由服务真实数据推导（大纲 / 逐页）；「导出」不会被标成已完成（服务不记录导出），制作检查按当前修订读取逐页内容与版式边界，不代替人工判断。
-          生成与保存的回执显示在页面顶部；unknown 回执可用请求号核对，不会自动重发。
-        </p>
+
       </section>
 
-      <div className="ppt-work-area">
-      <section className="card ppt-wb-step" aria-label={stepMeta.title} style={{ marginTop: 16 }}>
-        <div className="card-head">
-          <span className="eyebrow">{stepMeta.title}</span>
-          <span className="hint grow">{stepMeta.hint}</span>
+      <Drawer open={sourcesOpen} title="作品资料" size="lg" onClose={()=>setSourcesOpen(false)}><PptStepCheck attachmentsOnly {...{work,busyKind,blocked,blockedReason,lastResult,onCommand}} onGoDesign={()=>setActiveStep('design')}/></Drawer>
+      <div className="ppt-studio-shell" hidden={activeStep!=='check'}><PptStudio key={work.id} {...{work,blocked,blockedReason,onCommand}}/></div>
+      <div className="ppt-work-area" hidden={activeStep==='check'}>
+       <section className="card ppt-wb-step" aria-label={stepMeta.title}>
+        <div className="card-head"><span className="eyebrow">{stepMeta.title}</span></div><div className="card-body">
+         {activeStep==='discuss'?<PptStepDiscussion {...{work,projectName,busyKind,blocked,blockedReason,onCommand}} onNext={()=>setActiveStep('design')}/>:activeStep==='design'?<PptStepDesign {...{work,busyKind,blocked,blockedReason,onCommand}}/>:<PptStepExport {...{work,busyKind,blocked,blockedReason,lastResult,onCommand}}/>}
         </div>
-        <div className="card-body">
-          {activeStep === 'discuss' ? (
-            <PptStepDiscussion
-              work={work}
-              projectName={projectName}
-              busyKind={busyKind}
-              blocked={blocked}
-              blockedReason={blockedReason}
-              onCommand={onCommand}
-              onNext={() => {
-                setActiveStep('design');
-              }}
-            />
-          ) : activeStep === 'design' ? (
-            <PptStepDesign work={work} busyKind={busyKind} blocked={blocked} blockedReason={blockedReason} onCommand={onCommand} />
-          ) : activeStep === 'check' ? (
-            <PptStepCheck
-              work={work}
-              busyKind={busyKind}
-              blocked={blocked}
-              blockedReason={blockedReason}
-              lastResult={lastResult}
-              onCommand={onCommand}
-              onGoDesign={() => {
-                setActiveStep('design');
-              }}
-            />
-          ) : (
-            <PptStepExport
-              work={work}
-              busyKind={busyKind}
-              blocked={blocked}
-              blockedReason={blockedReason}
-              lastResult={lastResult}
-              onCommand={onCommand}
-            />
-          )}
-        </div>
-      </section>
-      <PptAssistantPanel key={work.id} work={work} blocked={blocked} />
+       </section>
+       <PptAssistantPanel key={work.id} work={work} blocked={blocked}/>
       </div>
     </div>
   );

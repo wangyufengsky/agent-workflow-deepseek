@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import { pendingCommands } from '../../api/pending-commands.ts';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -101,8 +102,13 @@ export function PptPage() {
     (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
   );
 
-  const [view, setView] = useState<PptView>('works');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [params,setParams]=useSearchParams();
+  const view:PptView=params.has('work')?'workbench':'works';
+  const selectedId=params.get('work');
+  const lastSelected=useRef<string|null>(selectedId);
+  if(selectedId!==null)lastSelected.current=selectedId;
+  const setSelectedId=(value:string|null|((current:string|null)=>string|null))=>{const id=typeof value==='function'?value(selectedId):value;const next=new URLSearchParams(params);if(id===null)next.delete('work');else next.set('work',id);setParams(next);};
+  const setView=(value:PptView)=>{const next=new URLSearchParams(params);if(value==='works')next.delete('work');else if(!next.has('work')){const id=lastSelected.current??works[0]?.id;if(id)next.set('work',id);}setParams(next);};
   const [createOpen, setCreateOpen] = useState(false);
   const [busyKind, setBusyKind] = useState<PptCommandKind | null>(null);
   const [receipt, setReceipt] = useState<PptReceiptState | null>(null);
@@ -155,7 +161,6 @@ export function PptPage() {
           const createdId = fromOutcome ?? latest?.[0]?.id;
           if (createdId !== undefined) setSelectedId(createdId);
           setCreateOpen(false);
-          setView('workbench');
         } else if (command.kind === 'delete') {
           setSelectedId((prev) => (prev === command.workId ? null : prev));
           setView('works');
@@ -219,7 +224,6 @@ export function PptPage() {
           setView('works');
         } else if (workId !== undefined) {
           setSelectedId(workId);
-          setView('workbench');
         }
       }
     } catch (error) {
@@ -229,7 +233,7 @@ export function PptPage() {
 
   return (
     <div className="page">
-      <PageHeader
+      {view==='works' ? <PageHeader
         title="PPT 制作"
         lede="作品库与工作台：网格/列表查看全部作品；选中作品后在四步工作台完成讨论需求、设计方案、制作检查与导出。所有写操作返回真实回执，模型调用可能较慢。"
         actions={
@@ -240,7 +244,7 @@ export function PptPage() {
             </Button>
           </div>
         }
-      />
+      /> : null}
 
       {projectsQuery.isError ? (
         <div style={{ marginBottom: 16 }}>
@@ -277,8 +281,7 @@ export function PptPage() {
           selectedId={selectedId}
           onOpen={(work) => {
             setSelectedId(work.id);
-            setView('workbench');
-          }}
+            }}
           onNew={() => {
             setCreateOpen(true);
           }}
