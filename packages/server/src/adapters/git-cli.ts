@@ -1,3 +1,4 @@
+import { detectGitState } from '@agent-workflow/git';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, statSync } from 'node:fs';
@@ -117,14 +118,8 @@ export class GitCliAdapter implements GitPort {
   }
 
   async detect(rootPath: string): Promise<{ gitState: RepoGitStateValue; defaultBranch?: string; remoteDisplayUrl?: string; detail?: string }> {
-    if (!existsSync(rootPath)) return { gitState: 'path_unavailable', detail: '路径不存在' };
-    if (!statSync(rootPath).isDirectory()) return { gitState: 'path_unavailable', detail: '不是目录' };
-    const inside = await this.#run(['rev-parse', '--is-inside-work-tree'], rootPath).catch((error: unknown) => {
-      if (error instanceof AppError) return null;
-      throw error;
-    });
-    if (inside === null) return { gitState: 'path_unavailable', detail: '无法读取 Git 信息' };
-    if (inside.stdout.trim() !== 'true') return { gitState: 'not_git', detail: '不是 Git 仓库' };
+    const gitState = await detectGitState(rootPath);
+    if (gitState !== 'git') return { gitState, detail: gitState === 'not_git' ? '目录可访问，但不是 Git 仓库' : gitState === 'capability_unavailable' ? '本机 Git 不可执行' : '路径不存在或不可访问' };
     const defaultBranch = await this.#defaultBranch(rootPath);
     const remote = await this.#run(['remote', 'get-url', 'origin'], rootPath).catch(() => undefined);
     return {

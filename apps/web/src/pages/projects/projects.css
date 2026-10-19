@@ -1,0 +1,6 @@
+.project-parity-card { cursor: pointer; position: relative; }
+.project-parity-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.project-more { position: relative; margin-left: auto; }
+.project-more summary { cursor: pointer; list-style: none; padding: 4px 12px; border-radius: var(--r-sm); }
+.project-more summary:hover { background: var(--fill-2); }
+.project-more > div { position: absolute; z-index: 5; right: 0; min-width: 160px; box-shadow: var(--shadow-lift); }

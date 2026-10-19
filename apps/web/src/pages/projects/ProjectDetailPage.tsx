@@ -1372,7 +1372,7 @@ export function ProjectDetailPage() {
 
   const project = detail.project;
   const unavailable = project.gitState === RepoGitState.PATH_UNAVAILABLE || project.gitState === RepoGitState.CAPABILITY_UNAVAILABLE;
-  const startDisabledReason = unavailable ? '项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始任务。' : undefined;
+  const startDisabledReason = project.archived ? '项目已取消管理，请先恢复管理后开始任务' : unavailable ? '项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始任务。' : undefined;
   const docPaths = readDocPaths(project.settings);
   const integration = bootstrap.data?.integration;
   const integrationLoading = bootstrap.isLoading;
@@ -1402,7 +1402,7 @@ export function ProjectDetailPage() {
           </div>
         </div>
         <div className="project-detail-actions">
-          {unavailable ? (
+          {project.archived || unavailable ? (
             <Button variant="primary" size="sm" icon="plus" disabled disabledReason={startDisabledReason}>
               开始任务
             </Button>
@@ -1411,7 +1411,7 @@ export function ProjectDetailPage() {
               开始任务
             </LinkButton>
           )}
-          {unavailable ? (
+          {project.archived || unavailable ? (
             <Button variant="secondary" size="sm" icon="template" disabled disabledReason={startDisabledReason}>
               模板任务
             </Button>
@@ -1511,7 +1511,7 @@ export function ProjectDetailPage() {
                   <span className="section-title">最近任务</span>
                   <div className="hint" style={{ marginTop: 2 }}>{String(detail.tasks.length)} 个任务属于这个项目</div>
                 </div>
-                <LinkButton to="/tasks" variant="ghost" size="sm" iconAfter="chevRight">
+                <LinkButton to={`/tasks?projectId=${encodeURIComponent(project.id)}`} variant="ghost" size="sm" iconAfter="chevRight">
                   任务列表
                 </LinkButton>
               </div>

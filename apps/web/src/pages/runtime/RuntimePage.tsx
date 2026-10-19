@@ -1,11 +1,11 @@
 import { RuntimeControls } from './RuntimeControls.tsx';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { OpencodeServiceStatus, type OpencodeServiceStatusValue } from '@agent-workflow/shared';
 import { isServiceUnavailable } from '../../api/client.ts';
 import { useBootstrap, useOpenCodeStatus } from '../../api/hooks.ts';
 import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
-import { Button } from '../../components/Button.tsx';
+import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
@@ -63,6 +63,7 @@ function MonoValue({ value }: { readonly value: string | undefined }) {
 }
 
 export function RuntimePage() {
+  const [copyMessage, setCopyMessage] = useState('');
   const bootstrap = useBootstrap();
   const statusQuery = useOpenCodeStatus();
   const status = statusQuery.data;
@@ -211,7 +212,7 @@ export function RuntimePage() {
               </dd>
               <dt>监听地址</dt>
               <dd>
-                <MonoValue value={status?.host === undefined ? undefined : `${status.host}${status.port === undefined ? '' : `:${String(status.port)}`}`} />
+                <MonoValue value={status?.host === undefined ? undefined : `${status.host}${status.port === undefined ? '' : `:${String(status.port)}`}`} />{status?.host ? <Button size="sm" variant="ghost" icon="copy" onClick={() => { void navigator.clipboard.writeText(`${status.host}:${status.port ?? ''}`).then(() => setCopyMessage('监听地址已复制')).catch(() => setCopyMessage('复制失败，请手动复制显示的地址')); }}>复制</Button> : null}
               </dd>
               <dt>PID</dt>
               <dd className="mono">{status?.pid === undefined ? '—' : String(status.pid)}</dd>
@@ -219,7 +220,7 @@ export function RuntimePage() {
               <dt>启动于</dt>
               <dd>{formatAbsoluteTime(status?.startedAt)}</dd>
               <dt>默认模型</dt>
-              <dd className="mono-wrap">{status?.model ?? '—'}</dd>
+              <dd className="mono-wrap">{status?.model ?? '未知'} <LinkButton to="/settings?section=model" size="sm" variant="ghost">更改</LinkButton></dd>
               <dt>Agent</dt>
               <dd className="mono">{status?.agent ?? data?.settings.opencode.agent ?? '—'}</dd>
               <dt>期望版本</dt>
@@ -290,6 +291,7 @@ export function RuntimePage() {
           </Button>
         }
       />
+      {copyMessage ? <p role="status" className="hint">{copyMessage}</p> : null}
       {body}
     </div>
   );

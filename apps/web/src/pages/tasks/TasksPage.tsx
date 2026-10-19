@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { TaskSummary } from '@agent-workflow/shared';
-import { useTasks } from '../../api/hooks.ts';
+import { useTasks, useProjects } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
@@ -84,10 +84,13 @@ function TaskListBody({ tasks }: { readonly tasks: readonly TaskSummary[] }) {
 export function TasksPage() {
   const [limit, setLimit] = useState(50);
   const [archived, setArchived] = useState(false);
-  const tasksQuery = useTasks({ limit, archived });
+  const [params, setParams] = useSearchParams();
+  const project = params.get('projectId') ?? 'all';
+  const setProject = (id: string) => { const next = new URLSearchParams(params); if (id === 'all') next.delete('projectId'); else next.set('projectId', id); setParams(next); setLimit(50); };
+  const projectsQuery = useProjects();
+  const tasksQuery = useTasks({ limit, archived, ...(project === 'all' ? {} : { projectId: project }) });
   const [filter, setFilter] = useState<TaskFilter>('all');
   const [keyword, setKeyword] = useState('');
-  const [project, setProject] = useState('all');
   const [grouped, setGrouped] = useState(false);
 
   const tasks = tasksQuery.data ?? [];
@@ -105,14 +108,15 @@ export function TasksPage() {
   }, [tasks]);
 
   const projects = useMemo(() => {
-    const names = new Set(tasks.map((task) => task.projectName));
-    return [...names].sort((a, b) => a.localeCompare(b, 'zh-CN'));
-  }, [tasks]);
+    const byId = new Map<string, { id: string; name: string; rootPath?: string }>((projectsQuery.data ?? []).map((item) => [item.id, { id: item.id, name: item.name, rootPath: item.rootPath }]));
+    for (const task of tasks) if (!byId.has(task.projectId)) byId.set(task.projectId, { id: task.projectId, name: task.projectName });
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  }, [tasks, projectsQuery.data]);
 
   const filtered = useMemo(() => {
     const rows = tasks.filter((task) => {
       if (filter !== 'all' && taskGroup(task) !== filter) return false;
-      if (project !== 'all' && task.projectName !== project) return false;
+      if (project !== 'all' && task.projectId !== project) return false;
       return matchesSearch(task, keyword.trim());
     });
     return sortByUpdatedDesc(rows);
@@ -121,9 +125,9 @@ export function TasksPage() {
   const groupedTasks = useMemo(() => {
     const map = new Map<string, TaskSummary[]>();
     for (const task of filtered) {
-      const bucket = map.get(task.projectName);
+      const bucket = map.get(task.projectId);
       if (bucket === undefined) {
-        map.set(task.projectName, [task]);
+        map.set(task.projectId, [task]);
       } else {
         bucket.push(task);
       }
@@ -200,7 +204,7 @@ export function TasksPage() {
           <div key={projectName}>
             <div className="task-group-head">
               <Icon name="folder" size="sm" />
-              {projectName}
+              {rows[0]?.projectName ?? projectName}
               <span className="muted num">{String(rows.length)}</span>
             </div>
             <TaskListBody tasks={rows} />
@@ -217,7 +221,7 @@ export function TasksPage() {
   return (
     <div className="page tasks">
       <PageHeader
-        title="任务"
+        title="任务列表"
         lede="每个任务都在执行画布里：哪一步在跑、哪一步卡住、下一步做什么。"
         actions={
           <>
@@ -252,9 +256,9 @@ export function TasksPage() {
         <SegmentedControl ariaLabel="状态" options={filterOptions} value={filter} onChange={setFilter} />
         <select className="select ctl" aria-label="项目" value={project} onChange={(event) => setProject(event.target.value)}>
           <option value="all">全部项目</option>
-          {projects.map((name) => (
-            <option key={name} value={name}>
-              {name}
+          {projects.map((item) => (
+            <option key={item.id} value={item.id} title={item.rootPath}>
+              {item.name}{projects.filter((other) => other.name === item.name).length > 1 ? ` · ${item.rootPath ?? '历史项目（目录未提供）'}` : ''}
             </option>
           ))}
         </select>

@@ -1,3 +1,5 @@
+import './projects.css';
+import { useNavigate } from 'react-router-dom';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -61,9 +63,12 @@ function apiErrorDetail(error: unknown): string {
 }
 
 function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly project: ProjectSummary; readonly busy: boolean; readonly onArchive: () => void; readonly onEdit: () => void; readonly onRecheck: () => void }) {
+  const navigate = useNavigate();
+  const [copyMessage, setCopyMessage] = useState('');
   const unavailable = project.gitState === RepoGitState.PATH_UNAVAILABLE || project.gitState === RepoGitState.CAPABILITY_UNAVAILABLE;
+  const cannotStart = project.archived || unavailable;
   return (
-    <article className="card pad hoverable" aria-label={project.name} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <article className="card pad hoverable project-parity-card" role="link" tabIndex={0} onClick={(event) => { if (!(event.target instanceof Element) || event.target.closest('a,button,input,summary,details') === null) navigate(`/projects/${encodeURIComponent(project.id)}`); }} onKeyDown={(event) => { if (event.target === event.currentTarget && event.key === 'Enter') navigate(`/projects/${encodeURIComponent(project.id)}`); }} aria-label={project.name} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
         <span className="tile lg">
           <Icon name={unavailable ? 'alert' : 'folder'} />
@@ -77,7 +82,7 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
               </Badge>
             ) : null}
           </div>
-          <div className="hint mono" style={{ marginTop: 3, overflowWrap: 'anywhere' }}>
+          <div className="hint mono" title={project.rootPath} style={{ marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {project.rootPath}
           </div>
         </div>
@@ -86,6 +91,7 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
         </Badge>
       </div>
 
+      {unavailable ? <p className="banner warn"><Icon name="alert" size="sm" />{project.gitState === 'path_unavailable' ? '目录在本机找不到或不可访问。请取消管理后按新路径重新登记；文件不会被删除。' : 'Git 能力不可用，请检查运行环境后重新检测。'}</p> : null}
       {project.description.trim().length === 0 ? null : (
         <p className="hint" style={{ lineHeight: 1.6 }}>
           {project.description}
@@ -123,13 +129,13 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
         <LinkButton to={`/requirements?projectId=${encodeURIComponent(project.id)}`} variant="secondary" size="sm" icon="file">
           需求目录
         </LinkButton>
-        {unavailable ? (
+        {cannotStart ? (
           <Button
             variant="ghost"
             size="sm"
             icon="plus"
             disabled
-            disabledReason="项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始任务。"
+            disabledReason={project.archived ? '项目已取消管理，请先恢复管理后开始任务' : '项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始任务。'}
           >
             开始任务
           </Button>
@@ -138,13 +144,13 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
             开始任务
           </LinkButton>
         )}
-        {unavailable ? (
+        {cannotStart ? (
           <Button
             variant="ghost"
             size="sm"
             icon="template"
             disabled
-            disabledReason="项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始模板任务。"
+            disabledReason={project.archived ? '项目已取消管理，请先恢复管理后开始模板任务' : '项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始模板任务。'}
           >
             模板任务
           </Button>
@@ -156,17 +162,7 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
         <LinkButton to={`/projects/${encodeURIComponent(project.id)}`} variant="ghost" size="sm" iconAfter="chevRight">
           查看配置
         </LinkButton>
-        <Button variant="ghost" size="sm" icon="refresh" disabled={busy} onClick={onRecheck}>
-          重新检测
-        </Button>
-        <Button variant="ghost" size="sm" icon="edit" disabled={busy} onClick={onEdit}>
-          编辑
-        </Button>
-        <Button variant="ghost" size="sm" icon={project.archived ? 'refresh' : 'archive'} disabled={busy} onClick={onArchive}>
-          {project.archived ? '恢复' : '归档'}
-        </Button>
-        <span className="spacer" />
-        <span className="hint mono">{project.id}</span>
+        <details className="project-more"><summary aria-label={`更多：${project.name}`}>⋯</summary><div className="card pad col"><Button variant="ghost" size="sm" icon="copy" onClick={() => { void navigator.clipboard.writeText(project.rootPath).then(() => setCopyMessage('目录已复制')).catch(() => setCopyMessage('复制失败，请从项目配置复制目录')); }}>复制目录</Button><Button variant="ghost" size="sm" icon="refresh" disabled={busy} disabledReason="项目操作尚未完成" onClick={onRecheck}>重新检测</Button><Button variant="ghost" size="sm" icon="edit" disabled={busy} disabledReason="项目操作尚未完成" onClick={onEdit}>编辑</Button><Button variant="ghost" size="sm" icon={project.archived ? 'refresh' : 'archive'} disabled={busy} disabledReason="项目操作尚未完成" onClick={onArchive}>{project.archived ? '恢复管理' : '取消管理…'}</Button></div></details>{copyMessage ? <span className="hint" role="status">{copyMessage}</span> : null}
       </div>
     </article>
   );
@@ -174,6 +170,7 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
 
 export function ProjectsPage() {
   const queryClient = useQueryClient();
+  const [archiveCandidate, setArchiveCandidate] = useState<ProjectSummary | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [editing, setEditing] = useState<{ id: string; name: string; description: string; testCommand: string; gitProvider: '' | 'github' | 'gitlab'; defaultMethodId: string } | null>(null);
   const projectsQuery = useProjects(includeArchived);
@@ -215,12 +212,13 @@ export function ProjectsPage() {
   });
   const archiveProject = useMutation({
     mutationFn: async (project: ProjectSummary) => {
-      await request(`/api/projects/${encodeURIComponent(project.id)}`, {
+      return (await request<CommandResponse>(`/api/projects/${encodeURIComponent(project.id)}`, {
         method: 'PATCH',
         body: { requestKey: createRequestKey(), archived: !project.archived },
-      });
+      })).data;
     },
-    onSuccess: async () => {
+    onSuccess: async (response) => {
+      if (response.receipt.status === 'succeeded') setArchiveCandidate(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
         queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
@@ -426,7 +424,7 @@ export function ProjectsPage() {
     body = (
       <div className="grid-2">
         {filtered.map((project) => (
-          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending || editProject.isPending || recheckProject.isPending} onArchive={() => { archiveProject.mutate(project); }} onRecheck={() => { recheckProject.mutate(project.id); }} onEdit={() => { setEditing({ id: project.id, name: project.name, description: project.description, testCommand: project.settings?.testCommand ?? '', gitProvider: project.settings?.gitProvider ?? '', defaultMethodId: project.settings?.defaultMethodId ?? '' }); }} />
+          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending || editProject.isPending || recheckProject.isPending} onArchive={() => { archiveProject.reset(); setArchiveCandidate(project); }} onRecheck={() => { recheckProject.mutate(project.id); }} onEdit={() => { setEditing({ id: project.id, name: project.name, description: project.description, testCommand: project.settings?.testCommand ?? '', gitProvider: project.settings?.gitProvider ?? '', defaultMethodId: project.settings?.defaultMethodId ?? '' }); }} />
         ))}
       </div>
     );
@@ -434,6 +432,7 @@ export function ProjectsPage() {
 
   return (
     <div className="page">
+      <Modal open={archiveCandidate !== null} title={archiveCandidate?.archived ? '恢复项目管理？' : '取消项目管理？'} onClose={() => { if (!archiveProject.isPending) setArchiveCandidate(null); }} footer={<><Button disabled={archiveProject.isPending} onClick={() => setArchiveCandidate(null)}>返回</Button><Button variant="primary" disabled={archiveProject.isPending || archiveProject.isError || archiveProject.data?.receipt.status === 'accepted' || archiveProject.data?.receipt.status === 'unknown'} disabledReason="请先核对原项目操作；不会重复提交" onClick={() => { if (archiveCandidate) archiveProject.mutate(archiveCandidate); }}>确认</Button></>}><p>{archiveCandidate?.name}</p><p className="mono-wrap">{archiveCandidate?.rootPath}</p><p>文件不会被删除或修改。历史任务与配置记录保留，取消管理后可按新路径重新登记。</p>{archiveProject.isError ? <ServiceNotice error={archiveProject.error} /> : null}{archiveProject.data && archiveProject.data.receipt.status !== 'succeeded' ? <p role="status">项目操作结果待核对，请从全局原操作记录重新读取；不会重复提交。</p> : null}</Modal>
       <PageHeader
         title="项目"
         lede="项目是任务、流程和配置的归属。选一个项目开始工作，或登记本机已有目录；登记不会移动或修改任何文件。"

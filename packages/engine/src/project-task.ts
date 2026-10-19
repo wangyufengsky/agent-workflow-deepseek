@@ -278,7 +278,7 @@ export class TaskService {
 
   async createForRequest(input: CreateTaskRequest): Promise<CommandResponse<TaskDetailResponse>> {
     if (input.template?.scope === undefined && input.template === undefined) return this.create(input);
-    const { record, replayed } = this.#commands.begin({ requestKey: input.requestKey, operation: input.template ? 'template.task.create' : 'task.create', body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, template: input.template }, target: { projectId: input.projectId } });
+    const { record, replayed } = this.#commands.begin({ requestKey: input.requestKey, operation: input.template ? 'template.task.create' : 'task.create', body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, ...(input.expectedMethodRevision === undefined ? {} : { expectedMethodRevision: input.expectedMethodRevision }), template: input.template }, target: { projectId: input.projectId } });
     if (replayed) { const taskId = record.outcome?.taskId; return { receipt: this.#commands.toReceipt(record), ...(typeof taskId === 'string' ? { resource: this.detail(taskId) } : {}) }; }
     this.#activeCreates.add(input.requestKey);
     try {
@@ -317,7 +317,7 @@ export class TaskService {
   }
 
   create(input: CreateTaskRequest, snapshot?: import('@agent-workflow/shared').CodeReviewSnapshot, scope?: import('@agent-workflow/shared').TemplateTaskScope): CommandResponse<TaskDetailResponse> {
-    const originalReceipt = this.#activeCreates.has(input.requestKey) ? undefined : this.#commands.replay({ requestKey: input.requestKey, operation: input.template === undefined ? 'task.create' : 'template.task.create', body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, template: input.template } }, (record) => {
+    const originalReceipt = this.#activeCreates.has(input.requestKey) ? undefined : this.#commands.replay({ requestKey: input.requestKey, operation: input.template === undefined ? 'task.create' : 'template.task.create', body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, ...(input.expectedMethodRevision === undefined ? {} : { expectedMethodRevision: input.expectedMethodRevision }), template: input.template } }, (record) => {
       const taskId = record.target.taskId ?? record.outcome?.taskId;
       return typeof taskId === 'string' ? this.detail(taskId) : undefined;
     });
@@ -325,7 +325,7 @@ export class TaskService {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: input.template === undefined ? 'task.create' : 'template.task.create',
-      body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, template: input.template },
+      body: { projectId: input.projectId, title: input.title, requirementText: input.requirementText, methodId: input.methodId, ...(input.expectedMethodRevision === undefined ? {} : { expectedMethodRevision: input.expectedMethodRevision }), template: input.template },
       target: { projectId: input.projectId },
     });
     if (replayed && !this.#activeCreates.has(input.requestKey)) {
@@ -334,10 +334,12 @@ export class TaskService {
     try {
       const project = this.#store.projects.get(input.projectId);
       if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
+      if (project.archived) throw new AppError(ErrorCode.TASK_STAGE_CONFLICT, '项目已取消管理，请先恢复管理后创建任务');
       if (input.title.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '任务标题不能为空');
       if (input.requirementText.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '需求原文不能为空');
       const method = findMethod(this.#catalog, input.methodId);
       if (method === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '流程方法不存在');
+      if (input.expectedMethodRevision !== undefined && input.expectedMethodRevision !== method.revision) throw new AppError(ErrorCode.STALE_TARGET, '流程版本已变化，请重新读取当前版本后形成草稿');
       if (method.support === 'skeleton_only' && input.template === undefined) {
         // Skeleton-only methods are still accepted; the UI shows the AI-planning marker.
       }

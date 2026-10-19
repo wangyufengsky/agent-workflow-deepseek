@@ -160,6 +160,7 @@ export async function fetchOperationByKey(requestKey: string): Promise<Operation
 /* ------------------------------------------------------------------ */
 
 export async function createTask(input: {
+  readonly expectedMethodRevision?: string;
   readonly projectId: string;
   readonly title: string;
   readonly requirementText: string;

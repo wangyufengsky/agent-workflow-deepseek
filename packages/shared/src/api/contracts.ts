@@ -380,6 +380,7 @@ export interface ListTasksQuery {
 }
 
 export interface CreateTaskRequest {
+  readonly expectedMethodRevision?: string;
   readonly requestKey: RequestKey;
   readonly projectId: string;
   readonly title: string;

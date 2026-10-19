@@ -1,7 +1,7 @@
 import { TemplateArchivePanel } from './TemplateArchivePanel.tsx';
 import { TemplateScopeFields, TemplateBranchField, type ScopeInput } from './TemplateScopeFields.tsx';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ROUTES,
   createRequestKey,
@@ -143,8 +143,9 @@ export function TemplatesPage() {
   const methods = bootstrap.data?.catalog.methods ?? [];
   const projects: readonly ProjectSummary[] = bootstrap.data?.projects ?? [];
 
+  const [params] = useSearchParams();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState('');
+  const [projectId, setProjectId] = useState(() => params.get('project') ?? '');
   const [title, setTitle] = useState('');
   const [requirementText, setRequirementText] = useState('');
   const [methodId, setMethodId] = useState('');
@@ -174,8 +175,7 @@ export function TemplatesPage() {
 
   const missingFields: string[] = [];
   if (projectId.length === 0) missingFields.push('项目');
-  if (title.trim().length === 0) missingFields.push('任务标题');
-  if (requirementText.trim().length === 0) missingFields.push('任务说明');
+  else if (!projects.some((project) => project.id === projectId && !['path_unavailable', 'capability_unavailable'].includes(project.gitState))) missingFields.push('项目不可用，请重新选择');
   if (effectiveMethodId.length === 0) missingFields.push('目录方法');
   if (!scope.branch) missingFields.push('分支');
   if (template?.inputs?.dates && !scope.dateRange) missingFields.push('时间范围');
@@ -202,8 +202,8 @@ export function TemplatesPage() {
       body ?? {
         requestKey,
         projectId,
-        title: title.trim(),
-        requirementText: requirementText.trim(),
+        title: title.trim() || `${template.name} · ${projects.find((project) => project.id === projectId)?.name ?? '项目'}`,
+        requirementText: requirementText.trim() || template.description || template.name,
         methodId: effectiveMethodId,
         template: { templateId: template.id, parameters, scope },
       };
@@ -575,8 +575,8 @@ export function TemplatesPage() {
                     >
                       <option value="">选择项目</option>
                       {projects.map((project) => (
-                        <option key={project.id} value={project.id}>
-                          {project.name}
+                        <option key={project.id} value={project.id} disabled={['path_unavailable', 'capability_unavailable'].includes(project.gitState)}>
+                          {project.name}{projects.filter((item) => item.name === project.name).length > 1 ? ` · ${project.rootPath}` : ''}
                         </option>
                       ))}
                     </select>
@@ -585,9 +585,9 @@ export function TemplatesPage() {
                   <TemplateBranchField projectId={projectId} value={scope} onChange={setScope} disabled={formLocked} />
                 </div>
 
-                <div className="field">
+                <details><summary>任务名称与补充说明（可选）</summary><p className="hint">留空时按模板与项目自动命名，模板说明作为任务目标。</p><div className="field">
                   <label className="label" htmlFor="tpl-title">
-                    任务标题 <span className="req">*</span>
+                    任务标题（可选）
                   </label>
                   <input
                     id="tpl-title"
@@ -603,7 +603,7 @@ export function TemplatesPage() {
 
                 <div className="field">
                   <label className="label" htmlFor="tpl-requirement">
-                    任务说明 <span className="req">*</span>
+                    补充说明（可选）
                   </label>
                   <textarea
                     id="tpl-requirement"
@@ -643,7 +643,7 @@ export function TemplatesPage() {
                   </span>
                 </div>
 
-                <div className="field">
+                </details><div className="field">
                   <span className="label">模板额外参数</span>
                   <ParameterField
                     template={template}

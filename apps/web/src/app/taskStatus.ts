@@ -150,7 +150,7 @@ export function taskNeedText(task: TaskSummary): string {
   }
   if (task.stage === TaskStage.PREPARING) return '计划已确认 · 待准备独立工作区';
   if (task.stage === TaskStage.CONFIRMING) return '计划已生成 · 等待确认';
-  if (task.stage === TaskStage.DRAFT) return '需求草稿 · 等待补充目标';
+  if (task.stage === TaskStage.DRAFT) return '查看需求草稿，确认规划方式';
   return '—';
 }
 

@@ -50,6 +50,8 @@ test('projects can be archived, hidden from the default list and restored', asyn
     const withArchived = await app.app.inject({ method: 'GET', url: '/api/projects?includeArchived=1' });
     assert.equal(withArchived.json().data.items.length, 1);
     assert.equal(withArchived.json().data.items[0].archived, true);
+    const blockedTask = await app.app.inject({ method: 'POST', url: '/api/tasks', payload: { requestKey: requestKey('archtask'), projectId, title: 'Blocked', requirementText: 'Goal', methodId: 'method.requirement-development' } });
+    assert.equal(blockedTask.json().error.code, 'TASK_STAGE_CONFLICT');
     const restored = await app.app.inject({ method: 'PATCH', url: `/api/projects/${projectId}`, payload: { requestKey: requestKey('restore'), archived: false } });
     assert.equal(restored.statusCode, 200, restored.body);
     assert.equal((await app.app.inject({ method: 'GET', url: '/api/projects' })).json().data.items.length, 1);

@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { StartCatalogPicker } from './StartCatalogPicker.tsx';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
+  ROUTES, type MethodDetailResponse,
   TaskMethodSupport,
   type TaskTemplate,
   type WorkflowMethod,
 } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
 import { createTask, receiptIsUnknown } from '../../api/workflow.ts';
-import { errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { apiGet, errorMessage, isServiceUnavailable } from '../../api/client.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { Card } from '../../components/Card.tsx';
@@ -131,6 +134,8 @@ export function StartPage() {
   const [title, setTitle] = useState('');
   const [titleTouched, setTitleTouched] = useState(false);
   const [requirementText, setRequirementText] = useState('');
+  const [picker, setPicker] = useState<'projects' | 'methods' | null>(null);
+  const goalRef = useRef<HTMLTextAreaElement>(null);
   const [methodId, setMethodId] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -143,18 +148,24 @@ export function StartPage() {
   const opencodeStatus = bootstrap.data?.integration.opencode.status;
   const requestedProjectId = searchParams.get('project') ?? '';
   const requestedMethodId = searchParams.get('methodId') ?? '';
-  const pathAvailable = (project: (typeof projects)[number]) => project.gitState !== 'path_unavailable';
+  const pathAvailable = (project: (typeof projects)[number]) => !['path_unavailable', 'capability_unavailable'].includes(project.gitState);
   const projectFromQuery = requestedProjectId !== '' && projects.some((project) => project.id === requestedProjectId && pathAvailable(project)) ? requestedProjectId : '';
   const methodFromQuery = requestedMethodId !== '' && methods.some((method) => method.id === requestedMethodId) ? requestedMethodId : '';
-  const effectiveProjectId = projectId.length > 0 ? projectId : projectFromQuery.length > 0 ? projectFromQuery : (projects.find(pathAvailable)?.id ?? '');
+  const effectiveProjectId = projectId.length > 0 ? projectId : projectFromQuery.length > 0 ? projectFromQuery : '';
   const effectiveProject = projects.find((project) => project.id === effectiveProjectId);
   const projectDefaultMethod = effectiveProject?.settings.defaultMethodId;
   const defaultMethodId = projectDefaultMethod !== undefined && methods.some((method) => method.id === projectDefaultMethod)
     ? projectDefaultMethod
     : (methods[0]?.id ?? '');
   const effectiveMethodId = methodId.length > 0 ? methodId : methodFromQuery.length > 0 ? methodFromQuery : defaultMethodId;
-  const selectedMethod = methods.find((method) => method.id === effectiveMethodId);
+  const methodQuery = useQuery({ queryKey: ['start-method-version', effectiveMethodId], queryFn: async () => (await apiGet<MethodDetailResponse>(ROUTES.workflow(effectiveMethodId))).data.method, enabled: effectiveMethodId !== '', retry: false });
+  const selectedMethod = methodQuery.isError || methodQuery.isFetching ? undefined : methodQuery.data;
+  useEffect(() => { if (effectiveProjectId) goalRef.current?.focus(); }, [effectiveProjectId]);
   const selectedProject = projects.find((project) => project.id === effectiveProjectId);
+  const recentProjects = [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 3);
+  const projectChoices = selectedProject && !recentProjects.some((item) => item.id === selectedProject.id) ? [...recentProjects.slice(0, 2), selectedProject] : recentProjects;
+  const commonMethods = methods.slice(0, 3);
+  const methodChoices = selectedMethod && !commonMethods.some((item) => item.id === selectedMethod.id) ? [...commonMethods.slice(0, 2), selectedMethod] : commonMethods;
   const noUsableProject = projects.length > 0 && !projects.some(pathAvailable);
   const invalidProjectQuery = projects.length > 0 && projectId.length === 0 && requestedProjectId !== '' && projectFromQuery === '';
   const invalidMethodQuery = methods.length > 0 && methodId.length === 0 && requestedMethodId !== '' && methodFromQuery === '';
@@ -171,6 +182,8 @@ export function StartPage() {
     if (selectedProject === undefined) return '请选择项目';
     if (requirementText.trim().length === 0) return '请写下目标';
     if (title.trim().length === 0) return '请填写任务名称';
+    if (methodQuery.isFetching) return '正在核对流程当前版本';
+    if (methodQuery.isError) return '流程版本读取失败，请重新读取后形成草稿';
     if (selectedMethod === undefined) return '请选择流程';
     return undefined;
   })();
@@ -201,6 +214,7 @@ export function StartPage() {
         title: title.trim(),
         requirementText: requirementText.trim(),
         methodId: selectedMethod.id,
+        expectedMethodRevision: selectedMethod.revision,
       });
       setReceipt(response.receipt);
       if (response.receipt.status === 'succeeded') {
@@ -229,7 +243,7 @@ export function StartPage() {
             <p className="lede">先形成需求草稿；之后在需求画布上生成或手动调整计划，确认后再准备独立工作区与开始执行。</p>
           </div>
         </div>
-        <div className="start-grid">
+        <StartCatalogPicker key={picker} kind={picker} projects={projects} methods={methods} onClose={() => setPicker(null)} onProject={setProjectId} onMethod={setMethodId} /><div className="start-grid">
           <div className="col" style={{ gap: 18 }}>
             <Card className="pad">
               <SkeletonText lines={2} />
@@ -354,7 +368,7 @@ export function StartPage() {
         </div>
       )}
 
-      <div className="start-grid">
+      <StartCatalogPicker key={picker} kind={picker} projects={projects} methods={methods} onClose={() => setPicker(null)} onProject={setProjectId} onMethod={setMethodId} /><div className="start-grid">
         <div className="col" style={{ gap: 18 }}>
           <Card className="pad">
             <StepHead
@@ -378,9 +392,9 @@ export function StartPage() {
               />
             ) : (
               <div className="start-opts" role="radiogroup" aria-label="选择项目">
-                {projects.map((project) => {
+                {projectChoices.map((project) => {
                   const selected = project.id === selectedProject?.id;
-                  const pathUnavailable = project.gitState === 'path_unavailable';
+                  const pathUnavailable = !pathAvailable(project);
                   return (
                     <button
                       key={project.id}
@@ -389,7 +403,7 @@ export function StartPage() {
                       aria-checked={selected}
                       className="start-opt"
                       disabled={pathUnavailable}
-                      title={pathUnavailable ? '项目路径不可用；先到项目页修正路径。' : undefined}
+                      title={pathUnavailable ? '项目路径或 Git 能力不可用；请到项目页检查或重新登记。' : undefined}
                       onClick={() => {
                         setProjectId(project.id);
                       }}
@@ -413,6 +427,7 @@ export function StartPage() {
                     </button>
                   );
                 })}
+                <Button variant="ghost" icon="search" onClick={() => setPicker('projects')}>其他项目…</Button>
               </div>
             )}
           </Card>
@@ -428,7 +443,7 @@ export function StartPage() {
               目标<span className="req">*</span>
             </label>
             <textarea
-              id="start-goal"
+              id="start-goal" ref={goalRef}
               className="textarea"
               rows={6}
               value={requirementText}
@@ -478,7 +493,7 @@ export function StartPage() {
               <EmptyState compact icon="flow" title="目录里没有流程方法" description="服务返回的 catalog.methods 为空；不能在这里凭空创建方法。" />
             ) : (
               <div className="method-grid" role="radiogroup" aria-label="流程方法">
-                {methods.map((method) => (
+                {methodChoices.map((method) => (
                   <MethodCard
                     key={method.id}
                     method={method}
@@ -488,14 +503,16 @@ export function StartPage() {
                     }}
                   />
                 ))}
+                <Button variant="ghost" icon="search" onClick={() => setPicker('methods')}>全部流程…</Button>
               </div>
             )}
             <p className="hint" style={{ marginTop: 10 }}>
-              流程版本来自 /api/bootstrap 的目录快照（只读）；本页不单独读取流程定义，目录读取失败时不能提交。
+              {methodQuery.isFetching ? '正在核对流程当前版本…' : selectedMethod ? `版本 ${selectedMethod.revision} 已核对；创建时再次校验版本，变化后需要重新读取。` : '流程版本尚未成功核对，不能提交。'}
             </p>
             <div className="foot-note" style={{ marginTop: 10 }}>
               <Icon name="info" size="sm" /> 高亮的组可按需求细化；模板任务是另一种入口：创建后步骤固定，不能修改。
             </div>
+            {methodQuery.isError ? <ServiceNotice error={methodQuery.error} onRetry={() => { void methodQuery.refetch(); }} /> : null}
             <TemplateStrip templates={templates} />
           </Card>
         </div>
@@ -513,7 +530,7 @@ export function StartPage() {
                   <>
                     {selectedMethod.name}
                     <span className="hint" style={{ display: 'block', marginTop: 2 }}>
-                      版本 {selectedMethod.revision} · 目录快照
+                      版本 {selectedMethod.revision} · 已核对当前版本
                     </span>
                   </>
                 )}

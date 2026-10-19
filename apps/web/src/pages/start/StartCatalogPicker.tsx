@@ -1,0 +1,10 @@
+import { useState } from 'react';
+import type { ProjectSummary, WorkflowMethod } from '@agent-workflow/shared';
+import { Drawer } from '../../components/Drawer.tsx';
+import { Icon } from '../../components/Icon.tsx';
+export function StartCatalogPicker({ kind, projects, methods, onClose, onProject, onMethod }: { readonly kind: 'projects' | 'methods' | null; readonly projects: readonly ProjectSummary[]; readonly methods: readonly WorkflowMethod[]; readonly onClose: () => void; readonly onProject: (id: string) => void; readonly onMethod: (id: string) => void }) {
+  const [keyword, setKeyword] = useState('');
+  const rows = kind === 'projects' ? projects.map((item) => ({ id: item.id, name: item.name, description: item.rootPath, disabled: ['path_unavailable', 'capability_unavailable'].includes(item.gitState) })) : methods.map((item) => ({ id: item.id, name: `${item.name} · ${item.revision}`, description: item.requiredSteps.map((step) => step.title).join(' → '), disabled: false }));
+  const filtered = rows.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(keyword.trim().toLowerCase()));
+  return <Drawer open={kind !== null} title={kind === 'projects' ? '选择其他项目' : '全部流程'} onClose={onClose}><input className="input" aria-label={kind === 'projects' ? '搜索全部项目' : '搜索全部流程'} placeholder="搜索名称或说明" value={keyword} onChange={(event) => setKeyword(event.target.value)} /><div className="col" style={{ marginTop: 12 }}>{filtered.map((item) => <button key={item.id} className="list-row" disabled={item.disabled} title={item.disabled ? '项目路径或 Git 能力不可用，请到项目页重新登记或检查配置' : undefined} onClick={() => { if (kind === 'projects') onProject(item.id); else onMethod(item.id); onClose(); }}><Icon name={kind === 'projects' ? 'folder' : 'flow'} /><span className="grow"><b>{item.name}</b><span className="hint" style={{ display: 'block', overflowWrap: 'anywhere' }}>{item.description}</span>{item.disabled ? <span className="hint">不可用 · 请先检查项目</span> : null}</span></button>)}{filtered.length === 0 ? <p className="hint">没有匹配结果，换个关键词。</p> : null}</div></Drawer>;
+}

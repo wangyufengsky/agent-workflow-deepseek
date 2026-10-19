@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { BingPublicSearch } from './public-search.ts';
 import { registerToolPolicyRoutes, sessionPolicy } from './tool-policy.ts';
 import { randomBytes } from 'node:crypto';
@@ -127,7 +128,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
     databaseService,
     gateway,
     remoteService,
-    paths: { ...paths, dataDir },
+    paths: { ...paths, dataDir, dbPath: store.dbPath, jsonlDir: store.journal.root, worktreesRoot: join(dataDir, 'worktrees') },
     internalToken,
     appVersion: APP_VERSION,
     startedAt,
@@ -218,7 +219,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
     app,
     store,
     engine,
-    paths: { ...paths, dataDir },
+    paths: { ...paths, dataDir, dbPath: store.dbPath, jsonlDir: store.journal.root, worktreesRoot: join(dataDir, 'worktrees') },
     internalToken,
     adapter,
     url,
