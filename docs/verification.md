@@ -318,3 +318,12 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 新增 `npm run dev:restart`：停止 5177/5173 旧监听 → `build:web` → 以分离进程启动 `npm run dev`（日志 `.tmp/dev.log`）→ 等待 health 与 OpenCode `ready`，打印 MCP 工具数/会话数。
 - 支持 `AGENT_WORKFLOW_DATA_DIR`、`AGENT_WORKFLOW_PORT`、`AGENT_WORKFLOW_WEB_PORT` 覆盖；自动移除 `AGENT_WORKFLOW_DISABLE_OPENCODE`。
 - 实测：`.tmp/view-data` 数据保留（1 项目/2 任务），OpenCode 1.19.0 ready、MCP 13 工具、活动会话 0/8、历史会话 46 不计入。
+
+### 第 88 轮项目文件夹选择器（2026-10-19）
+
+- 项目登记不再要求手输绝对路径：「项目目录」旁新增「选择文件夹…」。
+  - 桌面版：走 Electron preload 的 `workflowDesktop.pickDirectory()` 原生目录对话框。
+  - 浏览器版（Chrome/5177）：打开服务端只读目录浏览器（`GET /api/fs/directories`），支持上一级/主目录/刷新、Git 仓库标记、进入目录后「选择此文件夹」。
+- 目录接口只列出目录名与 `.git` 标记，不读取文件内容；要求绝对路径，未知目录 404，相对路径 400。
+- 选择后自动回填绝对路径，并在名称为空时用目录 basename 填充项目名。
+- 验证：集成测试目录列表/Git 标记/404/400；UI smoke 打开登记抽屉 → 文件夹选择器（首页 101 个目录）→ 关闭，PASS。

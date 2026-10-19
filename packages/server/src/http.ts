@@ -54,6 +54,7 @@ import { fileIdFor } from './adapters/git-cli.ts';
 import { detectOpenCodeBinaries } from './opencode-detect.ts';
 import { readOpenCodeLogTail } from './opencode-logs.ts';
 import { discoverSkills, readSkillSource } from './skills.ts';
+import { listDirectories } from './fs-directories.ts';
 import { listKnowledgeSources, readKnowledgeSource, searchKnowledgeSources } from './knowledge.ts';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
@@ -146,6 +147,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   const { engine, store, opencodeRef, paths, databaseService, remoteService } = deps;
   const requestId = (request: FastifyRequest): string => String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
 
+  app.get<{ Querystring: { path?: string } }>('/api/fs/directories', async (request) => envelope(listDirectories(request.query.path), requestId(request)));
   app.get('/api/health', async (request) => ({
     status: 'ok',
     name: 'agent-workflow',

@@ -179,6 +179,35 @@ async function smokeDatabaseForm(window) {
   console.log('[smoke] /databases drawer typing ok (aaaaa, focus kept)');
 }
 
+async function smokeProjectPicker(window) {
+  await window.loadURL(`${base}/projects`);
+  await sleep(2200);
+  const opened = await window.webContents.executeJavaScript(`(() => {
+    const button = [...document.querySelectorAll('button')].find((item) => item.textContent && item.textContent.trim() === '登记项目');
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`);
+  if (!opened) throw new Error('UI smoke: 登记项目 button not found');
+  await sleep(400);
+  const pickerOpened = await window.webContents.executeJavaScript(`(() => {
+    const button = [...document.querySelectorAll('button')].find((item) => item.textContent && item.textContent.includes('选择文件夹'));
+    if (!button) return false;
+    button.click();
+    return true;
+  })()`);
+  if (!pickerOpened) throw new Error('UI smoke: 选择文件夹 button not found');
+  await sleep(900);
+  const state = await window.webContents.executeJavaScript(`({
+    dialog: [...document.querySelectorAll('[role="dialog"]')].some((node) => node.getAttribute('aria-label') === '选择项目文件夹'),
+    home: [...document.querySelectorAll('button')].some((item) => item.textContent && item.textContent.includes('主目录')),
+    rows: [...document.querySelectorAll('[role="dialog"] .list-row')].length
+  })`);
+  if (!state.dialog || !state.home) throw new Error(`UI smoke: folder picker did not open (${JSON.stringify(state)})`);
+  await window.webContents.executeJavaScript(`(() => { const close = document.querySelector('[role="dialog"] button[aria-label="关闭对话框"]'); if (close) close.click(); return true; })()`);
+  console.log(`[smoke] /projects folder picker ok (entries=${String(state.rows)})`);
+}
+
 async function main() {
   mkdirSync(evidenceDir, { recursive: true });
   let server;
@@ -227,6 +256,7 @@ async function main() {
     await capture(window, '/?theme=spdb', 'ui-home-spdb.png', { expect: ['工作区'], theme: 'spdb' });
     await capture(window, '/?theme=github-white', 'ui-home-github-white.png', { expect: ['工作区'], theme: 'github-white' });
     await smokeDatabaseForm(window);
+    await smokeProjectPicker(window);
     window.destroy();
   } finally {
     server?.kill('SIGTERM');

@@ -17,6 +17,7 @@ import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Drawer } from '../../components/Drawer.tsx';
+import { DirectoryPicker } from '../../components/DirectoryPicker.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
@@ -212,6 +213,7 @@ export function ProjectsPage() {
   const [keyword, setKeyword] = useState('');
 
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [name, setName] = useState('');
   const [rootPath, setRootPath] = useState('');
   const [description, setDescription] = useState('');
@@ -252,6 +254,25 @@ export function ProjectsPage() {
   const openRegister = () => {
     setRegisterOpen(true);
     setAttempt(null);
+  };
+
+  const applyRootPath = (next: string) => {
+    setRootPath(next);
+    if (name.trim().length === 0) {
+      const base = next.split('/').filter(Boolean).at(-1);
+      if (base !== undefined) setName(base);
+    }
+  };
+
+  const pickDirectory = () => {
+    const desktop = window.workflowDesktop;
+    if (desktop === undefined) {
+      setPickerOpen(true);
+      return;
+    }
+    void desktop.pickDirectory().then((picked) => {
+      if (picked !== undefined && picked !== '') applyRootPath(picked);
+    }).catch(() => { setPickerOpen(true); });
   };
 
   const resetForm = () => {
@@ -596,22 +617,20 @@ export function ProjectsPage() {
             <label className="label" htmlFor="project-path">
               项目目录 <span className="req">*</span>
             </label>
-            <input
-              id="project-path"
-              className="input mono"
-              value={rootPath}
-              disabled={submitting || unknown}
-              placeholder="/Users/you/workspace/my-project"
-              onChange={(event) => {
-                const next = event.target.value;
-                setRootPath(next);
-                if (name.trim().length === 0) {
-                  const base = next.split('/').filter(Boolean).at(-1);
-                  if (base !== undefined) setName(base);
-                }
-              }}
-            />
-            <span className="hint">填写本机绝对路径；路径不存在时仍可登记，但 Git 状态会显示为路径不可用。</span>
+            <div className="row" style={{ gap: 8 }}>
+              <input
+                id="project-path"
+                className="input mono grow"
+                value={rootPath}
+                disabled={submitting || unknown}
+                placeholder="/Users/you/workspace/my-project"
+                onChange={(event) => { applyRootPath(event.target.value); }}
+              />
+              <Button variant="secondary" size="sm" icon="folder" disabled={submitting || unknown} onClick={pickDirectory}>
+                选择文件夹…
+              </Button>
+            </div>
+            <span className="hint">可直接输入绝对路径，或点「选择文件夹…」浏览本机目录；桌面版会打开系统文件夹选择器。路径不存在时仍可登记，但 Git 状态会显示为路径不可用。</span>
           </div>
 
           <div className="field" style={{ margin: 0 }}>
@@ -654,6 +673,13 @@ export function ProjectsPage() {
           </div>
         </div>
       </Drawer>
+
+      <DirectoryPicker
+        open={pickerOpen}
+        initialPath={rootPath.trim() === '' ? undefined : rootPath.trim()}
+        onClose={() => { setPickerOpen(false); }}
+        onSelect={applyRootPath}
+      />
     </div>
   );
 }

@@ -298,3 +298,32 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 同页可直接配置：OpenCode 可执行文件路径（保存后重启生效）、启用受管运行时、自动启动、权限模式、Agent、重启按钮；完整检测/日志仍在「服务」分区。
 - UI smoke 新增 `/settings?section=model` 断言（职责模型/添加模型/OpenCode 可执行文件），截图 `evidence/ui-settings-model.png`。
 - 服务端测试：自定义模型写入、全部停用 400、非法角色 400。
+
+### 第 85 轮 OpenCode 未启用状态（2026-10-19）
+
+- `/api/opencode/status` 新增 `managed`（本次进程是否加载了受管适配器）与 `enabled`（保存的设置）。
+- 服务页在 `managed=false` 时显示明确原因：“受管 OpenCode 未启用（opencode.enabled=false 或启动环境 AGENT_WORKFLOW_DISABLE_OPENCODE=1），请启用后重启 Agent Workflow 服务”，不再把重启的 NOT_CONFIGURED 误报成“本地后端未连接”。
+- 重启按钮在未加载适配器时禁用；重启错误直接显示服务返回文案。
+- 测试：disabledOpenCode 应用 status 返回 stopped/managed=false/enabled=true/MCP 未连接 0 工具。
+
+### 第 86 轮整栈重启与并发会话计数（2026-10-19）
+
+- 停止旧 5177/5173 开发进程（旧 5177 运行时带 `AGENT_WORKFLOW_DISABLE_OPENCODE=1`、数据目录 `.tmp/view-data`）。
+- 以 `AGENT_WORKFLOW_DATA_DIR=.tmp/view-data AGENT_WORKFLOW_PORT=5177 npm run dev` 重启：health 200；OpenCode 状态 `ready`（1.19.0，managed/enabled=true）；MCP `agent-workflow` 已连接 **13 个工具**。
+- 修复并发会话误报：`/api/opencode/status` 的 `sessions` 改为受管运行中的活动会话数（强制上限使用同一计数），新增 `totalSessions` 表示 OpenCode 历史会话总数；当前 `sessions=0/8`、`totalSessions=46`，历史会话不再触发“已达上限”。
+- Vite 开发地址 `http://127.0.0.1:5173`，服务地址 `http://127.0.0.1:5177`。
+
+### 第 87 轮一键重启部署（2026-10-19）
+
+- 新增 `npm run dev:restart`：停止 5177/5173 旧监听 → `build:web` → 以分离进程启动 `npm run dev`（日志 `.tmp/dev.log`）→ 等待 health 与 OpenCode `ready`，打印 MCP 工具数/会话数。
+- 支持 `AGENT_WORKFLOW_DATA_DIR`、`AGENT_WORKFLOW_PORT`、`AGENT_WORKFLOW_WEB_PORT` 覆盖；自动移除 `AGENT_WORKFLOW_DISABLE_OPENCODE`。
+- 实测：`.tmp/view-data` 数据保留（1 项目/2 任务），OpenCode 1.19.0 ready、MCP 13 工具、活动会话 0/8、历史会话 46 不计入。
+
+### 第 88 轮项目文件夹选择器（2026-10-19）
+
+- 项目登记不再要求手输绝对路径：「项目目录」旁新增「选择文件夹…」。
+  - 桌面版：走 Electron preload 的 `workflowDesktop.pickDirectory()` 原生目录对话框。
+  - 浏览器版（Chrome/5177）：打开服务端只读目录浏览器（`GET /api/fs/directories`），支持上一级/主目录/刷新、Git 仓库标记、进入目录后「选择此文件夹」。
+- 目录接口只列出目录名与 `.git` 标记，不读取文件内容；要求绝对路径，未知目录 404，相对路径 400。
+- 选择后自动回填绝对路径，并在名称为空时用目录 basename 填充项目名。
+- 验证：集成测试目录列表/Git 标记/404/400；UI smoke 打开登记抽屉 → 文件夹选择器（首页 101 个目录）→ 关闭，PASS。

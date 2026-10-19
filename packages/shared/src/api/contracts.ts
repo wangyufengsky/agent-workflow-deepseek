@@ -743,6 +743,15 @@ export interface AttemptListResponse {
 /* Git                                                                 */
 /* ------------------------------------------------------------------ */
 
+export interface DirectoryListingResponse {
+  readonly path: string;
+  readonly name: string;
+  readonly parent?: string;
+  readonly home: string;
+  readonly entries: readonly { readonly name: string; readonly path: string; readonly isGit: boolean }[];
+  readonly truncated: boolean;
+}
+
 export interface GitOverviewResponse {
   readonly connection: GitConnectionStatus;
   readonly repos: readonly GitRepo[];
@@ -1002,6 +1011,7 @@ export type WireEvent = AppEventEnvelope;
 
 export const ROUTES = {
   health: '/api/health',
+  fsDirectories: (path?: string) => path === undefined ? '/api/fs/directories' : `/api/fs/directories?path=${encodeURIComponent(path)}`,
   bootstrap: '/api/bootstrap',
   events: '/api/events',
   operationsByKey: (requestKey: string) => `/api/operations/${encodeURIComponent(requestKey)}`,
