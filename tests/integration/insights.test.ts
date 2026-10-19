@@ -38,6 +38,7 @@ test('insights aggregate real task/review counters from SQLite', async () => {
     assert.equal(emptyData.tasks.total, 2);
     assert.equal(emptyData.tasks.active, 2);
     assert.equal(emptyData.reviews.openFindings, 0);
+    assert.equal((empty.json().data as { planning: { costKnown: number } }).planning.costKnown, 0);
 
     const review = app.store.reviews.create({
       projectId,

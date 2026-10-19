@@ -29,6 +29,9 @@ export class InsightsService {
         completed: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE status = 'completed'"),
         failed: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE status = 'failed'"),
         running: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE status IN ('queued','running','stopping')"),
+        costKnown: count("SELECT COALESCE(SUM(CAST(json_extract(usage_json, '$.budget.known') AS REAL)), 0) AS n FROM planning_rounds"),
+        budgetUnknownRounds: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE CAST(COALESCE(json_extract(usage_json, '$.budget.unknown'), 0) AS INTEGER) > 0"),
+        currency: String(this.#store.settings.getSettings()?.planning?.currency ?? 'USD'),
       },
       executions: {
         total: count('SELECT COUNT(*) AS n FROM executions'),

@@ -27,7 +27,7 @@
 | knowledge.html / knowledge-history.html | `/knowledge` | — | ⛔ | 页面结构与禁用原因；对话/资料/引用未接通 |
 | ppt*.html | `/ppt` | — | ⛔ | 页面结构；制作/导入/作品未接通 |
 | recovery.html | `/recovery`、`/tasks/:id/recovery` | `/recovery` API、`/execution/retry` | ✅/🟡 | 派生草稿创建/历史、执行继续/重试失败步骤/停止已接线；单节点放弃未开放 |
-| insights.html | `/insights` | bootstrap + `/api/insights` | ✅/🟡 | 任务/规划/执行/审查/修复/交付真实计数；tokens/成本仍明确未知 |
+| insights.html | `/insights` | bootstrap + `/api/insights` | ✅/🟡 | 任务/规划/执行/审查/修复/交付真实计数；规划成本累计（tokens 仍未采集） |
 | runtime.html | `/runtime` | opencode status/data | ✅/🟡 | 受管服务状态/重启/数据路径；历史与启动控制未接通 |
 | run.html / index.html | — | — | ⛔ | 未被菜单引用（设计留档） |
 

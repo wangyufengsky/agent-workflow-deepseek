@@ -209,7 +209,15 @@ export interface SkillsResponse {
 export interface InsightsResponse {
   readonly generatedAt: IsoDateTime;
   readonly tasks: { readonly total: number; readonly active: number; readonly completed: number; readonly cancelled: number; readonly attention: number };
-  readonly planning: { readonly rounds: number; readonly completed: number; readonly failed: number; readonly running: number };
+  readonly planning: {
+    readonly rounds: number;
+    readonly completed: number;
+    readonly failed: number;
+    readonly running: number;
+    readonly costKnown: number;
+    readonly budgetUnknownRounds: number;
+    readonly currency: string;
+  };
   readonly executions: { readonly total: number; readonly running: number; readonly failed: number; readonly attempts: number };
   readonly reviews: { readonly total: number; readonly completed: number; readonly failed: number; readonly openFindings: number };
   readonly fixes: { readonly total: number; readonly ready: number; readonly discarded: number };
