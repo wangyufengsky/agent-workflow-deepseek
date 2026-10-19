@@ -246,23 +246,49 @@
 
 | 方法 | 路径 | 用途 | 回执 / 语义 |
 | --- | --- | --- | --- |
+| GET | `/api/catalog/role-images` | （待补说明：catalogRoleImages） | 读口；无写回执 |
+| GET | `/api/catalog/roles/:id/insights` | （待补说明：catalogRoleInsights） | 读口；无写回执 |
+| GET | `/api/catalog/roles/:id/permission-preview` | （待补说明：catalogRolePermissionPreview） | 读口；无写回执 |
+| GET / PATCH | `/api/knowledge/projects/:id/permissions` | （待补说明：knowledgePermissions） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/knowledge/results/:requestKey` | （待补说明：knowledgeResult） | 读口；无写回执 |
 | GET | `/api/knowledge/runs/:key` | （待补说明：knowledgeProgress） | 读口；无写回执 |
 | POST | `/api/knowledge/runs/:key/stop` | （待补说明：knowledgeStop） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/opencode/operations` | （待补说明：opencodeOperations） | 读口；无写回执 |
+| POST | `/api/opencode/start` | （待补说明：opencodeStart） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/ppt/works/:id/archive` | （待补说明：pptWorkArchive） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET / POST | `/api/ppt/works/:id/assistant` | （待补说明：pptAssistant） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/ppt/works/:id/assistant/decide` | （待补说明：pptAssistantDecide） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/ppt/works/:id/check` | （待补说明：pptWorkCheck） | 读口；无写回执 |
+| POST | `/api/ppt/works/:id/copy` | （待补说明：pptWorkCopy） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/ppt/works/:id/document` | （待补说明：pptDocument） | 读口；无写回执 |
+| POST | `/api/ppt/works/:id/restore` | （待补说明：pptWorkRestore） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/ppt/works/:id/stop` | （待补说明：pptWorkStop） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/ppt/works/:id/thumbnail` | （待补说明：pptWorkThumbnail） | 读口；无写回执 |
 | GET / PATCH | `/api/projects/:id/charter` | （待补说明：projectCharter） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/confirm` | （待补说明：projectCharterConfirm） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/generate` | （待补说明：projectCharterGenerate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/projects/:id/charter/stop` | （待补说明：projectCharterStop） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/projects/:id/source-path` | （待补说明：projectSourcePath） | 读口；无写回执 |
+| POST | `/api/tasks/:id/archive` | （待补说明：taskArchive） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/tasks/:id/attempts/:attemptId/artifacts/:artifactId` | （待补说明：taskArtifact） | 读口；无写回执 |
 | GET | `/api/tasks/:id/audit` | （待补说明：taskAudit） | 读口；无写回执 |
+| GET | `/api/tasks/:id/nodes/:nodeId/attempts/:attemptId/tools/:callId` | （待补说明：nodeTool） | 读口；无写回执 |
+| GET | `/api/tasks/:id/nodes/:nodeId/sources/:planId/:entryId` | （待补说明：nodeSource） | 读口；无写回执 |
 | POST | `/api/tasks/:id/plan/freeze` | （待补说明：taskPlanFreeze） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/tasks/:id/plan/freezes` | （待补说明：taskPlanFreezes） | 读口；无写回执 |
 | GET | `/api/tasks/:id/planning/proposal` | （待补说明：planningProposal） | 读口；无写回执 |
 | POST | `/api/tasks/:id/planning/refine-preview` | （待补说明：planningRefinePreview） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/tasks/:id/run-content` | （待补说明：taskRunContent） | 读口；无写回执 |
 | GET | `/api/tasks/:id/snapshot-review` | （待补说明：taskSnapshotReview） | 读口；无写回执 |
+| GET | `/api/tasks/:id/snapshot-review/report` | （待补说明：taskSnapshotReport） | 读口；无写回执 |
+| GET | `/api/tasks/:id/snapshot-review/report/:reportId/download` | （待补说明：taskSnapshotReportDownload） | 读口；无写回执 |
+| GET | `/api/templates/archive` | （待补说明：templateArchive） | 读口；无写回执 |
+| GET | `/api/templates/archive/export` | （待补说明：templateArchiveExport） | 读口；无写回执 |
+| GET | `/api/templates/archive/runs/:id/verify` | （待补说明：templateArchiveRun） | 读口；无写回执 |
+| GET / PATCH | `/api/tools/policy` | （待补说明：toolsPolicy） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET / POST | `/api/workflows` | （待补说明：workflows） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET / PATCH / DELETE | `/api/workflows/:id` | （待补说明：workflow） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/workflows/:id/copy` | （待补说明：workflowCopy） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/workflows/:id/instantiate` | （待补说明：workflowInstantiate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/workflows/:id/versions` | （待补说明：workflowVersions） | 读口；无写回执 |
 | POST | `/api/workflows/validate` | （待补说明：workflowValidate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
-
-| GET | `/api/workflows/:id/versions` | 读取实际持久化的流程版本快照；旧版缺失历史不补造 | 只读 |

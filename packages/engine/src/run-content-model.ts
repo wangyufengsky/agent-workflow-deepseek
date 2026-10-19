@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Store } from '@agent-workflow/storage';
 import { AppError, ErrorCode, DEFAULT_SETTINGS, type Attempt, type ExecutionView, type PlanRevision, type RequirementInput, type Task, type TemplateRunContent, type TemplateRunInputContent, type TemplateRunInput, type TemplateRunFile } from '@agent-workflow/shared';
+import { readableAttempt } from './node-read.ts';
 import { snapshotEvidenceState } from './snapshot-review.ts';
 import { requirementLinks } from './requirement-source.ts';
 import { taskArchiveAction } from './task-archive-policy.ts';
@@ -29,11 +30,12 @@ export function templateRunContent(store: Store, task: Task, plan: PlanRevision 
   if (scope === undefined) limitations.push('此历史运行没有保留输入范围与正文快照，不能用当前项目文件替代。');
   const inputs: TemplateRunInput[] = sourceInputs(task).map(({ content: _content, ...input }) => ({ ...input, available: true }));
   const states = new Map(execution?.nodes.map((node) => [node.nodeId, node]) ?? []);
-  const attempts = execution === undefined ? [] : store.executions.listAttempts(execution.id);
+  const attempts = execution === undefined ? [] : store.executions.listAttempts(execution.id).map(readableAttempt);
+  if (attempts.some((attempt) => attempt.readability.result === 'forbidden')) limitations.push('部分执行结果的读取权限已撤销，相关产物、测试结论与文件证据已隐藏。');
   const current = (id: string): Attempt | undefined => { const state = states.get(id); return state?.currentAttemptId === undefined ? undefined : attempts.find((attempt) => attempt.id === state.currentAttemptId); };
   const accepted = (id: string) => store.settings.getJson<{ state: string }>(`execution.node.acceptance.${execution?.id}.${id}`)?.state === 'accepted';
   const artifacts = attempts.flatMap((attempt) => (attempt.result?.artifacts ?? []).map((artifact) => ({ artifact, nodeId: attempt.nodeId, nodeTitle: attempt.definition?.node.title ?? plan?.graph.nodes.find((node) => node.id === attempt.nodeId)?.title ?? '历史步骤', ordinal: attempt.ordinal, attemptStatus: attempt.status })));
-  const evidence = snapshotEvidenceState(store, task.id);
+  const evidence = snapshotEvidenceState(store, task.id, true);
   const files: TemplateRunFile[] = snapshot === undefined ? (scope?.sourceFiles ?? []).map((file) => ({ path: file.path, version: file.blobSha, state: 'pending', reason: '已冻结输入；尚无逐文件独立复核证据，不能按节点成功推算覆盖', inputId: `source:${file.path}`, findings: [] })) : snapshot.units.map((unit) => {
     const analyzed = evidence.analyzed.get(unit.id); const verified = evidence.verified.get(unit.id);
     const covered = verified !== undefined || (snapshot.depth === 'lightweight' && analyzed !== undefined && analyzed.findings.length === 0);
@@ -60,7 +62,7 @@ export function templateRunContent(store: Store, task: Task, plan: PlanRevision 
     const verified = snapshot !== undefined ? group.files.length > 0 && group.files.every((file) => file.state === 'covered' || file.state === 'excluded') && group.nodes.every((node) => ['succeeded', 'skipped'].includes(states.get(node.id)?.status ?? 'pending')) : group.nodes.every((node) => states.get(node.id)?.status === 'skipped' || (states.get(node.id)?.status === 'succeeded' && (node.snapshotStage === 'verification' || current(node.id)?.result?.verification?.state === 'passed' || accepted(node.id))));
     const result = [...group.nodes].reverse().map((node) => current(node.id)?.result?.verification).find((item) => item !== undefined);
     return { id: group.id, title: group.title, nodeIds, failedNodeIds, files: group.files, status, verified, attempts: attempts.filter((attempt) => nodeIds.includes(attempt.nodeId)).length,
-      reason: nodeIds.map((id) => states.get(id)?.error?.message).find(Boolean), artifacts: artifacts.filter((item) => nodeIds.includes(item.nodeId)), ...(result === undefined ? {} : { testResult: result }),
+      reason: nodeIds.map((id) => current(id)?.readability.result === 'forbidden' ? '该步骤结果读取权限已撤销' : states.get(id)?.error?.message).find(Boolean), artifacts: artifacts.filter((item) => nodeIds.includes(item.nodeId)), ...(result === undefined ? {} : { testResult: result }),
       retry: active ? { allowed: false, reason: '仍有活动、未知或正在停止的会话，请先核对原操作' } : failedNodeIds.length === 0 ? { allowed: false, reason: '本批次没有失败步骤' } : budgetReason !== undefined ? { allowed: false, reason: budgetReason } : failedNodeIds.some((id) => (states.get(id)?.attemptCount ?? 0) >= retryPolicy.maxAttempts) ? { allowed: false, reason: '本批次步骤尝试次数已用完（含首次执行）；请创建恢复任务' } : { allowed: true } };
   });
   return { archiveAction: taskArchiveAction(store, task), scopedRetrySupported: true, kind, templateName: contract?.name ?? '固定模板（历史合同未保留）', templateVersion: binding.templateVersion, projectName: store.projects.get(task.projectId)?.name ?? '项目不可用', frozenAt: scope?.frozenAt ?? snapshot?.frozenAt, targetSha: scope?.targetSha ?? snapshot?.targetSha, outputDirectory: scope?.outputDirectory, scopeLabel: scope?.sourcePaths.join('、') || (scope?.documents.length ? `${scope.documents.length}份冻结资料` : snapshot ? '冻结代码快照' : '范围未保留'), limitations, inputs, requirements, batches, artifacts, files, pendingOperations };

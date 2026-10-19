@@ -94,6 +94,7 @@ function isEnvelope(value: unknown): value is ApiEnvelope<unknown> {
  *   can show the explicit「服务未连接」state instead of fabricating data.
  */
 async function performRequest<T>(path: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
+  const readOnly = options.method === undefined || options.method === 'GET';
   const controller = new AbortController();
   let timedOut = false;
   const timer = globalThis.setTimeout(() => {
@@ -122,15 +123,15 @@ async function performRequest<T>(path: string, options: RequestOptions = {}): Pr
     if (timedOut) {
       throw new ApiClientError({
         kind: 'timeout',
-        message: '本地服务响应超时，请确认服务已启动后重试。',
-        retryable: true,
+        message: readOnly ? '本地服务响应超时，可重新读取。' : '本地服务响应超时，操作结果尚未确认。请按原请求核对结果，不要重新提交。',
+        retryable: readOnly,
       });
     }
     if (options.signal?.aborted) throw error;
     throw new ApiClientError({
       kind: 'unavailable',
-      message: '无法连接本地服务，请确认服务已启动后重试。',
-      retryable: true,
+      message: readOnly ? '无法连接本地服务，请确认服务已启动后重新读取。' : '连接已中断，操作结果尚未确认。服务恢复后请按原请求核对结果，不要重新提交。',
+      retryable: readOnly,
     });
   } finally {
     globalThis.clearTimeout(timer);

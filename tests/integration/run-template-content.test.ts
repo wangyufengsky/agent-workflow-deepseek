@@ -7,7 +7,8 @@ import { createHash } from 'node:crypto';
 import { DEFAULT_CATALOG, type CodeReviewSnapshot, type PlanGraph, type TaskTemplate } from '@agent-workflow/shared';
 import { createApplication } from '../../packages/server/src/index.ts';
 import { methodToGraph } from '../../packages/engine/src/graph.ts';
-import { snapshotPlanGraph } from '../../packages/engine/src/snapshot-review.ts';
+import { captureArtifacts } from '../../packages/engine/src/artifacts.ts';
+import { snapshotEvidenceState, snapshotPlanGraph } from '../../packages/engine/src/snapshot-review.ts';
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 
 test('template run reader projects document reports/requirements and reads frozen input by identity without current disk fallback', async () => {
@@ -61,8 +62,29 @@ test('snapshot source coverage counts submitted current unit evidence, not node 
     const plan = app.store.plans.create({ taskId: task.id, source: 'template', graph, status: 'confirmed' }); const execution = app.store.executions.create({ taskId: task.id, planRevisionId: plan.id, graph, autoAdvance: false }); app.store.tasks.update(task.id, { currentPlanRevisionId: plan.id, executionId: execution.id });
     const analyze = graph.nodes.find((node) => node.snapshotStage === 'analysis')!;
     const attempt = app.store.executions.createAttempt({ executionId: execution.id, nodeId: analyze.id, ordinal: 1 });
-    app.store.executions.finishAttempt(attempt.id, 'succeeded', { resultRevision: 'r1', summary: '离线单元证据fixture', artifacts: [], errors: [], warnings: [], payload: { snapshotUnits: [{ unitId: 'u1', blobSha: 'b'.repeat(40), summary: '已分析', findings: [] }] } }); app.store.executions.updateNode(execution.id, analyze.id, { status: 'succeeded', currentAttemptId: attempt.id });
+    writeFileSync(join(app.store.dataDir, 'report.md'), 'PRIVATE_ARTIFACT');
+    const artifacts = captureArtifacts(app.store.dataDir, app.store.dataDir, attempt.id, [{ path: 'report.md' }], () => true);
+    app.store.executions.appendOutput({ attemptId: attempt.id, seq: 1, fragment: { fragmentId: 'fragment', seq: 1, category: 'model_text', text: 'PRIVATE_OUTPUT' } });
+    app.store.executions.finishAttempt(attempt.id, 'succeeded', { resultRevision: 'r1', summary: '离线单元证据fixture', artifacts, verification: { state: 'passed', summary: 'PRIVATE_TEST_SUMMARY' }, errors: [], warnings: [], payload: { snapshotUnits: [{ unitId: 'u1', blobSha: 'b'.repeat(40), summary: '已分析', findings: [] }] } }); app.store.executions.updateNode(execution.id, analyze.id, { status: 'succeeded', currentAttemptId: attempt.id });
     const model = app.engine.extras.runContent(task.id).specialized!;
     assert.deepEqual(model.files.map((file) => file.state), ['covered', 'pending', 'excluded']); assert.ok(model.limitations.some((reason) => reason.includes('没有保留输入范围'))); assert.equal(model.batches[0]?.verified, false, 'unfinished verification audit node cannot be marked complete');
+    assert.equal(model.artifacts.length, 1);
+    assert.equal(app.engine.extras.runContent(task.id).totals.fragments, 1);
+    const report = app.engine.extras.readSnapshotReport(task.id);
+    assert.equal(report.analyzedUnits, 1); assert.match(app.engine.extras.downloadSnapshotReport(task.id, report.reportId!).markdown, /已分析/);
+    app.store.db.prepare('UPDATE attempts SET readability_json = ? WHERE id = ?').run(JSON.stringify({ output: 'forbidden', tools: 'forbidden', result: 'forbidden' }), attempt.id);
+    const response = await app.app.inject({ method: 'GET', url: `/api/tasks/${task.id}/run-content` });
+    assert.equal(response.statusCode, 200); assert.deepEqual(response.json().data.specialized.files.map((file: { state: string }) => file.state), ['pending', 'pending', 'excluded']);
+    assert.ok(!response.body.includes('离线单元证据fixture'));
+    assert.ok(!response.body.includes('PRIVATE_TEST_SUMMARY'));
+    assert.equal(response.json().data.specialized.artifacts.length, 0);
+    assert.equal(response.json().data.totals.fragments, 0);
+    assert.equal(response.json().data.groups.flatMap((group: { nodes: unknown[] }) => group.nodes)[0].latestAttempt.artifactCount, 0);
+    assert.equal(snapshotEvidenceState(app.store, task.id).analyzed.size, 1, 'public read revocation does not change engine execution evidence');
+    assert.throws(() => app.engine.extras.downloadSnapshotReport(task.id, report.reportId!), /读取权限已撤销/);
+    assert.equal(app.engine.extras.readSnapshotReport(task.id).analyzedUnits, 0);
+    app.store.executions.updateNode(execution.id, analyze.id, { currentAttemptId: null, status: 'pending' });
+    assert.equal(app.engine.extras.runContent(task.id).groups.flatMap((group) => group.nodes).find((node) => node.nodeId === analyze.id)?.latestAttempt, undefined, 'between attempts the reader must not promote a historical attempt to current');
+
   } finally { await app.close(); }
 });

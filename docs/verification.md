@@ -462,3 +462,11 @@ ELECTRON_RUN_AS_NODE= AGENT_WORKFLOW_PORT=5288 node_modules/.bin/electron .build
 - 真实最小模型测试：受管OpenCode 1.19.0、MCP connected，opencode-go模型返回OK，idle=true/timedOut=false。首次沙箱运行在写OpenCode自身日志前退出，没有派发模型；放行后使用全新临时数据验证成功。知识/规划完整模型链路继续验证。
 - 第六轮整合（`c06b515`，工具页后续改动前）：521项 / 510通过 / 11项live门控跳过 / 0失败，耗时113.7秒。类型检查和Web/Server/Desktop构建通过。
 - 单独启用真实模型：知识问答与精确引用、规划提交→应用→确认→准备工作区共2项通过；执行节点真实修改README、提交评审、隔离修复生成提交并丢弃共3项通过。均使用新建临时项目及opencode-go配置，没有外部仓库推送或MR写入。此证据不替代完整页面/中间态GUI验收。
+
+### 2026-10-20 · 运行阅读权限与 PPT 合流
+
+- 合入 PPT 助手/PDF `c925b00`：只读模型候选、明确应用/丢弃、样式保留、过期与未知回执、Electron 原生 PDF/PPTX 文件核验；能力证据见 `docs/review/ppt-assistant-pdf-2026-10-20.md`。这不代表整个 PPT 工作台三栏结构已经与设计一致，结构验收继续进行。
+- 运行总览的普通/模板读模型、快照逐文件证据与阶段报告现在复核 attempt 的读取权限。撤销后不再返回旧摘要、产物、测试说明或输出计数；无 currentAttemptId 时不借用历史尝试。已读取报告绑定来源 attempt，下载重新鉴权；打开报告每 5 秒复核，读取失败清空旧内容。内部执行仍使用原始证据，不因 UI 阅读权限改变调度结论。
+- HTTP/SQLite 离线回归：`node --import tsx --test tests/integration/run-template-content.test.ts tests/integration/node-detail-read.test.ts tests/integration/snapshot-review-domain.test.ts tests/integration/ppt-assistant-export.test.ts` 13/13 通过；扩展真实本地产物/输出撤权断言后运行模板 3/3 通过。类型检查通过。这里不宣称真实模型或 GUI 撤权覆盖。
+- `npm run docs:api` 与 `npm run check:docs-routes` 通过：180 个服务端 API 路径，194 个文档唯一路径；生成器仍提示已有用途/分组缺项，未修改验收脚本规避提示。
+- 连接中断/超时提示区分读取与写入：写入只能按原请求核对，不再提示重新提交。

@@ -76,7 +76,7 @@ export interface SnapshotEvidenceState {
   readonly analyzed: ReadonlyMap<string, SnapshotUnitEvidence>;
   readonly verified: ReadonlyMap<string, SnapshotUnitEvidence>;
 }
-export function snapshotEvidenceState(store: import('@agent-workflow/storage').Store, taskId: string): SnapshotEvidenceState {
+export function snapshotEvidenceState(store: import('@agent-workflow/storage').Store, taskId: string, readableOnly = false): SnapshotEvidenceState {
   const task = store.tasks.get(taskId); const execution = task?.executionId === undefined ? undefined : store.executions.get(task.executionId);
   const plan = execution === undefined ? undefined : store.plans.get(execution.planRevisionId);
   const analyzed = new Map<string, SnapshotUnitEvidence>(); const verified = new Map<string, SnapshotUnitEvidence>();
@@ -86,7 +86,7 @@ export function snapshotEvidenceState(store: import('@agent-workflow/storage').S
     const state = execution.nodes.find((item) => item.nodeId === node.id);
     if (state?.status !== 'succeeded') continue;
     const attempt = state.currentAttemptId === undefined ? undefined : store.executions.getAttempt(state.currentAttemptId);
-    if (attempt?.status !== 'succeeded') continue;
+    if (attempt?.status !== 'succeeded' || (readableOnly && attempt.readability.result === 'forbidden')) continue;
     const units = attempt?.result?.payload?.snapshotUnits;
     if (!Array.isArray(units)) continue;
     for (const unit of units as SnapshotUnitEvidence[]) (node.snapshotStage === 'analysis' ? analyzed : verified).set(unit.unitId, unit);
@@ -97,10 +97,10 @@ export function snapshotExpectedUnitIds(snapshot: CodeReviewSnapshot, node: Plan
   const ids = [...(node.snapshotUnitIds ?? [])];
   return node.snapshotStage === 'verification' && snapshot.depth === 'lightweight' ? ids.filter((id) => (evidence.analyzed.get(id)?.findings.length ?? 0) > 0) : ids;
 }
-export function snapshotReport(store: import('@agent-workflow/storage').Store, taskId: string) {
+export function snapshotReport(store: import('@agent-workflow/storage').Store, taskId: string, readableOnly = false) {
   const task = store.tasks.get(taskId); const snapshot = task?.fixedTemplate?.snapshot;
   if (snapshot === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '此任务没有快照代码评审来源');
-  const evidence = snapshotEvidenceState(store, taskId);
+  const evidence = snapshotEvidenceState(store, taskId, readableOnly);
   const excluded = snapshot.units.filter((unit) => unit.excludedReason !== undefined);
   const active = snapshot.units.filter((unit) => unit.excludedReason === undefined);
   const analyzed = active.filter((unit) => evidence.analyzed.has(unit.id));

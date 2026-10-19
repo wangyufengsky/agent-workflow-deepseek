@@ -1,3 +1,4 @@
+import { boundAttempt, readableAttempt, readableOutput } from './node-read.ts';
 import { templateRunContent, templateRunInput } from './run-content-model.ts';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -560,10 +561,13 @@ export class TaskExtrasService {
   readSnapshotReport(taskId: string): SnapshotPartialReport {
     const task = this.#requireTask(taskId);
     if (task.lifecycle === 'completed') throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '任务已完成，请查看最终报告');
-    const report = snapshotReport(this.#store, taskId);
+    const report = snapshotReport(this.#store, taskId, true);
     const directory = join(this.#store.dataDir, 'snapshot-reports', taskId);
     mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, `${report.reportId}.md`), report.contentMarkdown, 'utf8');
+    const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
+    const attempts = execution?.nodes.flatMap((node) => node.currentAttemptId === undefined ? [] : [this.#store.executions.getAttempt(node.currentAttemptId)]).filter((attempt): attempt is Attempt => attempt !== undefined && attempt.status === 'succeeded' && Array.isArray(attempt.result?.payload?.snapshotUnits) && attempt.readability.result !== 'forbidden') ?? [];
+    this.#store.settings.putJson(`snapshot.report.sources.${taskId}.${report.reportId}`, attempts.map((attempt) => attempt.id));
     this.#store.settings.putJson(`snapshot.report.read.${taskId}`, report);
     return report;
   }
@@ -572,6 +576,9 @@ export class TaskExtrasService {
     this.#requireTask(taskId);
     const report = this.#store.settings.getJson<SnapshotPartialReport>(`snapshot.report.read.${taskId}`);
     if (report === undefined || report.reportId !== reportId || report.contentMarkdown === null) throw new AppError(ErrorCode.STALE_TARGET, '请先读取对应版本的阶段报告，再下载');
+    const sourceIds = this.#store.settings.getJson<string[]>(`snapshot.report.sources.${taskId}.${reportId}`);
+    if (sourceIds === undefined) throw new AppError(ErrorCode.STALE_TARGET, '旧报告没有保留结果权限来源，请重新读取');
+    if (sourceIds.some((id) => boundAttempt(this.#store, taskId, id).readability.result === 'forbidden')) throw new AppError(ErrorCode.FORBIDDEN, '报告包含读取权限已撤销的结果，请重新读取阶段报告');
     const markdown = readFileSync(join(this.#store.dataDir, 'snapshot-reports', taskId, `${reportId}.md`), 'utf8');
     if (createHash('sha256').update(markdown).digest('hex') !== reportId) throw new AppError(ErrorCode.STALE_TARGET, '报告文件与读取版本不符，请重新读取');
     return { markdown, filename: `snapshot-review-${taskId}.md` };
@@ -619,7 +626,7 @@ export class TaskExtrasService {
     const byKey = new Map(planNodes.map((node) => [node.key, node]));
     const executionNodes = new Map((execution?.nodes ?? []).map((node) => [node.nodeId, node]));
     const attemptsByNode = new Map<string, Attempt[]>();
-    for (const attempt of execution === undefined ? [] : this.#store.executions.listAttempts(execution.id)) {
+    for (const attempt of execution === undefined ? [] : this.#store.executions.listAttempts(execution.id).map(readableAttempt)) {
       const list = attemptsByNode.get(attempt.nodeId) ?? [];
       list.push(attempt);
       attemptsByNode.set(attempt.nodeId, list);
@@ -627,10 +634,10 @@ export class TaskExtrasService {
     const batchFromNode = (node: PlanNode, templateStepKey: string | undefined, groupLabel: string | undefined): SnapshotReviewBatch => {
       const state = executionNodes.get(node.id);
       const attempts = attemptsByNode.get(node.id) ?? [];
-      const latest = state?.currentAttemptId === undefined ? attempts[0] : attempts.find((item) => item.id === state.currentAttemptId);
+      const latest = state?.currentAttemptId === undefined ? undefined : attempts.find((item) => item.id === state.currentAttemptId);
       const acceptance = execution === undefined ? undefined : this.#acceptance(execution.id, node.id);
-      const fragmentCount = latest === undefined ? 0 : this.#store.executions.listOutput(latest.id, 0, OUTPUT_FRAGMENT_SCAN_LIMIT).length;
-      const errorMessage = state?.error?.message
+      const fragmentCount = latest === undefined ? 0 : readableOutput(latest, this.#store.executions.listOutput(latest.id, 0, OUTPUT_FRAGMENT_SCAN_LIMIT)).length;
+      const errorMessage = latest?.readability.result === 'forbidden' ? '该步骤结果读取权限已撤销' : state?.error?.message
         ?? latest?.result?.errors[0]?.message
         ?? (latest?.result?.verification?.state === 'failed' ? latest.result.verification.summary : undefined);
       const batchState = snapshotBatchState(state?.status, latest, acceptance);
@@ -660,7 +667,7 @@ export class TaskExtrasService {
       const verifyStatus = verifier === undefined ? undefined : executionNodes.get(verifier.id)?.status;
       const analyzed = executionNodes.get(node.id)?.status === 'succeeded';
       const state = !analyzed ? batch.state : verifyStatus === 'succeeded' || verifyStatus === 'skipped' ? 'verified' : verifyStatus === 'running' ? 'running' : verifyStatus === 'failed' || verifyStatus === 'unknown' ? 'attention' : 'unverified';
-      return { ...batch, state, ...(verifier === undefined || executionNodes.get(verifier.id)?.error?.message === undefined ? {} : { errorMessage: executionNodes.get(verifier.id)!.error!.message }), purpose: `固定源码 ${(node.snapshotUnitIds ?? []).length} 个文件单元；独立复核 ${verifyStatus ?? '待执行'}` };
+      return { ...batch, state, ...(verifier === undefined ? {} : { errorMessage: batchFromNode(verifier, undefined, '独立复核').errorMessage ?? batch.errorMessage }), purpose: `固定源码 ${(node.snapshotUnitIds ?? []).length} 个文件单元；独立复核 ${verifyStatus ?? '待执行'}` };
     });
     const batches: SnapshotReviewBatch[] = [];
     const matchedNodeIds = new Set<string>();
@@ -780,7 +787,7 @@ export class TaskExtrasService {
     }
     const executionNodes = new Map((execution?.nodes ?? []).map((node) => [node.nodeId, node]));
     const attemptsByNode = new Map<string, Attempt[]>();
-    for (const attempt of execution === undefined ? [] : this.#store.executions.listAttempts(execution.id)) {
+    for (const attempt of execution === undefined ? [] : this.#store.executions.listAttempts(execution.id).map(readableAttempt)) {
       const list = attemptsByNode.get(attempt.nodeId) ?? [];
       list.push(attempt);
       attemptsByNode.set(attempt.nodeId, list);
@@ -790,8 +797,8 @@ export class TaskExtrasService {
     const nodes: RunContentNode[] = plan.graph.nodes.map((node) => {
       const state = executionNodes.get(node.id);
       const attempts = attemptsByNode.get(node.id) ?? [];
-      const latest = state?.currentAttemptId === undefined ? attempts[0] : attempts.find((item) => item.id === state.currentAttemptId);
-      const fragmentCount = latest === undefined ? 0 : this.#store.executions.listOutput(latest.id, 0, OUTPUT_FRAGMENT_SCAN_LIMIT).length;
+      const latest = state?.currentAttemptId === undefined ? undefined : attempts.find((item) => item.id === state.currentAttemptId);
+      const fragmentCount = latest === undefined ? 0 : readableOutput(latest, this.#store.executions.listOutput(latest.id, 0, OUTPUT_FRAGMENT_SCAN_LIMIT)).length;
       totalAttempts += attempts.length;
       totalFragments += fragmentCount;
       const group = plan.graph.groups.find((item) => item.id === node.groupId);
@@ -825,7 +832,7 @@ export class TaskExtrasService {
             }),
         outputs: node.outputs.map((output) => output.name),
         writes: node.resources.write.map((resource) => resource.label),
-        ...(state?.error === undefined ? {} : { errorMessage: state.error.message }),
+        ...(latest?.readability.result === 'forbidden' ? { errorMessage: '该步骤结果读取权限已撤销' } : state?.error === undefined ? {} : { errorMessage: state.error.message }),
       };
     });
     const groups: RunContentGroup[] = (['documents', 'source', 'tests', 'other'] as const)

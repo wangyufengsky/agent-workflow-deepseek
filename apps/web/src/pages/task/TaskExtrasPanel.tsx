@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ROUTES,
@@ -585,6 +585,11 @@ function PartialReport({ taskId, report: metadata }: { readonly taskId: string; 
   const [report, setReport] = useState<SnapshotPartialReport | null>(null);
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'error' | 'downloading'>('idle');
   const [error, setError] = useState('');
+  const access = useQuery({ queryKey: ['snapshot-report-access', taskId, report?.reportId], enabled: report?.reportId !== undefined, retry: false, refetchInterval: 5000,
+    queryFn: () => apiGet<{ markdown: string; filename: string }>(ROUTES.taskSnapshotReportDownload(taskId, report!.reportId!)) });
+  useEffect(() => {
+    if (access.error) { setReport(null); setPhase('error'); setError(errorMessage(access.error)); }
+  }, [access.error]);
   const read = async () => {
     setReport(null); setError(''); setPhase('loading');
     try { const value = (await apiGet<SnapshotPartialReport>(ROUTES.taskSnapshotReport(taskId))).data; setReport(value); setPhase('ready'); }
