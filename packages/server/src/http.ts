@@ -195,6 +195,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(result, requestId(request));
   });
   app.get<{ Params: { id: string } }>('/api/projects/:id', async (request) => envelope(engine.projects.detail(request.params.id), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/projects/:id/recheck', async (request) => {
+    const body = request.body as { requestKey?: string };
+    if (typeof body.requestKey !== 'string' || body.requestKey.length < 8) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 requestKey');
+    return envelope(await engine.projects.recheck(request.params.id, { requestKey: body.requestKey }), requestId(request));
+  });
   app.patch<{ Params: { id: string } }>('/api/projects/:id', async (request) => {
     const body = request.body as UpdateProjectRequest;
     return envelope(engine.projects.update(request.params.id, body), requestId(request));

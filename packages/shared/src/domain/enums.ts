@@ -460,6 +460,7 @@ export type EventTypeValue = (typeof EventType)[keyof typeof EventType];
 export const OperationKind = {
   PROJECT_CREATE: 'project.create',
   PROJECT_UPDATE: 'project.update',
+  PROJECT_RECHECK: 'project.recheck',
   TASK_CREATE: 'task.create',
   TASK_UPDATE_DRAFT: 'task.updateDraft',
   TASK_ARCHIVE: 'task.archive',
@@ -532,6 +533,7 @@ export interface OperationDefinition {
 export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'project.create': op('project.create', 'global', true, '登记项目'),
   'project.update': op('project.update', 'project', true, '更新项目设置'),
+  'project.recheck': op('project.recheck', 'project', true, '重新检测项目路径与 Git 状态'),
   'task.create': op('task.create', 'project', true, '形成需求草稿'),
   'task.updateDraft': op('task.updateDraft', 'task', true, '保存需求草稿'),
   'task.archive': op('task.archive', 'task', true, '归档任务'),

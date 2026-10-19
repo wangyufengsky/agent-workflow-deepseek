@@ -59,7 +59,7 @@ function apiErrorDetail(error: unknown): string {
   return errorMessage(error);
 }
 
-function ProjectCard({ project, busy, onArchive, onEdit }: { readonly project: ProjectSummary; readonly busy: boolean; readonly onArchive: () => void; readonly onEdit: () => void }) {
+function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly project: ProjectSummary; readonly busy: boolean; readonly onArchive: () => void; readonly onEdit: () => void; readonly onRecheck: () => void }) {
   const unavailable = project.gitState === RepoGitState.PATH_UNAVAILABLE || project.gitState === RepoGitState.CAPABILITY_UNAVAILABLE;
   return (
     <article className="card pad hoverable" aria-label={project.name} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -137,6 +137,9 @@ function ProjectCard({ project, busy, onArchive, onEdit }: { readonly project: P
             开始任务
           </LinkButton>
         )}
+        <Button variant="ghost" size="sm" icon="refresh" disabled={busy} onClick={onRecheck}>
+          重新检测
+        </Button>
         <Button variant="ghost" size="sm" icon="edit" disabled={busy} onClick={onEdit}>
           编辑
         </Button>
@@ -174,6 +177,17 @@ export function ProjectsPage() {
     },
     onSuccess: async () => {
       setEditing(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
+        queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+      ]);
+    },
+  });
+  const recheckProject = useMutation({
+    mutationFn: async (projectId: string) => {
+      await request(`/api/projects/${encodeURIComponent(projectId)}/recheck`, { method: 'POST', body: { requestKey: createRequestKey() } });
+    },
+    onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.projects }),
         queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
@@ -373,7 +387,7 @@ export function ProjectsPage() {
     body = (
       <div className="grid-2">
         {filtered.map((project) => (
-          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending || editProject.isPending} onArchive={() => { archiveProject.mutate(project); }} onEdit={() => { setEditing({ id: project.id, name: project.name, description: project.description, testCommand: project.settings?.testCommand ?? '', gitProvider: project.settings?.gitProvider ?? '', defaultMethodId: project.settings?.defaultMethodId ?? '' }); }} />
+          <ProjectCard key={project.id} project={project} busy={archiveProject.isPending || editProject.isPending || recheckProject.isPending} onArchive={() => { archiveProject.mutate(project); }} onRecheck={() => { recheckProject.mutate(project.id); }} onEdit={() => { setEditing({ id: project.id, name: project.name, description: project.description, testCommand: project.settings?.testCommand ?? '', gitProvider: project.settings?.gitProvider ?? '', defaultMethodId: project.settings?.defaultMethodId ?? '' }); }} />
         ))}
       </div>
     );

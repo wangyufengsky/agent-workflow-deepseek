@@ -120,6 +120,38 @@ export class ProjectService {
     }
   }
 
+  async recheck(projectId: string, input: { requestKey: string }): Promise<CommandResponse<ProjectDetailResponse>> {
+    const project = this.#store.projects.get(projectId);
+    if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'project.recheck',
+      body: { projectId },
+      target: { projectId },
+    });
+    if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record) };
+    try {
+      const detection = await this.#git.detect(project.rootPath);
+      this.#store.repos.upsert({
+        projectId,
+        gitState: detection.gitState,
+        displayRoot: project.rootPath,
+        defaultBranch: detection.defaultBranch,
+        remote: detection.remoteDisplayUrl === undefined ? undefined : { name: 'origin', displayUrl: detection.remoteDisplayUrl },
+      });
+      this.#store.projects.update(projectId, {
+        gitState: detection.gitState,
+        defaultBranch: detection.defaultBranch,
+        remoteDisplayUrl: detection.remoteDisplayUrl,
+      });
+      this.#commands.settle(input.requestKey, { projectId, gitState: detection.gitState });
+      return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.detail(projectId) };
+    } catch (error) {
+      this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('重新检测失败'));
+      throw error;
+    }
+  }
+
   detail(projectId: string): ProjectDetailResponse {
     const project = this.get(projectId);
     const repo = this.#store.repos.get(projectId);

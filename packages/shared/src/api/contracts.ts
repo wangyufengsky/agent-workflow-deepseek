@@ -915,6 +915,7 @@ export const ROUTES = {
   fix: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}`,
   fixStart: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/start`,
   catalogRoles: '/api/catalog/roles',
+  projectRecheck: (id: string) => `/api/projects/${encodeURIComponent(id)}/recheck`,
   templateTasks: (id: string) => `/api/templates/${encodeURIComponent(id)}/tasks`,
   catalogRoleSave: '/api/catalog/roles',
   catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,

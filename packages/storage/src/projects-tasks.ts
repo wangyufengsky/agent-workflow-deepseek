@@ -96,7 +96,7 @@ export class ProjectRepository {
     }));
   }
 
-  update(id: string, patch: Partial<Pick<Project, 'name' | 'description' | 'archived'>> & { settings?: ProjectSettings }): Project | undefined {
+  update(id: string, patch: Partial<Pick<Project, 'name' | 'description' | 'archived' | 'gitState' | 'defaultBranch' | 'remoteDisplayUrl'>> & { settings?: ProjectSettings }): Project | undefined {
     const current = this.get(id);
     if (current === undefined) return undefined;
     const next: Project = {
@@ -105,11 +105,14 @@ export class ProjectRepository {
       description: patch.description ?? current.description,
       settings: patch.settings ?? current.settings,
       archived: patch.archived ?? current.archived,
+      gitState: patch.gitState ?? current.gitState,
+      defaultBranch: patch.defaultBranch === undefined ? current.defaultBranch : patch.defaultBranch,
+      remoteDisplayUrl: patch.remoteDisplayUrl === undefined ? current.remoteDisplayUrl : patch.remoteDisplayUrl,
       updatedAt: nowIso(),
     };
     this.#db
-      .prepare('UPDATE projects SET name = ?, description = ?, settings_json = ?, archived = ?, updated_at = ? WHERE id = ?')
-      .run(next.name, next.description, jsonStringify(next.settings), fromBool(next.archived), next.updatedAt, id);
+      .prepare('UPDATE projects SET name = ?, description = ?, settings_json = ?, archived = ?, git_state = ?, default_branch = ?, remote_display_url = ?, updated_at = ? WHERE id = ?')
+      .run(next.name, next.description, jsonStringify(next.settings), fromBool(next.archived), next.gitState, next.defaultBranch ?? null, next.remoteDisplayUrl ?? null, next.updatedAt, id);
     return next;
   }
 
