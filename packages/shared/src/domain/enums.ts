@@ -863,3 +863,7 @@ export const EvidenceSourceReadState = { READABLE: 'readable', EMPTY: 'empty', U
 export type EvidenceSourceReadStateValue = (typeof EvidenceSourceReadState)[keyof typeof EvidenceSourceReadState];
 export const ProjectBindingRepositoryState = { CONNECTED: 'connected', NOT_CONFIGURED: 'not_configured', FAILED: 'failed' } as const;
 export type ProjectBindingRepositoryStateValue = (typeof ProjectBindingRepositoryState)[keyof typeof ProjectBindingRepositoryState];
+
+/** Availability and conclusion of an Insights evidence source, never an inferred result. */
+export const QualityCheckStatus = { NOT_CONFIGURED: 'not_configured', NOT_REQUIRED: 'not_required', NOT_REVIEWED: 'not_reviewed', IN_PROGRESS: 'in_progress', PASSED: 'passed', FAILED: 'failed', UNKNOWN: 'unknown' } as const;
+export type QualityCheckStatusValue = typeof QualityCheckStatus[keyof typeof QualityCheckStatus];

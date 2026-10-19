@@ -1,3 +1,4 @@
+import { taskQualityEvidence } from './insights-quality.ts';
 import { nowIso, type TaskUsageView, type InsightsResponse } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 
@@ -92,16 +93,6 @@ export class InsightsService {
       UNION ALL SELECT e.task_id, 'execution', a.usage_json, a.started_at, a.ended_at, CASE WHEN a.ordinal > 1 THEN 1 ELSE 0 END FROM attempts a JOIN executions e ON e.id=a.execution_id
       UNION ALL SELECT e.task_id, 'review', r.usage_json, r.started_at, r.ended_at, 0 FROM reviews r JOIN executions e ON e.id=r.execution_id
       UNION ALL SELECT e.task_id, 'fix', f.usage_json, NULL, NULL, 0 FROM fixes f JOIN executions e ON e.id=f.execution_id`).all() as unknown as { task_id: string; stage: 'planning'|'execution'|'review'|'fix'; usage_json: string | null; started_at: string | null; ended_at: string | null; retry: number }[];
-    const verdicts = new Map(this.#store.acceptances.list().map((item) => [item.taskId, item.verdict]));
-    // Current quality follows the latest review of the current execution; historical
-    // taskQuality() remains an audit aggregate and is intentionally not rewritten.
-    const latestReviews = new Map<string, { state: string; openFindings?: number }>();
-    for (const row of db.prepare('SELECT execution_id, state, findings_json FROM reviews ORDER BY rowid DESC').all() as { execution_id: string; state: string; findings_json: string }[]) {
-      if (latestReviews.has(row.execution_id)) continue;
-      let openFindings: number | undefined;
-      try { const findings: unknown = JSON.parse(row.findings_json); if (Array.isArray(findings)) openFindings = findings.filter((item) => item?.status === 'open').length; } catch { /* Unreadable current findings cannot establish a pass. */ }
-      latestReviews.set(row.execution_id, { state: row.state, openFindings });
-    }
     return this.#store.tasks.list().map((task): TaskUsageView => {
       const taskRecords = records.filter((record) => record.task_id === task.id); let tokens = 0; let knownRecords = 0; let unknownRecords = 0; let unknownCostRecords = 0; let durationMs = 0; let knownDuration = 0; let unknownDurationRecords = 0; const costs = new Map<string, number>();
       const stages = { planning: 0, execution: 0, review: 0, fix: 0 };
@@ -115,10 +106,8 @@ export class InsightsService {
         const from = Date.parse(record.started_at ?? ''); const to = Date.parse(record.ended_at ?? '');
         if (Number.isFinite(from) && Number.isFinite(to) && to >= from) { durationMs += to - from; knownDuration++; } else unknownDurationRecords++;
       }
-      const currentReview = task.executionId ? latestReviews.get(task.executionId) : undefined;
-      const hasIssues = verdicts.get(task.id) === 'rejected' || (currentReview?.openFindings ?? 0) > 0;
-      const quality = hasIssues ? 'issues' : task.lifecycle === 'completed' && verdicts.get(task.id) === 'accepted' && currentReview?.state === 'completed' && currentReview.openFindings === 0 ? 'passed' : verdicts.get(task.id) === 'accepted' ? 'pending_review' : 'pending_acceptance';
-      return { taskId: task.id, ...(knownRecords ? { tokens } : {}), knownRecords, unknownRecords, costs: [...costs].sort(([a], [b]) => a.localeCompare(b)).map(([currency, amount]) => ({ currency, amount })), unknownCostRecords, ...(knownDuration ? { durationMs } : {}), unknownDurationRecords, retries: taskRecords.reduce((sum, record) => sum + record.retry, 0), stages, quality };
+      const qualityEvidence = taskQualityEvidence(this.#store, task);
+      return { taskId: task.id, ...(knownRecords ? { tokens } : {}), knownRecords, unknownRecords, costs: [...costs].sort(([a], [b]) => a.localeCompare(b)).map(([currency, amount]) => ({ currency, amount })), unknownCostRecords, ...(knownDuration ? { durationMs } : {}), unknownDurationRecords, retries: taskRecords.reduce((sum, record) => sum + record.retry, 0), stages, quality: qualityEvidence.summary, qualityEvidence };
     });
   }
 

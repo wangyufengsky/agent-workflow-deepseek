@@ -1,3 +1,4 @@
+import { QualityEvidence } from './QualityEvidence.tsx';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { ROUTES, aggregateTaskUsage, filterInsightsTasks, createRequestKey, type InsightsQuality, type TaskUsageView, type TaskAcceptanceResponse, type TaskSummary } from '@agent-workflow/shared';
@@ -81,6 +82,8 @@ function TaskDetail({ task, usage }: { readonly task: TaskSummary; readonly usag
         <div className="eyebrow" style={{ marginBottom: 8 }}>
           验收与评审
         </div>
+        <QualityEvidence evidence={usage?.qualityEvidence} />
+        <div className="eyebrow" style={{ marginTop: 14, marginBottom: 8 }}>记录人工意见</div>
         {acceptanceQuery.isError ? (
           <p className="hint" style={{ color: 'var(--danger)' }}>读取人工验收失败：{errorMessage(acceptanceQuery.error)}</p>
         ) : acceptanceQuery.data === undefined ? <p className="hint">正在读取人工验收…</p> : acceptance === undefined ? (
@@ -198,7 +201,7 @@ export function InsightsPage() {
           <td style={{ padding: 12 }}>{usage ? <Badge tone={usage.quality === 'passed' ? 'ok' : usage.quality === 'issues' ? 'danger' : 'wait'} icon={usage.quality === 'passed' ? 'check' : 'help'}>{qualityLabels[usage.quality]}</Badge> : <UnknownValue reason="质量读取失败" />}<div className="hint">{acceptance ? `${acceptance.passed}/${acceptance.total} 节点成功；不是测试通过数` : '节点验收尚未读取或未执行'}</div></td>
           <td style={{ padding: 12 }}>{usage?.tokens === undefined ? <UnknownValue reason="没有已记录 tokens；缺失不等于零" /> : <span className="num">{formatCount(usage.tokens)}</span>}{usage?.unknownRecords ? <div className="hint">另有 {usage.unknownRecords} 条未知</div> : null}</td><td style={{ padding: 12 }}><Duration usage={usage} /></td>
         </tr>; })}
-      </tbody></table></div><div className="hint" style={{ padding: 12 }}>质量通过要求人工验收通过且最近评审完成、无未处理问题；节点成功不替代测试证据。用量包含规划 / 执行 / 评审 / 修复。</div></section>
+      </tbody></table></div><div className="hint" style={{ padding: 12 }}>质量通过依据当前执行已配置的真实验收和评审来源；未配置项不额外设门槛，人工意见不改写原结论；节点成功不替代测试证据。用量包含规划 / 执行 / 评审 / 修复。</div></section>
       {selected ? <TaskDetail key={selected.id} task={selected} usage={usageByTask.get(selected.id)} /> : null}
     </div>}
   </div>;

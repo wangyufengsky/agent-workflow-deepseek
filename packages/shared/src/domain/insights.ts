@@ -1,6 +1,11 @@
 import type { TaskSummary } from './models.ts';
 export type InsightsQuality = 'passed' | 'pending_acceptance' | 'pending_review' | 'issues';
+export type QualityEvidenceState = import('./enums.ts').QualityCheckStatusValue;
+export interface QualityEvidenceSource { readonly kind: 'test_run' | 'attempt' | 'code_review' | 'human'; readonly id: string; readonly label: string; readonly href: string }
+export interface TaskQualityCheck { readonly kind: 'program' | 'requirement' | 'risk' | 'human' | 'code_review'; readonly state: QualityEvidenceState; readonly required: boolean; readonly reason: string; readonly passed?: number; readonly failed?: number; readonly skipped?: number; readonly sources: readonly QualityEvidenceSource[] }
+export interface TaskQualityEvidence { readonly checks: readonly TaskQualityCheck[]; readonly codeReview: TaskQualityCheck; readonly summary: InsightsQuality }
 export interface TaskUsageView {
+  readonly qualityEvidence?: TaskQualityEvidence;
   readonly taskId: string;
   readonly tokens?: number;
   readonly knownRecords: number;
