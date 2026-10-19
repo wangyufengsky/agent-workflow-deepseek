@@ -1,0 +1,74 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createId } from '@agent-workflow/shared';
+import { createApplication } from '../../packages/server/src/index.ts';
+
+function requestKey(prefix: string): string {
+  return `req_${prefix}${Math.random().toString(36).slice(2, 21)}`;
+}
+
+function createRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), 'aw-insights-'));
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: root });
+  writeFileSync(join(root, 'README.md'), '# insights\n', 'utf8');
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['commit', '-qm', 'init'], { cwd: root });
+  return root;
+}
+
+test('insights aggregate real task/review counters from SQLite', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'aw-insights-data-'));
+  const app = await createApplication({ dataDir, disableOpenCode: true, disableListen: true });
+  try {
+    const project = await app.app.inject({ method: 'POST', url: '/api/projects', payload: { requestKey: requestKey('prj'), name: 'Insights', rootPath: createRepo() } });
+    const projectId = project.json().data.resource.project.id as string;
+    for (const title of ['A', 'B']) {
+      const created = await app.app.inject({ method: 'POST', url: '/api/tasks', payload: { requestKey: requestKey('task'), projectId, title, requirementText: 'R1', methodId: 'method.requirement-development' } });
+      assert.equal(created.statusCode, 201, created.body);
+    }
+    const empty = await app.app.inject({ method: 'GET', url: '/api/insights' });
+    assert.equal(empty.statusCode, 200, empty.body);
+    const emptyData = empty.json().data as { tasks: { total: number; active: number }; reviews: { openFindings: number } };
+    assert.equal(emptyData.tasks.total, 2);
+    assert.equal(emptyData.tasks.active, 2);
+    assert.equal(emptyData.reviews.openFindings, 0);
+
+    const review = app.store.reviews.create({
+      projectId,
+      executionId: createId('exec'),
+      subject: { commitSha: 'a'.repeat(40), compareBase: { compareId: 'parent:0', kind: 'parent', label: '父提交', baseSha: 'b'.repeat(40) } },
+      dimensions: ['correctness'],
+      context: 'diff_only',
+      profession: { professionId: 'role.reviewer', revision: 'r2', displayName: '代码审查员' },
+      state: 'completed',
+      findings: [],
+    });
+    app.store.reviews.update({
+      ...app.store.reviews.get(review.reviewRunId)!,
+      findings: [{
+        findingId: createId('finding'),
+        reviewRunId: review.reviewRunId,
+        ordinal: 1,
+        severity: 'major',
+        dimension: 'correctness',
+        title: 'x',
+        detail: 'y',
+        status: 'open',
+      }],
+    });
+    const filled = await app.app.inject({ method: 'GET', url: '/api/insights' });
+    assert.equal(filled.statusCode, 200, filled.body);
+    const data = filled.json().data as { reviews: { total: number; completed: number; openFindings: number } };
+    assert.equal(data.reviews.total, 1);
+    assert.equal(data.reviews.completed, 1);
+    assert.equal(data.reviews.openFindings, 1);
+  } finally {
+    await app.close();
+  }
+});

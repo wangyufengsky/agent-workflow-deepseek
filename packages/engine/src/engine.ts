@@ -4,6 +4,7 @@ import type { Store } from '@agent-workflow/storage';
 import { CommandService } from './operations.ts';
 import { RecoveryService } from './recovery.ts';
 import { RoleCatalogService } from './role-catalog.ts';
+import { InsightsService } from './insights.ts';
 import { ProjectService, TaskService, InboxService } from './project-task.ts';
 import { PlanningService } from './planning.ts';
 import { PlanService } from './plan.ts';
@@ -39,6 +40,7 @@ export class Engine {
   readonly inbox: InboxService;
   readonly recoveries: RecoveryService;
   readonly roleCatalog: RoleCatalogService;
+  readonly insights: InsightsService;
   readonly planning: PlanningService;
   readonly plans: PlanService;
   readonly workspaces: WorkspaceService;
@@ -60,6 +62,7 @@ export class Engine {
       },
     });
     this.roleCatalog.applyEffective();
+    this.insights = new InsightsService(this.store);
     const integration = options.integration ?? { opencodeReady: () => false, gitlabConfigured: () => false };
     this.context = {
       store: this.store,

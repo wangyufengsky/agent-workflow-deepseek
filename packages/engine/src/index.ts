@@ -14,3 +14,4 @@ export * from './engine.ts';
 export * from './directory-apply.ts';
 export * from './recovery.ts';
 export * from './role-catalog.ts';
+export * from './insights.ts';

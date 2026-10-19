@@ -466,6 +466,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   // Role catalog drafts / publishing (global config)
+  app.get('/api/insights', async (request) => envelope(engine.insights.summary(), requestId(request)));
+
   app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));
   app.post('/api/catalog/roles', async (request) => {
     const body = request.body as RoleSaveRequest;

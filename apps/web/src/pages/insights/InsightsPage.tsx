@@ -1,7 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { TaskLifecycle, type TaskLifecycleValue, type TaskSummary } from '@agent-workflow/shared';
+import { useQuery } from '@tanstack/react-query';
 import { useBootstrap } from '../../api/hooks.ts';
+import { apiGet } from '../../api/client.ts';
+import type { InsightsResponse } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatCount, formatRelativeTime } from '../../app/format.ts';
 import { deriveTaskStatus, sortByUpdatedDesc, taskHref, taskProgressText } from '../../app/taskStatus.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -112,6 +115,7 @@ function TaskDetail({ task }: { readonly task: TaskSummary }) {
 
 export function InsightsPage() {
   const bootstrap = useBootstrap();
+  const insights = useQuery({ queryKey: ['insights'], queryFn: async () => (await apiGet<InsightsResponse>('/api/insights')).data, retry: false });
   const tasks = bootstrap.data?.tasks ?? [];
   const counts = bootstrap.data?.counts;
   const [quality, setQuality] = useState<QualityFilter>('all');
@@ -317,6 +321,27 @@ export function InsightsPage() {
         </div>
       </div>
 
+      {insights.data === undefined ? null : (
+        <section className="card" aria-label="运行统计" style={{ marginBottom: 16 }}>
+          <div className="card-head">
+            <span className="tile"><Icon name="chart" /></span>
+            <div className="grow">
+              <span className="section-title">运行统计</span>
+              <div className="hint" style={{ marginTop: 2 }}>来自 SQLite 的真实计数（阅读于 {new Date(insights.data.generatedAt).toLocaleString('zh-CN')}）；不含伪造的 token/成本数据。</div>
+            </div>
+          </div>
+          <div className="card-body">
+            <div className="grid-2" style={{ gap: 12 }}>
+              <div className="card pad"><div className="eyebrow">任务</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.tasks.total)}</div><div className="hint">进行中 {String(insights.data.tasks.active)} · 已完成 {String(insights.data.tasks.completed)} · 待处理 {String(insights.data.tasks.attention)}</div></div>
+              <div className="card pad"><div className="eyebrow">规划轮次</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.planning.rounds)}</div><div className="hint">完成 {String(insights.data.planning.completed)} · 失败 {String(insights.data.planning.failed)} · 进行中 {String(insights.data.planning.running)}</div></div>
+              <div className="card pad"><div className="eyebrow">执行 / 尝试</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.executions.total)} / {String(insights.data.executions.attempts)}</div><div className="hint">运行中 {String(insights.data.executions.running)} · 失败 {String(insights.data.executions.failed)}</div></div>
+              <div className="card pad"><div className="eyebrow">审查</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.reviews.total)}</div><div className="hint">完成 {String(insights.data.reviews.completed)} · 失败 {String(insights.data.reviews.failed)} · 待处理问题 {String(insights.data.reviews.openFindings)}</div></div>
+              <div className="card pad"><div className="eyebrow">修复</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.fixes.total)}</div><div className="hint">待提交 {String(insights.data.fixes.ready)} · 已放弃 {String(insights.data.fixes.discarded)}</div></div>
+              <div className="card pad"><div className="eyebrow">交付</div><div style={{ fontSize: 18, marginTop: 4 }}>{String(insights.data.deliveries.delivered)}</div><div className="hint">已交付 · 受阻 {String(insights.data.deliveries.blocked)} · 进行中 {String(insights.data.deliveries.inProgress)}</div></div>
+            </div>
+          </div>
+        </section>
+      )}
       {body}
     </div>
   );

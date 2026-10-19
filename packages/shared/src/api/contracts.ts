@@ -194,6 +194,16 @@ export interface NodeSkipRequest extends CommandRequest {
   readonly confirmSkip: true;
 }
 
+export interface InsightsResponse {
+  readonly generatedAt: IsoDateTime;
+  readonly tasks: { readonly total: number; readonly active: number; readonly completed: number; readonly cancelled: number; readonly attention: number };
+  readonly planning: { readonly rounds: number; readonly completed: number; readonly failed: number; readonly running: number };
+  readonly executions: { readonly total: number; readonly running: number; readonly failed: number; readonly attempts: number };
+  readonly reviews: { readonly total: number; readonly completed: number; readonly failed: number; readonly openFindings: number };
+  readonly fixes: { readonly total: number; readonly ready: number; readonly discarded: number };
+  readonly deliveries: { readonly delivered: number; readonly blocked: number; readonly inProgress: number };
+}
+
 export interface OpenCodeDetectResponse {
   readonly current: string;
   readonly scannedAt: IsoDateTime;
@@ -868,6 +878,7 @@ export const ROUTES = {
   opencodeStatus: '/api/opencode/status',
   opencodeRestart: '/api/opencode/restart',
   opencodeDetect: '/api/opencode/detect',
+  insights: '/api/insights',
 } as const;
 
 export type RouteKey = keyof typeof ROUTES;

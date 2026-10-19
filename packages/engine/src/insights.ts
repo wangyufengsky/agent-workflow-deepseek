@@ -1,0 +1,57 @@
+import { nowIso, type InsightsResponse } from '@agent-workflow/shared';
+import type { Store } from '@agent-workflow/storage';
+
+/** Real aggregate counters read from SQLite; no synthetic usage/cost numbers. */
+export class InsightsService {
+  readonly #store: Store;
+
+  constructor(store: Store) {
+    this.#store = store;
+  }
+
+  summary(): InsightsResponse {
+    const db = this.#store.db;
+    const count = (sql: string): number => {
+      const row = db.prepare(sql).get() as { n: number } | undefined;
+      return Number(row?.n ?? 0);
+    };
+    return {
+      generatedAt: nowIso(),
+      tasks: {
+        total: count('SELECT COUNT(*) AS n FROM tasks'),
+        active: count("SELECT COUNT(*) AS n FROM tasks WHERE lifecycle = 'active'"),
+        completed: count("SELECT COUNT(*) AS n FROM tasks WHERE lifecycle = 'completed'"),
+        cancelled: count("SELECT COUNT(*) AS n FROM tasks WHERE lifecycle = 'cancelled'"),
+        attention: count("SELECT COUNT(*) AS n FROM tasks WHERE attention != 'none'"),
+      },
+      planning: {
+        rounds: count('SELECT COUNT(*) AS n FROM planning_rounds'),
+        completed: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE status = 'completed'"),
+        failed: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE status = 'failed'"),
+        running: count("SELECT COUNT(*) AS n FROM planning_rounds WHERE status IN ('queued','running','stopping')"),
+      },
+      executions: {
+        total: count('SELECT COUNT(*) AS n FROM executions'),
+        running: count("SELECT COUNT(*) AS n FROM executions WHERE status IN ('running','pausing','stopping')"),
+        failed: count("SELECT COUNT(*) AS n FROM executions WHERE status = 'failed'"),
+        attempts: count('SELECT COUNT(*) AS n FROM attempts'),
+      },
+      reviews: {
+        total: count('SELECT COUNT(*) AS n FROM reviews'),
+        completed: count("SELECT COUNT(*) AS n FROM reviews WHERE state = 'completed'"),
+        failed: count("SELECT COUNT(*) AS n FROM reviews WHERE state = 'failed'"),
+        openFindings: count("SELECT COUNT(*) AS n FROM reviews r, json_each(r.findings_json) j WHERE json_extract(j.value, '$.status') = 'open'"),
+      },
+      fixes: {
+        total: count('SELECT COUNT(*) AS n FROM fixes'),
+        ready: count("SELECT COUNT(*) AS n FROM fixes WHERE state = 'ready'"),
+        discarded: count("SELECT COUNT(*) AS n FROM fixes WHERE state = 'discarded'"),
+      },
+      deliveries: {
+        delivered: count("SELECT COUNT(*) AS n FROM deliveries WHERE projection = 'delivered'"),
+        blocked: count("SELECT COUNT(*) AS n FROM deliveries WHERE projection = 'blocked'"),
+        inProgress: count("SELECT COUNT(*) AS n FROM deliveries WHERE projection = 'in_progress'"),
+      },
+    };
+  }
+}
