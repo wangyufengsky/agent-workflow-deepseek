@@ -257,12 +257,23 @@ function resolveReadRootByStore(store: Store, task: Task): string {
   return project?.rootPath ?? process.cwd();
 }
 
+function resolveFixRoot(deps: InternalDependencies, rootRef: string): string | undefined {
+  const saved = deps.store.settings.getJson<{ path?: string }>(`fix.worktree.${rootRef}`);
+  if (saved === undefined || typeof saved.path !== 'string' || saved.path === '') return undefined;
+  if (!existsSync(saved.path)) throw new AppError(ErrorCode.WORKSPACE_NOT_READY, '修复工作区已不存在');
+  return saved.path;
+}
+
 function resolveReadRoot(deps: InternalDependencies, taskId: string): string {
+  const fixRoot = resolveFixRoot(deps, taskId);
+  if (fixRoot !== undefined) return fixRoot;
   const task = requireTask(deps, taskId);
   return resolveReadRootByStore(deps.store, task);
 }
 
 function resolveWriteRoot(deps: InternalDependencies, taskId: string): string {
+  const fixRoot = resolveFixRoot(deps, taskId);
+  if (fixRoot !== undefined) return fixRoot;
   const task = requireTask(deps, taskId);
   const workspace = task.workspaceId === undefined ? deps.store.workspaces.byTask(taskId) : deps.store.workspaces.get(task.workspaceId);
   if (workspace === undefined || workspace.state !== 'ready' || workspace.displayRoot === undefined) {

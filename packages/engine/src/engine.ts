@@ -64,7 +64,7 @@ export class Engine {
     this.plans = new PlanService(this.store, this.commands, this.context, this.ports.git, () => this.tasks);
     this.workspaces = new WorkspaceService(this.store, this.commands, this.context, this.ports.git);
     this.executions = new ExecutionService(this.store, this.commands, this.context, this.ports.opencode);
-    this.deliveries = new DeliveryService(this.store, this.commands, this.context, this.ports.git, this.workspaces);
+    this.deliveries = new DeliveryService(this.store, this.commands, this.context, this.ports.git, this.workspaces, this.ports.remote);
   }
 
   get settings(): AppSettings {

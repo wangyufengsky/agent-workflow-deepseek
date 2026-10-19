@@ -12,6 +12,7 @@ import { OpenCodeAdapter } from './adapters/opencode.ts';
 import { registerCors, registerErrorHandler, registerRoutes } from './http.ts';
 import { registerInternalRoutes } from './internal.ts';
 import { registerProviderGateway } from './opencode-gateway.ts';
+import { RemoteService } from './remote.ts';
 import { mcpCommand, resolveRuntime, type RuntimePaths } from './runtime.ts';
 
 export interface CreateApplicationOptions {
@@ -71,12 +72,13 @@ export async function createApplication(options: CreateApplicationOptions = {}):
     },
   };
 
-  const git = new GitCliAdapter(baseSettings.git.commandTimeoutMs);
+  const remoteService = new RemoteService(store);
+  const git = new GitCliAdapter(baseSettings.git.commandTimeoutMs, `${dataDir}/merge-tmp`, () => remoteService.currentToken());
   const databaseService = new DatabaseService({ settings: baseSettings.database, secrets: store.secrets });
   const database: DatabasePort = createDatabasePort(databaseService);
   const engine = new Engine({
     store,
-    ports: { git, opencode: opencodeProxy, database },
+    ports: { git, opencode: opencodeProxy, database, remote: remoteService },
     integration: {
       opencodeReady: () => opencodeProxy.status().state === 'ready',
       gitlabConfigured: () => false,
@@ -104,6 +106,7 @@ export async function createApplication(options: CreateApplicationOptions = {}):
     opencodeRef,
     databaseService,
     gateway,
+    remoteService,
     paths: { ...paths, dataDir },
     internalToken,
     appVersion: APP_VERSION,
@@ -131,7 +134,8 @@ export async function createApplication(options: CreateApplicationOptions = {}):
   }
 
 
-  if (options.disableOpenCode !== true && baseSettings.opencode.enabled) {
+  const openCodeDisabled = options.disableOpenCode ?? process.env.AGENT_WORKFLOW_DISABLE_OPENCODE === '1';
+  if (openCodeDisabled !== true && baseSettings.opencode.enabled) {
     const mcp = mcpCommand({ ...paths, dataDir });
     if (mcp.entryKind !== 'missing') {
       const planner = pickModel(baseSettings.models, 'planner') ?? baseSettings.models[0]!;

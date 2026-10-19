@@ -42,7 +42,10 @@ UNKNOWN 只能 `GET /api/operations/:key` 核对，不自动重发。
 - 并发任务在不同 worktree 执行；准备/清理/合并都由服务端校验路径与 CAS。
 - 交付分步：选择范围 → 提交 → 推送 / 创建 MR → 或合并到目标分支（临时 worktree 合并 + `update-ref` CAS，
   冲突自动 abort，目标分支不变；永不强推）。
-- Git 工作台只读浏览提交/差异/分支（服务端 `GET /api/git/*`），远端凭据配置仍在设置页待接线。
+- Git 工作台只读浏览提交/差异/分支（服务端 `GET /api/git/*`）；设置 → Git 账号可保存 GitHub/GitLab
+  令牌（AES-GCM 加密、只写不读）并验证连接；`fetch` 使用一次性 `http.extraheader` 注入令牌，合并请求读取/
+  创建走 GitHub/GitLab REST 适配。
+- 非 Git 项目的工作区准备是独立目录副本（排除 `.git/node_modules/.data` 等），写入仍经 MCP。
 
 ## 运行
 
@@ -73,8 +76,9 @@ AGENT_WORKFLOW_LIVE=1 npm run test:integration   # 需要真实 opencode-go 的�
 - `AGENT_WORKFLOW_LIVE=1` 执行端到端：确认/准备后开始执行，模型通过 MCP 文件工具修改 README.md 并
   `workflow.result.submit` 提交结果；节点成功，worktree 变更可读。
 
-> 模型说明：`opencode-go/deepseek-v4.1-flash` 在 thinking 模式下拒绝 tool_choice，不能用于带工具的会话；
-> 默认模型配置使用 `opencode-go/deepseek-v4-pro`。若更换模型，请先跑 `npm run test:model`。
+> 模型说明：`opencode-go/deepseek-v4.1-flash` 在 thinking 模式下拒绝 tool_choice。本项目内置受管
+> provider 兼容网关（仅回环、随机路径 secret、日志脱敏）在 MCP 工具存在时去掉该字段，因此默认规划/开发使用
+> **flash**（更快、更省），审查用 v4-pro；网关计数可在 `GET /api/opencode/status` 的 `status.gateway` 查看。
 
 ## 未完成 / 下一步
 

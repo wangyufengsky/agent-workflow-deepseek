@@ -69,7 +69,8 @@
 ## Git 读口
 
 `GET /api/git/repos`、`/api/git/repos/:projectId`、`/commits`、`/commits/:sha`、`/commits/:sha/files`、
-`/diff?path=&baseSha=&headSha=`、`/branches`、`/merge-requests`；`POST /fetch` 当前明确返回未接通。
+`/diff?path=&baseSha=&headSha=`、`/branches`、`/merge-requests`（已配置 Provider 时走 REST，否则空）；
+`POST /fetch` 使用令牌注入（`http.extraheader`）拉取远端引用，永不强推。
 
 ## 操作 / 设置 / OpenCode / 数据库
 
@@ -77,10 +78,13 @@
 | --- | --- | --- |
 | GET | `/api/operations/:key` | 按原 requestKey 核对回执 |
 | GET/PATCH | `/api/settings` | 设置读取/保存（服务端校验；失败返回 issues） |
+| GET | `/api/settings/git` | GitHub/GitLab 连接状态（不含令牌） |
+| POST | `/api/settings/gitlab` | 保存 Provider 地址与令牌并验证（只写不读） |
+| POST | `/api/settings/gitlab/test` | 验证已保存令牌 |
 | GET | `/api/settings/databases` | 数据库连接列表 |
 | POST | `/api/settings/databases` | 注册/更新连接（密码进 secrets，返回不含密码） |
 | POST | `/api/settings/databases/:id/probe`、`/query` | 探针 / 只读查询 |
-| GET | `/api/opencode/status` | 受管服务状态、模型、MCP 连接 |
+| GET | `/api/opencode/status` | 受管服务状态、模型、MCP 连接、provider 网关计数 |
 | POST | `/api/opencode/restart` | 重启受管服务 |
 
 ## 内部 MCP 回环（Bearer `AGENT_WORKFLOW_MCP_TOKEN`）

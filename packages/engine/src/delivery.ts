@@ -12,7 +12,7 @@ import { AppError, ErrorCode, TaskAttention, TaskLifecycle, nowIso } from '@agen
 import type { Store } from '@agent-workflow/storage';
 import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
-import type { GitPort } from './ports.ts';
+import type { GitPort, RemotePort } from './ports.ts';
 import { decodeFileId, type WorkspaceService } from './workspace.ts';
 
 export class DeliveryService {
@@ -20,13 +20,15 @@ export class DeliveryService {
   readonly #commands: CommandService;
   readonly #context: EngineContext;
   readonly #git: GitPort;
+  readonly #remote: RemotePort | undefined;
   readonly #workspaces: WorkspaceService;
 
-  constructor(store: Store, commands: CommandService, context: EngineContext, git: GitPort, workspaces: WorkspaceService) {
+  constructor(store: Store, commands: CommandService, context: EngineContext, git: GitPort, workspaces: WorkspaceService, remote?: RemotePort) {
     this.#store = store;
     this.#commands = commands;
     this.#context = context;
     this.#git = git;
+    this.#remote = remote;
     this.#workspaces = workspaces;
   }
 
@@ -168,7 +170,7 @@ export class DeliveryService {
     const delivery = this.get(taskId);
     const task = this.#requireTask(taskId);
     const project = this.#requireProject(task.projectId);
-    if (this.#git.createMergeRequest === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前未配置 GitHub/GitLab 连接，无法创建合并请求');
+    if (this.#remote === undefined && this.#git.createMergeRequest === undefined) throw new AppError(ErrorCode.CAPABILITY_UNAVAILABLE, '当前未配置 GitHub/GitLab 连接，无法创建合并请求');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'task.delivery.mergeRequest.create',
@@ -177,13 +179,9 @@ export class DeliveryService {
     });
     if (replayed && record.status !== 'accepted') return { receipt: this.#commands.toReceipt(record), resource: { delivery: this.get(taskId), actions: {} } };
     try {
-      const mr = await this.#git.createMergeRequest({
-        repoRoot: project.rootPath,
-        sourceBranch: input.sourceRef,
-        targetBranch: input.targetBranch,
-        title: input.title,
-        description: input.description,
-      });
+      const mr = this.#remote !== undefined
+        ? await this.#remote.createMergeRequest(task.projectId, { sourceBranch: input.sourceRef, targetBranch: input.targetBranch, title: input.title, description: input.description })
+        : await this.#git.createMergeRequest!({ repoRoot: project.rootPath, sourceBranch: input.sourceRef, targetBranch: input.targetBranch, title: input.title, description: input.description });
       const steps = updateStep(delivery.steps, {
         step: 'mergeRequest',
         state: 'succeeded',

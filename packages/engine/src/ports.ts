@@ -1,5 +1,6 @@
 import type {
   Attempt,
+  GitConnectionStatus,
   AttemptResult,
   DiffPage,
   ExecutionStatusValue,
@@ -64,6 +65,23 @@ export interface GitPushInput {
   readonly token?: string;
 }
 
+export interface RemotePort {
+  listMergeRequests(projectId: string, state?: 'opened' | 'merged' | 'closed' | 'all'): Promise<readonly GitMergeRequest[]>;
+  createMergeRequest(projectId: string, input: {
+    readonly sourceBranch: string;
+    readonly targetBranch: string;
+    readonly title: string;
+    readonly description: string;
+  }): Promise<{ readonly iid: number; readonly webUrl: string }>;
+  connection(projectId?: string): Promise<{
+    readonly provider: 'github' | 'gitlab';
+    readonly state: GitConnectionStatus['state'];
+    readonly hostDisplayName?: string;
+    readonly accountUsername?: string;
+    readonly message?: string;
+  }>;
+}
+
 export interface GitPort {
   detect(rootPath: string): Promise<GitRepoDetection>;
   status(rootPath: string): Promise<GitRepo['status'] | undefined>;
@@ -78,6 +96,7 @@ export interface GitPort {
   worktreeChangedFiles(input: { readonly worktreePath: string; readonly baseSha: string }): Promise<{ readonly files: readonly FileChange[]; readonly changesRevision: string }>;
   commit(input: GitCommitInput): Promise<{ readonly sha: string }>;
   push(input: GitPushInput): Promise<{ readonly remoteRef: string; readonly pushedSha: string; readonly created: boolean }>;
+  fetch?(input: { readonly repoRoot: string; readonly remote?: string; readonly prune?: boolean }): Promise<{ readonly fetchedAt: string }>;
   createMergeRequest?(input: { readonly repoRoot: string; readonly sourceBranch: string; readonly targetBranch: string; readonly title: string; readonly description: string }): Promise<{ readonly iid: number; readonly webUrl: string }>;
   mergeTaskBranch?(input: {
     readonly repoRoot: string;
@@ -133,6 +152,7 @@ export const systemClock: ClockPort = { now: () => new Date() };
 
 export interface EnginePorts {
   readonly git: GitPort;
+  readonly remote?: RemotePort;
   readonly opencode: OpenCodePort;
   readonly database?: DatabasePort;
   readonly clock?: ClockPort;

@@ -8,4 +8,6 @@ export * from './plan.ts';
 export * from './workspace.ts';
 export * from './execution.ts';
 export * from './delivery.ts';
+export * from './review.ts';
+export * from './fix.ts';
 export * from './engine.ts';

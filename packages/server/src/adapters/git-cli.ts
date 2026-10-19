@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import type { DiffPage, FileChange, GitBranch, GitCommit, GitCommitSummary, GitRepo, RepoGitStateValue } from '@agent-workflow/shared';
 import { AppError, ErrorCode } from '@agent-workflow/shared';
@@ -13,13 +13,72 @@ interface ExecResult {
 }
 
 /** Minimal local Git CLI adapter implementing the engine GitPort. */
+export interface GitAuthToken {
+  readonly provider: 'github' | 'gitlab';
+  readonly token: string;
+}
+
 export class GitCliAdapter implements GitPort {
   readonly #timeoutMs: number;
   readonly #tempRoot: string;
+  readonly #tokenProvider: (() => GitAuthToken | undefined) | undefined;
 
-  constructor(timeoutMs = 120000, tempRoot = join(process.cwd(), '.data', 'merge-tmp')) {
+  constructor(timeoutMs = 120000, tempRoot = join(process.cwd(), '.data', 'merge-tmp'), tokenProvider?: () => GitAuthToken | undefined) {
     this.#timeoutMs = timeoutMs;
     this.#tempRoot = tempRoot;
+    this.#tokenProvider = tokenProvider;
+  }
+
+  /** Token is injected as a one-shot git config http.extraheader; never in argv. */
+  async #remoteAuthEnv(repoRoot: string): Promise<Record<string, string>> {
+    const auth = this.#tokenProvider?.();
+    if (auth === undefined) return {};
+    const remoteUrl = await this.#run(['remote', 'get-url', 'origin'], repoRoot).catch(() => undefined);
+    if (remoteUrl === undefined) return {};
+    let host: string;
+    try {
+      host = new URL(remoteUrl.stdout.trim()).host;
+    } catch {
+      return {};
+    }
+    const credentials = auth.provider === 'github' ? `x-access-token:${auth.token}` : `oauth2:${auth.token}`;
+    const header = `Authorization: Basic ${Buffer.from(credentials, 'utf8').toString('base64')}`;
+    return {
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: `http.https://${host}/.extraheader`,
+      GIT_CONFIG_VALUE_0: header,
+    };
+  }
+
+  async fetch(input: { repoRoot: string; remote?: string; prune?: boolean }): Promise<{ fetchedAt: string }> {
+    const args = ['fetch'];
+    if (input.prune !== false) args.push('--prune');
+    args.push(input.remote ?? 'origin');
+    const authEnv = await this.#remoteAuthEnv(input.repoRoot);
+    await this.#run(args, input.repoRoot, authEnv).catch((error: unknown) => {
+      if (error instanceof AppError && /authentication|permission|403|401/i.test(error.message)) {
+        throw new AppError(ErrorCode.GITLAB_AUTH_FAILED, '获取远端失败：认证失败');
+      }
+      if (error instanceof AppError && /could not resolve host|network|timed out/i.test(error.message)) {
+        throw new AppError(ErrorCode.NETWORK_UNREACHABLE, '获取远端失败：无法连接');
+      }
+      throw error;
+    });
+    return { fetchedAt: new Date().toISOString() };
+  }
+
+  copyToDirectory(input: { sourceRoot: string; targetRoot: string }): Promise<void> {
+    const ignored = new Set(['.git', 'node_modules', '.data', 'dist', '.build', '.tmp']);
+    cpSync(input.sourceRoot, input.targetRoot, {
+      recursive: true,
+      errorOnExist: false,
+      force: true,
+      filter: (source) => {
+        const part = source.split('/').at(-1) ?? '';
+        return !ignored.has(part);
+      },
+    });
+    return Promise.resolve();
   }
 
   async detect(rootPath: string): Promise<{ gitState: RepoGitStateValue; defaultBranch?: string; remoteDisplayUrl?: string; detail?: string }> {
@@ -292,7 +351,8 @@ export class GitCliAdapter implements GitPort {
 
   async push(input: { repoRoot: string; localSha: string; remote: string; remoteRef: string; token?: string }): Promise<{ remoteRef: string; pushedSha: string; created: boolean }> {
     if (input.remoteRef.includes(':refs/heads/')) throw new AppError(ErrorCode.VALIDATION_FAILED, '推送引用不合法');
-    await this.#run(['push', input.remote, `${input.localSha}:${input.remoteRef}`], input.repoRoot).catch((error: unknown) => {
+    const authEnv = await this.#remoteAuthEnv(input.repoRoot);
+    await this.#run(['push', input.remote, `${input.localSha}:${input.remoteRef}`], input.repoRoot, authEnv).catch((error: unknown) => {
       if (error instanceof AppError && /non-fast-forward|fetch first|rejected/i.test(error.message)) {
         throw new AppError(ErrorCode.PUSH_REJECTED_NON_FF, '远端已有新提交，推送被拒；请先获取远端更新', { details: { output: error.message } });
       }

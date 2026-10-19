@@ -78,7 +78,19 @@ Electron 主进程
 3. 验证失败 → 节点 failed；全部叶子成功 → execution completed，生成交付记录，任务 attention→waiting_user。
 4. 暂停/继续/取消均走状态机；取消后工作区保留。
 
-## 7. 安全
+## 7. Provider 兼容网关
+
+OpenCode Go 的 flash 模型在 thinking 模式下拒绝任何 `tool_choice`，而 OpenCode 1.19 在存在 MCP 工具时会发送它。
+服务端在回环地址上提供 OpenAI 兼容转发网关（随机 path secret，仅 OpenCode 使用）：
+
+- 请求转发到 `providerGateway.upstreamBaseUrl`，仅对配置中的模型去掉 `tool_choice`；
+- 记录请求/归一化计数与脱敏错误（`data/logs/provider-gateway.jsonl`）；
+- OpenCode 的 `provider['opencode-go'].options.baseURL` 指向该网关，其余 provider 行为不变；
+- 状态经 `GET /api/opencode/status` 的 `status.gateway` 暴露（requests / normalized / lastError）。
+
+可用 `opencode.providerGateway.enabled=false` 关闭；关闭后请勿把 flash 模型用于带工具的会话。
+
+## 8. 安全
 
 - GitLab/GitHub token、数据库密码存本地 `secrets` 表（AES-256-GCM，密钥文件 0600，仅服务端读取）。
 - 内部 MCP 端点需要 Bearer token；OpenCode 服务使用随机 Basic 密码。

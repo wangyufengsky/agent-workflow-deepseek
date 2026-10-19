@@ -3,6 +3,7 @@ import { extname, join, normalize } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type {
   ApiEnvelope,
+  GitLabConnectionRequest,
   DatabaseConnectionUpsertRequest,
   PlanningPreviewRequest,
   CommandRequest,
@@ -33,6 +34,7 @@ import type {
 import { AppError, ErrorCode, THEMES, THEME_ORDER, createId, mergeSettings, nowIso, validateSettings, type AppSettings } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { DatabaseService } from '@agent-workflow/database';
+import type { RemoteService } from './remote.ts';
 import type { Engine } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
@@ -42,6 +44,7 @@ export interface HttpDependencies {
   readonly store: Store;
   readonly opencodeRef: { current?: OpenCodeAdapter | undefined };
   readonly databaseService?: DatabaseService;
+  readonly remoteService?: RemoteService;
   readonly gateway?: { stats(): { readonly enabled: boolean; readonly requests: number; readonly normalized: number; readonly lastRequestAt?: string; readonly lastError?: string } };
   readonly paths: RuntimePaths;
   readonly internalToken: string;
@@ -120,7 +123,7 @@ const MIME: Record<string, string> = {
 };
 
 export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): void {
-  const { engine, store, opencodeRef, paths, databaseService } = deps;
+  const { engine, store, opencodeRef, paths, databaseService, remoteService } = deps;
   const requestId = (request: FastifyRequest): string => String((request as FastifyRequest & { id?: string }).id ?? createId('req'));
 
   app.get('/api/health', async (request) => ({
@@ -144,11 +147,13 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
         version: opencodeStatus?.version,
         port: opencodeStatus?.port,
       },
-      git: {
-        provider: settings.git.defaultProvider,
-        github: { configured: false, authState: 'not_configured' },
-        gitlab: { configured: settings.git.defaultProvider === 'gitlab', authState: 'not_configured' },
-      },
+      git: remoteService === undefined
+        ? {
+            provider: settings.git.defaultProvider,
+            github: { configured: false, authState: 'not_configured' },
+            gitlab: { configured: false, authState: 'not_configured' },
+          }
+        : remoteService.integrationStatus(),
       database: { configured: settings.database.connections.length, connected: 0 },
     };
     return envelope(
@@ -328,15 +333,13 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.get('/api/git/repos', async (request) => {
     const repos = [];
     for (const project of engine.projects.list()) {
-      repos.push(await buildGitRepoView(engine, project.id));
+      repos.push(await buildGitRepoView(engine, project.id, remoteService));
     }
     return envelope(
       {
-        connection: {
-          provider: engine.publicSettings().git.defaultProvider,
-          state: 'not_configured',
-          message: 'GitHub/GitLab 令牌尚未配置；本地 Git 读取可用',
-        },
+        connection: remoteService === undefined
+          ? { provider: engine.publicSettings().git.defaultProvider, state: 'not_configured', message: 'GitHub/GitLab 令牌尚未配置；本地 Git 读取可用' }
+          : { ...(await remoteService.connection()), message: (await remoteService.connection()).message ?? '本地 Git 读取可用' },
         repos,
         capability: { allowed: true },
       },
@@ -345,7 +348,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId', async (request) => {
-    const repo = await buildGitRepoView(engine, request.params.projectId);
+    const repo = await buildGitRepoView(engine, request.params.projectId, remoteService);
     return envelope({ repo, projectId: request.params.projectId }, requestId(request));
   });
 
@@ -403,14 +406,20 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope({ branches }, requestId(request));
   });
 
-  app.get<{ Params: { projectId: string } }>('/api/git/repos/:projectId/merge-requests', async (request) => {
+  app.get<{ Params: { projectId: string }; Querystring: { state?: 'opened' | 'merged' | 'closed' | 'all' } }>('/api/git/repos/:projectId/merge-requests', async (request) => {
     requireProject(engine, request.params.projectId);
-    return envelope({ mergeRequests: [], nextCursor: undefined }, requestId(request));
+    if (remoteService === undefined) return envelope({ mergeRequests: [], nextCursor: undefined }, requestId(request));
+    const mergeRequests = await remoteService.listMergeRequests(request.params.projectId, request.query.state ?? 'opened');
+    return envelope({ mergeRequests, nextCursor: undefined }, requestId(request));
   });
 
   app.post<{ Params: { projectId: string } }>('/api/git/repos/:projectId/fetch', async (request) => {
-    requireProject(engine, request.params.projectId);
-    throw new AppError(ErrorCode.NOT_IMPLEMENTED, '远端获取尚未接通：GitHub/GitLab 适配已实现，凭据配置与注入待接线');
+    const project = requireProject(engine, request.params.projectId);
+    const fetchImpl = engine.ports.git.fetch;
+    if (fetchImpl === undefined) throw new AppError(ErrorCode.GIT_CAPABILITY_UNAVAILABLE, '当前 Git 适配不支持获取远端');
+    const result = await fetchImpl.call(engine.ports.git, { repoRoot: project.rootPath, remote: 'origin', prune: true });
+    store.events.publish('git.repo.changed', { projectId: project.id });
+    return envelope({ fetchedAt: result.fetchedAt }, requestId(request));
   });
 
   // AI review / fix: storage and UI contracts exist; the runner wiring lands in a later batch.
@@ -509,6 +518,36 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     if (body.sql === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 sql');
     const result = await databaseService.queryReadOnly(request.params.id, body.sql, body.limit === undefined ? {} : { limit: body.limit });
     return envelope({ result }, requestId(request));
+  });
+
+  // Git provider connection (token stays server-side)
+  app.get('/api/settings/git', async (request) => {
+    if (remoteService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'Git 远端模块未接通');
+    return envelope(
+      {
+        connection: {
+          github: remoteService.connectionState('github'),
+          gitlab: remoteService.connectionState('gitlab'),
+          defaultProvider: engine.publicSettings().git.defaultProvider,
+        },
+      },
+      requestId(request),
+    );
+  });
+  app.post('/api/settings/gitlab', async (request) => {
+    if (remoteService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'Git 远端模块未接通');
+    const body = request.body as GitLabConnectionRequest;
+    if (body.provider !== 'github' && body.provider !== 'gitlab') throw new AppError(ErrorCode.VALIDATION_FAILED, 'provider 必须是 github 或 gitlab');
+    const state = await remoteService.saveConnection({ provider: body.provider, baseUrl: body.baseUrl, apiBaseUrl: body.apiBaseUrl, token: body.token });
+    engine.updateSettings(remoteService.settings());
+    store.events.publish('git.repo.changed', { projectId: '' });
+    return envelope({ connection: state, settings: remoteService.settings() }, requestId(request));
+  });
+  app.post('/api/settings/gitlab/test', async (request) => {
+    if (remoteService === undefined) throw new AppError(ErrorCode.NOT_CONFIGURED, 'Git 远端模块未接通');
+    const body = (request.body ?? {}) as { provider?: 'github' | 'gitlab' };
+    const provider = body.provider ?? engine.publicSettings().git.defaultProvider;
+    return envelope({ connection: await remoteService.testConnection(provider) }, requestId(request));
   });
 
   // OpenCode
@@ -622,7 +661,7 @@ function requireProject(engine: Engine, projectId: string) {
   return project;
 }
 
-async function buildGitRepoView(engine: Engine, projectId: string): Promise<Record<string, unknown>> {
+async function buildGitRepoView(engine: Engine, projectId: string, remoteService?: RemoteService): Promise<Record<string, unknown>> {
   const project = requireProject(engine, projectId);
   const detection = await engine.ports.git.detect(project.rootPath).catch(() => ({ gitState: 'path_unavailable' as const, detail: '无法读取项目路径' }));
   let status: Awaited<ReturnType<Engine['ports']['git']['status']>> | undefined;
@@ -642,7 +681,7 @@ async function buildGitRepoView(engine: Engine, projectId: string): Promise<Reco
     gitStateDetail: 'detail' in detection ? detection.detail : undefined,
     status,
     summary: { lastCommit, openMrCount: null, pendingFindingCount: 0 },
-    gitlab: 'not_configured',
+    gitlab: remoteService === undefined ? 'not_configured' : (await remoteService.connection(projectId)).state,
   };
 }
 
