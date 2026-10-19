@@ -159,6 +159,13 @@ export class TaskService {
     this.#projects = projects;
   }
 
+  listByTemplate(templateId: string): readonly TaskSummary[] {
+    return this.#store.tasks
+      .list()
+      .filter((task) => task.fixedTemplate?.templateId === templateId)
+      .map((task) => this.#summary(task));
+  }
+
   list(query: ListTasksQuery = {}): readonly TaskSummary[] {
     let tasks = this.#store.tasks.list();
     if (query.projectId !== undefined) tasks = tasks.filter((task) => task.projectId === query.projectId);

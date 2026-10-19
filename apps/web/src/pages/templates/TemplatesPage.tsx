@@ -8,10 +8,11 @@ import {
   type ProjectSummary,
   type TaskDetailResponse,
   type TaskTemplate,
+  type TemplateTasksResponse,
 } from '@agent-workflow/shared';
 import { ApiClientError, apiGet, apiPost, errorMessage } from '../../api/client.ts';
 import { queryKeys, useBootstrap } from '../../api/hooks.ts';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
@@ -93,6 +94,12 @@ export function TemplatesPage() {
   const [state, setState] = useState<CreateState | null>(null);
 
   const template = templates.find((item) => item.id === selectedId) ?? templates[0];
+  const historyQuery = useQuery({
+    queryKey: ['template', 'tasks', template?.id ?? ''],
+    queryFn: async () => (await apiGet<TemplateTasksResponse>(ROUTES.templateTasks(template!.id))).data,
+    enabled: template !== undefined,
+    retry: false,
+  });
   const filtered = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
     if (needle.length === 0) return templates;
@@ -151,6 +158,7 @@ export function TemplatesPage() {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: queryKeys.bootstrap }),
           queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+          queryClient.invalidateQueries({ queryKey: ['template', 'tasks', template.id] }),
         ]);
       } else if (status === 'failed') {
         setState({
@@ -474,6 +482,42 @@ export function TemplatesPage() {
                 </p>
               </form>
             )}
+          </section>
+
+          <section className="card" aria-label="模板历史任务">
+            <div className="card-head">
+              <span className="tile"><Icon name="archive" /></span>
+              <div className="grow">
+                <span className="section-title">由这个模板创建的任务</span>
+                <div className="hint" style={{ marginTop: 2 }}>
+                  {historyQuery.data === undefined ? '读取中…' : `${String(historyQuery.data.tasks.length)} 个任务`}
+                </div>
+              </div>
+              <Badge tone="neutral">只读</Badge>
+            </div>
+            <div className="card-body">
+              {historyQuery.data === undefined ? (
+                <p className="hint">正在读取历史任务…</p>
+              ) : historyQuery.data.tasks.length === 0 ? (
+                <p className="hint">还没有用这个模板创建任务。创建后会在任务画布里继续规划与执行。</p>
+              ) : (
+                <div className="list" style={{ padding: 0 }}>
+                  {historyQuery.data.tasks.map((task) => (
+                    <a key={task.id} className="list-row" href={`/tasks/${encodeURIComponent(task.id)}`}>
+                      <span className="tile"><Icon name="layers" /></span>
+                      <span className="grow" style={{ minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 13.5 }}>{task.title}</span>
+                        <span className="hint" style={{ display: 'block', marginTop: 2 }}>
+                          {task.projectName} · {task.stage} · 更新 {new Date(task.updatedAt).toLocaleString('zh-CN')}
+                        </span>
+                      </span>
+                      <Badge tone={task.lifecycle === 'completed' ? 'ok' : 'neutral'}>{task.lifecycle}</Badge>
+                      <Icon name="chevRight" size="sm" />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
         </div>
       </div>

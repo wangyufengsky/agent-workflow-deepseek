@@ -189,6 +189,10 @@ export interface UpdateDraftRequest {
   readonly expected?: { readonly requirementRevision?: number };
 }
 
+export interface TemplateTasksResponse {
+  readonly tasks: readonly TaskSummary[];
+}
+
 export interface TaskDetailResponse {
   readonly task: Task;
   readonly project: ProjectSummary;
@@ -836,6 +840,7 @@ export const ROUTES = {
   fix: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}`,
   fixStart: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/start`,
   catalogRoles: '/api/catalog/roles',
+  templateTasks: (id: string) => `/api/templates/${encodeURIComponent(id)}/tasks`,
   catalogRoleSave: '/api/catalog/roles',
   catalogRolePublish: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/publish`,
   catalogRoleArchive: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/archive`,

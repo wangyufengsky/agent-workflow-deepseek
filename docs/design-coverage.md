@@ -20,7 +20,7 @@
 | node/index.html | 任务页节点面板 | `/nodes/:nodeId` | ✅/🟡 | 事实条、正文/工具、attempts、输出；历史分页/补读未做 |
 | databases.html | `/databases` | `/api/settings/databases` | ✅ | 连接管理、探针、只读查询；真实 MySQL 9.2 已验证 |
 | roles.html / roles-legacy.html | `/roles` | `/api/catalog/roles` | ✅/🟡 | 草稿/发布/归档/自定义已接线；版本对比/导入未做 |
-| templates.html | `/templates` | catalog + `/api/tasks` | 🟡 | 固定模板创建/只读计划；历史档案未接通 |
+| templates.html | `/templates` | catalog + `/api/tasks`、`/api/templates/:id/tasks` | ✅/🟡 | 固定模板创建、计划、按模板历史任务已接线；模板编辑/导入未开放 |
 | workflows.html / workflow-editor.html | `/workflows` | catalog.methods | 🟡 | 目录只读；编辑未接通 |
 | settings.html | `/settings` | `/api/settings`、opencode | ✅/🟡 | 外观/服务/模型/Git 账号与令牌/数据库已接线；OpenCode 自动检测与监控设置未接 |
 | tools.html | `/tools` | MCP 目录 + opencode status | 🟡 | 工具目录/状态只读；Skill 源文/开关未接通 |

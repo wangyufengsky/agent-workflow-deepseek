@@ -454,6 +454,11 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope({ fetchedAt: result.fetchedAt }, requestId(request));
   });
 
+  // Tasks created from a fixed template (read-only history)
+  app.get<{ Params: { id: string } }>('/api/templates/:id/tasks', async (request) => {
+    return envelope({ tasks: engine.tasks.listByTemplate(request.params.id) }, requestId(request));
+  });
+
   // Role catalog drafts / publishing (global config)
   app.get('/api/catalog/roles', async (request) => envelope(engine.roleCatalog.list(), requestId(request)));
   app.post('/api/catalog/roles', async (request) => {

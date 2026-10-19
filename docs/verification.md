@@ -16,7 +16,7 @@ npx tsc -p tsconfig.json --noEmit
 npm test        # scripts/test.mjs → node --test --test-force-exit
 ```
 
-结果（本轮）：**291 tests / 54 suites / 283 pass / 8 skipped / 0 fail**，约 24s。
+结果（本轮）：**292 tests / 54 suites / 284 pass / 8 skipped / 0 fail**，约 24s。
 
 跳过项：需要真实模型 / 真实 MySQL / GitHub 令牌的 gated 场景（见 §3），以及无凭据时的 MySQL 探测。
 
@@ -42,6 +42,7 @@ npm test        # scripts/test.mjs → node --test --test-force-exit
 | server/recovery | 进程重启后 running review / editing fix → unknown + 回执结算；requestKey 保留 |
 | server/recovery-api | 恢复派生草稿：原任务保持、requestKey 幂等、历史列表、无失败态拒绝 |
 | server/roles | 职业草稿/发布/归档：修订递增、有效目录热更新、内置可还原、自定义草稿可见 |
+| server/templates | 固定模板任务创建后可按模板查历史（只含该固定模板，普通任务不混入） |
 
 ## 3. 模型端到端（真实 opencode-go，用户已授权）
 
