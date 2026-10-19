@@ -215,8 +215,15 @@ function mutationFromResponse(data: unknown): WorkflowMutation | undefined {
   };
 }
 
+function assertWorkflowSettled(data:unknown):void {
+ const receipt=recordOf(recordOf(data)?.receipt);
+ if(receipt?.status==='accepted'||receipt?.status==='unknown')throw new ApiClientError({kind:'protocol',message:'流程请求尚未结算，请按原请求核对。'});
+ if(receipt?.status==='failed')throw new ApiClientError({kind:'http',status:409,message:String(recordOf(receipt.error)?.message??'流程操作失败')});
+}
+
 export async function createWorkflow(input: { readonly draft: WorkflowDraft; readonly requestKey: string }): Promise<WorkflowMutation> {
   const response = await apiPost<unknown>(ROUTES.workflows, { requestKey: input.requestKey, draft: input.draft, confirmCreate: true });
+  assertWorkflowSettled(response.data);
   const mutation = mutationFromResponse(response.data);
   if (mutation === undefined) throw new ApiClientError({ kind: 'protocol', message: '创建流程响应无法识别。' });
   return mutation;
@@ -228,6 +235,7 @@ export async function copyWorkflow(input: { readonly id: string; readonly name: 
     name: input.name,
     confirmCopy: true,
   });
+  assertWorkflowSettled(response.data);
   const mutation = mutationFromResponse(response.data);
   if (mutation === undefined) throw new ApiClientError({ kind: 'protocol', message: '复制流程响应无法识别。' });
   return mutation;
@@ -238,6 +246,7 @@ export async function archiveWorkflow(input: { readonly id: string; readonly req
     method: 'DELETE',
     body: { requestKey: input.requestKey, confirmArchive: true },
   });
+  assertWorkflowSettled(response.data);
   return mutationFromResponse(response.data);
 }
 
@@ -254,7 +263,8 @@ export async function saveWorkflow(input: {
     });
     const receipt=recordOf(recordOf(response.data)?.receipt);
     if(receipt?.status==='accepted'||receipt?.status==='unknown')return {kind:'pending',message:receipt.status==='accepted'?'保存已受理，等待原请求结算':'保存结果待核对'};
-    const mutation = mutationFromResponse(response.data);
+    assertWorkflowSettled(response.data);
+  const mutation = mutationFromResponse(response.data);
     if (mutation === undefined) return { kind: 'failed', message: '保存响应无法识别（未返回流程详情）。' };
     return { kind: 'ok', detail: mutation.method };
   } catch (error) {

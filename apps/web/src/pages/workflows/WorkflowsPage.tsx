@@ -1,7 +1,8 @@
+import {usePendingIdentityMatching,pendingIdentityMatching,isUncertainCommandFailure} from '../../api/pending-identity.ts';
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ROUTES, createRequestKey, type WorkflowMethod } from '@agent-workflow/shared';
-import { isApiClientError, apiGet, errorMessage } from '../../api/client.ts';
+import { apiGet, errorMessage } from '../../api/client.ts';
 import { useBootstrap } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -33,12 +34,13 @@ type SourceFilter = 'all' | 'mine' | 'builtin';
 
 interface CommandReceipt {
   readonly label: string;
-  readonly status: 'accepted' | 'succeeded' | 'failed' | 'unknown';
+  readonly status: 'sending' | 'accepted' | 'succeeded' | 'failed' | 'unknown';
   readonly requestKey?: string;
   readonly message?: string;
   readonly lookup?: string;
 }
 
+const isWorkflowCommand=(path:string)=>path===ROUTES.workflows||path.startsWith(ROUTES.workflows+'/');
 const LIST_KEY = ['workflows', 'list'] as const;
 
 function hasSteps(entry: WorkflowCatalogEntry | WorkflowCatalogDetail): entry is WorkflowCatalogDetail {
@@ -77,7 +79,7 @@ export function WorkflowsPage() {
   const [keyword, setKeyword] = useState('');
   const [includeArchived, setIncludeArchived] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<CommandReceipt | null>(null);
+  const [localReceipt, setReceipt] = useState<CommandReceipt | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createDescription, setCreateDescription] = useState('');
@@ -87,7 +89,11 @@ export function WorkflowsPage() {
   const [copyName, setCopyName] = useState('');
   const [copyError, setCopyError] = useState<string | undefined>(undefined);
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [commandBusy, setCommandBusy] = useState(false);
+  const [sending, setCommandBusy] = useState(false);
+  const pending=usePendingIdentityMatching(isWorkflowCommand);
+  const commandBusy=sending||pending!==undefined;
+  const receipt:CommandReceipt|null=pending?{label:localReceipt?.requestKey===pending.requestKey?localReceipt.label:'流程操作',status:pending.phase==='sending'?'sending':pending.phase==='accepted'?'accepted':'unknown',requestKey:pending.requestKey,message:localReceipt?.requestKey===pending.requestKey?localReceipt.message:'原流程请求尚未结算，操作已锁定；请按原请求核对。',lookup:localReceipt?.lookup}:localReceipt;
+  const guardPending=()=>{const existing=pendingIdentityMatching(isWorkflowCommand);if(!existing)return false;setReceipt({label:'流程操作',status:existing.phase==='accepted'?'accepted':'unknown',requestKey:existing.requestKey,message:'原请求尚未结算，请先核对原操作。'});return true;};
 
   const listQuery = useQuery({
     queryKey: [...LIST_KEY, includeArchived],
@@ -140,10 +146,9 @@ export function WorkflowsPage() {
       const response = await apiGet<{ operation: { status: string; error?: { message: string } }; stillUnknown: boolean }>(ROUTES.operationsByKey(requestKey));
       const status = response.data.operation.status;
       await refresh();
-      setReceipt((current) => (current === null
-        ? current
-        : {
-            ...current,
+      setReceipt((current) => ({
+            ...(current??{label:'流程操作',requestKey}),
+            status:status==='succeeded'?'succeeded':status==='failed'?'failed':status==='accepted'?'accepted':'unknown',
             lookup:
               status === 'succeeded'
                 ? '核对结果：原操作已成功结算。'
@@ -152,12 +157,12 @@ export function WorkflowsPage() {
                   : '核对结果：仍未结算。',
           }));
     } catch (error) {
-      setReceipt((current) => (current === null ? current : { ...current, lookup: `核对失败：${errorMessage(error)}` }));
+      setReceipt((current) => ({...(current??{label:'流程操作',requestKey,status:'unknown'}),lookup:`核对失败：${errorMessage(error)}`}));
     }
   };
 
   const showCommandError = (label: string, error: unknown, requestKey: string): void => {
-    const unknown = isApiClientError(error) && (error.kind === 'timeout' || error.kind === 'unavailable');
+    const unknown = isUncertainCommandFailure(error);
     setReceipt({
       label,
       status: unknown ? 'unknown' : 'failed',
@@ -167,6 +172,7 @@ export function WorkflowsPage() {
   };
 
   const submitCreate = async (): Promise<void> => {
+    if(guardPending())return;
     const name = createName.trim();
     if (name === '') {
       setCreateError('流程名称不能为空。');
@@ -199,13 +205,14 @@ export function WorkflowsPage() {
       setSelectedId(mutation.method.id);
     } catch (error) {
       showCommandError('新建流程', error, requestKey);
-      setCreateError(workflowErrorDetail(error));
+      setCreateError(isUncertainCommandFailure(error)?undefined:workflowErrorDetail(error));
     } finally {
       setCommandBusy(false);
     }
   };
 
   const submitCopy = async (): Promise<void> => {
+    if(guardPending())return;
     if (selectedEntry === undefined) return;
     const name = copyName.trim();
     if (name === '') {
@@ -227,13 +234,14 @@ export function WorkflowsPage() {
       setSelectedId(mutation.method.id);
     } catch (error) {
       showCommandError('复制流程', error, requestKey);
-      setCopyError(workflowErrorDetail(error));
+      setCopyError(isUncertainCommandFailure(error)?undefined:workflowErrorDetail(error));
     } finally {
       setCommandBusy(false);
     }
   };
 
   const submitArchive = async (): Promise<void> => {
+    if(guardPending())return;
     if (selectedEntry === undefined) return;
     const requestKey = createRequestKey();
     setCommandBusy(true);
@@ -271,8 +279,8 @@ export function WorkflowsPage() {
               variant="primary"
               size="sm"
               icon="plus"
-              disabled={fallbackMode}
-              disabledReason={fallbackMode ? '当前服务不支持流程写入，暂时不能新建' : undefined}
+              disabled={fallbackMode||commandBusy}
+              disabledReason={fallbackMode ? '当前服务不支持流程写入，暂时不能新建' :commandBusy?'原操作尚未结算，请先核对原请求': undefined}
               onClick={() => { setCreateOpen(true); }}
             >
               新建流程
@@ -325,8 +333,8 @@ export function WorkflowsPage() {
             variant="primary"
             size="sm"
             icon="plus"
-            disabled={fallbackMode}
-            disabledReason={fallbackMode ? '当前服务不支持流程写入' : undefined}
+            disabled={fallbackMode||commandBusy}
+            disabledReason={fallbackMode ? '当前服务不支持流程写入' :commandBusy?'原操作尚未结算，请先核对原请求': undefined}
             onClick={() => {
               setCreateName('');
               setCreateDescription('');
@@ -351,18 +359,18 @@ export function WorkflowsPage() {
       ) : null}
 
       {receipt === null ? null : (
-        <div className={['banner', receipt.status === 'succeeded' ? 'ok' : receipt.status === 'unknown' ? 'unknown' : receipt.status === 'accepted' ? 'info' : 'danger'].join(' ')} style={{ marginBottom: 14 }} role={receipt.status === 'succeeded' ? 'status' : 'alert'}>
-          <Icon name={receipt.status === 'succeeded' ? 'check' : receipt.status === 'unknown' ? 'help' : receipt.status === 'accepted' ? 'clock' : 'alert'} />
+        <div className={['banner', receipt.status === 'succeeded' ? 'ok' : receipt.status === 'unknown' ? 'unknown' : (receipt.status === 'accepted'||receipt.status==='sending') ? 'info' : 'danger'].join(' ')} style={{ marginBottom: 14 }} role={receipt.status === 'succeeded' ? 'status' : 'alert'}>
+          <Icon name={receipt.status === 'succeeded' ? 'check' : receipt.status === 'unknown' ? 'help' : (receipt.status === 'accepted'||receipt.status==='sending') ? 'clock' : 'alert'} />
           <div className="grow">
             <b>
-              {receipt.label} · {receipt.status === 'succeeded' ? '已完成' : receipt.status === 'unknown' ? '结果未明' : receipt.status === 'accepted' ? '已接受，等待结算' : '失败'}
+              {receipt.label} · {receipt.status === 'succeeded' ? '已完成' : receipt.status === 'unknown' ? '结果未明' : receipt.status==='sending'?'发送中':receipt.status === 'accepted' ? '已接受，等待结算' : '失败'}
             </b>
             {receipt.requestKey === undefined ? null : <span className="mono" style={{ marginLeft: 8 }}>{receipt.requestKey}</span>}
             {receipt.message === undefined ? null : <div style={{ marginTop: 4 }}>{receipt.message}</div>}
             {receipt.lookup === undefined ? null : <div className="hint" style={{ marginTop: 4 }}>{receipt.lookup}</div>}
           </div>
           <div className="actions">
-            {receipt.status === 'unknown' && receipt.requestKey !== undefined ? (
+            {(receipt.status === 'unknown'||receipt.status==='accepted') && receipt.requestKey !== undefined ? (
               <Button variant="secondary" size="sm" icon="search" onClick={() => { void reconcile(receipt.requestKey!); }}>
                 核对原操作
               </Button>
@@ -390,7 +398,7 @@ export function WorkflowsPage() {
               <input
                 type="checkbox"
                 checked={includeArchived}
-                disabled={fallbackMode}
+                disabled={fallbackMode||commandBusy}
                 onChange={(event) => { setIncludeArchived(event.target.checked); }}
               />
               显示已归档
@@ -520,18 +528,18 @@ export function WorkflowsPage() {
       <Modal
         open={createOpen}
         title="新建流程"
-        onClose={() => { if (!commandBusy) setCreateOpen(false); }}
+        onClose={() => { if (!sending) setCreateOpen(false); }}
         footer={
           <>
-            <Button variant="ghost" disabled={commandBusy} onClick={() => { setCreateOpen(false); }}>取消</Button>
+            <Button variant="ghost" disabled={sending} onClick={() => { setCreateOpen(false); }}>取消</Button>
             <Button
               variant="primary"
               icon="plus"
               disabled={commandBusy || createName.trim() === ''}
-              disabledReason={commandBusy ? '正在创建…' : createName.trim() === '' ? '流程名称不能为空' : undefined}
+              disabledReason={commandBusy ? '原操作尚未结算，请先核对原请求' : createName.trim() === '' ? '流程名称不能为空' : undefined}
               onClick={() => { void submitCreate(); }}
             >
-              {commandBusy ? '正在创建…' : '创建并编辑'}
+              {sending?'正在创建…':pending?'待核对':'创建并编辑'}
             </Button>
           </>
         }
@@ -560,18 +568,18 @@ export function WorkflowsPage() {
       <Modal
         open={copyOpen}
         title="复制流程"
-        onClose={() => { if (!commandBusy) setCopyOpen(false); }}
+        onClose={() => { if (!sending) setCopyOpen(false); }}
         footer={
           <>
-            <Button variant="ghost" disabled={commandBusy} onClick={() => { setCopyOpen(false); }}>取消</Button>
+            <Button variant="ghost" disabled={sending} onClick={() => { setCopyOpen(false); }}>取消</Button>
             <Button
               variant="primary"
               icon="copy"
               disabled={commandBusy || copyName.trim() === ''}
-              disabledReason={commandBusy ? '正在复制…' : copyName.trim() === '' ? '副本名称不能为空' : undefined}
+              disabledReason={commandBusy ? '原操作尚未结算，请先核对原请求' : copyName.trim() === '' ? '副本名称不能为空' : undefined}
               onClick={() => { void submitCopy(); }}
             >
-              {commandBusy ? '正在复制…' : '复制'}
+              {sending?'正在复制…':pending?'待核对':'复制'}
             </Button>
           </>
         }
@@ -589,18 +597,18 @@ export function WorkflowsPage() {
       <Modal
         open={archiveOpen}
         title="归档流程？"
-        onClose={() => { if (!commandBusy) setArchiveOpen(false); }}
+        onClose={() => { if (!sending) setArchiveOpen(false); }}
         footer={
           <>
-            <Button variant="ghost" disabled={commandBusy} onClick={() => { setArchiveOpen(false); }}>取消</Button>
+            <Button variant="ghost" disabled={sending} onClick={() => { setArchiveOpen(false); }}>取消</Button>
             <Button
               variant="danger"
               icon="archive"
               disabled={commandBusy}
-              disabledReason={commandBusy ? '正在归档…' : undefined}
+              disabledReason={commandBusy ? '原操作尚未结算，请先核对原请求' : undefined}
               onClick={() => { void submitArchive(); }}
             >
-              {commandBusy ? '正在归档…' : '归档'}
+              {sending?'正在归档…':pending?'待核对':'归档'}
             </Button>
           </>
         }

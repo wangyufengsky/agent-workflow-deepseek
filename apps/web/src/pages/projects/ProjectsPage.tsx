@@ -1,3 +1,4 @@
+import {usePendingIdentity,pendingIdentityForPath,isUncertainCommandFailure} from '../../api/pending-identity.ts';
 import { ProjectBranchValue, ProjectTechnologyValue } from './ProjectFacts.tsx';
 import './projects.css';
 import { useNavigate } from 'react-router-dom';
@@ -54,7 +55,7 @@ type RegisterPhase = 'submitting' | 'failed' | 'unknown';
 interface RegisterAttempt {
   readonly phase: RegisterPhase;
   readonly requestKey: string;
-  readonly body: CreateProjectRequest;
+  readonly body?: CreateProjectRequest;
   readonly message?: string;
 }
 
@@ -239,7 +240,9 @@ export function ProjectsPage() {
   const [name, setName] = useState('');
   const [rootPath, setRootPath] = useState('');
   const [description, setDescription] = useState('');
-  const [attempt, setAttempt] = useState<RegisterAttempt | null>(null);
+  const [localAttempt, setAttempt] = useState<RegisterAttempt | null>(null);
+  const pendingRegister=usePendingIdentity(ROUTES.projects);
+  const attempt:RegisterAttempt|null=pendingRegister?{...(localAttempt?.requestKey===pendingRegister.requestKey?localAttempt:{}),phase:pendingRegister.phase==='sending'?'submitting':'unknown',requestKey:pendingRegister.requestKey,message:localAttempt?.requestKey===pendingRegister.requestKey?localAttempt.message:'原登记请求尚未结算，请按原请求核对。'}:localAttempt;
   const [notice, setNotice] = useState<string | null>(null);
 
   const counts = useMemo(() => {
@@ -304,7 +307,10 @@ export function ProjectsPage() {
     setAttempt(null);
   };
 
-  const submit = async (requestKey = createRequestKey(), body?: CreateProjectRequest) => {
+  const submit = async (suppliedKey?:string, body?: CreateProjectRequest) => {
+    const existing=pendingIdentityForPath(ROUTES.projects);
+    if(existing){setAttempt({phase:'unknown',requestKey:existing.requestKey,message:'原登记请求尚未结算，请先核对。'});return;}
+    const requestKey=suppliedKey??createRequestKey();
     const payload: CreateProjectRequest =
       body ?? {
         requestKey,
@@ -347,7 +353,7 @@ export function ProjectsPage() {
     } catch (error) {
       // A timeout/unavailable error leaves the outcome unknown: the project may
       // still have been registered. Never resend automatically.
-      const outcomeUnknown = error instanceof ApiClientError && (error.kind === 'timeout' || error.kind === 'unavailable');
+      const outcomeUnknown = isUncertainCommandFailure(error);
       setAttempt({
         phase: outcomeUnknown ? 'unknown' : 'failed',
         requestKey,
@@ -590,7 +596,7 @@ export function ProjectsPage() {
               variant="primary"
               icon="check"
               disabled={!canSubmit}
-              disabledReason={issues.length > 0 ? `还缺：${issues.join('、')}` : submitting ? '登记中' : '结果未明，先按原请求核对'}
+              disabledReason={unknown?'结果未明，先按原请求核对':submitting?'登记中':issues.length>0?`还缺：${issues.join('、')}`:undefined}
               onClick={() => {
                 void submit();
               }}

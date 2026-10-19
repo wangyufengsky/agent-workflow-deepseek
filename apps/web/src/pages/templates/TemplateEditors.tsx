@@ -1,3 +1,4 @@
+import {usePendingIdentity,pendingIdentityForPath,isUncertainCommandFailure} from '../../api/pending-identity.ts';
 import { useState } from 'react';
 import {
   ROUTES, NodeKind, SourceEvidenceStage, type SourceEvidenceStageValue,
@@ -68,7 +69,7 @@ function buildTemplate(template: TaskTemplate, name: string, steps: readonly Vis
 }
 
 function isUnknownFailure(error: unknown): boolean {
-  return error instanceof ApiClientError && (error.kind === 'timeout' || error.kind === 'unavailable');
+  return isUncertainCommandFailure(error);
 }
 
 function moveStep(steps: readonly VisualStep[], from: number, to: number): readonly VisualStep[] {
@@ -139,9 +140,12 @@ function OperationBanner({ phase, message, requestKey, failureTitle, unknownTitl
 
 /** Shared PATCH /api/catalog/templates/:id flow for both editors. */
 function useTemplateSave(templateId: string, onSaved: (result: TemplateSaveResult) => void) {
-  const [phase, setPhase] = useState<MutationPhase>('idle');
+  const [localPhase, setPhase] = useState<MutationPhase>('idle');
   const [message, setMessage] = useState('');
-  const [requestKey, setRequestKey] = useState('');
+  const [localKey, setRequestKey] = useState('');
+  const pending=usePendingIdentity(ROUTES.catalogTemplateUpdate(templateId));
+  const phase:MutationPhase=pending?(pending.phase==='sending'?'saving':'unknown'):localPhase;
+  const requestKey=pending?.requestKey??localKey;
   const [reconcileBusy, setReconcileBusy] = useState(false);
 
   const settle = (receipt: OperationReceipt, key: string, version?: number) => {
@@ -163,6 +167,8 @@ function useTemplateSave(templateId: string, onSaved: (result: TemplateSaveResul
   };
 
   const save = async (template: TaskTemplate) => {
+    const existing=pendingIdentityForPath(ROUTES.catalogTemplateUpdate(templateId));
+    if(existing){setRequestKey(existing.requestKey);setPhase('unknown');setMessage('原保存请求尚未结算，请先按原请求核对。');return;}
     const key = createRequestKey();
     setRequestKey(key);
     setPhase('saving');
