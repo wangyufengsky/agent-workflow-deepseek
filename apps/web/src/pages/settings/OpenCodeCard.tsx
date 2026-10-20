@@ -9,6 +9,7 @@ import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
+import { useSettingsDraft } from './draft.tsx';
 
 const STATE_LABEL: Record<OpencodeServiceStatusValue, string> = {
   stopped: '已停止',
@@ -48,6 +49,7 @@ function InfoRow({ label, children, hint }: { readonly label: string; readonly c
  */
 export function OpenCodeCard({ integration }: { readonly integration?: IntegrationStatus }) {
   const queryClient = useQueryClient();
+  const draft = useSettingsDraft();
   const bootstrap = useBootstrap();
   const statusQuery = useOpenCodeStatus();
   const [scanEnabled, setScanEnabled] = useState(false);
@@ -212,7 +214,7 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
                 size="sm"
                 icon="refresh"
                 title="重启 OpenCode 受管进程（会结束当前会话）"
-                disabled={statusQuery.isError || restart.isPending || !managed}
+                disabled={draft.readOnly || statusQuery.isError || restart.isPending || !managed}
                 disabledReason={restartBlockedReason}
                 onClick={() => restart.mutate()}
               >
@@ -292,7 +294,7 @@ export function OpenCodeCard({ integration }: { readonly integration?: Integrati
               variant="secondary"
               size="sm"
               icon="check"
-              disabled={manualPath.trim() === '' || useBinary.isPending}
+              disabled={draft.readOnly || manualPath.trim() === '' || useBinary.isPending}
               onClick={() => { useBinary.mutate(manualPath.trim()); }}
             >
               保存路径

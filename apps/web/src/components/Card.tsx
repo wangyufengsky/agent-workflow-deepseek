@@ -1,5 +1,8 @@
 import type { ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
+import { shellHeaderPolicy } from '../app/navigation.ts';
 import { Badge } from './Badge.tsx';
+import { PageHeaderSlot } from './PageHeaderSlot.tsx';
 
 export interface CardProps {
   readonly children: ReactNode;
@@ -37,6 +40,11 @@ export interface PageHeaderProps {
 }
 
 export function PageHeader({ title, lede, eyebrow, actions, className }: PageHeaderProps) {
+  const location = useLocation();
+  // GLB-04: design pages that carry their primary action in the shell header
+  // (`tasks.html:115` etc.) portal it there; the content page-head keeps only
+  // title/lede. Design `header:''` pages keep the action inline.
+  const portalActions = shellHeaderPolicy(location.pathname, location.search).headerActions;
   return (
     <div className={['page-head', className ?? ''].filter(Boolean).join(' ')}>
       <div className="grow">
@@ -44,7 +52,11 @@ export function PageHeader({ title, lede, eyebrow, actions, className }: PageHea
         <h2 className="title">{title}</h2>
         {lede === undefined ? null : <p className="lede">{lede}</p>}
       </div>
-      {actions === undefined ? null : <div className="page-actions">{actions}</div>}
+      {actions === undefined ? null : portalActions ? (
+        <PageHeaderSlot placement="actions">{actions}</PageHeaderSlot>
+      ) : (
+        <div className="page-actions">{actions}</div>
+      )}
     </div>
   );
 }

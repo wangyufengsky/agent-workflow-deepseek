@@ -1,6 +1,8 @@
 import {
   taskListGroup,
+  taskStepCaption,
   DELIVERY_PROJECTION_LABEL,
+  EXECUTION_STATUS_LABEL,
   PLANNING_STAGE_LABEL,
   PLANNING_STATUS_LABEL,
   TASK_ATTENTION_LABEL,
@@ -77,21 +79,56 @@ const DELIVERY_TONE: Record<DeliveryProjectionValue, BadgeTone> = {
   delivered: 'done',
 };
 
-/** Derives the visible status from real task fields; never invents a state. */
+/**
+ * P12-02: derives the list status from real service facts in this order:
+ * lifecycle → delivery fact → execution fact (pending acceptance / paused) →
+ * planning stage → attention → stage. Attention never generalises a concrete
+ * execution/delivery state into a generic “需要你处理”.
+ */
 export function deriveTaskStatus(task: TaskSummary): TaskStatusView {
   if (task.lifecycle === TaskLifecycle.COMPLETED) {
-    return { label: TASK_LIFECYCLE_LABEL.completed, icon: 'check', tone: 'done' };
+    return { label: '任务已交付', icon: 'check', tone: 'done' };
   }
   if (task.lifecycle === TaskLifecycle.CANCELLED) {
     return { label: TASK_LIFECYCLE_LABEL.cancelled, icon: 'stop', tone: 'idle' };
+  }
+
+  // Delivery facts come before attention: awaiting delivery is not “需要处理”.
+  if (task.deliveryProjection !== undefined) {
+    const projection = task.deliveryProjection;
+    if (projection === 'delivered') return { label: DELIVERY_PROJECTION_LABEL.delivered, icon: 'check', tone: 'done' };
+    if (projection === 'awaiting_selection' || projection === 'awaiting_confirmation') {
+      return { label: DELIVERY_PROJECTION_LABEL[projection], icon: 'clock', tone: 'wait' };
+    }
+    if (projection === 'blocked') return { label: '交付受阻', icon: 'lock', tone: 'stall' };
+    if (projection === 'unknown_receipt') return { label: '交付待核对', icon: 'help', tone: 'unknown' };
+    if (projection === 'in_progress') return { label: DELIVERY_PROJECTION_LABEL.in_progress, icon: 'play', tone: 'run' };
+  }
+
+  // Execution facts: a paused task or pending human acceptance is not “执行中”.
+  if ((task.execution?.pendingAcceptance ?? 0) > 0) {
+    return { label: '待人工验收', icon: 'eye', tone: 'wait' };
+  }
+  if (task.execution?.status === 'waiting_confirmation') {
+    return { label: '等待重新确认', icon: 'refresh', tone: 'wait' };
+  }
+  if (task.execution?.status === 'paused') {
+    return { label: '已暂停', icon: 'pause', tone: 'idle' };
+  }
+  if (task.execution?.status === 'unknown') {
+    return { label: '状态待核对', icon: 'help', tone: 'unknown' };
+  }
+
+  // Planning stage before attention: awaiting review has its own design word.
+  if (task.planning !== undefined) {
+    if (task.planning.stage === 'awaiting_review') return { label: PLANNING_STAGE_LABEL.awaiting_review, icon: 'eye', tone: 'wait' };
+    if (task.planning.stage === 'needs_answer') return { label: '需要你回答', icon: 'help', tone: 'wait' };
   }
 
   const attention = ATTENTION_VIEW[task.attention];
   if (attention !== null) return attention;
 
   if (task.stage === TaskStage.PLANNING && task.planning !== undefined) {
-    const stageAttention = PLANNING_STAGE_ATTENTION[task.planning.stage];
-    if (stageAttention !== undefined) return stageAttention;
     return {
       label: PLANNING_STATUS_LABEL[task.planning.status],
       icon: PLANNING_STATUS_ICON[task.planning.status],
@@ -99,12 +136,13 @@ export function deriveTaskStatus(task: TaskSummary): TaskStatusView {
     };
   }
 
-  if (task.stage === TaskStage.EXECUTING && task.deliveryProjection !== undefined) {
-    return {
-      label: DELIVERY_PROJECTION_LABEL[task.deliveryProjection],
-      icon: DELIVERY_ICON[task.deliveryProjection],
-      tone: DELIVERY_TONE[task.deliveryProjection],
-    };
+  if (task.stage === TaskStage.EXECUTING && task.execution !== undefined) {
+    const status = task.execution.status;
+    if (status === 'running') return { label: EXECUTION_STATUS_LABEL.running, icon: 'play', tone: 'run' };
+    if (status === 'failed') return { label: '有步骤失败', icon: 'x', tone: 'fail' };
+    if (status === 'stopped') return { label: EXECUTION_STATUS_LABEL.stopped, icon: 'stop', tone: 'idle' };
+    if (status === 'stopping' || status === 'pausing') return { label: EXECUTION_STATUS_LABEL[status], icon: 'pause', tone: 'wait' };
+    if (status === 'completed') return { label: '执行已结束 · 等待交付', icon: 'clock', tone: 'wait' };
   }
 
   switch (task.stage) {
@@ -123,35 +161,52 @@ export function deriveTaskStatus(task: TaskSummary): TaskStatusView {
   }
 }
 
-/** Secondary line shown in list rows; derived only from real fields. */
+/**
+ * P12-01: the “需要处理” column carries the concrete step name + service reason
+ * (failing step error, pending acceptance, paused, delivery) instead of a
+ * generic sentence or the aggregate progress counter.
+ */
 export function taskNeedText(task: TaskSummary): string {
+  const steps = task.stepStates ?? [];
+  const named = (status: string): string | undefined => steps.find((step) => step.status === status)?.title;
+  const failed = steps.find((step) => step.status === 'failed');
+  const unknown = steps.find((step) => step.status === 'unknown');
+  const pending = steps.find((step) => step.pendingAcceptance === true);
+  const rejected = steps.find((step) => step.rejectedAcceptance === true);
+
+  if (rejected !== undefined) return `“${rejected.title}”已退回修改，按原配置重试后再验收`;
+  if (failed !== undefined) {
+    const reason = failed.errorMessage === undefined || failed.errorMessage.length === 0 ? '服务报告失败' : failed.errorMessage;
+    return `“${failed.title}”失败：${reason}`;
+  }
+  if (unknown !== undefined) return `“${unknown.title}”状态待核对，不自动重试`;
+  if (pending !== undefined) return `“${pending.title}”待人工验收`;
+  if (task.deliveryProjection === 'awaiting_selection') return '执行已结束，等待选择交付目标';
+  if (task.deliveryProjection === 'awaiting_confirmation') return '交付步骤等待你确认';
+  if (task.deliveryProjection === 'blocked') return '交付受阻，仍有活动写入';
+  if (task.deliveryProjection === 'unknown_receipt') return '交付回执待核对，只核对原请求';
+  if (task.deliveryProjection === 'in_progress') return '交付进行中，等待服务回执';
+  if (task.execution?.status === 'paused') return '任务已暂停 · 可调整待执行计划后单独恢复';
+  if (task.execution?.status === 'waiting_confirmation') return '计划已变更，等待重新确认后继续';
+  if (task.execution?.status === 'unknown') return '执行结果待核对，只核对原请求';
+
   if (task.attention === TaskAttention.WAITING_USER) return '需要你处理';
   if (task.attention === TaskAttention.BLOCKED) return '受阻，等待处理';
   if (task.attention === TaskAttention.FAILED) return '执行失败，可查看后重试';
   if (task.attention === TaskAttention.UNKNOWN) return '状态待核对，不自动重试';
 
-  if (task.stage === TaskStage.PLANNING && task.planning !== undefined) {
+  if (task.planning !== undefined) {
     const activity = task.planning.lastActivity.trim();
     const base = `${PLANNING_STATUS_LABEL[task.planning.status]} · ${PLANNING_STAGE_LABEL[task.planning.stage]}`;
     return activity.length > 0 ? `${base} · 最近活动 ${activity}` : base;
   }
 
-  if (task.stage === TaskStage.EXECUTING && task.deliveryProjection !== undefined) {
-    return DELIVERY_PROJECTION_LABEL[task.deliveryProjection];
-  }
-  if (task.stage === TaskStage.EXECUTING) {
-    const { done, total, running, failed } = task.progress;
-    if (total > 0) {
-      const parts = [`进度 ${String(done)} / ${String(total)} 步`];
-      if (running > 0) parts.push(`${String(running)} 步执行中`);
-      if (failed > 0) parts.push(`${String(failed)} 步失败`);
-      return parts.join(' · ');
-    }
-    return '等待执行';
-  }
   if (task.stage === TaskStage.PREPARING) return '计划已确认 · 待准备独立工作区';
   if (task.stage === TaskStage.CONFIRMING) return '计划已生成 · 等待确认';
   if (task.stage === TaskStage.DRAFT) return '查看需求草稿，确认规划方式';
+  if (task.stage === TaskStage.EXECUTING && task.execution?.status === 'running') return '—';
+  const caption = steps.length === 0 ? undefined : taskStepCaption(steps);
+  if (caption !== undefined) return caption;
   return '—';
 }
 
@@ -168,6 +223,10 @@ export function taskGroup(task:TaskSummary):TaskGroup{return taskListGroup(task)
 export function taskHref(task: TaskSummary): string {
   if (task.stage === TaskStage.DRAFT || task.stage === TaskStage.PLANNING || task.stage === TaskStage.CONFIRMING) {
     return `/requirement/${encodeURIComponent(task.id)}`;
+  }
+  // P12-03: “待准备工作区”行直接回到需求画布「工作区」页签，与设计一致。
+  if (task.stage === TaskStage.PREPARING) {
+    return `/requirement/${encodeURIComponent(task.id)}?tab=workspace`;
   }
   return `/tasks/${encodeURIComponent(task.id)}`;
 }

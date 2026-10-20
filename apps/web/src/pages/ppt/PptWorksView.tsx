@@ -9,6 +9,8 @@ import { SegmentedControl, type SegmentOption } from '../../components/Segmented
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import {
   derivePptProgress,
+  pptNextAction,
+  pptPageCount,
   pptStatusMeta,
   themeLabel,
   type PptProgress,
@@ -46,7 +48,9 @@ function StageBar({ progress }: { readonly progress: PptProgress }) {
 }
 
 function WorkCover({ work, small }: { readonly work: PptWork; readonly progress: PptProgress; readonly small?: boolean }) {
-  return <span className="ppt-cover" data-small={small}><img style={{ width: '100%', height: '100%', objectFit: 'contain' }} src={`${ROUTES.pptWorkThumbnail(work.id)}?revision=${work.revision ?? 1}`} alt={`${work.title} 当前封面渲染`} /></span>;
+  const count = pptPageCount(work);
+  const pageLabel = count.slides > 0 ? `${String(count.slides)} 页` : '尚未生成页面';
+  return <span className="ppt-cover" data-small={small}><img style={{ width: '100%', height: '100%', objectFit: 'contain' }} src={`${ROUTES.pptWorkThumbnail(work.id)}?revision=${work.revision ?? 1}`} alt={`${work.title} 当前封面渲染`} /><span className="ppt-cover-count">{pageLabel}</span></span>;
 }
 
 function WorkActions({ work, onCommand }: { readonly work: PptWork; readonly onCommand: (command: PptCommand) => void }) {
@@ -67,8 +71,9 @@ function WorkCard({
 }) {
   const progress = derivePptProgress(work);
   const status = pptStatusMeta(work.status, work);
+  const next = pptNextAction(work);
   return (
-    <article className="ppt-work-card" data-selected={selected}>
+    <article className="ppt-work-card" data-selected={selected} data-archived={work.archived === true}>
       <button type="button" className="ppt-work-main" onClick={onOpen} aria-label={`打开工作台：${work.title}`}>
         <WorkCover work={work} progress={progress} />
         <span className="ppt-work-body">
@@ -76,6 +81,8 @@ function WorkCard({
             <span className="grow ellipsis ppt-work-title" title={work.title}>
               {work.title}
             </span>
+            {work.archived === true ? <Badge tone="idle" icon="archive">已归档</Badge> : null}
+            {work.archived === true ? <Badge tone="idle" icon="archive">已归档</Badge> : null}
             <Badge tone={status.tone} icon={status.icon}>
               {status.label}
             </Badge>
@@ -89,12 +96,12 @@ function WorkCard({
             <span aria-hidden="true">·</span>
             <span>{progress.pageText}</span>
             <span aria-hidden="true">·</span>
-            <span>{projectName ?? '未归属项目'}</span>
+            <span>{work.projectId === undefined ? '未归属项目' : projectName ?? '项目不可用'}</span>
             <span aria-hidden="true">·</span>
             <span>{themeLabel(work.theme)}</span>
           </span>
           <span className="row wrap" style={{ gap: 8, marginTop: 2 }}>
-            <span className="hint grow ppt-next">{progress.nextHint}</span>
+            <span className="hint grow ppt-next" data-tone={next.tone}><Icon name={next.icon} size="sm" />{next.text}</span>
             <span className="hint num">更新于 {formatRelativeTime(work.updatedAt)}</span>
           </span>
         </span>
@@ -118,8 +125,9 @@ function WorkListRow({
 }) {
   const progress = derivePptProgress(work);
   const status = pptStatusMeta(work.status, work);
+  const next = pptNextAction(work);
   return (
-    <article className="ppt-work-listitem" data-selected={selected}>
+    <article className="ppt-work-listitem" data-selected={selected} data-archived={work.archived === true}>
       <button type="button" className="ppt-work-rowmain" onClick={onOpen} aria-label={`打开工作台：${work.title}`}>
         <WorkCover work={work} progress={progress} small />
         <span className="grow ppt-work-body" style={{ minWidth: 0 }}>
@@ -127,6 +135,7 @@ function WorkListRow({
             <span className="ellipsis" style={{ fontSize: 13.5, fontWeight: 500 }} title={work.title}>
               {work.title}
             </span>
+            {work.archived === true ? <Badge tone="idle" icon="archive">已归档</Badge> : null}
             <Badge tone={status.tone} icon={status.icon}>
               {status.label}
             </Badge>
@@ -139,11 +148,11 @@ function WorkListRow({
             <span aria-hidden="true">·</span>
             <span>{progress.pageText}</span>
             <span aria-hidden="true">·</span>
-            <span>{projectName ?? '未归属项目'}</span>
+            <span>{work.projectId === undefined ? '未归属项目' : projectName ?? '项目不可用'}</span>
             <span aria-hidden="true">·</span>
             <span>更新于 {formatRelativeTime(work.updatedAt)}</span>
           </span>
-          <span className="hint ppt-next">{progress.nextHint}</span>
+          <span className="hint ppt-next" data-tone={next.tone}><Icon name={next.icon} size="sm" />{next.text}</span>
         </span>
         <Icon name="chevRight" size="sm" />
       </button>
@@ -203,7 +212,7 @@ export function PptWorksView({ works, projects, loading, error, fetching, select
           <input
             className="input ctl"
             aria-label="搜索作品"
-            placeholder="搜索标题或主题"
+            placeholder="搜索作品"
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
@@ -241,7 +250,7 @@ export function PptWorksView({ works, projects, loading, error, fetching, select
         </Button>
       </div>
 
-      <label className="row"><input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />显示已归档作品</label>
+      <label className="row"><button type="button" className="switch" role="switch" aria-checked={showArchived} aria-label="显示已归档作品" onClick={() => setShowArchived((value) => !value)} data-on={showArchived} />显示已归档作品</label>
       <p className="hint ppt-works-note">封面由当前作品标题与主题按同一导出版式渲染；不是示意占位图。版本保留最近30次内容修订；导出状态以实际下载回执为准。</p>
 
       {error !== undefined && works.length === 0 ? (
@@ -266,7 +275,7 @@ export function PptWorksView({ works, projects, loading, error, fetching, select
           <EmptyState
             icon="slides"
             title="还没有演示"
-            description="把想法写成主题并保存为草稿；创建后会出现在作品库，并可以直接进入工作台。"
+            description="从一个想法开始，助手会先和你讨论需求。"
             action={
               <Button variant="primary" size="sm" icon="plus" onClick={onNew}>
                 新建演示

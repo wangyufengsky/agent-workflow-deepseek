@@ -75,6 +75,15 @@ export function searchKnowledgeSources(rootPath: string, query: string, limit = 
 
 const MAX_CONTENT_BYTES = 512 * 1024;
 
+/** Classifies an inventory path with the same extension sets used for listing. */
+export function classifyKnowledgeSourcePath(path: string): 'code' | 'document' | 'database' | 'web' {
+  if (path.startsWith('web:')) return 'web';
+  if (path.startsWith('database:')) return 'database';
+  const dot = path.lastIndexOf('.');
+  const extension = dot < 0 ? '' : path.slice(dot).toLowerCase();
+  return CODE_EXTENSIONS.has(extension) ? 'code' : 'document';
+}
+
 /** Read one source by its inventory-relative path; never follows symlinks outside the root. */
 export function readKnowledgeSource(rootPath: string, relativePath: string): { path: string; content: string; bytes: number } {
   if (relativePath.trim() === '' || relativePath.startsWith('/') || relativePath.split('/').includes('..')) {

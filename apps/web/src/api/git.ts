@@ -18,7 +18,6 @@ import {
   type CommandResponse,
   type DeliveryApplyRequest,
   type DeliveryCommitRequest,
-  type DeliveryMergeRequest,
   type DeliveryMergeRequestRequest,
   type DeliveryPushRequest,
   type DeliveryResponse,
@@ -46,14 +45,18 @@ import {
   type GitFetchRequest,
   type GitMergeRequestsResponse,
   type GitOverviewResponse,
+  type GitReviewHistoryEntry,
+  type GitReviewHistoryResponse,
   type GitRepo,
   type GitRepoResponse,
   type OperationReceipt,
   type OperationsByKeyResponse,
   type ProjectDetailResponse,
   type ReviewFindingUpdateRequest,
+  type ReviewFindingSuggestion,
   type ReviewResponse,
   type ReviewRun,
+  type ReviewSuggestionsResponse,
   type ReviewStartRequest,
   type TaskChanges,
   type TaskDelivery,
@@ -77,6 +80,8 @@ export const gitKeys = {
   branches: (projectId: string) => ['git', projectId, 'branches'] as const,
   mergeRequests: (projectId: string) => ['git', projectId, 'mergeRequests'] as const,
   review: (projectId: string, reviewRunId: string) => ['git', projectId, 'review', reviewRunId] as const,
+  reviewHistory: (projectId: string, sha: string) => ['git', projectId, 'reviews', sha] as const,
+  reviewSuggestions: (projectId: string, reviewRunId: string) => ['git', projectId, 'review', reviewRunId, 'suggestions'] as const,
   fix: (projectId: string, fixRunId: string) => ['git', projectId, 'fix', fixRunId] as const,
   fixDiff: (projectId: string, fixRunId: string, fileId: string) =>
     ['git', projectId, 'fix', fixRunId, 'diff', fileId] as const,
@@ -91,10 +96,12 @@ export const gitKeys = {
 /* 失败分类                                                            */
 /* ------------------------------------------------------------------ */
 
-export type GitFailureKind = 'not_connected' | 'unavailable' | 'failed';
+export type GitFailureKind = 'capability_unavailable' | 'not_connected' | 'unavailable' | 'failed';
 
 /**
- * 区分三种失败，界面文案不同：
+ * 区分四种失败，界面文案与样式不同（审计 GIT-15）：
+ * - `capability_unavailable`：Git 能力尚未接入。设计明确「不是错误」：用 unknown
+ *   虚线中性样式，不用红色错误样式；
  * - `not_connected`：服务端还没有注册该路由（HTTP 404 且不是应用错误信封），
  *   页面显示「未接通」并禁用动作，绝不拿示例数据填充；
  * - `unavailable`：本地服务未启动 / 超时 / 5xx；
@@ -102,8 +109,9 @@ export type GitFailureKind = 'not_connected' | 'unavailable' | 'failed';
  */
 export function classifyGitFailure(error: unknown): GitFailureKind {
   if (error instanceof ApiClientError) {
-    // 服务明确说「未实现 / 能力未接入」时不是连接问题，而是接口还没接通。
-    if (error.code === ErrorCode.NOT_IMPLEMENTED || error.code === ErrorCode.CAPABILITY_UNAVAILABLE) return 'not_connected';
+    // 能力未接入不是故障：设计 g03 要求不出现红色错误样式。
+    if (error.code === ErrorCode.CAPABILITY_UNAVAILABLE || error.code === ErrorCode.GIT_CAPABILITY_UNAVAILABLE) return 'capability_unavailable';
+    if (error.code === ErrorCode.NOT_IMPLEMENTED) return 'not_connected';
     // 路由未注册：Fastify 404 不返回应用错误信封，因此 code 为空。
     if (error.kind === 'http' && error.status === 404 && error.code === null) return 'not_connected';
     // 有应用错误码说明服务已应答并给出业务原因（即使是 5xx 的域错误），按失败展示原因。
@@ -115,6 +123,8 @@ export function classifyGitFailure(error: unknown): GitFailureKind {
 
 export function failureKindLabel(kind: GitFailureKind): string {
   switch (kind) {
+    case 'capability_unavailable':
+      return 'Git 能力尚未接入';
     case 'not_connected':
       return '接口未接通';
     case 'unavailable':
@@ -126,6 +136,8 @@ export function failureKindLabel(kind: GitFailureKind): string {
 
 export function failureKindDetail(kind: GitFailureKind): string {
   switch (kind) {
+    case 'capability_unavailable':
+      return '服务端内部 Git 能力尚未接入，这不按错误处理：页面只说明状态，不显示示例数据。接入后重新读取即可。';
     case 'not_connected':
       return '服务端还没有提供这个 Git 接口（未注册、未实现或能力未接入）；页面不会显示示例数据。等接口接通后重新加载即可。';
     case 'unavailable':
@@ -202,6 +214,11 @@ export interface GitDiffOptions {
   readonly headSha?: string;
   readonly ignoreWhitespace?: boolean;
   readonly cursor?: string;
+  /**
+   * 展开未改动上下文时请求更大的 unified 半径（默认 3，服务硬上限 2000）。
+   * 服务用本机 Git CLI 读取真实上下文行，不会伪造内容。
+   */
+  readonly contextLines?: number;
 }
 
 export async function fetchGitDiff(projectId: string, options: GitDiffOptions): Promise<DiffPage> {
@@ -211,6 +228,7 @@ export async function fetchGitDiff(projectId: string, options: GitDiffOptions): 
     headSha: options.headSha,
     ignoreWhitespace: options.ignoreWhitespace,
     cursor: options.cursor,
+    contextLines: options.contextLines,
   });
   const response = await apiGet<GitDiffResponse>(`${ROUTES.gitDiff(projectId)}${query}`);
   return response.data.diff;
@@ -229,6 +247,18 @@ export async function fetchGitMergeRequests(projectId: string): Promise<GitMerge
 export async function fetchReview(projectId: string, reviewRunId: string): Promise<ReviewRun> {
   const response = await apiGet<ReviewResponse>(ROUTES.review(projectId, reviewRunId));
   return response.data.review;
+}
+
+/** 同一提交的多次审查记录（服务端保留，历史下拉只读回看）。 */
+export async function fetchReviewHistory(projectId: string, sha: string): Promise<readonly GitReviewHistoryEntry[]> {
+  const response = await apiGet<GitReviewHistoryResponse>(ROUTES.commitReviews(projectId, sha));
+  return response.data.reviews;
+}
+
+/** 「建议修改」patch（模型给出、服务裁剪；只读展示，不自动应用）。 */
+export async function fetchReviewSuggestions(projectId: string, reviewRunId: string): Promise<readonly ReviewFindingSuggestion[]> {
+  const response = await apiGet<ReviewSuggestionsResponse>(ROUTES.reviewSuggestions(projectId, reviewRunId));
+  return response.data.suggestions;
 }
 
 export async function fetchFix(projectId: string, fixRunId: string): Promise<FixRun> {
@@ -593,30 +623,6 @@ export interface DeliveryMergeRequestInput {
   readonly expectedTargetTip: string;
   readonly title: string;
   readonly description: string;
-}
-
-export interface DeliveryMergeInput {
-  readonly taskId: string;
-  readonly targetBranch: string;
-  readonly expectedTargetSha: string;
-  readonly sourceSha: string;
-  readonly message: string;
-  readonly strategy: 'no_ff' | 'ff_only';
-}
-
-/** `task.delivery.merge`：在服务端临时 worktree 合并并按 CAS 更新目标分支。 */
-export async function mergeDelivery(input: DeliveryMergeInput): Promise<CommandResponse<DeliveryResponse>> {
-  const body: DeliveryMergeRequest = {
-    requestKey: createRequestKey(),
-    targetBranch: input.targetBranch,
-    expectedTargetSha: input.expectedTargetSha,
-    sourceSha: input.sourceSha,
-    message: input.message,
-    strategy: input.strategy,
-    confirmMerge: true,
-  };
-  const response = await apiPost<CommandResponse<DeliveryResponse>>(ROUTES.deliveryMerge(input.taskId), body);
-  return response.data;
 }
 
 export async function createDeliveryMergeRequest(

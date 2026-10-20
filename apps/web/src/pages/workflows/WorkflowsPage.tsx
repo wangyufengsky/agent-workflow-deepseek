@@ -1,7 +1,8 @@
 import {usePendingIdentityMatching,pendingIdentityMatching,isUncertainCommandFailure} from '../../api/pending-identity.ts';
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ROUTES, createRequestKey, type WorkflowMethod } from '@agent-workflow/shared';
+import { DEFAULT_ROLES, ROUTES, createRequestKey, type WorkflowMethod } from '@agent-workflow/shared';
 import { apiGet, errorMessage } from '../../api/client.ts';
 import { useBootstrap } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
@@ -10,6 +11,7 @@ import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { IconButton } from '../../components/IconButton.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
@@ -26,7 +28,7 @@ import {
   type WorkflowCatalogEntry,
   type WorkflowDraft,
 } from './workflow-api.ts';
-import { WORKFLOW_STEP_KIND_LABEL, supportLabel } from './workflow-model.ts';
+import { WORKFLOW_STEP_KIND_LABEL, stepChainGroups, supportLabel } from './workflow-model.ts';
 import './workflows.css';
 import { WorkflowReadDetails } from './WorkflowReadDetails.tsx';
 
@@ -51,34 +53,70 @@ function builtinEntriesFromBootstrap(methods: readonly WorkflowMethod[]): readon
   return builtinCatalogFromBootstrap(methods);
 }
 
-function StepChain({ detail }: { readonly detail: WorkflowCatalogDetail }) {
+const ROLE_ID_BY_KIND: Readonly<Record<string, string>> = { test: 'role.tester', verify: 'role.reviewer' };
+
+/** Design N09-05: show the resolved occupation, not a raw role id or a false warning. */
+function stepRole(step: WorkflowCatalogDetail['requiredSteps'][number], roles: readonly { readonly id: string; readonly name: string }[]): { readonly label: string; readonly fallback: boolean } {
+  const bound = step.roleId === undefined || step.roleId === '' ? undefined : roles.find((role) => role.id === step.roleId);
+  if (step.roleId !== undefined && step.roleId !== '') return { label: bound?.name ?? step.roleId, fallback: bound === undefined };
+  const defaultId = ROLE_ID_BY_KIND[step.kind] ?? 'role.developer';
+  const fallbackRole = roles.find((role) => role.id === defaultId);
+  return { label: fallbackRole?.name ?? '默认职业', fallback: false };
+}
+
+function StepRow({ step, index, roles }: { readonly step: WorkflowCatalogDetail['requiredSteps'][number]; readonly index: number; readonly roles: readonly { readonly id: string; readonly name: string }[] }) {
+  const role = stepRole(step, roles);
+  return (
+    <li className="wf-chain-row">
+      <span className="wf-chain-index mono">{String(index + 1).padStart(2, '0')}</span>
+      <span className="grow" style={{ minWidth: 0 }}>
+        <span className="wf-chain-title">{step.title}</span>
+        <span className="hint wf-chain-meta">
+          {WORKFLOW_STEP_KIND_LABEL[step.kind]} · {step.group}
+          {` · ${role.label}${role.fallback ? '（职业未登记）' : step.roleId === undefined ? '（按步骤类型默认）' : ''}`}
+          {step.optional === true ? ' · 可选' : ''}
+        </span>
+      </span>
+      {step.roleId === undefined ? <Badge outline icon="users">默认职业</Badge> : null}
+    </li>
+  );
+}
+
+function StepChain({ detail, roles }: { readonly detail: WorkflowCatalogDetail; readonly roles: readonly { readonly id: string; readonly name: string }[] }) {
+  const groups = stepChainGroups(detail.requiredSteps);
+  let index = 0;
   return (
     <ol className="wf-chain">
-      {detail.requiredSteps.map((step, index) => (
-        <li key={step.key} className="wf-chain-row">
-          <span className="wf-chain-index mono">{String(index + 1).padStart(2, '0')}</span>
-          <span className="grow" style={{ minWidth: 0 }}>
-            <span className="wf-chain-title">{step.title}</span>
-            <span className="hint wf-chain-meta">
-              {WORKFLOW_STEP_KIND_LABEL[step.kind]} · {step.group}
-              {step.roleId === undefined ? ' · 未指定职业' : ` · ${step.roleId}`}
-              {step.optional === true ? ' · 可选' : ''}
+      {groups.map((group) => {
+        const rows = group.steps.map((step) => {
+          index += 1;
+          return <StepRow key={step.key} step={step} index={index} roles={roles} />;
+        });
+        if (group.steps.length === 1) return rows[0];
+        return (
+          <li className="wf-chain-par" key={`par-${group.group}-${String(index)}`}>
+            <span className="wf-chain-par-head">
+              <Icon name="split" size="sm" />并行 · {group.group}
             </span>
-          </span>
-          {step.roleId === undefined ? <Badge tone="warn" icon="help">未指定职业</Badge> : null}
-        </li>
-      ))}
+            <ol className="wf-chain">{rows}</ol>
+          </li>
+        );
+      })}
     </ol>
   );
 }
 
 export function WorkflowsPage() {
+  const navigate = useNavigate();
   const bootstrap = useBootstrap();
   const queryClient = useQueryClient();
   const [source, setSource] = useState<SourceFilter>('all');
   const [keyword, setKeyword] = useState('');
   const [includeArchived, setIncludeArchived] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Design `list` state (N09-01): the detail column can be closed back to a full-width list.
+  const [detailClosed, setDetailClosed] = useState(false);
+  const roles = bootstrap.data?.catalog.roles ?? DEFAULT_ROLES;
   const [localReceipt, setReceipt] = useState<CommandReceipt | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
@@ -110,7 +148,8 @@ export function WorkflowsPage() {
   const entries: readonly (WorkflowCatalogEntry | WorkflowCatalogDetail)[] = listQuery.data ?? fallbackEntries;
   const filtered = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
-    return entries.filter((entry) => {
+    const sorted = [...entries].sort((left, right) => (right.updatedAt ?? '').localeCompare(left.updatedAt ?? ''));
+    return sorted.filter((entry) => {
       if (source === 'mine' && entry.source !== 'custom') return false;
       if (source === 'builtin' && entry.source !== 'builtin') return false;
       if (needle === '') return true;
@@ -118,7 +157,7 @@ export function WorkflowsPage() {
     });
   }, [entries, keyword, source]);
 
-  const selectedEntry = entries.find((entry) => entry.id === selectedId) ?? filtered[0];
+  const selectedEntry = detailClosed ? undefined : entries.find((entry) => entry.id === selectedId) ?? filtered[0];
   const selectedHasSteps = selectedEntry !== undefined && hasSteps(selectedEntry);
   const detailQuery = useQuery({
     queryKey: ['workflows', 'detail', selectedEntry?.id ?? ''],
@@ -203,6 +242,8 @@ export function WorkflowsPage() {
       setCreateDescription('');
       await refresh();
       setSelectedId(mutation.method.id);
+      setDetailClosed(false);
+      navigate(`/workflows/${encodeURIComponent(mutation.method.id)}/edit`);
     } catch (error) {
       showCommandError('新建流程', error, requestKey);
       setCreateError(isUncertainCommandFailure(error)?undefined:workflowErrorDetail(error));
@@ -260,7 +301,7 @@ export function WorkflowsPage() {
   };
 
   const listBody =
-    listQuery.isLoading && bootstrap.isLoading ? (
+    listQuery.isLoading ? (
       <div className="col" style={{ gap: 8 }}>
         {[0, 1, 2].map((index) => (
           <Skeleton key={index} height={44} width="100%" radius={10} />
@@ -299,6 +340,7 @@ export function WorkflowsPage() {
             aria-selected={selectedEntry?.id === entry.id}
             onClick={() => {
               setSelectedId(entry.id);
+              setDetailClosed(false);
             }}
           >
             <span className="tile">
@@ -321,6 +363,13 @@ export function WorkflowsPage() {
           </button>
         ))}
       </div>
+    );
+
+  const listFooter =
+    filtered.length === 0 ? null : (
+      <p className="hint wf-list-foot">
+        已加载 {String(filtered.length)} 个 · 按更新时间排列（服务一次返回全部；暂无「加载更多」）
+      </p>
     );
 
   return (
@@ -380,7 +429,7 @@ export function WorkflowsPage() {
         </div>
       )}
 
-      <div className="wf-layout">
+      <div className={`wf-layout${selectedEntry === undefined ? ' nodetail' : ''}`}>
         <section className="card pad wf-catalog" aria-label="流程目录">
           <div className="toolbar" style={{ marginTop: 0 }}>
             <div className="input-wrap grow">
@@ -408,8 +457,10 @@ export function WorkflowsPage() {
             使用次数包含全部版本和已归档任务；最近使用按任务创建时间排列。
           </p>
           {listBody}
+          {listFooter}
         </section>
 
+        {detailClosed ? null : (
         <aside className="card wf-detail" aria-label="流程详情">
           {selectedEntry === undefined ? (
             <div className="card-body">
@@ -433,6 +484,7 @@ export function WorkflowsPage() {
                     <p className="hint">更新于 {formatRelativeTime(selectedEntry.updatedAt)}</p>
                   )}
                 </div>
+                <IconButton icon="x" label="关闭详情，回到流程列表" onClick={() => { setDetailClosed(true); setSelectedId(null); }} />
               </div>
               <div className="card-body" style={{ paddingTop: 0 }}>
                 {detailQuery.isLoading ? (
@@ -447,7 +499,7 @@ export function WorkflowsPage() {
                 ) : (
                   <>
                     <div className="eyebrow" style={{ marginBottom: 8 }}>步骤链 · {String(detail.requiredSteps.length)} 个</div>
-                    <StepChain detail={detail} />
+                    <StepChain detail={detail} roles={roles} />
                     <p className="hint" style={{ marginTop: 8 }}>
                       步骤按流程定义展示；执行依赖以具体任务的已确认计划为准。
                     </p>
@@ -523,6 +575,7 @@ export function WorkflowsPage() {
             </>
           )}
         </aside>
+        )}
       </div>
 
       <Modal

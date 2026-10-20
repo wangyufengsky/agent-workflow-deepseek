@@ -7,6 +7,7 @@ import { Icon } from '../../components/Icon.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import {
   formatFileSize,
+  pptProductionPages,
   type PptCommand,
   type PptCommandKind,
   type PptCommandSignal,
@@ -75,7 +76,7 @@ export function PptStepExport({ work, busyKind, blocked, blockedReason, lastResu
   const markdownData = markdown.phase === 'done' ? markdown.data : undefined;
   const anyBusy = busyKind !== null;
   const deleteFailure = lastResult?.kind === 'delete' && lastResult.outcome !== 'succeeded' ? lastResult.message : undefined;
-  const unfinished=(work.generation?.pages??work.productionPages)?.filter(page=>page.status!=='completed').length??0;
+  const unfinished=pptProductionPages(work)?.filter(page=>page.status!=='completed').length??0;
   const canExportPptx = unfinished===0 && (work.outline.length > 0 || work.slides.length > 0);
 
   useEffect(() => {

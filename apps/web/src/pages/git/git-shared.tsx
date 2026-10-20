@@ -11,7 +11,6 @@ import {
   type ActionAvailability,
   type DeliveryGoalValue,
   type DeliveryProjectionValue,
-  type DeliveryStepValue,
   type DimensionValue,
   type FindingStatusValue,
   type FixOutcomeValue,
@@ -97,16 +96,6 @@ export const CHANGE_STATUS_TONE: Record<ChangeStatusValue, BadgeTone> = {
   C: 'accent',
   T: 'wait',
 };
-
-export const DELIVERY_STEP_LABEL: Record<DeliveryStepValue, string> = {
-  commit: '① 提交',
-  push: '② 推送',
-  mergeRequest: '③ 创建合并请求',
-  apply: '应用到原目录',
-  merge: '直接合并',
-};
-
-export const DELIVERY_STEP_ORDER: readonly DeliveryStepValue[] = ['commit', 'push', 'mergeRequest', 'apply', 'merge'];
 
 export const REVIEW_STAGE_LABEL: Record<string, string> = {
   reading_diff: '读取改动',
@@ -445,12 +434,14 @@ export interface FailureNoticeProps {
  */
 export function FailureNotice({ error, onRetry, compact, title, className }: FailureNoticeProps) {
   const kind = classifyGitFailure(error);
-  const tone = kind === 'failed' ? 'warn' : 'danger';
+  // 能力未接入用 unknown 中性样式（设计 g03：「不是错误，不出现红色错误样式」）。
+  const tone = kind === 'failed' ? 'warn' : kind === 'capability_unavailable' ? 'unknown' : 'danger';
   const code = isApiClientError(error) ? error.code : null;
   const requestId = isApiClientError(error) ? error.requestId : null;
+  const icon = kind === 'capability_unavailable' ? 'gitRepo' : kind === 'not_connected' ? 'lock' : 'alert';
   return (
     <div className={['banner', tone, className ?? ''].filter(Boolean).join(' ')} role="alert">
-      <Icon name={kind === 'not_connected' ? 'lock' : 'alert'} />
+      <Icon name={icon} />
       <div className="grow">
         <b>{title ?? failureKindLabel(kind)}</b>
         {compact === true ? ` · ${failureKindDetail(kind)}` : null}
@@ -483,17 +474,20 @@ export function UnavailablePanel({
   onRetry,
   title,
   description,
+  kindOverride,
 }: {
   readonly error: unknown;
   readonly onRetry?: () => void;
   readonly title?: string;
   readonly description?: ReactNode;
+  /** 已知的仓库状态可强制用对应样式（例如 Git 能力未接入 = unknown，不是错误）。 */
+  readonly kindOverride?: GitFailureKind;
 }) {
-  const kind: GitFailureKind = classifyGitFailure(error);
+  const kind: GitFailureKind = kindOverride ?? classifyGitFailure(error);
   return (
-    <div className="unavailable-panel">
+    <div className={['unavailable-panel', kind === 'capability_unavailable' ? 'capability' : ''].filter(Boolean).join(' ')}>
       <span className="tile lg">
-        <Icon name={kind === 'not_connected' ? 'lock' : 'alert'} size="lg" />
+        <Icon name={kind === 'capability_unavailable' ? 'gitRepo' : kind === 'not_connected' ? 'lock' : 'alert'} size="lg" />
       </span>
       <h3>{title ?? failureKindLabel(kind)}</h3>
       <p>{description ?? failureKindDetail(kind)}</p>

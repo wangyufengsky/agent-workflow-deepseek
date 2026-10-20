@@ -161,6 +161,11 @@ describe('GitHubAdapter', () => {
 
   it('creates a merge request with the expected body', async (t) => {
     const stub = await startStub(t, (call, res) => {
+      // 创建前会先核对同 source → target 的打开 MR（DEL-14 口径）。
+      if (call.method === 'GET' && call.path === '/repos/acme/widgets/pulls') {
+        json(res, 200, []);
+        return;
+      }
       if (call.method === 'POST' && call.path === '/repos/acme/widgets/pulls') {
         json(res, 201, {
           number: 10,
@@ -186,7 +191,7 @@ describe('GitHubAdapter', () => {
       draft: true,
     });
     assert.equal(created.iid, 10);
-    const call = stub.calls[0];
+    const call = stub.calls.find((entry) => entry.method === 'POST');
     assert.equal(call?.method, 'POST');
     assert.equal(call?.headers.authorization, `Bearer ${TOKEN}`);
     const body = JSON.parse(call?.body ?? '{}') as Record<string, unknown>;
@@ -195,6 +200,10 @@ describe('GitHubAdapter', () => {
 
   it('maps duplicate and auth failures to shared error codes without leaking tokens', async (t) => {
     const stub = await startStub(t, (call, res) => {
+      if (call.method === 'GET' && call.path === '/repos/acme/widgets/pulls') {
+        json(res, 200, []);
+        return;
+      }
       if (call.method === 'POST') {
         json(res, 422, { message: 'Validation Failed', errors: [{ message: 'A pull request already exists for acme:task/abc.' }] });
         return;
@@ -210,6 +219,36 @@ describe('GitHubAdapter', () => {
     const auth = (await expectCode(adapter.getProject(), ErrorCode.GITLAB_AUTH_FAILED)) as { message: string; toJSON(): unknown };
     assert.doesNotMatch(auth.message, new RegExp(TOKEN));
     assert.doesNotMatch(JSON.stringify(auth.toJSON()), new RegExp(TOKEN));
+  });
+
+  it('pre-checks an existing open MR and links to it without POSTing (DEL-14 / GIT-06)', async (t) => {
+    const stub = await startStub(t, (call, res) => {
+      if (call.method === 'GET' && call.path === '/repos/acme/widgets/pulls') {
+        json(res, 200, [
+          {
+            number: 58,
+            title: 'fix: refund',
+            state: 'open',
+            user: { login: 'octocat' },
+            head: { ref: 'ai-fix/a1b2c3d-1013' },
+            base: { ref: 'main' },
+            updated_at: '2026-01-02T03:04:05Z',
+            html_url: 'https://github.com/acme/widgets/pull/58',
+          },
+        ]);
+        return;
+      }
+      json(res, 500, { message: 'POST must not be sent when an open MR already exists' });
+    });
+    const adapter = new GitHubAdapter({ owner: 'acme', repo: 'widgets', token: TOKEN, apiBaseUrl: stub.baseUrl });
+    const error = (await expectCode(
+      adapter.createMergeRequest({ sourceBranch: 'ai-fix/a1b2c3d-1013', targetBranch: 'main', title: 'fix: refund' }),
+      ErrorCode.MR_ALREADY_EXISTS,
+    )) as { toJSON(): { details?: Record<string, unknown> } };
+    const details = error.toJSON().details ?? {};
+    assert.equal(details.iid, 58);
+    assert.equal(details.webUrl, 'https://github.com/acme/widgets/pull/58');
+    assert.equal(stub.calls.some((entry) => entry.method === 'POST'), false);
   });
 
   it('reports connection states and lists protected branches', async (t) => {
@@ -348,6 +387,10 @@ describe('GitLabAdapter', () => {
         json(res, 404, { message: 'Not Found' });
         return;
       }
+      if (call.method === 'GET') {
+        json(res, 200, []);
+        return;
+      }
       if (mode === 'duplicate') {
         json(res, 409, { message: 'Another open merge request already exists for this source branch' });
         return;
@@ -371,7 +414,7 @@ describe('GitLabAdapter', () => {
       removeSourceBranch: true,
     });
     assert.equal(created.iid, 11);
-    const body = JSON.parse(stub.calls[0]?.body ?? '{}') as Record<string, unknown>;
+    const body = JSON.parse(stub.calls.find((entry) => entry.method === 'POST')?.body ?? '{}') as Record<string, unknown>;
     assert.deepEqual(body, {
       source_branch: 'task/abc',
       target_branch: 'main',

@@ -1,14 +1,12 @@
 import { SkillsView } from './SkillsView.tsx';
 import { ToolsPolicyView } from './ToolsPolicyView.tsx';
-import { useMemo, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useOpenCodeStatus } from '../../api/hooks.ts';
-import { MANAGED_MCP_TOOLS } from '../../api/catalog.ts';
 import { Button } from '../../components/Button.tsx';
 import { PageHeaderSlot } from '../../components/PageHeaderSlot.tsx';
 import { PageHeader } from '../../components/Card.tsx';
-import { formatRelativeTime } from '../../app/format.ts';
 
 type ToolsTab = 'tools' | 'skills';
 
@@ -18,11 +16,6 @@ export function ToolsPage() {
   const setTab = (value: ToolsTab) => setParams((current) => { const next = new URLSearchParams(current); next.set('tab', value); return next; });
   const statusQuery = useOpenCodeStatus();
   const queryClient = useQueryClient();
-  const lastChecked = useMemo(() => {
-    if (statusQuery.isError) return '读取失败';
-    if (statusQuery.dataUpdatedAt === 0) return '尚未读取';
-    return formatRelativeTime(new Date(statusQuery.dataUpdatedAt).toISOString());
-  }, [statusQuery.dataUpdatedAt, statusQuery.isError]);
 
   let body: ReactNode;
   if (statusQuery.isLoading) {
@@ -42,16 +35,12 @@ export function ToolsPage() {
 
       <div className="tabs" role="tablist" aria-label="工具与 Skill" style={{ marginBottom: 16 }}>
         <button type="button" className="tab" role="tab" aria-selected={tab === 'tools'} onClick={() => { setTab('tools'); }}>
-          工具 <span className="hint num">{String(MANAGED_MCP_TOOLS.length)}</span>
+          工具
         </button>
         <button type="button" className="tab" role="tab" aria-selected={tab === 'skills'} onClick={() => { setTab('skills'); }}>
-          Skill <span className="hint num">只读</span>
+          Skill<span className="hint num">只读</span>
         </button>
       </div>
-
-      <p className="hint" style={{ marginBottom: 12 }}>
-        最近读取 OpenCode 状态：{lastChecked}
-      </p>
 
       {body}
     </div>

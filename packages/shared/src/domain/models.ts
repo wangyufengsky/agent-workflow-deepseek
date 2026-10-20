@@ -401,8 +401,30 @@ export interface TaskSummary {
     readonly lastActivity: string;
   };
   readonly progress: { readonly done: number; readonly total: number; readonly running: number; readonly failed: number };
+  /** P12-02: real execution facts so the list never has to approximate them from attention. */
+  readonly execution?: {
+    readonly status: ExecutionStatusValue;
+    readonly paused: boolean;
+    readonly pendingAcceptance: number;
+    readonly rejectedAcceptance: number;
+  };
+  /** P12-01: per-node step facts (no synthetic nodes; absent until a plan exists). */
+  readonly stepStates?: readonly TaskStepState[];
   readonly deliveryProjection?: DeliveryProjectionValue;
   readonly updatedAt: IsoDateTime;
+}
+
+/** One pending-plan step projected for the list row status bar (P12-01). */
+export interface TaskStepState {
+  readonly nodeId: string;
+  readonly title: string;
+  readonly kind: NodeKindValue;
+  readonly status: NodeStatusValue;
+  readonly attemptCount: number;
+  /** Executed step still waiting for the human acceptance verdict. */
+  readonly pendingAcceptance?: boolean;
+  readonly rejectedAcceptance?: boolean;
+  readonly errorMessage?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -701,6 +723,10 @@ export interface EditSession {
     readonly qualityReview?: import('./quality-review.ts').QualityReviewContract | null;
     readonly prerequisites?: readonly PlanNodeId[];
     readonly acceptance?: readonly string[];
+    /** P13-06: this row was added by the edit session (undo = drop it). */
+    readonly added?: boolean;
+    /** P13-06: this row was removed from the pending plan by the edit session. */
+    readonly removed?: boolean;
   }[];
 }
 

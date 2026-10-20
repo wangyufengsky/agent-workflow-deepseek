@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { useId, type ButtonHTMLAttributes, type MouseEventHandler, type ReactNode } from 'react';
 import { Link, type LinkProps } from 'react-router-dom';
 import { Icon, type IconName } from './Icon.tsx';
 
@@ -14,7 +14,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   readonly size?: ButtonSize;
   readonly icon?: IconName;
   readonly iconAfter?: IconName;
-  /** Why the button is disabled. Rendered as the native title/aria description. */
+  /** Why the button is disabled. Rendered as an aria-describedby text (readable by keyboard/screen readers). */
   readonly disabledReason?: string;
 }
 
@@ -28,22 +28,45 @@ export function Button({
   children,
   disabled,
   title,
+  onClick,
   ...rest
 }: ButtonProps) {
   const blocked = disabled === true;
+  const reasonId = useId();
+  // GLB-13: keep a reason-bearing disabled button focusable (aria-disabled
+  // pattern, which ds.css already styles) so keyboard users can read why it is
+  // blocked through aria-describedby instead of the pointer-only title.
+  const explain = blocked && disabledReason !== undefined && disabledReason.length > 0;
+  const handleClick: MouseEventHandler<HTMLButtonElement> = (event) => {
+    if (blocked) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onClick?.(event);
+  };
   return (
-    <button
-      {...rest}
-      type={rest.type ?? 'button'}
-      className={buttonClass(variant, size, className)}
-      disabled={blocked}
-      title={blocked ? (disabledReason ?? title) : title}
-      aria-disabled={blocked || undefined}
-    >
-      {icon === undefined ? null : <Icon name={icon} size="sm" />}
-      {children}
-      {iconAfter === undefined ? null : <Icon name={iconAfter} size="sm" />}
-    </button>
+    <>
+      <button
+        {...rest}
+        type={rest.type ?? 'button'}
+        className={buttonClass(variant, size, className)}
+        disabled={explain ? undefined : blocked}
+        title={blocked ? (disabledReason ?? title) : title}
+        aria-disabled={blocked || undefined}
+        aria-describedby={explain ? reasonId : rest['aria-describedby']}
+        onClick={handleClick}
+      >
+        {icon === undefined ? null : <Icon name={icon} size="sm" />}
+        {children}
+        {iconAfter === undefined ? null : <Icon name={iconAfter} size="sm" />}
+      </button>
+      {explain ? (
+        <span id={reasonId} className="sr">
+          {disabledReason}
+        </span>
+      ) : null}
+    </>
   );
 }
 

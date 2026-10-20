@@ -12,7 +12,6 @@ import {
   createId,
   nowIso,
   type DeliveryCommitRequest,
-  type DeliveryMergeRequest,
   type DeliveryMergeRequestRequest,
   type DeliveryPushRequest,
 } from '@agent-workflow/shared';
@@ -552,10 +551,6 @@ test('W1-9: delivery confirm flags are validated at runtime', async () => {
     );
     await assert.rejects(
       () => service.createMergeRequest('task_missing', { requestKey: createId('req'), sourceRef: 'task/x', pushedSha: 'sha', targetBranch: 'main', expectedTargetTip: 'tip', title: 't', description: 'd' } as unknown as DeliveryMergeRequestRequest),
-      isValidationFailure,
-    );
-    await assert.rejects(
-      () => service.merge('task_missing', { requestKey: createId('req'), targetBranch: 'main', expectedTargetSha: 'tip', sourceSha: 'sha', message: 'm', strategy: 'no_ff' } as unknown as DeliveryMergeRequest),
       isValidationFailure,
     );
 

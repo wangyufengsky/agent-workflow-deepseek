@@ -23,9 +23,10 @@ export async function fetchInteraction(interactionId: string): Promise<Interacti
 export async function resolveInteraction(
   interactionId: string,
   answers: InteractionResolveRequest['answers'],
+  requestKey: string = createRequestKey(),
 ): Promise<InteractionResolveResponse> {
   const body: InteractionResolveRequest = {
-    requestKey: createRequestKey(),
+    requestKey,
     confirmResolve: true,
     answers: [...answers],
   };

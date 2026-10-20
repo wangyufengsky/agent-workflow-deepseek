@@ -38,6 +38,12 @@ async function startStub(token: string): Promise<{ server: Server; url: string; 
       response.end(JSON.stringify({ login: 'mr-user' }));
       return;
     }
+    if (request.method === 'GET' && request.url?.startsWith('/repos/acme/demo/pulls')) {
+      // DEL-14 pre-check: read existing MRs before creating (never create a duplicate).
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify([]));
+      return;
+    }
     if (request.method === 'POST' && request.url === '/repos/acme/demo/pulls') {
       seen.createCalls += 1;
       response.writeHead(201, { 'content-type': 'application/json' });

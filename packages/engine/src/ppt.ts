@@ -11,7 +11,7 @@ import { AppError, ErrorCode, nowIso, type CommandResponse, type PptWork, type P
   type PptWorkManageRequest, type PptBrief, type PptVisualDirectionValue,
   type PptWorkGenerateContentRequest,
   type PptAttachmentRequest,
-  type PptSlide, type PptWorksResponse } from '@agent-workflow/shared';
+  type PptSlide, type PptPageGeneration, type PptWorksResponse } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
 import type { CommandService } from './operations.ts';
 import type { EngineContext } from './actions.ts';
@@ -215,13 +215,20 @@ export class PptService {
     const brief = input.brief === undefined ? work.brief : validateBrief(input.brief);
     const direction = input.direction === undefined ? work.direction : validateDirection(input.direction);
     const cover = input.cover === undefined ? work.cover : validateSlides([input.cover])[0];
-    const slides = input.slides === undefined ? work.slides : validateSlides(input.slides);
+    /* P07-23: 显式“加一页”语义。只追加一个页面（保留已有页面内容与逐页状态），
+     * 不再要求前端提交整份 slides。 */
+    const appendPage = input.appendPage === undefined ? undefined : validateSlides([input.appendPage])[0];
+    if (appendPage !== undefined && (input.slides !== undefined || input.outline !== undefined || input.pageEdit !== undefined)) throw new AppError(ErrorCode.VALIDATION_FAILED, '追加页面不能与整份页面内容/大纲/逐页编辑同时提交');
+    const appendedSlides = appendPage === undefined ? undefined : [...storedBodyPages(work), appendPage];
+    const slides = input.slides === undefined ? (appendedSlides ?? work.slides) : validateSlides(input.slides);
     const title = input.title === undefined ? work.title : input.title.trim();
     if (title === '' || title.length > 120) throw new AppError(ErrorCode.VALIDATION_FAILED, 'PPT 标题长度需要在 1–120 之间');
     const topic = input.topic === undefined ? work.topic : input.topic.trim();
     if (topic.length > 2_000) throw new AppError(ErrorCode.VALIDATION_FAILED, 'PPT 主题过长');
     if (input.outline !== undefined && (!Array.isArray(input.outline) || input.outline.length > 100 || input.outline.some((item) => typeof item !== 'string' || !item.trim() || item.length > 200))) throw new AppError(ErrorCode.VALIDATION_FAILED, '大纲需要1–100页以内的有效标题，每项最多200字');
-    const outline = input.outline === undefined ? work.outline : input.outline.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 100);
+    const outline = input.outline !== undefined
+      ? input.outline.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim().slice(0, 200)).slice(0, 100)
+      : appendPage === undefined ? work.outline : [...work.outline, appendPage.title].slice(0, 100);
     const theme = input.theme === undefined ? work.theme : validateTheme(input.theme);
     const { replayed } = this.#commands.begin({
       requestKey: input.requestKey,
@@ -230,9 +237,18 @@ export class PptService {
       target: { ref: id },
     });
     if (replayed) throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '同一请求号已受理，请按回执核对');
-    const productionPages=work.productionPages ? (input.slides ? slides.map((page,index)=>({index,title:page.title,status:'completed' as const,source:'manual' as const})) : outline.map((title,index)=>work.productionPages?.[index]?.title===title?work.productionPages![index]!:{index,title,status:'pending' as const})) : undefined;
-    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline, theme, brief, direction, slides, plan, cover,productionPages });
-    this.#generation.clear(id);
+    /* P07-23: a whole `slides`/`outline` PATCH must never fabricate "all pages completed".
+     * Merge the existing production state page by page: unchanged pages keep their
+     * status/source/message (including stopped/failed/unknown), moved pages keep it at
+     * their new index, content that the user actually edited becomes a manual completion,
+     * and pages that did not exist before stay `pending`. */
+    const productionPages = input.slides === undefined && input.outline === undefined && appendPage === undefined
+      ? work.productionPages
+      : mergeProductionPages(work.productionPages, work, { ...(input.slides === undefined && appendPage === undefined ? {} : { slides }), outline });
+    const updated = this.#store.pptWorks.update({ ...work, title, topic, outline, theme, brief, direction, slides, plan, cover, productionPages });
+    /* Do not clear the persisted generation record here: it is the only evidence for
+     * "made X/Y pages" and for the stop/failure reason of unfinished pages. A new
+     * generation overwrites it when it begins. */
     this.#commands.settle(input.requestKey, { workId: id, slides: outline.length });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: updated };
   }
@@ -428,7 +444,9 @@ export class PptService {
     } catch (error) { this.#commands.fail(input.requestKey, error instanceof Error ? error : new Error('作品操作失败')); throw error; }
   }
   #productionReason(work:PptWork):string|undefined {
-    const unfinished=(this.#generation.state(work.id)?.pages??work.productionPages)?.filter(page=>page.status!=='completed');
+    /* productionPages is the per-page production truth; the generation record is only a
+     * fallback for works persisted before that field existed. */
+    const unfinished=(work.productionPages ?? this.#generation.state(work.id)?.pages)?.filter(page=>page.status!=='completed');
     return unfinished?.length?`还有 ${unfinished.length} 页未完成制作；请完成或手动编辑保存这些页面后再导出`:undefined;
   }
   #assertProductionComplete(work:PptWork) {const reason=this.#productionReason(work);if(reason)throw new AppError(ErrorCode.VALIDATION_FAILED,reason);}
@@ -478,6 +496,102 @@ export class PptService {
   }
 }
 
+
+/* ------------------------------------------------------------------ */
+/* P07-23 · per-page production merge for whole-list plan PATCHes      */
+/* ------------------------------------------------------------------ */
+
+/** A page that carries no authored content (only a default title) is not complete. */
+function isEmptySlide(slide: PptSlide): boolean {
+  return slide.bullets.length === 0 && slide.notes === undefined && slide.imageName === undefined &&
+    slide.chapter === undefined && slide.keyMessage === undefined && slide.sourceNames === undefined &&
+    slide.layout === undefined && slide.titleStyle === undefined && slide.bodyStyle === undefined &&
+    slide.tag === undefined && slide.tagStyle === undefined;
+}
+
+/** Body pages as the UI sees them: stored slides padded by the outline (never cover). */
+function storedBodyPages(work: PptWork): readonly PptSlide[] {
+  if (work.slides.length >= work.outline.length) return work.slides;
+  return work.outline.map((title, index) => work.slides[index] ?? { title, bullets: [] as string[] });
+}
+
+/** Comparable identity of one page's content (style/notes/footer included by value). */
+function slideContentKey(slide: PptSlide): string {
+  return JSON.stringify({
+    title: slide.title,
+    bullets: slide.bullets,
+    notes: slide.notes ?? null,
+    imageName: slide.imageName ?? null,
+    chapter: slide.chapter ?? null,
+    keyMessage: slide.keyMessage ?? null,
+    sourceNames: slide.sourceNames ?? null,
+    layout: slide.layout ?? null,
+    titleStyle: slide.titleStyle ?? null,
+    bodyStyle: slide.bodyStyle ?? null,
+    tag: slide.tag ?? null,
+    tagStyle: slide.tagStyle ?? null,
+  });
+}
+
+/**
+ * Merge a whole-list `slides`/`outline` PATCH into the persisted per-page production
+ * state without fabricating completions (P07-23).
+ *
+ * - pages whose content did not change keep their status/source/message (stopped,
+ *   failed, unknown, pending, completed);
+ * - pages moved by reorder keep their state at the new index;
+ * - a page whose content the user actually edited is a legitimate manual completion;
+ * - pages that did not exist before stay `pending`, never `completed`.
+ */
+function mergeProductionPages(prior: readonly PptPageGeneration[] | undefined, work: PptWork,
+  input: { readonly slides?: readonly PptSlide[]; readonly outline: readonly string[] }): readonly PptPageGeneration[] | undefined {
+  if (prior === undefined) return undefined;
+  const byIndex = new Map(prior.map((page) => [page.index, page] as const));
+  const manual = (index: number, title: string): PptPageGeneration => ({ index, title, status: 'completed', source: 'manual', completedRevision: (work.revision ?? 1) + 1 });
+  if (input.slides !== undefined) {
+    const slides = input.slides;
+    const oldSlides = storedBodyPages(work);
+    const used = new Set<number>();
+    const matched = new Map<number, number>();
+    for (let index = 0; index < slides.length; index += 1) {
+      const old = oldSlides[index];
+      if (old !== undefined && slideContentKey(old) === slideContentKey(slides[index]!)) { matched.set(index, index); used.add(index); }
+    }
+    for (let index = 0; index < slides.length; index += 1) {
+      if (matched.has(index)) continue;
+      for (let oldIndex = 0; oldIndex < oldSlides.length; oldIndex += 1) {
+        if (used.has(oldIndex) || oldSlides[oldIndex] === undefined) continue;
+        if (slideContentKey(oldSlides[oldIndex]!) === slideContentKey(slides[index]!)) { matched.set(index, oldIndex); used.add(oldIndex); break; }
+      }
+    }
+    return slides.map((slide, index) => {
+      const movedTo = matched.get(index);
+      const previous = movedTo === undefined ? undefined : byIndex.get(movedTo);
+      if (previous !== undefined) return { ...previous, index, title: slide.title };
+      /* 全空的“新页面”不能算人工完成：删除一页后再加一页时索引会与旧页重合，
+       * 只有真正带内容的编辑才记为 manual 完成。 */
+      if (index < oldSlides.length && !isEmptySlide(slide)) return manual(index, slide.title);
+      return { index, title: slide.title, status: 'pending' as const };
+    });
+  }
+  /* Outline-only edit (page title list): preserve production state by title identity. */
+  const used = new Set<number>();
+  const matched = new Map<number, number>();
+  for (let index = 0; index < input.outline.length; index += 1) {
+    const same = byIndex.get(index);
+    if (same !== undefined && same.title === input.outline[index]) { matched.set(index, index); used.add(index); }
+  }
+  for (let index = 0; index < input.outline.length; index += 1) {
+    if (matched.has(index)) continue;
+    const previous = prior.find((page) => !used.has(page.index) && page.title === input.outline[index]);
+    if (previous !== undefined) { matched.set(index, previous.index); used.add(previous.index); }
+  }
+  return input.outline.map((title, index) => {
+    const matchedIndex = matched.get(index);
+    const previous = matchedIndex === undefined ? undefined : byIndex.get(matchedIndex);
+    return previous === undefined ? { index, title, status: 'pending' as const } : { ...previous, index, title };
+  });
+}
 
 function extractOutline(text: string): readonly string[] {
   const start = text.indexOf('{');

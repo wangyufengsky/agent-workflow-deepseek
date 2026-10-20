@@ -6,15 +6,17 @@ import {
   DIMENSION_ORDER,
   type DimensionValue,
   type FindingStatusValue,
-  type SeverityValue,
   type GitCommit,
   type ReviewFinding,
   type ReviewRun,
+  type SeverityValue,
 } from '@agent-workflow/shared';
 import {
   classifyGitFailure,
   fetchOperationByKey,
   fetchReview,
+  fetchReviewHistory,
+  fetchReviewSuggestions,
   gitKeys,
   startReview,
   stopReview,
@@ -28,6 +30,7 @@ import { Button } from '../../components/Button.tsx';
 import { Drawer } from '../../components/Drawer.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { SegmentedControl } from '../../components/SegmentedControl.tsx';
 import {
   DIMENSION_ICON,
   DIMENSION_LABEL,
@@ -46,23 +49,55 @@ import {
   reviewStateTone,
   severityLabel,
   shortSha,
+  useCopyValue,
 } from './git-shared.tsx';
 
 const ALL_DIMENSIONS = DIMENSION_ORDER;
 
+/** 设计稿 g31 的三阶段条：读取改动 → 分析 → 汇总；不显示假百分比。 */
+const REVIEW_STAGES = [
+  { id: 'reading_diff', label: '读取改动' },
+  { id: 'analyzing', label: '分析' },
+  { id: 'summarizing', label: '汇总' },
+] as const;
+
+const SEVERITY_ORDER: readonly SeverityValue[] = ['blocker', 'critical', 'major', 'suggestion'];
+
+type GroupMode = 'order' | 'severity' | 'file';
+
 function shouldRetry(failureCount: number, error: unknown): boolean {
   return classifyGitFailure(error) === 'failed' && failureCount < 2;
+}
+
+function stageIndexOf(stage: string | undefined): number {
+  if (stage === undefined) return -1;
+  const direct = REVIEW_STAGES.findIndex((item) => item.id === stage);
+  if (direct !== -1) return direct;
+  if (stage === 'completed' || stage === 'done') return REVIEW_STAGES.length;
+  return -1;
+}
+
+function formatElapsed(milliseconds: number): string {
+  const total = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes)}:${String(seconds).padStart(2, '0')}`;
 }
 
 export interface ReviewPanelProps {
   readonly projectId: string;
   readonly commit: GitCommit;
   readonly reviewRunId: string | undefined;
+  /** 服务返回的最新一次审查 id；选中更早的记录时界面按只读历史审查展示。 */
+  readonly latestReviewRunId: string | undefined;
   readonly selectedFindingIds: ReadonlySet<string>;
   readonly onToggleFinding: (findingId: string, selected: boolean) => void;
   readonly onReviewStarted: (reviewRunId: string) => void;
+  readonly onSelectReviewRun: (reviewRunId: string) => void;
   readonly onLocate: (finding: ReviewFinding) => void;
   readonly onRequestFix: () => void;
+  /** 递增计数：主按钮「AI 审查此提交」直接打开审查设置抽屉（设计 g11）。 */
+  readonly openSetupRequest: number;
 }
 
 interface ReviewFormState {
@@ -73,26 +108,33 @@ interface ReviewFormState {
   readonly professionRevision: string;
 }
 
-/** AI 审查页签：开始审查（抽屉）→ 运行状态 → 结果与问题处理。审查只读。 */
+/** AI 审查页签：开始审查（抽屉）→ 运行状态 / 阶段条 → 结果与问题处理。审查只读。 */
 export function ReviewPanel({
   projectId,
   commit,
   reviewRunId,
+  latestReviewRunId,
   selectedFindingIds,
   onToggleFinding,
   onReviewStarted,
+  onSelectReviewRun,
   onLocate,
   onRequestFix,
+  openSetupRequest,
 }: ReviewPanelProps) {
   const queryClient = useQueryClient();
   const bootstrap = useBootstrap();
+  const { copied, copy } = useCopyValue();
   const [setupOpen, setSetupOpen] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptView | null>(null);
   const [lookupKey, setLookupKey] = useState<string | null>(null);
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareError, setCompareError] = useState<string | undefined>(undefined);
   const [compareResult, setCompareResult] = useState<{ resolved: { title: string }[]; introduced: { title: string }[]; persisting: { title: string }[] } | null>(null);
+  const [groupMode, setGroupMode] = useState<GroupMode>('order');
+  const [now, setNow] = useState(() => Date.now());
 
   const reviewQuery = useQuery({
     queryKey: gitKeys.review(projectId, reviewRunId ?? ''),
@@ -103,6 +145,19 @@ export function ReviewPanel({
       const state = (query.state.data as ReviewRun | undefined)?.state;
       return state === 'running' || state === 'queued' || state === 'stopping' ? 3_000 : false;
     },
+  });
+
+  const historyQuery = useQuery({
+    queryKey: gitKeys.reviewHistory(projectId, commit.sha),
+    queryFn: () => fetchReviewHistory(projectId, commit.sha),
+    retry: shouldRetry,
+  });
+
+  const suggestionsQuery = useQuery({
+    queryKey: gitKeys.reviewSuggestions(projectId, reviewRunId ?? ''),
+    queryFn: () => fetchReviewSuggestions(projectId, reviewRunId ?? ''),
+    enabled: reviewRunId !== undefined,
+    retry: shouldRetry,
   });
 
   const lookupQuery = useQuery({
@@ -118,6 +173,7 @@ export function ReviewPanel({
     onSuccess: (data) => {
       setReceipt(toReceiptView(data.receipt));
       void queryClient.invalidateQueries({ queryKey: gitKeys.review(projectId, reviewRunId ?? '') });
+      void queryClient.invalidateQueries({ queryKey: gitKeys.reviewHistory(projectId, commit.sha) });
     },
   });
 
@@ -162,6 +218,10 @@ export function ReviewPanel({
     }));
   }, [commit.sha, compareOptions, roles]);
 
+  useEffect(() => {
+    if (openSetupRequest > 0) setSetupOpen(true);
+  }, [openSetupRequest]);
+
   const startMutation = useMutation({
     mutationFn: () =>
       startReview({
@@ -181,6 +241,7 @@ export function ReviewPanel({
       if (review !== undefined && view.status !== 'unknown' && view.status !== 'failed') {
         setSetupOpen(false);
         onReviewStarted(review.reviewRunId);
+        void queryClient.invalidateQueries({ queryKey: gitKeys.reviewHistory(projectId, commit.sha) });
       }
     },
   });
@@ -188,6 +249,24 @@ export function ReviewPanel({
   const review = reviewQuery.data;
   const findings = review?.findings ?? [];
   const selectedCount = findings.filter((finding) => selectedFindingIds.has(finding.findingId)).length;
+  const history = historyQuery.data ?? [];
+  const suggestions = suggestionsQuery.data ?? [];
+  const suggestionById = useMemo(() => new Map(suggestions.map((item) => [item.findingId, item])), [suggestions]);
+  const historical = reviewRunId !== undefined && latestReviewRunId !== undefined && reviewRunId !== latestReviewRunId;
+  const running = review !== undefined && (review.state === 'running' || review.state === 'queued' || review.state === 'stopping');
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => { setNow(Date.now()); }, 1_000);
+    return () => { window.clearInterval(timer); };
+  }, [running, review?.reviewRunId]);
+
+  const stageIndex = review === undefined ? -1 : stageIndexOf(review.stage);
+  const stageFailed = review?.state === 'failed';
+  const elapsed =
+    review?.startedAt === undefined
+      ? undefined
+      : formatElapsed((review.endedAt === undefined ? now : Date.parse(review.endedAt)) - Date.parse(review.startedAt));
 
   const countsBySeverity = useMemo<Record<SeverityValue, number> | null>(() => {
     if (review === undefined) return null;
@@ -196,6 +275,27 @@ export function ReviewPanel({
     for (const finding of findings) base[finding.severity] += 1;
     return base;
   }, [findings, review]);
+
+  const grouped = useMemo(() => {
+    if (groupMode === 'severity') {
+      return SEVERITY_ORDER.map((severity) => ({
+        key: severity,
+        title: severityLabel(severity),
+        rows: findings.filter((finding) => finding.severity === severity),
+      })).filter((group) => group.rows.length > 0);
+    }
+    if (groupMode === 'file') {
+      const buckets = new Map<string, ReviewFinding[]>();
+      for (const finding of findings) {
+        const key = finding.location?.path ?? '（没有位置）';
+        const bucket = buckets.get(key);
+        if (bucket === undefined) buckets.set(key, [finding]);
+        else bucket.push(finding);
+      }
+      return [...buckets.entries()].map(([key, rows]) => ({ key, title: key, rows }));
+    }
+    return [{ key: 'all', title: '', rows: findings }];
+  }, [findings, groupMode]);
 
   const startBlockedReason =
     compareOptions.length === 0
@@ -206,9 +306,31 @@ export function ReviewPanel({
           ? '取不到已发布的审查职业；目录未加载时不开始审查。'
           : form.professionId.length === 0
             ? '没有选中审查职业；职业版本是审查冻结的一部分。'
-          : form.compareId.length === 0
-            ? '请选择审查范围。'
-            : null;
+            : form.compareId.length === 0
+              ? '请选择审查范围。'
+              : null;
+
+  const activeCompare = (async (): Promise<void> => {
+    if (reviewRunId === undefined) return;
+    setCompareBusy(true);
+    setCompareError(undefined);
+    try {
+      const list = await fetchReviewHistory(projectId, commit.sha);
+      const previous = list.find((item) => item.reviewRunId !== reviewRunId);
+      if (previous === undefined) throw new Error('这个提交还没有更早的审查可对比');
+      const comparison = (await apiGet<{ resolved: { title: string }[]; introduced: { title: string }[]; persisting: { title: string }[] }>(`/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(previous.reviewRunId)}/compare/${encodeURIComponent(reviewRunId)}`)).data;
+      setCompareResult(comparison);
+      setCompareOpen(true);
+    } catch (error) {
+      setCompareError(error instanceof Error ? error.message : '对比失败');
+    } finally {
+      setCompareBusy(false);
+    }
+  });
+
+  const locate = (finding: ReviewFinding): void => {
+    onLocate(finding);
+  };
 
   return (
     <div className="stack-loose">
@@ -239,6 +361,27 @@ export function ReviewPanel({
             <span className="muted-note">
               第 {String(review.ordinal)} 次审查 · {review.profession.displayName} · {review.context === 'diff_only' ? '只读改动' : '改动 + 相关文件'}
             </span>
+            {history.length > 1 ? (
+              <label className="inline-check" style={{ fontSize: 12 }}>
+                历史审查
+                <select
+                  className="select"
+                  style={{ height: 28, width: 'auto', display: 'inline-block', marginLeft: 6 }}
+                  value={reviewRunId ?? ''}
+                  onChange={(event) => { onSelectReviewRun(event.target.value); }}
+                  title="同一提交的多次审查记录；历史审查只读"
+                >
+                  {history.map((entry) => (
+                    <option key={entry.reviewRunId} value={entry.reviewRunId}>
+                      第 {String(entry.ordinal)} 次 · {reviewLabel(entry.state)}
+                      {entry.reviewRunId === latestReviewRunId ? '（最新）' : ''}
+                      {entry.endedAt === undefined ? '' : ` · ${formatTime(entry.endedAt)}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {historical ? <Badge tone="wait" icon="lock">历史审查 · 只读</Badge> : null}
           </>
         )}
         <span className="spacer" />
@@ -249,7 +392,7 @@ export function ReviewPanel({
         ) : (
           <>
             {review?.state === 'running' || review?.state === 'stopping' ? (
-              <Button variant="secondary" size="sm" icon="stop" disabled={stopMutation.isPending || review.state === 'stopping'} disabledReason={review.state === 'stopping' ? '服务正在停止审查；停止请求不等于已停止。' : undefined} onClick={() => { stopMutation.mutate(); }}>
+              <Button variant="secondary" size="sm" icon="stop" disabled={stopMutation.isPending || review.state === 'stopping'} disabledReason={review.state === 'stopping' ? '服务正在停止审查；停止请求不等于已停止。' : undefined} onClick={() => { setStopOpen(true); }}>
                 停止审查
               </Button>
             ) : (
@@ -284,6 +427,15 @@ export function ReviewPanel({
         />
       ) : (
         <>
+          {historical ? (
+            <div className="banner info" role="status">
+              <Icon name="lock" />
+              <div className="grow">
+                正在查看第 {String(review.ordinal)} 次审查（历史记录，只读）。问题状态写入只作用于最新一次审查；需要重新处理请回到最新记录或再开一次审查。
+              </div>
+            </div>
+          ) : null}
+
           <div className="review-summary-card">
             <div className="row-wrap">
               <Badge tone={reviewStateTone(review.state)} icon={review.state === 'completed' ? 'check' : 'alert'}>
@@ -293,41 +445,125 @@ export function ReviewPanel({
                 对比 {review.subject.compareBase.label} · base {shortSha(review.subject.compareBase.baseSha)} · 提交 {shortSha(review.subject.commitSha)}
               </span>
               <span className="grow" />
-              {review.startedAt === undefined ? null : <span className="muted-note">开始于 {formatTime(review.startedAt)}</span>}
+              {review.startedAt === undefined ? null : <span className="muted-note">{running ? '已用' : '开始于'} {running ? (elapsed ?? '—') : formatTime(review.startedAt)}</span>}
               {review.endedAt === undefined ? null : <span className="muted-note">结束于 {formatAbsolute(review.endedAt)}</span>}
+              {running && elapsed !== undefined ? <span className="muted-note">已用 {elapsed}</span> : null}
             </div>
-            {review.stage === undefined ? null : (
-              <div className="review-summary-text">当前阶段：{REVIEW_STAGE_LABEL[review.stage] ?? review.stage}</div>
-            )}
+
+            {review.state === 'queued' || review.state === 'running' || review.state === 'stopping' || review.state === 'completed' || review.state === 'failed' || review.state === 'stopped' ? (
+              <div className="review-stages" role="list" aria-label="审查阶段">
+                {REVIEW_STAGES.map((stage, index) => {
+                  const state =
+                    review.state === 'completed'
+                      ? 'done'
+                      : review.state === 'stopped'
+                        ? index <= stageIndex ? 'done' : 'pending'
+                        : stageFailed
+                          ? index < stageIndex ? 'done' : index === stageIndex ? 'failed' : 'pending'
+                          : index < stageIndex
+                            ? 'done'
+                            : index === stageIndex
+                              ? review.state === 'stopping' ? 'stopping' : 'running'
+                              : 'pending';
+                  return (
+                    <span key={stage.id} className="review-stage" data-state={state} role="listitem">
+                      <span className="review-stage-dot" aria-hidden="true">
+                        <Icon name={state === 'done' ? 'check' : state === 'failed' ? 'alert' : state === 'running' || state === 'stopping' ? 'clock' : 'minus'} size="sm" />
+                      </span>
+                      <span>{stage.label}</span>
+                    </span>
+                  );
+                })}
+                <span className="muted-note">阶段来自服务返回的 stage；不显示假百分比。</span>
+              </div>
+            ) : null}
+
+            {stageFailed ? (
+              <div className="banner danger" role="alert">
+                <Icon name="alert" />
+                <div className="grow">
+                  <b>审查没有完成</b>
+                  <br />
+                  停在阶段：{stageIndex >= 0 ? REVIEW_STAGE_LABEL[REVIEW_STAGES[stageIndex]?.id ?? ''] ?? '未知' : '服务未保留失败前阶段'}。历史审查记录不受影响；可以重新审查（新开一次）。
+                  {review.receipt.error === undefined ? null : (
+                    <span className="failure-detail">{review.receipt.error.message}{review.receipt.error.code === '' ? '' : ` · ${review.receipt.error.code}`}</span>
+                  )}
+                </div>
+                <div className="actions">
+                  <Button variant="secondary" size="sm" icon="refresh" disabled={startBlockedReason !== null} disabledReason={startBlockedReason ?? undefined} onClick={() => { setSetupOpen(true); }}>
+                    重新审查
+                  </Button>
+                  <Button variant="ghost" size="sm" icon="external" disabled disabledReason="审查以只读会话运行，服务没有把它登记为任务（无 taskId）；界面不伪造任务详情入口。">
+                    在任务中查看详情
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {review.state === 'unknown' ? (
+              <div className="banner unknown" role="alert">
+                <Icon name="help" />
+                <div className="grow">
+                  <b>审查结果未知 · 按原操作核对</b>
+                  <br />
+                  保持原记录，不自动重发。只有服务结算后的回执才能清除未知。
+                </div>
+                <div className="actions">
+                  <Button variant="secondary" size="sm" icon="search" disabled={lookupQuery.isFetching} onClick={() => { setLookupKey(review.receipt.requestKey); }}>
+                    核对原操作
+                  </Button>
+                  <Button variant="ghost" size="sm" icon="external" disabled disabledReason="审查以只读会话运行，服务没有把它登记为任务（无 taskId）；界面不伪造任务详情入口。">
+                    在任务中查看详情
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {review.summary === undefined ? (
               <div className="review-summary-text muted">
                 {review.state === 'completed'
                   ? '服务没有返回结论文本；问题列表仍按下方的真实数据展示。'
                   : review.state === 'failed'
-                    ? '审查没有完成。历史审查记录不受影响；可以重新审查（新开一次）。'
+                    ? '审查没有完成；历史审查记录不受影响。'
                     : review.state === 'unknown'
                       ? '审查结果未知：只核对原操作，不重发。'
-                      : '审查进行中；不显示假百分比，阶段由服务给出。'}
+                      : review.state === 'stopped'
+                        ? '审查已停止；已产生的记录保留。'
+                        : '审查进行中；不显示假百分比，阶段由服务给出。'}
               </div>
             ) : (
               <div className="review-summary-text">{review.summary.text}</div>
             )}
+
             {review.summary === undefined || countsBySeverity === null ? null : (
               <>
                 <div className="review-counts">
-                  {(['blocker', 'critical', 'major', 'suggestion'] as const).map((severity) => (
+                  {SEVERITY_ORDER.map((severity) => (
                     <Badge key={severity} tone={SEVERITY_TONE[severity]} icon={SEVERITY_ICON[severity]}>
                       {severityLabel(severity)} {String(countsBySeverity[severity] ?? 0)}
                     </Badge>
                   ))}
                 </div>
-                <div className="review-dimension-list">
-                  {DIMENSION_ORDER.map((dimension) => (
-                    <Badge key={dimension} outline icon={DIMENSION_ICON[dimension]} tone="neutral">
-                      {DIMENSION_LABEL[dimension]} {String(review.summary?.countsByDimension[dimension] ?? 0)}
-                    </Badge>
-                  ))}
-                </div>
+                {review.state === 'completed' && findings.length === 0 ? (
+                  <div className="review-dimension-list" aria-label="维度检查结果">
+                    {DIMENSION_ORDER.map((dimension) => {
+                      const requested = review.dimensions.includes(dimension);
+                      return (
+                        <Badge key={dimension} outline tone={requested ? 'ok' : 'idle'} icon={requested ? 'check' : 'minus'}>
+                          {DIMENSION_LABEL[dimension]} {requested ? '未报告问题' : '本次未选择'}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="review-dimension-list">
+                    {DIMENSION_ORDER.map((dimension) => (
+                      <Badge key={dimension} outline icon={DIMENSION_ICON[dimension]} tone="neutral">
+                        {DIMENSION_LABEL[dimension]} {String(review.summary?.countsByDimension[dimension] ?? 0)}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -335,106 +571,124 @@ export function ReviewPanel({
           <div className="review-toolbar">
             <h3 style={{ fontSize: 13.5, fontWeight: 500 }}>问题列表</h3>
             <Badge tone="neutral">{String(findings.length)}</Badge>
+            <SegmentedControl
+              ariaLabel="问题分组"
+              value={groupMode}
+              onChange={(value) => { setGroupMode(value); }}
+              options={[
+                { value: 'order', label: '默认顺序' },
+                { value: 'severity', label: '按严重度' },
+                { value: 'file', label: '按文件' },
+              ]}
+            />
             <span className="spacer" />
             <Button
               variant="ghost"
               size="sm"
               icon="refresh"
               disabled={reviewRunId === undefined || compareBusy}
-              onClick={() => {
-                if (reviewRunId === undefined) return;
-                setCompareBusy(true);
-                setCompareError(undefined);
-                void (async () => {
-                  try {
-                    const list = (await apiGet<{ reviews: { reviewRunId: string }[] }>(`/api/git/repos/${encodeURIComponent(projectId)}/commits/${encodeURIComponent(commit.sha)}/reviews`)).data.reviews;
-                    const previous = list.find((item) => item.reviewRunId !== reviewRunId);
-                    if (previous === undefined) throw new Error('这个提交还没有更早的审查可对比');
-                    const comparison = (await apiGet<{ resolved: { title: string }[]; introduced: { title: string }[]; persisting: { title: string }[] }>(`/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(previous.reviewRunId)}/compare/${encodeURIComponent(reviewRunId)}`)).data;
-                    setCompareResult(comparison);
-                    setCompareOpen(true);
-                  } catch (error) {
-                    setCompareError(error instanceof Error ? error.message : '对比失败');
-                  } finally {
-                    setCompareBusy(false);
-                  }
-                })();
-              }}
+              onClick={() => { void activeCompare(); }}
             >
               {compareBusy ? '对比中…' : '对比上次审查'}
             </Button>
             <span className="muted-note">接受 / 忽略 / 误报会写入审查问题状态；忽略与误报不能被选入修复。</span>
           </div>
+          {compareError === undefined ? null : <div className="banner warn" role="alert"><Icon name="alert" /><div className="grow">{compareError}</div></div>}
 
           {findings.length === 0 ? (
             <EmptyState
               compact
               icon="check"
               title={review.state === 'completed' ? '没有发现需要处理的问题' : '还没有问题数据'}
-              description={review.state === 'completed' ? '结论由服务汇总；修复页签在无问题时不可选。' : '审查未完成或结果未知时，不推断“没有问题”。'}
+              description={review.state === 'completed' ? '结论由服务汇总；修复页签在无问题时不可用。' : '审查未完成或结果未知时，不推断“没有问题”。'}
             />
           ) : (
             <div className="list-cards">
-              {findings.map((finding) => {
-                const selected = selectedFindingIds.has(finding.findingId);
-                const selectable = finding.status === 'open' || finding.status === 'accepted';
-                const busy = findingMutation.isPending && findingMutation.variables?.findingId === finding.findingId;
-                return (
-                  <div key={finding.findingId} className={['finding-card', `sev-${finding.severity}`, finding.status !== 'open' ? 'resolved' : ''].filter(Boolean).join(' ')}>
-                    <div className="finding-head">
-                      <Badge tone={SEVERITY_TONE[finding.severity]} icon={SEVERITY_ICON[finding.severity]}>
-                        {severityLabel(finding.severity)}
-                      </Badge>
-                      <Badge outline icon={DIMENSION_ICON[finding.dimension]} tone="neutral">
-                        {DIMENSION_LABEL[finding.dimension]}
-                      </Badge>
-                      <span className="finding-title">{finding.title}</span>
-                      <Badge tone={findingStatusTone(finding.status)}>{findingStatusLabel(finding.status)}</Badge>
+              {grouped.map((group) => (
+                <div key={group.key} className="stack-tight">
+                  {group.title === '' ? null : (
+                    <div className="section-title-row">
+                      <h3>{group.title}</h3>
+                      <span className="eyebrow">{String(group.rows.length)} 项</span>
                     </div>
-                    {finding.location === undefined ? null : (
-                      <span>
-                        <button
-                          type="button"
-                          className="finding-loc"
-                          title="在 diff 中定位"
-                          onClick={() => { onLocate(finding); }}
-                        >
-                          <Icon name="target" size="sm" />
-                          {finding.location.path}:{String(finding.location.startLine)}–{String(finding.location.endLine)} · {finding.location.side === 'new' ? '新版本' : '旧版本'}
-                        </button>
-                      </span>
-                    )}
-                    <div className="finding-detail">{finding.detail}</div>
-                    {finding.statusReason === undefined ? null : <div className="finding-status-note">状态原因：{finding.statusReason}</div>}
-                    <div className="finding-actions">
-                      <Button variant="ghost" size="sm" icon="check" disabled={busy || finding.status === 'accepted'} disabledReason={finding.status === 'accepted' ? '已标记为接受。' : undefined} onClick={() => { findingMutation.mutate({ findingId: finding.findingId, status: 'accepted' }); }}>
-                        接受
-                      </Button>
-                      <Button variant="ghost" size="sm" icon="eye" disabled={busy || finding.status === 'dismissed'} disabledReason={finding.status === 'dismissed' ? '已忽略。' : undefined} onClick={() => { findingMutation.mutate({ findingId: finding.findingId, status: 'dismissed' }); }}>
-                        忽略
-                      </Button>
-                      <Button variant="ghost" size="sm" icon="x" disabled={busy || finding.status === 'false_positive'} disabledReason={finding.status === 'false_positive' ? '已标记为误报。' : undefined} onClick={() => { findingMutation.mutate({ findingId: finding.findingId, status: 'false_positive' }); }}>
-                        误报
-                      </Button>
-                      {finding.status === 'open' ? null : (
-                        <Button variant="ghost" size="sm" icon="undo" disabled={busy} onClick={() => { findingMutation.mutate({ findingId: finding.findingId, status: 'open' }); }}>
-                          恢复待处理
-                        </Button>
-                      )}
-                      <span className="spacer" />
-                      <label className="finding-selected" title={selectable ? undefined : '忽略或误报的问题不能选入修复'}>
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          disabled={!selectable}
-                          onChange={(event) => { onToggleFinding(finding.findingId, event.target.checked); }}
-                        />
-                        选入修复
-                      </label>
-                    </div>
-                  </div>
-                );
-              })}
+                  )}
+                  {group.rows.map((finding) => {
+                    const selected = selectedFindingIds.has(finding.findingId);
+                    const selectable = finding.status === 'open' || finding.status === 'accepted';
+                    const busy = findingMutation.isPending && findingMutation.variables?.findingId === finding.findingId;
+                    const locked = historical || busy;
+                    const suggestion = suggestionById.get(finding.findingId);
+                    return (
+                      <div key={finding.findingId} className={['finding-card', `sev-${finding.severity}`, finding.status !== 'open' ? 'resolved' : ''].filter(Boolean).join(' ')}>
+                        <div className="finding-head">
+                          <Badge tone={SEVERITY_TONE[finding.severity]} icon={SEVERITY_ICON[finding.severity]}>
+                            {severityLabel(finding.severity)}
+                          </Badge>
+                          <Badge outline icon={DIMENSION_ICON[finding.dimension]} tone="neutral">
+                            {DIMENSION_LABEL[finding.dimension]}
+                          </Badge>
+                          <span className="finding-title">{finding.title}</span>
+                          <Badge tone={findingStatusTone(finding.status)}>{findingStatusLabel(finding.status)}</Badge>
+                        </div>
+                        {finding.location === undefined ? null : (
+                          <span>
+                            <button
+                              type="button"
+                              className="finding-loc"
+                              title="在 diff 中定位"
+                              onClick={() => { locate(finding); }}
+                            >
+                              <Icon name="target" size="sm" />
+                              {finding.location.path}:{String(finding.location.startLine)}–{String(finding.location.endLine)} · {finding.location.side === 'new' ? '新版本' : '旧版本'}
+                            </button>
+                          </span>
+                        )}
+                        <div className="finding-detail">{finding.detail}</div>
+                        {suggestion === undefined ? null : (
+                          <details className="finding-suggestion">
+                            <summary>建议修改（unified patch · 只读，不自动应用）</summary>
+                            <pre className="finding-suggestion-patch">{suggestion.patch}</pre>
+                            <div className="row-wrap">
+                              <span className="muted-note">appliesTo {shortSha(suggestion.appliesTo)}</span>
+                              <span className="grow" />
+                              <Button variant="ghost" size="sm" icon={copied === suggestion.findingId ? 'check' : 'copy'} onClick={() => { copy(suggestion.patch, suggestion.findingId); }}>
+                                {copied === suggestion.findingId ? '已复制' : '复制 patch'}
+                              </Button>
+                            </div>
+                          </details>
+                        )}
+                        {finding.statusReason === undefined ? null : <div className="finding-status-note">状态原因：{finding.statusReason}</div>}
+                        <div className="finding-actions">
+                          <Button variant="ghost" size="sm" icon="check" disabled={locked || finding.status === 'accepted'} disabledReason={historical ? '历史审查只读；状态写入只作用于最新一次审查。' : finding.status === 'accepted' ? '已标记为接受。' : undefined} onClick={() => { findingMutation.mutate({ findingId: finding.findingId, status: 'accepted' }); }}>
+                            接受
+                          </Button>
+                          <Button variant="ghost" size="sm" icon="eye" disabled={locked || finding.status === 'dismissed'} disabledReason={historical ? '历史审查只读；状态写入只作用于最新一次审查。' : finding.status === 'dismissed' ? '已忽略。' : undefined} onClick={() => { findingMutation.mutate({ findingId: finding.findingId, status: 'dismissed' }); }}>
+                            忽略
+                          </Button>
+                          <Button variant="ghost" size="sm" icon="x" disabled={locked || finding.status === 'false_positive'} disabledReason={historical ? '历史审查只读；状态写入只作用于最新一次审查。' : finding.status === 'false_positive' ? '已标记为误报。' : undefined} onClick={() => { findingMutation.mutate({ findingId: finding.findingId, status: 'false_positive' }); }}>
+                            误报
+                          </Button>
+                          {finding.status === 'open' ? null : (
+                            <Button variant="ghost" size="sm" icon="undo" disabled={locked} disabledReason={historical ? '历史审查只读；状态写入只作用于最新一次审查。' : undefined} onClick={() => { findingMutation.mutate({ findingId: finding.findingId, status: 'open' }); }}>
+                              恢复待处理
+                            </Button>
+                          )}
+                          <span className="spacer" />
+                          <label className="finding-selected" title={selectable ? undefined : '忽略或误报的问题不能选入修复'}>
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              disabled={historical || !selectable}
+                              onChange={(event) => { onToggleFinding(finding.findingId, event.target.checked); }}
+                            />
+                            选入修复
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           )}
 
@@ -443,10 +697,10 @@ export function ReviewPanel({
           <div className="review-sticky-foot">
             <span className="muted-note">
               已选 {String(selectedCount)} 个问题
-              {reviewRunId === undefined ? '' : ` · 失败候选或未知问题不会自动选中`}
+              {reviewRunId === undefined ? '' : ' · 忽略 / 误报的问题不会自动选中'}
             </span>
             <span className="spacer" />
-            <Button variant="primary" size="sm" icon="wand" disabled={selectedCount === 0 || review.state !== 'completed'} disabledReason={selectedCount === 0 ? '先在问题列表勾选要修复的问题。' : review.state !== 'completed' ? '审查完成后才能开始修复。' : undefined} onClick={onRequestFix}>
+            <Button variant="primary" size="sm" icon="wand" disabled={selectedCount === 0 || review.state !== 'completed' || historical} disabledReason={historical ? '历史审查只读；请切到最新审查或重新审查后再修复。' : selectedCount === 0 ? '先在问题列表勾选要修复的问题。' : review.state !== 'completed' ? '审查完成后才能开始修复。' : undefined} onClick={onRequestFix}>
               AI 修复所选问题
             </Button>
           </div>
@@ -597,6 +851,36 @@ export function ReviewPanel({
           {receipt !== null && setupOpen ? <ReceiptBanner receipt={receipt} onVerify={(key) => { setLookupKey(key); }} verifying={lookupQuery.isFetching} /> : null}
         </div>
       </Drawer>
+
+      <Modal
+        open={stopOpen}
+        title="停止这次审查？"
+        onClose={() => { setStopOpen(false); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setStopOpen(false); }}>取消</Button>
+            <span className="spacer" />
+            <Button
+              variant="secondary"
+              icon="stop"
+              disabled={stopMutation.isPending}
+              disabledReason={stopMutation.isPending ? '正在提交停止请求，等待服务回执…' : undefined}
+              onClick={() => { stopMutation.mutate(undefined, { onSettled: () => { setStopOpen(false); } }); }}
+            >
+              {stopMutation.isPending ? '提交中…' : '确认停止审查'}
+            </Button>
+          </>
+        }
+      >
+        <div className="stack-loose">
+          <p className="lede">停止请求不等于已停止：服务会把审查标记为停止中，等会话停稳后落定；已产生的记录保留，历史审查不受影响。</p>
+          <div className="dialog-facts">
+            <div className="row-line"><span className="k">审查</span><span className="v">第 {String(review?.ordinal ?? '—')} 次 · {review === undefined ? '—' : reviewLabel(review.state)}</span></div>
+            <div className="row-line"><span className="k">阶段</span><span className="v">{review?.stage === undefined ? '未知' : REVIEW_STAGE_LABEL[review.stage] ?? review.stage}</span></div>
+            <div className="row-line"><span className="k">已用</span><span className="v">{elapsed ?? '未知'}</span></div>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={compareOpen} title="审查对比" onClose={() => { setCompareOpen(false); }} footer={<Button variant="ghost" onClick={() => { setCompareOpen(false); }}>关闭</Button>}>
         {compareResult === null ? null : (

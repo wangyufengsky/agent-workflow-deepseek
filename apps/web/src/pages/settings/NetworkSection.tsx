@@ -14,7 +14,7 @@ export function NetworkSection({ settings }: { readonly settings: PublicSettings
       else { try { const url = new URL(value); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error(); } catch { issue = '填写无凭据的完整 HTTP(S) 地址'; } }
       draft.setField({ path, label, section: 'network', value, baseline, effect: 'live', issue });
     };
-    return <SettingsRow key={path} label={label} hint={hosts ? '每行一个；HTTPS无需添加，HTTP只允许明确列出的主机。' : undefined} dirty={field !== undefined} effect="live"><div className="col">{hosts ? <textarea className="textarea mono" aria-label={label} value={value} onChange={(event) => change(event.target.value)} /> : <input className="input mono" aria-label={label} value={value} onChange={(event) => change(event.target.value)} />}{field?.issue ? <span className="hint" role="alert">{field.issue}</span> : null}</div></SettingsRow>;
+    return <SettingsRow key={path} label={label} hint={hosts ? '每行一个；HTTPS无需添加，HTTP只允许明确列出的主机。' : undefined} dirty={field !== undefined} effect="live"><div className="col">{hosts ? <textarea className="textarea mono" aria-label={label} value={value} disabled={draft.readOnly} onChange={(event) => change(event.target.value)} /> : <input className="input mono" aria-label={label} value={value} disabled={draft.readOnly} onChange={(event) => change(event.target.value)} />}{field?.issue ? <span className="hint" role="alert">{field.issue}</span> : null}</div></SettingsRow>;
   };
   return <div className="sect"><SettingsHeading title="发布网络" lede="发布到 GitLab 时使用的地址与超时；修改随底部“保存设置”一起保存，后续远端请求生效。" /><div className="card card-sec">
     {textRow('git.gitlab.baseUrl', 'GitLab 地址', settings.git.gitlab.baseUrl)}

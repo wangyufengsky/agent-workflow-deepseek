@@ -325,6 +325,30 @@ describe('diffHunks', () => {
     assert.equal(ignored.ignoreWhitespace, true);
   });
 
+  it('expands unchanged context with a larger unified radius (GIT-02) and validates the request', async (t) => {
+    const repo = fixture(t);
+    const lines = Array.from({ length: 30 }, (_, index) => `line ${String(index + 1)}`);
+    repo.write('context.txt', `${lines.join('\n')}\n`);
+    const baseSha = repo.commit('base');
+    const changed = lines.map((line, index) => (index === 14 ? 'line 15 changed' : line));
+    repo.write('context.txt', `${changed.join('\n')}\n`);
+    const headSha = repo.commit('change middle');
+    const git = await open(repo);
+    const tight = await git.diffHunks({ baseSha, headSha, path: 'context.txt' });
+    const mid = await git.diffHunks({ baseSha, headSha, path: 'context.txt', contextLines: 10 });
+    const wide = await git.diffHunks({ baseSha, headSha, path: 'context.txt', contextLines: 25 });
+    const tightLines = tight.hunks.reduce((total, hunk) => total + hunk.lines.length, 0);
+    const midLines = mid.hunks.reduce((total, hunk) => total + hunk.lines.length, 0);
+    const wideLines = wide.hunks.reduce((total, hunk) => total + hunk.lines.length, 0);
+    assert.ok(midLines > tightLines, `expected expanded context, tight=${String(tightLines)} mid=${String(midLines)}`);
+    assert.ok(wideLines > midLines);
+    assert.ok((mid.hunks[0]?.oldStart ?? 99) < (tight.hunks[0]?.oldStart ?? 0));
+    // 展开后的上下文来自真实文件行，不是补齐的占位文本。
+    assert.ok(wide.hunks[0]?.lines.some((line) => line.text === 'line 1'));
+    await expectCode(git.diffHunks({ baseSha, headSha, path: 'context.txt', contextLines: 0 }), ErrorCode.VALIDATION_FAILED);
+    await expectCode(git.diffHunks({ baseSha, headSha, path: 'context.txt', contextLines: 2_001 }), ErrorCode.VALIDATION_FAILED);
+  });
+
   it('returns no hunks for binary files', async (t) => {
     const repo = fixture(t);
     repo.write('bin.dat', Uint8Array.from([0, 1, 2]));

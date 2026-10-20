@@ -80,7 +80,7 @@ export function ResearchTimeline({
       <div className="kb-research-note">
         <Icon name="help" size="sm" />
         <span>
-          本轮还没有工具调用记录。
+          本次执行没有记录研究步骤或工具调用（旧回答可能未记录；页面不会虚构）。
         </span>
       </div>
     );
@@ -90,12 +90,8 @@ export function ResearchTimeline({
     <div className={`kb-research-timeline${compact ? ' compact' : ''}`}>
       <div className="kb-rt-head">
         <span className="section-title grow">研究过程</span>
-        <Badge tone="idle" icon="clock">完成后时间线</Badge>
         {hasSteps ? <Badge outline>{String(stepList.length)} 个步骤</Badge> : null}
       </div>
-      <p className="hint kb-rt-note">
-        数据来自服务端完成的本次执行（retrieve/model/tool/validate），本轮非流式；不显示实时进度或虚构阶段。
-      </p>
 
       {hasSteps ? (
         <ol className="kb-rt-list" aria-label="研究步骤时间线">

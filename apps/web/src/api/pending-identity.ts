@@ -13,3 +13,9 @@ export function usePendingIdentityMatching(matches:(path:string)=>boolean):Pendi
  const snapshot=useSyncExternalStore(subscribePending,()=>{const command=pendingIdentityMatching(matches);return command?JSON.stringify(command):'';},()=> '');
  return snapshot?JSON.parse(snapshot) as PendingCommand:undefined;
 }
+
+/** All durable command identities; used by pages that lock per-row writes. */
+export function usePendingCommands(): readonly PendingCommand[] {
+ const snapshot=useSyncExternalStore(subscribePending,()=>JSON.stringify(pendingCommands()),()=>'[]');
+ try{return JSON.parse(snapshot) as PendingCommand[];}catch{return [];}
+}

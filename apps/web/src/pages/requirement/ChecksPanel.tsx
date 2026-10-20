@@ -1,4 +1,4 @@
-import type { PlanRevision, PlanningRound } from '@agent-workflow/shared';
+import { PLAN_REVISION_STATUS_LABEL, type ActionAvailability, type PlanNode, type PlanRevision, type PlanningRound } from '@agent-workflow/shared';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
@@ -13,13 +13,34 @@ export interface ChecksPanelProps {
   readonly round?: PlanningRound;
   readonly onLocateNode: (nodeId: string) => void;
   readonly onOpenPlan: () => void;
+  /** PE28: adopt “改为先后执行” by adding an order edge (new diff + re-check). */
+  readonly serializeAction?: ActionAvailability;
+  readonly onSerialize?: (fromNodeId: string, toNodeId: string) => void;
+  readonly busy?: boolean;
+  readonly lockedReason?: string;
+}
+
+/** PE28: two steps writing the same resource are a real write conflict the plan must resolve. */
+function writeCollisions(plan: PlanRevision | undefined): readonly { readonly resource: string; readonly nodes: readonly PlanNode[] }[] {
+  if (plan === undefined) return [];
+  const owners = new Map<string, PlanNode[]>();
+  for (const node of plan.graph.nodes) {
+    for (const resource of node.resources.write) {
+      const key = `${resource.kind}:${resource.label}`;
+      owners.set(key, [...(owners.get(key) ?? []), node]);
+    }
+  }
+  return [...owners.entries()]
+    .filter(([, nodes]) => nodes.length > 1)
+    .map(([resource, nodes]) => ({ resource, nodes }));
 }
 
 const SEVERITY_TONE = { hard: 'fail', warning: 'warn', info: 'idle' } as const;
 
 /** “检查” tab: four independent layers + V1–V8 + problem list + requirement coverage. */
-export function ChecksPanel({ revision, round, onLocateNode, onOpenPlan }: ChecksPanelProps) {
+export function ChecksPanel({ revision, round, onLocateNode, onOpenPlan, serializeAction, onSerialize, busy, lockedReason }: ChecksPanelProps) {
   const validation = revision?.validation;
+  const collisions = writeCollisions(revision);
 
   if (validation === undefined) {
     return (
@@ -49,7 +70,7 @@ export function ChecksPanel({ revision, round, onLocateNode, onOpenPlan }: Check
             <Badge outline>未标记修订</Badge>
           ) : (
             <Badge outline>
-              计划修订 #{revision.revisionNumber} · {revision.status}
+              计划修订 #{revision.revisionNumber} · {PLAN_REVISION_STATUS_LABEL[revision.status]}
             </Badge>
           )
         }
@@ -134,6 +155,48 @@ export function ChecksPanel({ revision, round, onLocateNode, onOpenPlan }: Check
                     定位
                   </Button>
                 )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section title="并行写冲突（PE28）" aside={<span className="hint">资源冲突不能忽略</span>}>
+        {collisions.length === 0 ? (
+          <p className="hint">服务返回的计划里没有多个步骤写同一资源。</p>
+        ) : (
+          <div className="box">
+            {collisions.map((collision) => (
+              <div key={collision.resource} className="rowx">
+                <span className="ic warn">
+                  <Icon name="alert" size="sm" />
+                </span>
+                <div className="grow">
+                  <div className="t">{collision.resource}</div>
+                  <div className="s">
+                    {collision.nodes.map((node) => node.title).join(' 与 ')} 写同一资源；MVP 只提供“改为先后执行（形成新差异）”，不提供子隔离。
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon="refresh"
+                    disabled={busy === true || serializeAction?.allowed !== true}
+                    disabledReason={lockedReason ?? (serializeAction?.allowed === true ? undefined : serializeAction?.reason)}
+                    onClick={() => {
+                      const from = collision.nodes[0];
+                      const to = collision.nodes[1];
+                      if (from === undefined || to === undefined) return;
+                      onSerialize?.(from.id, to.id);
+                    }}
+                  >
+                    改为先后执行
+                  </Button>
+                  <Button size="sm" variant="ghost" icon="lock" disabled disabledReason="申请子隔离与汇合：未安装 · 后续分期（设计明确不开放）">
+                    申请子隔离与汇合
+                  </Button>
+                </div>
               </div>
             ))}
           </div>

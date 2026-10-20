@@ -44,48 +44,13 @@
   gap: 8px;
   margin-left: auto;
 }
-.header-actions .seg button {
-  height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
-  gap: 4px;
-}
-.conn-chip {
-  display: inline-flex;
+/* Controls that a page renders without a shell header (design header:'' pages)
+   fall back inline from PageHeaderSlot instead of disappearing. */
+.page-header-inline {
+  display: flex;
   align-items: center;
-  gap: 7px;
-  height: 28px;
-  padding: 0 11px;
-  border-radius: var(--r-pill);
-  background: var(--fill-2);
-  border: 1px solid var(--line);
-  font-size: 12px;
-  color: var(--sub);
-  white-space: nowrap;
-}
-.conn-chip .dot {
-  width: 6px;
-  height: 6px;
-}
-.project-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: var(--r-pill);
-  background: var(--fill-1);
-  border: 1px solid var(--line);
-  font-size: 12px;
-  color: var(--sub);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-chip:hover {
-  color: var(--ink);
-  border-color: var(--line-2);
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .connection-strip {
   flex: none;
@@ -114,26 +79,52 @@
   padding: 0 10px;
   font-size: 12px;
 }
-.header-theme {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 11px;
-  border-radius: var(--r-pill);
-  background: var(--fill-2);
-  border: 1px solid var(--line);
-  color: var(--sub);
-  font-size: 12px;
-  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+
+/* ---------- Reduced motion (settings → 外观 three-state control) ----------
+   ds.css (byte-identical to the design) suppresses motion through the OS
+   `prefers-reduced-motion` media query. `data-motion` adds the product-level
+   choice on top: `reduce` always suppresses; `full` keeps the design motion
+   even when the OS asks to reduce (restores the design durations below). */
+html[data-motion='reduce'] *,
+html[data-motion='reduce'] *::before,
+html[data-motion='reduce'] *::after {
+  animation-duration: 0.001s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001s !important;
 }
-.header-theme:hover {
-  background: var(--fill-3);
-  color: var(--ink);
-  border-color: var(--line-2);
-}
-.header-theme .i {
-  color: var(--accent);
+@media (prefers-reduced-motion: reduce) {
+  html[data-motion='full'] *,
+  html[data-motion='full'] *::before,
+  html[data-motion='full'] *::after {
+    transition-duration: var(--t-fast) !important;
+  }
+  html[data-motion='full'] .dot.pulse {
+    animation: pulse 2.4s var(--ease) infinite !important;
+  }
+  html[data-motion='full'] .spin {
+    animation: spin 0.8s linear infinite !important;
+  }
+  html[data-motion='full'] .skel {
+    animation: skel 1.4s linear infinite !important;
+  }
+  html[data-motion='full'] .toast {
+    animation: toastIn 0.35s var(--ease) both !important;
+  }
+  html[data-motion='full'] .in {
+    animation: in 0.45s var(--ease) both !important;
+  }
+  html[data-motion='full'] .fade {
+    animation: fade 0.3s ease both !important;
+  }
+  html[data-motion='full'] .cv-edge.live {
+    animation: flow 1.2s linear infinite !important;
+  }
+  html[data-motion='full'] .side {
+    animation: sideIn 0.35s var(--ease) both !important;
+  }
+  html[data-motion='full'] .content > * {
+    animation: fade var(--t-mid) ease both !important;
+  }
 }
 
 /* content scroll + page boot animation */
@@ -1168,7 +1159,7 @@
   white-space: nowrap;
 }
 
-/* ---------- 7. Placeholders ---------- */
+/* ---------- 7. Not-found placeholder (design-out-of-scope product surface, see docs/design-system.md) ---------- */
 .placeholder {
   display: flex;
   flex-direction: column;
@@ -1194,26 +1185,12 @@
   font-size: 13.5px;
   line-height: 1.7;
 }
-.placeholder .route {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--muted);
-  background: var(--fill-2);
-  border: 1px solid var(--line);
-  padding: 4px 8px;
-  border-radius: 6px;
-}
 .placeholder .actions {
   display: flex;
   gap: 8px;
   margin-top: 6px;
   flex-wrap: wrap;
   justify-content: center;
-}
-.placeholder .status-banner {
-  margin-top: 6px;
-  max-width: 560px;
-  text-align: left;
 }
 
 /* ---------- 8. Overlays ---------- */
@@ -1318,13 +1295,6 @@
   .header {
     padding: 0 16px;
   }
-  .header .project-chip,
-  .header .conn-chip span:last-child {
-    display: none;
-  }
-  .header .conn-chip {
-    padding: 0 8px;
-  }
   .page {
     padding: 28px 24px 56px;
   }
@@ -1376,9 +1346,15 @@
   }
 }
 @media (max-width: 640px) {
-  .header-actions .display-seg,
-  .header .project-chip {
-    display: none;
+  /* The shell header keeps breadcrumb + the current page's primary action; let
+     the breadcrumb shrink instead of pushing the actions out of the bar. */
+  .header h1 {
+    min-width: 0;
+  }
+  .header .crumbs {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
   }
   .entries {
     grid-template-columns: 1fr;

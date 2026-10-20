@@ -51,6 +51,7 @@ import type {
   EditBeginRequest,
   EditSaveRequest,
   EditFinishRequest,
+  PlanDraftEditRequest,
   PlanEditAbandonRequest,
   TaskPlanFreezeRequest,
   ExecutionAdvanceRequest,
@@ -63,7 +64,8 @@ import type {
   DeliverySelectRequest,
   DeliveryCommitRequest,
   DeliveryPushRequest,
-  DeliveryMergeRequest,
+  DeliveryPushVerifyRequest,
+  DeliveryMergeRequestVerifyRequest,
   GitLabConnectionRequest,
   GitFetchRequest,
   TemplateArchiveRequest,
@@ -87,6 +89,10 @@ import type {
   InteractionSummary,
   PlanningQuestion,
   PlanningRound,
+  TaskWorkspace,
+  WorkspacePrepareOutcome,
+  WorkspacePreparePreview,
+  WorkspacePrepareProjection,
 } from '@agent-workflow/shared';
 import {
   AppError,
@@ -111,13 +117,14 @@ import type { Store } from '@agent-workflow/storage';
 import type { DatabaseService } from '@agent-workflow/database';
 import type { RemoteService } from './remote.ts';
 import { fileIdFor } from './adapters/git-cli.ts';
+import { GitRepository } from '@agent-workflow/git';
 import { detectOpenCodeBinaries } from './opencode-detect.ts';
 import { readOpenCodeLogTail } from './opencode-logs.ts';
 import { discoverSkills, readSkillSource } from './skills.ts';
 import { listDirectories } from './fs-directories.ts';
 import { listKnowledgeSources, readKnowledgeSource, searchKnowledgeSources } from './knowledge.ts';
 import type { Engine } from '@agent-workflow/engine';
-import { remoteOutcomeUnknownReason } from '@agent-workflow/engine';
+import { remoteOutcomeUnknownReason, workspacePrepareActions } from '@agent-workflow/engine';
 import type { OpenCodeAdapter } from './adapters/opencode.ts';
 import type { RuntimePaths } from './runtime.ts';
 
@@ -157,6 +164,220 @@ export function mapError(error: unknown): { status: number; body: { error: { cod
   }
   const message = error instanceof Error ? error.message : '未知错误';
   return { status: 500, body: { error: { code: ErrorCode.INTERNAL_ERROR, message, retryable: true } } };
+}
+
+const WORKSPACE_PREPARE_PROJECTION_PREFIX = 'task.workspace.prepare.projection.';
+
+interface StoredWorkspacePrepareProjection extends WorkspacePrepareProjection {
+  readonly savedAt: string;
+}
+
+/** Classify a prepare failure into the design's PW abnormal states (P11-04). */
+function classifyWorkspacePrepareOutcome(error: unknown): WorkspacePrepareOutcome {
+  if (!(error instanceof AppError)) return 'failed';
+  const message = error.message;
+  const details = error.details ?? {};
+  if (error.code === ErrorCode.STALE_TARGET) return 'drift';
+  if (error.code === ErrorCode.WORKSPACE_NAME_CONFLICT) return 'conflict';
+  if (error.code === ErrorCode.WORKSPACE_PARTIAL) return 'partial';
+  if (error.code === ErrorCode.FORBIDDEN || error.code === ErrorCode.UNAUTHORIZED || error.code === ErrorCode.REVOKED) return 'denied';
+  if (error.code === ErrorCode.CAPABILITY_UNAVAILABLE) return 'unavailable';
+  if (details['empty'] === true) return 'empty';
+  if (/同名|已存在|already exists|already checked out/i.test(message)) return 'conflict';
+  if (/权限|permission denied|EACCES|EPERM|not permitted/i.test(message)) return 'denied';
+  if (/空仓库|empty repo/i.test(message)) return 'empty';
+  return 'failed';
+}
+
+function prepareErrorDetail(error: unknown): string | undefined {
+  if (!(error instanceof AppError)) return undefined;
+  const details = error.details ?? {};
+  const expected = typeof details['expected'] === 'string' ? details['expected'] : undefined;
+  const actual = typeof details['actual'] === 'string' ? details['actual'] : undefined;
+  if (expected !== undefined || actual !== undefined) {
+    return `期望基线 ${expected === undefined ? '未知' : expected.slice(0, 10)}，实际 ${actual === undefined ? '未知' : actual.slice(0, 10)}`;
+  }
+  if (details['empty'] === true) {
+    const baseRef = typeof details['baseRef'] === 'string' ? details['baseRef'] : undefined;
+    return `空仓库${baseRef === undefined ? '' : `（基线 ${baseRef}）`}`;
+  }
+  return undefined;
+}
+
+function safeWorkspace(engine: Engine, taskId: string): TaskWorkspace | undefined {
+  try {
+    return engine.workspaces.get(taskId);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * P11-04 persisted projection: a prepare failure keeps its structured
+ * classification (error code/message/detail/failed step/original request key)
+ * so the six abnormal states survive page reloads and are never guessed by the
+ * client. A later success clears the persisted failure.
+ */
+function recordWorkspacePrepareFailure(engine: Engine, store: Store, taskId: string, requestKey: string, error: unknown): void {
+  const workspace = safeWorkspace(engine, taskId);
+  const failedStep = workspace === undefined
+    ? undefined
+    : (workspace.steps.find((step) => step.state === 'failed') ?? workspace.steps.find((step) => step.state !== 'completed'))?.step;
+  const detail = prepareErrorDetail(error);
+  store.settings.putJson(`${WORKSPACE_PREPARE_PROJECTION_PREFIX}${taskId}`, {
+    outcome: classifyWorkspacePrepareOutcome(error),
+    requestKey,
+    operationStatus: 'failed',
+    ...(error instanceof AppError ? { errorCode: error.code } : {}),
+    errorMessage: error instanceof Error ? error.message : '准备工作区失败',
+    ...(detail === undefined ? {} : { detail }),
+    ...(failedStep === undefined ? {} : { failedStep }),
+    checkedAt: nowIso(),
+    savedAt: nowIso(),
+  });
+}
+
+function workspacePrepareProjection(engine: Engine, store: Store, taskId: string): WorkspacePrepareProjection | undefined {
+  const workspace = safeWorkspace(engine, taskId);
+  const latest = store.operations.listRecentFor(['task.workspace.prepare'], 50).find((record) => record.target.taskId === taskId);
+  const stored = store.settings.getJson<StoredWorkspacePrepareProjection>(`${WORKSPACE_PREPARE_PROJECTION_PREFIX}${taskId}`);
+  const failedStep = workspace === undefined
+    ? undefined
+    : (workspace.steps.find((step) => step.state === 'failed') ?? workspace.steps.find((step) => step.state !== 'completed'))?.step;
+  if (latest?.status === 'unknown') {
+    return {
+      outcome: 'unknown',
+      requestKey: latest.requestKey,
+      operationStatus: 'unknown',
+      ...(stored?.errorCode === undefined ? {} : { errorCode: stored.errorCode }),
+      ...(workspace?.lastCheckedAt === undefined ? {} : { checkedAt: workspace.lastCheckedAt }),
+    };
+  }
+  if (workspace?.state === 'unknown') {
+    return {
+      outcome: 'unknown',
+      ...(latest === undefined ? {} : { requestKey: latest.requestKey }),
+      ...(failedStep === undefined ? {} : { failedStep }),
+      ...(workspace.lastCheckedAt === undefined ? {} : { checkedAt: workspace.lastCheckedAt }),
+    };
+  }
+  if (workspace?.state === 'partial') {
+    return {
+      outcome: 'partial',
+      ...(latest === undefined ? {} : { requestKey: latest.requestKey }),
+      ...(failedStep === undefined ? {} : { failedStep }),
+      ...(workspace.lastCheckedAt === undefined ? {} : { checkedAt: workspace.lastCheckedAt }),
+    };
+  }
+  if (workspace?.state === 'ready' || workspace?.state === 'preparing' || workspace?.state === 'cleaning' || workspace?.state === 'cleaned') return undefined;
+  if (stored !== undefined) return { ...stored, ...(failedStep === undefined ? {} : { failedStep: stored.failedStep ?? failedStep }) };
+  if (latest?.status === 'failed') {
+    return {
+      outcome: latest.error?.code === ErrorCode.STALE_TARGET ? 'drift' : 'failed',
+      requestKey: latest.requestKey,
+      operationStatus: 'failed',
+      ...(latest.error?.code === undefined ? {} : { errorCode: latest.error.code }),
+      ...(latest.error?.message === undefined ? {} : { errorMessage: latest.error.message }),
+      ...(failedStep === undefined ? {} : { failedStep }),
+      ...(latest.settledAt === undefined ? {} : { checkedAt: latest.settledAt }),
+    };
+  }
+  if (workspace === undefined) return undefined;
+  return { outcome: 'failed', ...(failedStep === undefined ? {} : { failedStep }), ...(workspace.lastCheckedAt === undefined ? {} : { checkedAt: workspace.lastCheckedAt }) };
+}
+
+/**
+ * P11-03/P11-04 read-only prepare preview: baseline, same-name objects, empty
+ * repository and permission/read facts. It never creates a branch/worktree;
+ * `prepare` remains the only mutating command and is confirmed separately.
+ */
+async function workspacePreparePreview(engine: Engine, store: Store, taskId: string): Promise<WorkspacePreparePreview> {
+  const task = store.tasks.get(taskId);
+  if (task === undefined) throw new AppError(ErrorCode.NOT_FOUND, '任务不存在');
+  const project = store.projects.get(task.projectId);
+  if (project === undefined) throw new AppError(ErrorCode.NOT_FOUND, '项目不存在');
+  const workspace = safeWorkspace(engine, taskId);
+  const plan = task.currentPlanRevisionId === undefined ? undefined : store.plans.get(task.currentPlanRevisionId);
+  const settings = engine.context.settings();
+  const baseRef = task.fixedTemplate?.snapshot?.targetSha ?? project.defaultBranch ?? 'main';
+  const blockers: { code: string; message: string; goTo?: string }[] = [];
+  let currentBaseSha: string | undefined;
+  let emptyRepo = false;
+  let branches: readonly { readonly name: string; readonly tipSha: string; readonly checkedOutInUserWorktree: boolean }[] = [];
+  let readError: { code: string; message: string } | undefined;
+  if (project.gitState === 'git') {
+    try {
+      const status = await engine.ports.git.status(project.rootPath);
+      currentBaseSha = status?.head.sha;
+      emptyRepo = status?.isEmpty === true;
+      branches = await engine.ports.git.branches(project.rootPath);
+    } catch (error) {
+      readError = {
+        code: error instanceof AppError ? error.code : ErrorCode.READ_FAILED,
+        message: error instanceof Error ? error.message : '无法读取仓库状态',
+      };
+    }
+  } else if (project.rootPath.trim() === '') {
+    blockers.push({ code: 'SOURCE_UNAVAILABLE', message: '项目路径不可用', goTo: '/settings' });
+  }
+  if (plan === undefined || plan.status !== 'confirmed') {
+    blockers.push({ code: 'PLAN_NOT_CONFIRMED', message: '计划尚未确认，不能准备工作区' });
+  }
+  const branchName = `${settings.git.branchPrefix}${taskId.replace(/^task_/, '').slice(0, 12)}`;
+  const worktreesRoot = settings.git.worktreeRoot.startsWith('/')
+    ? settings.git.worktreeRoot
+    : new URL(settings.git.worktreeRoot, `file://${engine.context.store.dataDir}/`).pathname;
+  const directoryName = taskId.replace(/[^a-zA-Z0-9_-]/g, '-');
+  const targetPath = join(worktreesRoot, directoryName);
+  const sameNameObjects: { kind: 'branch' | 'worktree'; name: string; detail?: string }[] = branches
+    .filter((branch) => branch.name === branchName)
+    .map((branch) => ({
+      kind: 'branch' as const,
+      name: branch.name,
+      detail: branch.checkedOutInUserWorktree ? `已检出到其他 worktree · ${branch.tipSha.slice(0, 10)}` : branch.tipSha.slice(0, 10),
+    }));
+  if (project.gitState === 'git' && existsSync(targetPath)) {
+    sameNameObjects.push({ kind: 'worktree', name: targetPath, detail: '同名工作目录已存在' });
+  }
+  if (sameNameObjects.length > 0) {
+    blockers.push({ code: ErrorCode.WORKSPACE_NAME_CONFLICT, message: `已存在同名对象：${sameNameObjects.map((item) => item.name).join('、')}；可用「使用新名称重新预览」生成 -2 后缀名称并再次确认后才准备` });
+  }
+  if (emptyRepo) blockers.push({ code: ErrorCode.WORKSPACE_PREPARE_FAILED, message: 'Git 空仓库没有可固定基线，不能准备独立工作区' });
+  if (project.gitState === 'git' && readError === undefined && currentBaseSha === undefined) {
+    blockers.push({ code: ErrorCode.WORKSPACE_PREPARE_FAILED, message: '无法解析当前基线提交（HEAD 不可用）' });
+  }
+  let suggestedBranchName: string | undefined;
+  let suggestedDirectoryName: string | undefined;
+  if (sameNameObjects.length > 0 && project.gitState === 'git') {
+    let index = 2;
+    suggestedBranchName = `${branchName}-${index}`;
+    suggestedDirectoryName = `${directoryName}-${index}`;
+    while (branches.some((branch) => branch.name === suggestedBranchName) || existsSync(join(worktreesRoot, suggestedDirectoryName))) {
+      index += 1;
+      suggestedBranchName = `${branchName}-${index}`;
+      suggestedDirectoryName = `${directoryName}-${index}`;
+    }
+  }
+  return {
+    taskId,
+    projectId: project.id,
+    projectName: project.name,
+    gitState: project.gitState === 'git' ? 'git' : 'non_git',
+    baseRef,
+    ...(project.defaultBranch === undefined ? {} : { defaultBranch: project.defaultBranch }),
+    ...(currentBaseSha === undefined ? {} : { currentBaseSha }),
+    ...(workspace?.baseSha === undefined ? {} : { workspaceBaseSha: workspace.baseSha }),
+    ...(workspace?.baseRef === undefined ? {} : { workspaceBaseRef: workspace.baseRef }),
+    ...(plan?.revisionNumber === undefined ? {} : { expectedPlanRevisionNumber: plan.revisionNumber }),
+    steps: workspace?.steps ?? [],
+    sameNameObjects,
+    emptyRepo,
+    ...(suggestedBranchName === undefined ? {} : { suggestedBranchName }),
+    ...(suggestedDirectoryName === undefined ? {} : { suggestedDirectoryName }),
+    blockers,
+    readAt: nowIso(),
+    ...(readError === undefined ? {} : { readError }),
+  };
 }
 
 export function registerErrorHandler(app: FastifyInstance, log?: (error: unknown) => void): void {
@@ -230,6 +451,7 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/tasks/:id/plan/edit/save',
   'POST /api/tasks/:id/plan/edit/finish',
   'POST /api/tasks/:id/plan/edit/abandon',
+  'POST /api/tasks/:id/plan/edit-draft',
   'POST /api/tasks/:id/workspace/prepare',
   'POST /api/tasks/:id/workspace/cleanup/confirm',
   'POST /api/tasks/:id/execution/start',
@@ -245,8 +467,9 @@ const COMMAND_ROUTE_SIGNATURES: ReadonlySet<string> = new Set([
   'POST /api/tasks/:id/delivery/select',
   'POST /api/tasks/:id/delivery/commit',
   'POST /api/tasks/:id/delivery/push',
+  'POST /api/tasks/:id/delivery/push/verify',
   'POST /api/tasks/:id/delivery/merge-request',
-  'POST /api/tasks/:id/delivery/merge',
+  'POST /api/tasks/:id/delivery/merge-request/verify',
   'POST /api/tasks/:id/recovery',
   'POST /api/tasks/:id/acceptance',
   'POST /api/git/repos/:projectId/fetch',
@@ -370,6 +593,27 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
   /** View `actions` reuse the task capability projection instead of a constant `{}`. */
   const viewActions = (taskId: string): Record<string, ActionAvailability> => engine.tasks.detail(taskId).capabilities;
+  /**
+   * P11-04: task detail carries the service-projected prepare result and the
+   * projected workspace actions (unique action per PW abnormal state), so the
+   * requirement canvas never invents a state or a disabled reason.
+   */
+  const taskDetailEnvelope = (taskId: string, requestIdValue: string) => {
+    const detail = engine.tasks.detail(taskId);
+    const prepare = workspacePrepareProjection(engine, store, taskId);
+    const prepareActions = workspacePrepareActions(detail.workspace, prepare, detail.plan?.status === 'confirmed');
+    return envelope(
+      {
+        ...detail,
+        ...(prepare === undefined ? {} : { workspacePrepare: prepare }),
+        // Read-only verification drafts must keep the RECOVERY_READ_ONLY denial from
+        // computeTaskActions; the PW prepare projection would otherwise overwrite it
+        // with PLAN_NOT_CONFIRMED (regression caught by recovery-readonly tests).
+        capabilities: detail.task.readOnly === true ? detail.capabilities : { ...detail.capabilities, ...prepareActions },
+      },
+      requestIdValue,
+    );
+  };
 
   app.get<{ Querystring: { path?: string } }>('/api/fs/directories', async (request) => envelope(listDirectories(request.query.path), requestId(request)));
   app.get('/api/health', async (request) => ({
@@ -484,8 +728,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(result, requestId(request));
   });
   app.post<{ Params: { id: string } }>('/api/tasks/:id/archive', async (request) => envelope(engine.tasks.archive(request.params.id, request.body as import('@agent-workflow/shared').TaskArchiveRequest), requestId(request)));
-  app.get<{ Params: { id: string } }>('/api/tasks/:id', async (request) => envelope(engine.tasks.detail(request.params.id), requestId(request)));
-  app.get<{ Params: { id: string } }>('/api/tasks/:id/detail', async (request) => envelope(engine.tasks.detail(request.params.id), requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/tasks/:id', async (request) => taskDetailEnvelope(request.params.id, requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/detail', async (request) => taskDetailEnvelope(request.params.id, requestId(request)));
   app.patch<{ Params: { id: string } }>('/api/tasks/:id', async (request) => {
     const body = request.body as UpdateDraftRequest;
     return envelope(engine.tasks.updateDraft(request.params.id, body), requestId(request));
@@ -556,6 +800,9 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/from-template', async (request) => envelope(engine.plans.useTemplate(request.params.id, request.body as UseTemplateRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/skeleton', async (request) => envelope(engine.plans.useSkeleton(request.params.id, request.body as UseSkeletonRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/confirm', async (request) => envelope(engine.plans.confirm(request.params.id, request.body as ConfirmPlanRequest), requestId(request)));
+  // P11-01: hand-edit the unconfirmed plan revision in the requirement canvas
+  // (new revision + fresh diff + re-check; no model call, no execution).
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/plan/edit-draft', async (request) => envelope(engine.plans.editDraft(request.params.id, request.body as PlanDraftEditRequest), requestId(request)));
 
   // W3-5b task-canvas extras: freeze is the only mutating entry; everything else
   // is a read model (audit / B-07 snapshot review / run content).
@@ -650,10 +897,31 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
 
   // Workspace
   app.get<{ Params: { id: string } }>('/api/tasks/:id/workspace', async (request) => {
-    const workspace = engine.workspaces.get(request.params.id);
-    return envelope({ taskId: request.params.id, workspace, actions: viewActions(request.params.id) }, requestId(request));
+    const taskId = request.params.id;
+    const workspace = engine.workspaces.get(taskId);
+    const prepare = workspacePrepareProjection(engine, store, taskId);
+    const prepareActions = workspacePrepareActions(workspace, prepare, engine.tasks.detail(taskId).plan?.status === 'confirmed');
+    const readOnly = engine.tasks.detail(taskId).task.readOnly === true;
+    return envelope({ taskId, workspace, ...(prepare === undefined ? {} : { prepare }), actions: readOnly ? viewActions(taskId) : { ...viewActions(taskId), ...prepareActions } }, requestId(request));
   });
-  app.post<{ Params: { id: string } }>('/api/tasks/:id/workspace/prepare', async (request) => envelope(await engine.workspaces.prepare(request.params.id, request.body as PrepareWorkspaceRequest), requestId(request)));
+  // P11-03/P11-04 read-only prepare preview (baseline/same-name/empty facts).
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/workspace/prepare-preview', async (request) =>
+    envelope({ preview: await workspacePreparePreview(engine, store, request.params.id) }, requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/workspace/prepare', async (request) => {
+    const taskId = request.params.id;
+    const body = request.body as PrepareWorkspaceRequest;
+    try {
+      const result = await engine.workspaces.prepare(taskId, body);
+      store.settings.removeJson(`${WORKSPACE_PREPARE_PROJECTION_PREFIX}${taskId}`);
+      return envelope(result, requestId(request));
+    } catch (error) {
+      // Persist the structured classification before the error leaves the
+      // service: PW-UNKNOWN/PARTIAL/CONFLICT/DRIFT/DENIED/EMPTY must survive a
+      // reload and drive the single allowed recovery action.
+      recordWorkspacePrepareFailure(engine, store, taskId, body.requestKey, error);
+      throw error;
+    }
+  });
   app.get<{ Params: { id: string } }>('/api/tasks/:id/changes', async (request) => envelope({ changes: await engine.workspaces.changes(request.params.id) }, requestId(request)));
   app.get<{ Params: { id: string; fileId: string } }>('/api/tasks/:id/changes/files/:fileId/diff', async (request) => envelope({ diff: await engine.workspaces.diff(request.params.id, request.params.fileId) }, requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/workspace/cleanup/preview', async (request) => envelope({ preview: engine.workspaces.cleanupPreview(request.params.id) }, requestId(request)));
@@ -745,7 +1013,9 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/commit', async (request) => envelope(await engine.deliveries.commit(request.params.id, request.body as DeliveryCommitRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/push', async (request) => envelope(await engine.deliveries.push(request.params.id, request.body as DeliveryPushRequest), requestId(request)));
   app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/merge-request', async (request) => envelope(await engine.deliveries.createMergeRequest(request.params.id, request.body as { requestKey: string; sourceRef: string; pushedSha: string; targetBranch: string; expectedTargetTip: string; title: string; description: string; confirmMergeRequest: true }), requestId(request)));
-  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/merge', async (request) => envelope(await engine.deliveries.merge(request.params.id, request.body as DeliveryMergeRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/merge-request/verify', async (request) => envelope(await engine.deliveries.verifyMergeRequest(request.params.id, request.body as DeliveryMergeRequestVerifyRequest), requestId(request)));
+  app.post<{ Params: { id: string } }>('/api/tasks/:id/delivery/push/verify', async (request) => envelope(await engine.deliveries.verifyPush(request.params.id, request.body as DeliveryPushVerifyRequest), requestId(request)));
+  app.get<{ Params: { id: string } }>('/api/tasks/:id/delivery/merge-request-fact', async (request) => envelope(await engine.deliveries.mergeRequestFact(request.params.id), requestId(request)));
 
   // Git read models (local Git CLI; remote providers are wired separately)
   app.get('/api/git/repos', async (request) => {
@@ -809,6 +1079,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   });
 
   app.get<{ Params: { projectId: string; sha: string } }>('/api/git/repos/:projectId/commits/:sha/reviews', async (request) => {
+    // 同一提交可以多次审查：历史下拉只读回看（审计 GIT-04）。这里返回真实审查
+    // 记录摘要（第 N 次 / 时间 / 状态 / 问题数 / 维度 / 对比基线），不推断。
     const reviews = store.reviews.listByCommit(request.params.projectId, request.params.sha).map((review) => ({
       reviewRunId: review.reviewRunId,
       ordinal: review.ordinal,
@@ -816,8 +1088,23 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
       startedAt: review.startedAt,
       endedAt: review.endedAt,
       findings: review.findings.length,
+      dimensions: review.dimensions,
+      compareLabel: review.subject.compareBase.label,
     }));
     return envelope({ reviews }, requestId(request));
+  });
+  app.get<{ Params: { projectId: string; reviewRunId: string } }>('/api/git/repos/:projectId/reviews/:reviewRunId/suggestions', async (request) => {
+    // 「建议修改」是模型给出、服务裁剪过的 unified patch，只读展示；服务不自动应用。
+    const review = store.reviews.get(request.params.reviewRunId);
+    if (review === undefined || review.projectId !== request.params.projectId) {
+      throw new AppError(ErrorCode.NOT_FOUND, '审查记录不存在');
+    }
+    const suggestions = review.findings.flatMap((finding) => {
+      const raw = (finding as typeof finding & { suggestion?: { format: 'unified_patch'; patch: string; appliesTo: string } }).suggestion;
+      if (raw === undefined) return [];
+      return [{ findingId: finding.findingId, format: raw.format, patch: raw.patch, appliesTo: raw.appliesTo }];
+    });
+    return envelope({ suggestions }, requestId(request));
   });
   app.get<{ Params: { projectId: string; baseId: string; targetId: string } }>('/api/git/repos/:projectId/reviews/:baseId/compare/:targetId', async (request) => {
     const base = store.reviews.get(request.params.baseId);
@@ -866,18 +1153,41 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     );
   });
 
-  app.get<{ Params: { projectId: string }; Querystring: { path?: string; baseSha?: string; headSha?: string; ignoreWhitespace?: string } }>('/api/git/repos/:projectId/diff', async (request) => {
+  app.get<{
+    Params: { projectId: string };
+    Querystring: { path?: string; baseSha?: string; headSha?: string; ignoreWhitespace?: string; contextLines?: string };
+  }>('/api/git/repos/:projectId/diff', async (request) => {
     const project = requireProject(engine, request.params.projectId);
     if (request.query.path === undefined || request.query.baseSha === undefined) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '缺少 path/baseSha');
     }
-    const diff = await engine.ports.git.diffPage({
-      repoRoot: project.rootPath,
-      baseSha: request.query.baseSha,
-      headSha: request.query.headSha,
-      path: request.query.path,
-      ignoreWhitespace: request.query.ignoreWhitespace === '1' || request.query.ignoreWhitespace === 'true',
-    });
+    const ignoreWhitespace = request.query.ignoreWhitespace === '1' || request.query.ignoreWhitespace === 'true';
+    const contextLines = request.query.contextLines === undefined || request.query.contextLines === ''
+      ? undefined
+      : Number(request.query.contextLines);
+    if (contextLines !== undefined && (!Number.isInteger(contextLines) || contextLines < 1)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, 'contextLines 必须是正整数');
+    }
+    // 「展开未改动上下文」需要更大的 unified 半径：用本机 Git CLI 读同一个文件
+    // 范围（审计 GIT-02），把真实上下文行读出来，不伪造。默认 -U3 仍走引擎端口。
+    const diff = contextLines !== undefined && contextLines > 3
+      ? await (async () => {
+          const repository = await GitRepository.open(project.rootPath);
+          return repository.diffHunks({
+            path: request.query.path as string,
+            baseSha: request.query.baseSha as string,
+            headSha: request.query.headSha,
+            ignoreWhitespace,
+            contextLines,
+          });
+        })()
+      : await engine.ports.git.diffPage({
+        repoRoot: project.rootPath,
+        baseSha: request.query.baseSha,
+        headSha: request.query.headSha,
+        path: request.query.path,
+        ignoreWhitespace,
+      });
     return envelope({ diff }, requestId(request));
   });
 
@@ -1144,6 +1454,8 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     return envelope(engine.roleCatalog.restore(request.params.id, request.params.revision, body), requestId(request));
   });
   app.get<{ Params: { id: string } }>('/api/catalog/roles/:id/history', async (request) => envelope(engine.roleCatalog.history(request.params.id), requestId(request)));
+  // B-02 read-only published revision receipt; no requestKey because nothing is written.
+  app.get<{ Params: { id: string } }>('/api/catalog/roles/:id/published', async (request) => envelope(engine.roleCatalog.publishedReceipt(request.params.id), requestId(request)));
   // Non-mutating publish checklist (no requestKey / no receipt by design).
   app.post<{ Params: { id: string } }>('/api/catalog/roles/:id/validate', async (request) => envelope(engine.roleCatalog.validate(request.params.id), requestId(request)));
   app.post('/api/catalog/roles', async (request) => {

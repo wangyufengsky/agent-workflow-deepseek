@@ -3,14 +3,16 @@ import { useQuery } from '@tanstack/react-query';
 import { StartCatalogPicker } from './StartCatalogPicker.tsx';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  ROUTES, type MethodDetailResponse,
+  ROUTES, createRequestKey, type CommandResponse, type CreateTaskRequest, type MethodDetailResponse,
+  type OperationsByKeyResponse, type TaskDetailResponse,
   TaskMethodSupport,
   type TaskTemplate,
   type WorkflowMethod,
 } from '@agent-workflow/shared';
 import { useBootstrap } from '../../api/hooks.ts';
-import { createTask, receiptIsUnknown } from '../../api/workflow.ts';
-import { apiGet, errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { fetchOperationByKey, receiptIsUnknown } from '../../api/workflow.ts';
+import { apiGet, apiPost, errorMessage, isApiClientError, isServiceUnavailable } from '../../api/client.ts';
+import { isUncertainCommandFailure, usePendingIdentity } from '../../api/pending-identity.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { Card } from '../../components/Card.tsx';
@@ -27,6 +29,13 @@ interface CreatedDraft {
   readonly projectName: string;
   readonly methodName: string;
   readonly methodRevision: string;
+}
+
+/** A task-creation write whose outcome is not settled yet (sending / accepted / unknown). */
+interface StartAttempt {
+  readonly requestKey: string;
+  readonly phase: 'submitting' | 'accepted' | 'unknown';
+  readonly message?: string;
 }
 
 function autoTitle(input: string): string {
@@ -52,10 +61,10 @@ function StepHead({ number, title, complete, hint }: {
 }
 
 
-function MethodCard({ method, selected, onSelect }: { readonly method: WorkflowMethod; readonly selected: boolean; readonly onSelect: () => void }) {
+function MethodCard({ method, selected, disabled, onSelect }: { readonly method: WorkflowMethod; readonly selected: boolean; readonly disabled?: boolean; readonly onSelect: () => void }) {
   const ai = method.support === TaskMethodSupport.AI_PLANNING;
   return (
-    <button type="button" role="radio" aria-checked={selected} className="method-card" onClick={onSelect}>
+    <button type="button" role="radio" aria-checked={selected} className="method-card" disabled={disabled} onClick={onSelect}>
       <div className="method-card-head">
         <Icon name="flow" size="sm" />
         <span className="method-name">{method.name}</span>
@@ -137,10 +146,24 @@ export function StartPage() {
   const [picker, setPicker] = useState<'projects' | 'methods' | null>(null);
   const goalRef = useRef<HTMLTextAreaElement>(null);
   const [methodId, setMethodId] = useState<string>('');
-  const [submitting, setSubmitting] = useState(false);
+  const [localAttempt, setLocalAttempt] = useState<StartAttempt | null>(null);
+  const [reconcile, setReconcile] = useState<{ readonly status: string; readonly stillUnknown: boolean; readonly error?: string; readonly taskId?: string } | null>(null);
+  const [reconcileBusy, setReconcileBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [receipt, setReceipt] = useState<OperationReceipt | undefined>(undefined);
   const [created, setCreated] = useState<CreatedDraft | undefined>(undefined);
+  const pendingCreate = usePendingIdentity(ROUTES.tasks);
+  // Durable request identity wins over local state: after a reload the page still
+  // knows a write was attempted and must not silently submit a second one.
+  const attempt: StartAttempt | null = pendingCreate === undefined
+    ? localAttempt
+    : {
+        requestKey: pendingCreate.requestKey,
+        phase: pendingCreate.phase === 'sending' ? 'submitting' : pendingCreate.phase === 'accepted' ? 'accepted' : 'unknown',
+        ...(localAttempt?.requestKey === pendingCreate.requestKey && localAttempt.message !== undefined ? { message: localAttempt.message } : {}),
+      };
+  const locked = attempt !== null;
+  const submitting = attempt?.phase === 'submitting';
 
   const projects: readonly import('@agent-workflow/shared').ProjectSummary[] = bootstrap.data?.projects ?? [];
   const methods: readonly WorkflowMethod[] = bootstrap.data?.catalog.methods ?? [];
@@ -175,6 +198,9 @@ export function StartPage() {
   ].filter((item): item is string => item !== null).join(' ');
 
   const missing = (() => {
+    if (attempt?.phase === 'unknown') return '结果待核对：内容已锁定，请按原请求号核对（不会重发）';
+    if (attempt?.phase === 'accepted') return '请求已受理：等待服务回执，内容已锁定';
+    if (attempt?.phase === 'submitting') return '正在提交：等待服务回执，内容已锁定';
     if (bootstrap.isError) return '服务未连接：无法读取项目与流程方法';
     if (receipt !== undefined && receiptIsUnknown(receipt)) return '形成结果待核对：请先按原请求号核对，不会重发命令';
     if (projects.length === 0) return '尚未登记项目：请先在「项目」页登记项目目录';
@@ -195,6 +221,8 @@ export function StartPage() {
   const resetAfterReceipt = () => {
     setCreated(undefined);
     setReceipt(undefined);
+    setLocalAttempt(null);
+    setReconcile(null);
     setTitle('');
     setTitleTouched(false);
     setRequirementText('');
@@ -204,32 +232,75 @@ export function StartPage() {
   };
 
   const submit = async () => {
-    if (missing !== undefined || selectedProject === undefined || selectedMethod === undefined) return;
-    setSubmitting(true);
+    if (missing !== undefined || locked || selectedProject === undefined || selectedMethod === undefined) return;
+    const requestKey = createRequestKey();
+    setLocalAttempt({ requestKey, phase: 'submitting' });
+    setReconcile(null);
     setError(null);
     setReceipt(undefined);
     try {
-      const response = await createTask({
+      const body: CreateTaskRequest = {
+        requestKey,
         projectId: selectedProject.id,
         title: title.trim(),
         requirementText: requirementText.trim(),
         methodId: selectedMethod.id,
         expectedMethodRevision: selectedMethod.revision,
-      });
-      setReceipt(response.receipt);
-      if (response.receipt.status === 'succeeded') {
+      };
+      const response = await apiPost<CommandResponse<TaskDetailResponse>>(ROUTES.tasks, body);
+      const nextReceipt = response.data.receipt;
+      setReceipt(nextReceipt);
+      if (nextReceipt.status === 'succeeded') {
+        setLocalAttempt(null);
         setCreated({
-          taskId: response.resource?.task.id ?? '',
+          taskId: response.data.resource?.task.id ?? '',
           title: title.trim(),
           projectName: selectedProject.name,
           methodName: selectedMethod.name,
           methodRevision: selectedMethod.revision,
         });
+      } else if (nextReceipt.status === 'failed') {
+        setLocalAttempt(null);
+      } else {
+        setLocalAttempt({ requestKey: nextReceipt.requestKey, phase: nextReceipt.status === 'accepted' ? 'accepted' : 'unknown' });
       }
     } catch (caught) {
-      setError(caught);
+      // A lost response is NOT proof that the draft was not created.
+      if (isUncertainCommandFailure(caught)) {
+        const reconciledKey = isApiClientError(caught) && typeof caught.details?.requestKey === 'string' ? caught.details.requestKey : requestKey;
+        setLocalAttempt({ requestKey: reconciledKey, phase: 'unknown' });
+        setError(null);
+      } else {
+        setLocalAttempt(null);
+        setError(caught);
+      }
+    }
+  };
+
+  const reconcileAttempt = async () => {
+    if (attempt === null) return;
+    const requestKey = attempt.requestKey;
+    setReconcileBusy(true);
+    try {
+      const result: OperationsByKeyResponse = await fetchOperationByKey(requestKey);
+      const taskId = result.operation.resultResource?.kind === 'task' ? result.operation.resultResource.id : undefined;
+      setReconcile({
+        status: result.operation.status,
+        stillUnknown: result.stillUnknown,
+        ...(result.operation.error?.message === undefined ? {} : { error: result.operation.error.message }),
+        ...(taskId === undefined ? {} : { taskId }),
+      });
+      if (result.operation.status === 'succeeded' || result.operation.status === 'failed') {
+        // Settled: the durable lock for this key is cleared by the client lookup.
+        setLocalAttempt(null);
+      } else {
+        setLocalAttempt({ requestKey, phase: 'unknown' });
+      }
+    } catch (caught) {
+      setReconcile({ status: 'lookup-failed', stillUnknown: true, error: errorMessage(caught) });
+      setLocalAttempt({ requestKey, phase: 'unknown' });
     } finally {
-      setSubmitting(false);
+      setReconcileBusy(false);
     }
   };
 
@@ -350,7 +421,79 @@ export function StartPage() {
         </div>
       </div>
 
-      <ReceiptNotice receipt={receipt} successMessage="需求草稿已形成。" />
+      {attempt === null ? <ReceiptNotice receipt={receipt} successMessage="需求草稿已形成。" /> : null}
+      {attempt === null && reconcile === null ? null : (
+        <div className={`banner ${attempt === null ? (reconcile?.status === 'succeeded' ? 'ok' : reconcile?.status === 'failed' ? 'danger' : 'unknown') : attempt.phase === 'unknown' ? 'unknown' : 'info'}`} role="alert" aria-live="polite" style={{ marginBottom: 12 }}>
+          <Icon name={attempt === null ? (reconcile?.status === 'succeeded' ? 'check' : reconcile?.status === 'failed' ? 'alert' : 'help') : attempt.phase === 'unknown' ? 'help' : 'clock'} />
+          <div className="grow">
+            {attempt === null ? (
+              <>
+                <b>
+                  {reconcile?.status === 'succeeded'
+                    ? '原请求核对完成：任务已创建'
+                    : reconcile?.status === 'failed'
+                      ? '原请求核对完成：操作失败'
+                      : '原请求仍未确认'}
+                </b>
+                <br />
+                {reconcile?.error ?? (reconcile?.status === 'succeeded' ? '已按原请求号核对；没有重新发送命令，也没有换请求号。' : '只按原请求号核对，没有重新发送命令。')}
+                {reconcile?.taskId === undefined ? null : (
+                  <span className="mono receipt-key">任务 {reconcile.taskId}</span>
+                )}
+              </>
+            ) : (
+              <>
+                <b>
+                  {attempt.phase === 'unknown'
+                    ? '需求草稿是否已形成，暂时无法确认'
+                    : attempt.phase === 'accepted'
+                      ? '请求已受理，等待服务回执'
+                      : '正在提交，等待服务回执'}
+                </b>
+                <br />
+                {attempt.phase === 'unknown'
+                  ? '内容已锁定；重试会使用同一份请求，不会重复创建。只按原请求号核对结果。'
+                  : '内容已锁定；服务结算前不能再次提交，也不会换请求号重发。'}
+                <span className="mono receipt-key">请求号 {attempt.requestKey}</span>
+                {attempt.message === undefined ? null : <span style={{ display: 'block', marginTop: 4 }}>{attempt.message}</span>}
+                {reconcile === null ? null : (
+                  <span style={{ display: 'block', marginTop: 4 }}>
+                    核对结果：{reconcile.status}
+                    {reconcile.stillUnknown ? ' · 仍为未知，保持待核对' : ''}
+                    {reconcile.error === undefined ? null : ` · ${reconcile.error}`}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+          <div className="actions">
+            {attempt === null ? null : (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon="refresh"
+                disabled={reconcileBusy}
+                disabledReason={reconcileBusy ? '正在按原请求号核对…' : undefined}
+                onClick={() => {
+                  void reconcileAttempt();
+                }}
+              >
+                {reconcileBusy ? '正在核对…' : '按原请求号核对'}
+              </Button>
+            )}
+            {reconcile?.taskId === undefined ? (
+              <Link className="btn ghost" to="/tasks">回到任务列表</Link>
+            ) : (
+              <LinkButton to={`/requirement/${encodeURIComponent(reconcile.taskId)}`} variant="primary" size="sm" icon="arrowRight">
+                打开原草稿
+              </LinkButton>
+            )}
+            {attempt === null && reconcile !== null && !reconcile.stillUnknown ? (
+              <Button variant="ghost" size="sm" icon="plus" onClick={resetAfterReceipt}>再创建一个</Button>
+            ) : null}
+          </div>
+        </div>
+      )}
       {queryNotice.length === 0 ? null : (
         <div className="banner info" role="status" style={{ marginBottom: 12 }}>
           <Icon name="info" />
@@ -361,9 +504,33 @@ export function StartPage() {
         <div className="banner danger" role="alert" style={{ marginBottom: 12 }}>
           <Icon name="alert" />
           <div className="grow">
-            <b>{isServiceUnavailable(error) ? '服务未连接，未创建任务' : '形成需求草稿失败'}</b>
+            <b>
+              {isServiceUnavailable(error)
+                ? '服务未连接：没有形成任务（结果以服务状态为准）'
+                : isApiClientError(error) && (error.code === 'STALE_TARGET' || error.code === 'CONFLICT')
+                  ? '流程版本已变化，草稿未创建'
+                  : '形成需求草稿失败'}
+            </b>
             <br />
             {errorMessage(error)}
+            {isApiClientError(error) && (error.code === 'STALE_TARGET' || error.code === 'CONFLICT') ? (
+              <div className="row" style={{ marginTop: 8 }}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon="refresh"
+                  disabled={methodQuery.isFetching}
+                  disabledReason={methodQuery.isFetching ? '正在重新读取当前版本' : undefined}
+                  onClick={() => {
+                    setError(null);
+                    setMethodId(effectiveMethodId);
+                    void methodQuery.refetch();
+                  }}
+                >
+                  重新读取当前版本
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
       )}
@@ -402,8 +569,8 @@ export function StartPage() {
                       role="radio"
                       aria-checked={selected}
                       className="start-opt"
-                      disabled={pathUnavailable}
-                      title={pathUnavailable ? '项目路径或 Git 能力不可用；请到项目页检查或重新登记。' : undefined}
+                      disabled={pathUnavailable || locked}
+                      title={pathUnavailable ? '项目路径或 Git 能力不可用；请到项目页检查或重新登记。' : locked ? '当前写操作结果未结算，内容已锁定。' : undefined}
                       onClick={() => {
                         setProjectId(project.id);
                       }}
@@ -427,7 +594,7 @@ export function StartPage() {
                     </button>
                   );
                 })}
-                <Button variant="ghost" icon="search" onClick={() => setPicker('projects')}>其他项目…</Button>
+                <Button variant="ghost" icon="search" disabled={locked} disabledReason={locked ? '当前写操作结果未结算，内容已锁定。' : undefined} onClick={() => setPicker('projects')}>其他项目…</Button>
               </div>
             )}
           </Card>
@@ -447,7 +614,7 @@ export function StartPage() {
               className="textarea"
               rows={6}
               value={requirementText}
-              disabled={selectedProject === undefined}
+              disabled={selectedProject === undefined || locked}
               placeholder={'描述要做什么，以及完成后希望看到的结果。\n例如：让项目配置更容易找到，减少切换页面的次数。'}
               onChange={(event) => {
                 const next = event.target.value;
@@ -466,6 +633,7 @@ export function StartPage() {
                 style={{ flex: 1, minWidth: 180, height: 32 }}
                 maxLength={120}
                 value={title}
+                disabled={locked}
                 placeholder="留空时从目标自动生成"
                 onChange={(event) => {
                   setTitle(event.target.value);
@@ -498,12 +666,13 @@ export function StartPage() {
                     key={method.id}
                     method={method}
                     selected={method.id === effectiveMethodId}
+                    disabled={locked}
                     onSelect={() => {
                       setMethodId(method.id);
                     }}
                   />
                 ))}
-                <Button variant="ghost" icon="search" onClick={() => setPicker('methods')}>全部流程…</Button>
+                <Button variant="ghost" icon="search" disabled={locked} disabledReason={locked ? '当前写操作结果未结算，内容已锁定。' : undefined} onClick={() => setPicker('methods')}>全部流程…</Button>
               </div>
             )}
             <p className="hint" style={{ marginTop: 10 }}>
@@ -585,7 +754,7 @@ export function StartPage() {
               size="lg"
               className="start-submit"
               icon="plus"
-              disabled={submitting || missing !== undefined}
+              disabled={locked || missing !== undefined}
               disabledReason={missing}
               aria-busy={submitting || undefined}
               onClick={() => {
@@ -596,8 +765,12 @@ export function StartPage() {
                 <>
                   <span className="spin" />正在形成…
                 </>
-              ) : (
+              ) : attempt?.phase === 'unknown' ? (
+                '结果待核对'
+              ) : attempt === null ? (
                 '形成需求草稿'
+              ) : (
+                '等待服务回执'
               )}
             </Button>
             {missing === undefined ? null : (

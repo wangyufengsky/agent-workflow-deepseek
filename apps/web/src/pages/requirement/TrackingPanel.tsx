@@ -1,4 +1,4 @@
-import { NODE_STATUS_LABEL, type ExecutionView, type PlanRevision } from '@agent-workflow/shared';
+import { EXECUTION_STATUS_LABEL, NODE_STATUS_LABEL, type ExecutionView, type PlanRevision } from '@agent-workflow/shared';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
@@ -51,7 +51,7 @@ export function TrackingPanel({ plan, execution, readOnlyReason, onOpenTask, onO
         }
       >
         <div className="progress-line">
-          <span className={`badge ${execution.status === 'failed' ? 'st-fail' : execution.status === 'unknown' ? 'st-unknown' : execution.status === 'running' ? 'st-run' : 'st-done'}`}>{execution.status}</span>
+          <span className={`badge ${execution.status === 'failed' ? 'st-fail' : execution.status === 'unknown' ? 'st-unknown' : execution.status === 'running' ? 'st-run' : 'st-done'}`}>{EXECUTION_STATUS_LABEL[execution.status]}</span>
           <span className="grow">以服务执行视图为准，不显示百分比与剩余时间。</span>
         </div>
       </Section>

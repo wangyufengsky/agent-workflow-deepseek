@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   PLAN_REVISION_STATUS_LABEL,
   PlanningGroupState,
@@ -42,6 +43,20 @@ export interface PlanReviewPanelProps {
   readonly historical: boolean;
   readonly candidateUnsettled: boolean;
   readonly staleInput: boolean;
+  readonly roles: readonly { readonly id: string; readonly name: string }[];
+  /** P11-02: non-undefined while an UNKNOWN receipt locks the original operation. */
+  readonly lockedReason?: string;
+  readonly fixedTemplate?: { readonly name: string; readonly version: number; readonly parameters: Readonly<Record<string, string>> };
+  readonly onSelectNode: (nodeId: string) => void;
+  /** P11-01: save one hand-edited step into a new unconfirmed plan revision. */
+  readonly onSaveNodeEdit: (change: {
+    readonly nodeId: string;
+    readonly title?: string;
+    readonly summary?: string;
+    readonly acceptance?: readonly string[];
+    readonly roleId?: string | null;
+    readonly prerequisites?: readonly string[];
+  }) => void;
 }
 
 function findNode(revision: PlanRevision | undefined, nodeId: string | undefined): PlanNode | undefined {
@@ -89,11 +104,13 @@ export function PlanReviewPanel(props: PlanReviewPanelProps) {
   const applyAction = actions.applyCandidate;
   const rejectAction = actions.rejectCandidate;
   const confirmAction = actions.confirmPlan;
+  const editAction = actions.editPlan;
 
   const applyReason = (() => {
+    if (props.lockedReason !== undefined) return props.lockedReason;
     if (applyAction?.allowed !== true) return applyAction?.reason;
     if (props.candidateUnsettled) return '正在核对本轮结束（原调用尚未停稳 / 未结账）；可以先只读审阅，暂不能应用';
-    if (props.staleInput) return '候选基于旧的需求输入与旧计划，已过期；不能覆盖当前草稿';
+    if (props.staleInput) return '候选基于旧的需求输入与旧计划，已过期；不能覆盖当前草稿；按当前输入预览新一轮';
     if (missingAccepted > 0) return `还有 ${String(missingAccepted)} 项需人工判断未核对；逐项勾选后才能应用`;
     return undefined;
   })();
@@ -147,6 +164,27 @@ export function PlanReviewPanel(props: PlanReviewPanelProps) {
           </div>
         </div>
       ) : null}
+
+      {props.fixedTemplate === undefined ? null : (
+        <Section title="固定模板" aside={<Badge tone="wait" icon="lock">修改步骤不可用</Badge>}>
+          <dl className="kv-list">
+            <dt>模板</dt>
+            <dd>{props.fixedTemplate.name} · 版本 {props.fixedTemplate.version}</dd>
+            <dt>入口参数</dt>
+            <dd>
+              {Object.keys(props.fixedTemplate.parameters).length === 0
+                ? '无'
+                : Object.entries(props.fixedTemplate.parameters).map(([key, value]) => `${key}=${value}`).join('、')}
+            </dd>
+            <dt>固定步骤</dt>
+            <dd>{revision.graph.nodes.map((node) => node.title).join('、')}</dd>
+            <dt>能做</dt>
+            <dd>确认计划 → 准备独立工作区 → 单独开始执行（按模板配置，不执行前不产生执行事实）</dd>
+            <dt>不能做</dt>
+            <dd>手改/插入/移出步骤、AI 细化计划：{props.actions.editPlan?.reason ?? '该任务使用固定模板，创建后不能修改步骤；要改要求，请新建模板任务。'}</dd>
+          </dl>
+        </Section>
+      )}
 
       <Section title={reviewingCandidate ? '候选计划' : '当前计划'} aside={<Badge tone={revision.status === 'confirmed' ? 'done' : revision.status === 'draft' ? 'unknown' : 'wait'}>{PLAN_REVISION_STATUS_LABEL[revision.status]}</Badge>}>
         <RevisionMeta plan={revision} />
@@ -250,9 +288,65 @@ export function PlanReviewPanel(props: PlanReviewPanelProps) {
         <CoverageTable coverage={validation?.requirementCoverage ?? []} execution={detail.execution} />
       </Section>
 
-      {selectedNode === undefined ? null : (
+      <Section title="计划步骤" aside={<span className="hint">{revision.graph.nodes.length} 步 · 点步骤可选中编辑</span>}>
+        <div className="box">
+          {revision.graph.nodes.length === 0 ? (
+            <p className="hint">服务返回的计划没有节点；这里不补造步骤。</p>
+          ) : (
+            revision.graph.nodes.map((node) => {
+              const group = revision.graph.groups.find((item) => item.id === node.groupId);
+              const role = props.roles.find((item) => item.id === node.roleId);
+              return (
+                <div key={node.id} className={selectedNodeId === node.id ? 'rowx ws-row-selected' : 'rowx'}>
+                  <span className={`ic ${node.roleId === undefined ? 'warn' : 'ok'}`}>
+                    <Icon name={node.roleId === undefined ? 'help' : 'users'} size="sm" />
+                  </span>
+                  <div className="grow">
+                    <div className="t">{node.title}</div>
+                    <div className="s">
+                      <span className="mono">{node.key}</span> · {group?.label ?? '未分组'} · 职业 {role?.name ?? (node.roleId ?? '未指定')}
+                    </div>
+                    <div className="s">
+                      产出 {node.outputs.length === 0 ? '未声明' : node.outputs.map((output) => output.name).join('、')}
+                      {' · '}验收 {node.acceptance.length} 条
+                    </div>
+                  </div>
+                  {node.roleId === undefined ? <Badge tone="wait">未指定职业</Badge> : null}
+                  <Button size="sm" variant={selectedNodeId === node.id ? 'secondary' : 'ghost'} icon="target" onClick={() => props.onSelectNode(node.id)}>
+                    {selectedNodeId === node.id ? '已选中' : '选中'}
+                  </Button>
+                </div>
+              );
+            })
+          )}
+        </div>
+        {editAction?.allowed === true ? (
+          <p className="hint" style={{ marginTop: 6 }}>手改会形成新的未确认计划修订并重新检查；不调用模型，也不执行。未绑定职业的步骤可在下方指定职业。</p>
+        ) : null}
+      </Section>
+
+      {selectedNode === undefined ? (
+        <Section title="选中步骤" aside={<span className="hint">未选中</span>}>
+          <p className="hint">点上方步骤行选中后可查看详情并手改；手改会形成新差异并重新检查。</p>
+        </Section>
+      ) : (
         <Section title="选中步骤" aside={<span className="hint">{selectedGroup?.label ?? '未分组'}</span>}>
           <NodeSummary node={selectedNode} groupLabel={selectedGroup?.label} />
+          {editAction?.allowed !== true ? (
+            <p className="hint" style={{ marginTop: 8 }}>
+              {props.lockedReason ?? editAction?.reason ?? '当前不能手改计划'}
+            </p>
+          ) : (
+            <NodeEditForm
+              key={`${selectedNode.id}:${revision.revisionNumber}`}
+              node={selectedNode}
+              nodes={revision.graph.nodes}
+              roles={props.roles}
+              busy={props.busy}
+              lockedReason={props.lockedReason}
+              onSave={props.onSaveNodeEdit}
+            />
+          )}
         </Section>
       )}
 
@@ -313,6 +407,111 @@ export function PlanReviewPanel(props: PlanReviewPanelProps) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** P11-01: per-step hand edit (职业/做什么/产出说明/验收/前置). */
+function NodeEditForm({
+  node,
+  nodes,
+  roles,
+  busy,
+  lockedReason,
+  onSave,
+}: {
+  readonly node: PlanNode;
+  readonly nodes: readonly PlanNode[];
+  readonly roles: readonly { readonly id: string; readonly name: string }[];
+  readonly busy: boolean;
+  readonly lockedReason?: string;
+  readonly onSave: (change: {
+    readonly nodeId: string;
+    readonly title?: string;
+    readonly summary?: string;
+    readonly acceptance?: readonly string[];
+    readonly roleId?: string | null;
+    readonly prerequisites?: readonly string[];
+  }) => void;
+}) {
+  const incoming = nodes.length === 0 ? [] : [];
+  void incoming;
+  const [title, setTitle] = useState(node.title);
+  const [summary, setSummary] = useState(node.summary);
+  const [acceptance, setAcceptance] = useState(node.acceptance.join('\n'));
+  const [roleId, setRoleId] = useState(node.roleId ?? '');
+  const [prerequisiteIds, setPrerequisiteIds] = useState<string[]>([]);
+  const [initialized, setInitialized] = useState(false);
+  useEffect(() => {
+    setTitle(node.title);
+    setSummary(node.summary);
+    setAcceptance(node.acceptance.join('\n'));
+    setRoleId(node.roleId ?? '');
+    setPrerequisiteIds([]);
+    setInitialized(true);
+  }, [node.id]);
+  if (!initialized) return null;
+  const parsedAcceptance = acceptance.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+  const disabledReason = lockedReason ?? (busy ? '正在提交，等待服务回执…' : undefined);
+  const candidateNodes = nodes.filter((item) => item.id !== node.id);
+  return (
+    <div className="box pad" style={{ marginTop: 10 }}>
+      <div className="sec-t">手改这一步（形成新的未确认计划修订）</div>
+      <label className="label" htmlFor={`edit-title-${node.id}`}>做什么 · 步骤名称</label>
+      <input id={`edit-title-${node.id}`} className="input" value={title} onChange={(event) => { setTitle(event.target.value); }} />
+      <label className="label" htmlFor={`edit-summary-${node.id}`}>产出说明</label>
+      <textarea id={`edit-summary-${node.id}`} className="textarea" value={summary} onChange={(event) => { setSummary(event.target.value); }} />
+      <label className="label" htmlFor={`edit-acceptance-${node.id}`}>验收条款（每行一条）</label>
+      <textarea id={`edit-acceptance-${node.id}`} className="textarea" value={acceptance} onChange={(event) => { setAcceptance(event.target.value); }} />
+      <label className="label" htmlFor={`edit-role-${node.id}`}>职业（“谁来做”）</label>
+      <select
+        id={`edit-role-${node.id}`}
+        className="input"
+        value={roleId}
+        onChange={(event) => { setRoleId(event.target.value); }}
+      >
+        <option value="">未指定（该步骤未绑定职业）</option>
+        {roles.map((role) => (
+          <option key={role.id} value={role.id}>{role.name}（{role.id}）</option>
+        ))}
+      </select>
+      <label className="label" htmlFor={`edit-prereq-${node.id}`}>前置步骤（可选；会替换这一步的现有前置）</label>
+      <select
+        id={`edit-prereq-${node.id}`}
+        className="input"
+        multiple
+        value={prerequisiteIds}
+        onChange={(event) => {
+          setPrerequisiteIds([...event.target.selectedOptions].map((option) => option.value));
+        }}
+        style={{ minHeight: 84 }}
+      >
+        {candidateNodes.map((item) => (
+          <option key={item.id} value={item.id}>{item.title}</option>
+        ))}
+      </select>
+      <div className="row" style={{ gap: 8, marginTop: 10 }}>
+        <Button
+          size="sm"
+          variant="primary"
+          icon="edit"
+          disabled={disabledReason !== undefined}
+          disabledReason={disabledReason}
+          onClick={() => {
+            onSave({
+              nodeId: node.id,
+              title: title.trim(),
+              summary: summary.trim(),
+              acceptance: parsedAcceptance,
+              roleId: roleId === '' ? null : roleId,
+              ...(prerequisiteIds.length === 0 ? {} : { prerequisites: prerequisiteIds }),
+            });
+          }}
+        >
+          保存为新计划修订
+        </Button>
+        <span className="hint">保存只写入未确认草稿并重新检查；不会执行，也不会调用模型。</span>
+      </div>
     </div>
   );
 }

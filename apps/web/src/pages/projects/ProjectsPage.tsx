@@ -25,14 +25,16 @@ import { DirectoryPicker } from '../../components/DirectoryPicker.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { IconButton } from '../../components/IconButton.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 
-const GIT_STATE_LABEL: Record<RepoGitStateValue, string> = {
-  git: 'Git 仓库',
-  not_git: '非 Git 目录',
+/** P02-02：卡片徽标按设计「工作模式」文案（能力不可用作为真实状态保留原因）。 */
+const GIT_MODE_LABEL: Record<RepoGitStateValue, string> = {
+  git: 'Git 分支模式',
+  not_git: '直接执行目录',
   path_unavailable: '路径不可用',
-  capability_unavailable: 'Git 能力不可用',
+  capability_unavailable: '能力不可用',
 };
 
 const GIT_STATE_TONE: Record<RepoGitStateValue, BadgeTone> = {
@@ -49,7 +51,13 @@ const GIT_STATE_ICON: Record<RepoGitStateValue, 'git' | 'folder' | 'alert' | 'he
   capability_unavailable: 'help',
 };
 
-type GitFilter = 'all' | RepoGitStateValue;
+/** P02-02：设计只有 全部 / Git 分支 / 直接目录 / 不可用 四段；两种不可用聚合为「不可用」。 */
+type WorkModeFilter = 'all' | 'git' | 'direct' | 'unavailable';
+function workModeOf(gitState: RepoGitStateValue): WorkModeFilter {
+  if (gitState === RepoGitState.GIT) return 'git';
+  if (gitState === RepoGitState.NOT_GIT) return 'direct';
+  return 'unavailable';
+}
 type RegisterPhase = 'submitting' | 'failed' | 'unknown';
 
 interface RegisterAttempt {
@@ -67,13 +75,14 @@ function apiErrorDetail(error: unknown): string {
 function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly project: ProjectSummary; readonly busy: boolean; readonly onArchive: () => void; readonly onEdit: () => void; readonly onRecheck: () => void }) {
   const navigate = useNavigate();
   const [copyMessage, setCopyMessage] = useState('');
-  const unavailable = project.gitState === RepoGitState.PATH_UNAVAILABLE || project.gitState === RepoGitState.CAPABILITY_UNAVAILABLE;
-  const cannotStart = project.archived || unavailable;
+  /* P02-03：只有路径不可用才禁用开始/模板任务；Git 能力不可用由服务在准备阶段给出原因，不在入口假禁用。 */
+  const pathUnavailable = project.gitState === RepoGitState.PATH_UNAVAILABLE;
+  const cannotStart = project.archived || pathUnavailable;
   return (
     <article className="card pad hoverable project-parity-card" role="link" tabIndex={0} onClick={(event) => { if (!(event.target instanceof Element) || event.target.closest('a,button,input,summary,details') === null) navigate(`/projects/${encodeURIComponent(project.id)}`); }} onKeyDown={(event) => { if (event.target === event.currentTarget && event.key === 'Enter') navigate(`/projects/${encodeURIComponent(project.id)}`); }} aria-label={project.name} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
         <span className="tile lg">
-          <Icon name={unavailable ? 'alert' : 'folder'} />
+          <Icon name={pathUnavailable ? 'alert' : 'folder'} />
         </span>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row wrap" style={{ gap: 6 }}>
@@ -88,39 +97,41 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
             {project.rootPath}
           </div>
         </div>
-        <Badge tone={GIT_STATE_TONE[project.gitState]} icon={GIT_STATE_ICON[project.gitState]}>
-          {GIT_STATE_LABEL[project.gitState]}
-        </Badge>
+        <div className="col" style={{ gap: 4, alignItems: 'flex-end' }}>
+          <Badge tone={GIT_STATE_TONE[project.gitState]} icon={GIT_STATE_ICON[project.gitState]}>
+            {GIT_MODE_LABEL[project.gitState]}
+          </Badge>
+          {project.attentionCount > 0 ? (
+            <Badge tone="wait" icon="alert">{String(project.attentionCount)} 个需要处理</Badge>
+          ) : null}
+        </div>
       </div>
 
-      {unavailable ? <p className="banner warn"><Icon name="alert" size="sm" />{project.gitState === 'path_unavailable' ? '目录在本机找不到或不可访问。请取消管理后按新路径重新登记；文件不会被删除。' : 'Git 能力不可用，请检查运行环境后重新检测。'}</p> : null}
+      {pathUnavailable ? <p className="banner warn"><Icon name="alert" size="sm" />目录在本机找不到或不可访问。请取消管理后按新路径重新登记；文件不会被删除。</p> : null}
+      {project.gitState === RepoGitState.CAPABILITY_UNAVAILABLE ? <p className="banner info"><Icon name="info" size="sm" />Git 能力暂不可用（目录可读）：仍可开始任务形成需求草稿；工作区准备阶段若失败，服务会给出具体原因。</p> : null}
       {project.description.trim().length === 0 ? null : (
         <p className="hint" style={{ lineHeight: 1.6 }}>
           {project.description}
         </p>
       )}
 
-      <div className="grid-2" style={{ gap: 8 }}>
+      {/* P02-01：设计为三格单行（当前分支/技术栈/任务）。服务未返回任务总数与运行中数量（C1），
+          任务格诚实写“N 个进行中”，不把“进行中”冒充任务总数。 */}
+      <div className="pfacts">
         <div>
-          <div className="eyebrow">当前分支</div>
-          <div className="mono" style={{ fontSize: 13 }}>
+          <div className="k">当前分支</div>
+          <div className="v mono">
             <ProjectBranchValue project={project} />
           </div>
         </div>
         <div>
-          <div className="eyebrow">技术栈</div>
-          <div style={{ fontSize: 13 }}><ProjectTechnologyValue project={project} /></div>
+          <div className="k">技术栈</div>
+          <div className="v" ><ProjectTechnologyValue project={project} /></div>
         </div>
         <div>
-          <div className="eyebrow">进行中任务</div>
-          <div className="num" style={{ fontSize: 13 }}>
-            {String(project.openTaskCount)} 个
-          </div>
-        </div>
-        <div>
-          <div className="eyebrow">需要处理</div>
-          <div className="num" style={{ fontSize: 13, color: project.attentionCount > 0 ? 'var(--warn)' : undefined }}>
-            {String(project.attentionCount)} 个
+          <div className="k">任务</div>
+          <div className="v num" title="服务暂未返回任务总数与运行中数量">
+            {String(project.openTaskCount)} 个进行中
           </div>
         </div>
       </div>
@@ -132,22 +143,20 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
         </div>
       )}
 
-      <div className="row wrap" style={{ gap: 8, marginTop: 'auto', paddingTop: 10, boxShadow: 'inset 0 1px 0 var(--line)' }}>
-        <LinkButton to={`/requirements?projectId=${encodeURIComponent(project.id)}`} variant="secondary" size="sm" icon="file">
-          需求目录
-        </LinkButton>
+      {/* P02-18：设计主操作「开始任务」为 secondary，模板任务 ghost，查看配置为文字提示；扩展操作收进更多菜单。 */}
+      <div className="pfoot">
         {cannotStart ? (
           <Button
-            variant="ghost"
+            variant="secondary"
             size="sm"
             icon="plus"
             disabled
-            disabledReason={project.archived ? '项目已取消管理，请先恢复管理后开始任务' : '项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始任务。'}
+            disabledReason={project.archived ? '项目已取消管理，请先恢复管理后开始任务' : '项目路径不可用：目录在本机找不到或不可访问，请取消管理后按新路径重新登记。'}
           >
             开始任务
           </Button>
         ) : (
-          <LinkButton to={`/start?project=${encodeURIComponent(project.id)}`} variant="ghost" size="sm" icon="plus">
+          <LinkButton to={`/start?project=${encodeURIComponent(project.id)}`} variant="secondary" size="sm" icon="plus">
             开始任务
           </LinkButton>
         )}
@@ -157,7 +166,7 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
             size="sm"
             icon="template"
             disabled
-            disabledReason={project.archived ? '项目已取消管理，请先恢复管理后开始模板任务' : '项目路径或 Git 能力不可用：服务返回的 gitState 不允许在此开始模板任务。'}
+            disabledReason={project.archived ? '项目已取消管理，请先恢复管理后开始模板任务' : '项目路径不可用：无法读取项目目录。'}
           >
             模板任务
           </Button>
@@ -166,10 +175,11 @@ function ProjectCard({ project, busy, onArchive, onEdit, onRecheck }: { readonly
             模板任务
           </LinkButton>
         )}
+        <span className="grow" />
         <LinkButton to={`/projects/${encodeURIComponent(project.id)}`} variant="ghost" size="sm" iconAfter="chevRight">
           查看配置
         </LinkButton>
-        <details className="project-more"><summary aria-label={`更多：${project.name}`}>⋯</summary><div className="card pad col"><Button variant="ghost" size="sm" icon="copy" onClick={() => { void navigator.clipboard.writeText(project.rootPath).then(() => setCopyMessage('目录已复制')).catch(() => setCopyMessage('复制失败，请从项目配置复制目录')); }}>复制目录</Button><Button variant="ghost" size="sm" icon="refresh" disabled={busy} disabledReason="项目操作尚未完成" onClick={onRecheck}>重新检测</Button><Button variant="ghost" size="sm" icon="edit" disabled={busy} disabledReason="项目操作尚未完成" onClick={onEdit}>编辑</Button><Button variant="ghost" size="sm" icon={project.archived ? 'refresh' : 'archive'} disabled={busy} disabledReason="项目操作尚未完成" onClick={onArchive}>{project.archived ? '恢复管理' : '取消管理…'}</Button></div></details>{copyMessage ? <span className="hint" role="status">{copyMessage}</span> : null}
+        <details className="project-more"><summary aria-label={`更多：${project.name}`}>⋯</summary><div className="card pad col"><LinkButton to={`/projects/${encodeURIComponent(project.id)}`} variant="ghost" size="sm" icon="settings">查看配置</LinkButton><LinkButton to={`/requirements?projectId=${encodeURIComponent(project.id)}`} variant="ghost" size="sm" icon="file">需求目录</LinkButton><Button variant="ghost" size="sm" icon="copy" onClick={() => { void navigator.clipboard.writeText(project.rootPath).then(() => setCopyMessage('目录已复制')).catch(() => setCopyMessage('复制失败，请从项目配置复制目录')); }}>复制项目目录</Button><Button variant="ghost" size="sm" icon="refresh" disabled={busy} disabledReason="项目操作尚未完成" onClick={onRecheck}>重新检测</Button><Button variant="ghost" size="sm" icon="edit" disabled={busy} disabledReason="项目操作尚未完成" onClick={onEdit}>编辑</Button><Button variant="ghost" size="sm" icon={project.archived ? 'refresh' : 'archive'} disabled={busy} disabledReason="项目操作尚未完成" onClick={onArchive}>{project.archived ? '恢复管理' : '取消管理…'}</Button></div></details>{copyMessage ? <span className="hint" role="status">{copyMessage}</span> : null}
       </div>
     </article>
   );
@@ -232,7 +242,7 @@ export function ProjectsPage() {
       ]);
     },
   });
-  const [gitFilter, setGitFilter] = useState<GitFilter>('all');
+  const [gitFilter, setGitFilter] = useState<WorkModeFilter>('all');
   const [keyword, setKeyword] = useState('');
 
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -244,29 +254,33 @@ export function ProjectsPage() {
   const pendingRegister=usePendingIdentity(ROUTES.projects);
   const attempt:RegisterAttempt|null=pendingRegister?{...(localAttempt?.requestKey===pendingRegister.requestKey?localAttempt:{}),phase:pendingRegister.phase==='sending'?'submitting':'unknown',requestKey:pendingRegister.requestKey,message:localAttempt?.requestKey===pendingRegister.requestKey?localAttempt.message:'原登记请求尚未结算，请按原请求核对。'}:localAttempt;
   const [notice, setNotice] = useState<string | null>(null);
+  /** P02-07：登记抽屉脏关闭确认。 */
+  const [leaveRegister, setLeaveRegister] = useState(false);
+  const registerDirty = rootPath.trim() !== '' || name.trim() !== '' || description.trim() !== '';
 
   const counts = useMemo(() => {
-    const base: Record<GitFilter, number> = { all: projects.length, git: 0, not_git: 0, path_unavailable: 0, capability_unavailable: 0 };
-    for (const project of projects) base[project.gitState] += 1;
+    const base: Record<WorkModeFilter, number> = { all: projects.length, git: 0, direct: 0, unavailable: 0 };
+    for (const project of projects) base[workModeOf(project.gitState)] += 1;
     return base;
   }, [projects]);
 
-  const filterOptions: readonly SegmentOption<GitFilter>[] = [
+  /** P02-02：设计四段「全部 / Git 分支 / 直接目录 / 不可用」，aria-label=工作模式。 */
+  const filterOptions: readonly SegmentOption<WorkModeFilter>[] = [
     { value: 'all', label: '全部', count: counts.all },
-    { value: 'git', label: 'Git 仓库', count: counts.git },
-    { value: 'not_git', label: '非 Git', count: counts.not_git },
-    { value: 'path_unavailable', label: '路径不可用', count: counts.path_unavailable },
-    { value: 'capability_unavailable', label: '能力不可用', count: counts.capability_unavailable },
+    { value: 'git', label: 'Git 分支', count: counts.git },
+    { value: 'direct', label: '直接目录', count: counts.direct },
+    { value: 'unavailable', label: '不可用', count: counts.unavailable },
   ];
 
   const filtered = useMemo(() => {
     const needle = keyword.trim().toLowerCase();
     return projects.filter((project) => {
-      if (gitFilter !== 'all' && project.gitState !== gitFilter) return false;
+      if (gitFilter !== 'all' && workModeOf(project.gitState) !== gitFilter) return false;
       if (needle.length === 0) return true;
       return [project.name, project.rootPath, project.description, project.id].join(' ').toLowerCase().includes(needle);
     });
   }, [gitFilter, keyword, projects]);
+  const clearFilters = () => { setKeyword(''); setGitFilter('all'); };
 
   const issues: string[] = [];
   if (name.trim().length === 0) issues.push('项目名称');
@@ -391,29 +405,38 @@ export function ProjectsPage() {
   let body: ReactNode;
   if (projectsQuery.isLoading) {
     body = (
-      <div className="grid-2">
-        {[0, 1].map((index) => (
-          <div key={index} className="card pad" style={{ height: 236 }}>
+      <div className="project-grid">
+        {[0, 1, 2, 3].map((index) => (
+          <div key={index} className="card pad" style={{ height: 240 }}>
             <div className="row" style={{ gap: 12 }}>
-              <Skeleton width={44} height={44} radius={12} />
+              <Skeleton width={36} height={36} radius={10} />
               <div className="col grow" style={{ gap: 6 }}>
-                <Skeleton width="52%" height={14} />
+                <Skeleton width="55%" height={14} />
                 <Skeleton width="70%" height={11} />
               </div>
             </div>
-            <Skeleton width="100%" height={54} />
+            <Skeleton width="100%" height={12} />
+            <Skeleton width="100%" height={56} />
           </div>
         ))}
       </div>
     );
   } else if (projectsQuery.isError) {
+    /* P02-08：按设计给"项目列表读取失败"专用文案，并安抚已登记项目未受影响。 */
     body = (
-      <ServiceNotice
-        error={projectsQuery.error}
-        onRetry={() => {
-          void projectsQuery.refetch();
-        }}
-      />
+      <div className="banner danger" role="alert">
+        <Icon name="alert" />
+        <div className="grow">
+          <b>项目列表读取失败</b>
+          <br />
+          本地服务没有返回项目摘要。已登记的项目没有受影响。
+          <br />
+          <span className="hint">{errorMessage(projectsQuery.error)}</span>
+        </div>
+        <div className="actions">
+          <Button variant="secondary" size="sm" icon="refresh" onClick={() => { void projectsQuery.refetch(); }}>重试</Button>
+        </div>
+      </div>
     );
   } else if (projects.length === 0) {
     body = (
@@ -421,7 +444,7 @@ export function ProjectsPage() {
         <EmptyState
           icon="folder"
           title="还没有登记项目"
-          description="登记一个本机项目目录后，就可以围绕它开始任务、配置 Git 与项目公约。登记不会移动或修改任何文件。"
+          description="登记一个本机项目目录后，就可以围绕它开始任务、配置 Git 与项目公约。"
           action={
             <Button variant="primary" icon="plus" onClick={openRegister}>
               登记第一个项目
@@ -431,30 +454,65 @@ export function ProjectsPage() {
       </div>
     );
   } else if (filtered.length === 0) {
-    body = <EmptyState icon="search" title="没有匹配的项目" description="换个关键词，或清除筛选条件。" />;
+    /* P02-16：无匹配空态按设计包 card 并提供恢复动作。 */
+    body = (
+      <div className="card">
+        <EmptyState
+          icon="search"
+          title="没有匹配的项目"
+          description="换个关键词，或清除筛选条件。"
+          action={<Button variant="secondary" size="sm" onClick={clearFilters}>清除筛选</Button>}
+        />
+      </div>
+    );
   } else {
     body = (
-      <div className="grid-2">
+      <div className="project-grid">
         {filtered.map((project) => (
           <ProjectCard key={project.id} project={project} busy={archiveProject.isPending || editProject.isPending || recheckProject.isPending} onArchive={() => { archiveProject.reset(); setArchiveCandidate(project); }} onRecheck={() => { recheckProject.mutate(project.id); }} onEdit={() => { setEditing({ id: project.id, name: project.name, description: project.description, testCommand: project.settings?.testCommand ?? '', gitProvider: project.settings?.gitProvider ?? '', defaultMethodId: project.settings?.defaultMethodId ?? '' }); }} />
         ))}
       </div>
     );
   }
+  const showToolbar = !projectsQuery.isLoading && !projectsQuery.isError && projects.length > 0;
 
   return (
     <div className="page">
-      <Modal open={archiveCandidate !== null} title={archiveCandidate?.archived ? '恢复项目管理？' : '取消项目管理？'} onClose={() => { if (!archiveProject.isPending) setArchiveCandidate(null); }} footer={<><Button disabled={archiveProject.isPending} onClick={() => setArchiveCandidate(null)}>返回</Button><Button variant="primary" disabled={archiveProject.isPending || archiveProject.isError || archiveProject.data?.receipt.status === 'accepted' || archiveProject.data?.receipt.status === 'unknown'} disabledReason="请先核对原项目操作；不会重复提交" onClick={() => { if (archiveCandidate) archiveProject.mutate(archiveCandidate); }}>确认</Button></>}><p>{archiveCandidate?.name}</p><p className="mono-wrap">{archiveCandidate?.rootPath}</p><p>文件不会被删除或修改。历史任务与配置记录保留，取消管理后可按新路径重新登记。</p>{archiveProject.isError ? <ServiceNotice error={archiveProject.error} /> : null}{archiveProject.data && archiveProject.data.receipt.status !== 'succeeded' ? <p role="status">项目操作结果待核对，请从全局原操作记录重新读取；不会重复提交。</p> : null}</Modal>
+      <Modal
+        open={archiveCandidate !== null}
+        title={archiveCandidate?.archived ? '恢复项目管理？' : '取消管理这个项目？'}
+        onClose={() => { if (!archiveProject.isPending) setArchiveCandidate(null); }}
+        footer={
+          <>
+            <Button variant="ghost" disabled={archiveProject.isPending} onClick={() => setArchiveCandidate(null)}>{archiveCandidate?.archived ? '取消' : '保留'}</Button>
+            <span className="spacer" />
+            <Button
+              variant={archiveCandidate?.archived ? 'primary' : 'danger'}
+              disabled={archiveProject.isPending || archiveProject.isError || archiveProject.data?.receipt.status === 'accepted' || archiveProject.data?.receipt.status === 'unknown'}
+              disabledReason="请先核对原项目操作；不会重复提交"
+              onClick={() => { if (archiveCandidate) archiveProject.mutate(archiveCandidate); }}
+            >
+              {archiveCandidate?.archived ? '恢复管理' : '取消管理'}
+            </Button>
+          </>
+        }
+      >
+        <p className="mono-wrap">{archiveCandidate?.rootPath}</p>
+        {archiveCandidate?.archived ? (
+          <p>将重新显示 <b>{archiveCandidate?.name}</b>；不会移动或修改项目目录中的文件。</p>
+        ) : (
+          <p>opencode-workflow 将不再显示 <b>{archiveCandidate?.name}</b>，已有任务记录保留。项目目录 <span className="mono">{archiveCandidate?.rootPath}</span> 中的文件<b>不会</b>被删除或修改。</p>
+        )}
+        {archiveProject.isError ? <ServiceNotice error={archiveProject.error} /> : null}
+        {archiveProject.data && archiveProject.data.receipt.status !== 'succeeded' ? <p role="status">项目操作结果待核对，请从全局原操作记录重新读取；不会重复提交。</p> : null}
+      </Modal>
       <PageHeader
         title="项目"
-        lede="项目是任务、流程和配置的归属。选一个项目开始工作，或登记本机已有目录；登记不会移动或修改任何文件。"
+        lede="项目是任务、流程和配置的归属。选一个项目开始工作，或进入查看它的配置。"
         actions={
-          <><Button variant="secondary" size="sm" icon={includeArchived ? 'eye' : 'archive'} onClick={() => { setIncludeArchived((value) => !value); }}>
-            {includeArchived ? '隐藏已归档' : '显示已归档'}
-          </Button>
           <Button variant="primary" size="sm" icon="plus" onClick={openRegister}>
             登记项目
-          </Button></>
+          </Button>
         }
       />
 
@@ -494,25 +552,28 @@ export function ProjectsPage() {
         </div>
       ) : null}
 
-      <div className="toolbar">
-        <div className="input-wrap">
-          <Icon name="search" />
-          <input
-            className="input ctl"
-            placeholder="搜索名称、路径或说明"
-            aria-label="搜索项目"
-            value={keyword}
-            onChange={(event) => {
-              setKeyword(event.target.value);
-            }}
-          />
+      {showToolbar ? (
+        <div className="toolbar">
+          <div className="input-wrap project-search">
+            <Icon name="search" />
+            <input
+              className="input ctl"
+              placeholder="搜索名称或路径"
+              aria-label="搜索项目"
+              value={keyword}
+              onChange={(event) => {
+                setKeyword(event.target.value);
+              }}
+            />
+          </div>
+          <SegmentedControl ariaLabel="工作模式" options={filterOptions} value={gitFilter} onChange={setGitFilter} />
+          <span className="spacer" />
+          <Button variant="ghost" size="sm" icon={includeArchived ? 'eye' : 'archive'} onClick={() => { setIncludeArchived((value) => !value); }}>
+            {includeArchived ? '隐藏已归档' : '显示已归档'}
+          </Button>
+          <IconButton icon="refresh" label="刷新项目列表" disabled={projectsQuery.isFetching} onClick={() => { void projectsQuery.refetch(); }} />
         </div>
-        <SegmentedControl ariaLabel="Git 状态" options={filterOptions} value={gitFilter} onChange={setGitFilter} />
-        <span className="spacer" />
-        <span className="hint">
-          共 {String(projects.length)} 个项目 · {String(counts.git)} 个 Git 仓库
-        </span>
-      </div>
+      ) : null}
 
       {body}
 
@@ -568,6 +629,7 @@ export function ProjectsPage() {
         size="md"
         onClose={() => {
           if (submitting) return;
+          if (registerDirty && !unknown && attempt === null) { setLeaveRegister(true); return; }
           setRegisterOpen(false);
           if (!unknown) resetForm();
         }}
@@ -585,6 +647,8 @@ export function ProjectsPage() {
             <Button
               variant="ghost"
               onClick={() => {
+                if (submitting) return;
+                if (registerDirty && !unknown) { setLeaveRegister(true); return; }
                 setRegisterOpen(false);
                 if (!unknown) resetForm();
               }}
@@ -678,21 +742,25 @@ export function ProjectsPage() {
             />
           </div>
 
-          <div className="field" style={{ margin: 0 }}>
-            <label className="label" htmlFor="project-description">
-              说明 <span className="opt">可选</span>
-            </label>
-            <textarea
-              id="project-description"
-              className="textarea"
-              style={{ minHeight: 90 }}
-              value={description}
-              disabled={submitting || unknown}
-              onChange={(event) => {
-                setDescription(event.target.value);
-              }}
-            />
-          </div>
+          <details className="field" style={{ margin: 0 }} open>
+            <summary className="label" style={{ cursor: 'pointer' }}>更多（可选）</summary>
+            <div className="field" style={{ marginTop: 12 }}>
+              <label className="label" htmlFor="project-description">
+                说明 <span className="opt">可选</span>
+              </label>
+              <textarea
+                id="project-description"
+                className="textarea"
+                style={{ minHeight: 90 }}
+                value={description}
+                disabled={submitting || unknown}
+                onChange={(event) => {
+                  setDescription(event.target.value);
+                }}
+              />
+            </div>
+            <p className="hint">文档目录：创建接口暂不支持 settings（C1 契约缺口），登记后到项目详情「文档路径」页签配置；留空则不生成项目文档。</p>
+          </details>
 
           <div className="banner info">
             <Icon name="info" />
@@ -709,6 +777,21 @@ export function ProjectsPage() {
         onClose={() => { setPickerOpen(false); }}
         onSelect={applyRootPath}
       />
+
+      <Modal
+        open={leaveRegister}
+        title="放弃未登记的内容？"
+        onClose={() => setLeaveRegister(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setLeaveRegister(false)}>继续填写</Button>
+            <span className="spacer" />
+            <Button variant="danger" onClick={() => { setLeaveRegister(false); setRegisterOpen(false); resetForm(); }}>放弃</Button>
+          </>
+        }
+      >
+        你填写的目录和名称还没有登记，关闭后不会保留。
+      </Modal>
     </div>
   );
 }

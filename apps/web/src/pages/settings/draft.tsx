@@ -1,9 +1,10 @@
-import { pendingForScope } from '../../api/pending-commands.ts';
+import { pendingForScope, subscribePending, type PendingCommand } from '../../api/pending-commands.ts';
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createRequestKey, type AppSettings, type BootstrapResponse, type OperationReceipt } from '@agent-workflow/shared';
-import { errorMessage, isApiClientError, isServiceUnavailable, request } from '../../api/client.ts';
+import { ROUTES, createRequestKey, type AppSettings, type BootstrapResponse, type OperationReceipt } from '@agent-workflow/shared';
+import { apiGet, errorMessage, isServiceUnavailable, request } from '../../api/client.ts';
 import { queryKeys } from '../../api/hooks.ts';
+import { fetchOperationByKey } from '../../api/workflow.ts';
 import { SettingsRow, type SettingsEffect } from './shared.tsx';
 
 const draftStorageKey = 'agent-workflow.settings-draft.v1';
@@ -11,6 +12,12 @@ function restoredFields(): Record<string, DraftField> {
   try { return JSON.parse(sessionStorage.getItem(draftStorageKey) ?? '{}') as Record<string, DraftField>; } catch { return {}; }
 }
 type DraftValue = string | number | boolean | readonly string[];
+
+/** A persisted PATCH /api/settings that has no confirmed receipt yet. */
+export interface SettingsPendingSave {
+  readonly requestKey: string;
+  readonly path: string;
+}
 
 export interface DraftField {
   readonly path: string;
@@ -35,9 +42,42 @@ interface SettingsDraftValue {
   readonly dirtySections: ReadonlySet<string>;
   readonly saving: boolean;
   readonly saveMessage: SaveMessage | undefined;
+  /** Set while the last save is unconfirmed: ordinary settings stay read-only. */
+  readonly pending: SettingsPendingSave | undefined;
+  readonly readOnly: boolean;
+  readonly reconciling: boolean;
   readonly setField: (field: DraftField) => void;
   readonly discard: () => void;
   readonly save: () => void;
+  /** Re-read the original request by key and compare it with the service settings. */
+  readonly reconcile: () => void;
+}
+
+function readByPath(settings: AppSettings, path: string): unknown {
+  let cursor: unknown = settings;
+  for (const key of path.split('.')) {
+    if (cursor === null || typeof cursor !== 'object') return undefined;
+    cursor = (cursor as Record<string, unknown>)[key];
+  }
+  return cursor;
+}
+
+function sameDraftValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Draft value as it is sent to the service (line lists become arrays). */
+function appliedValue(field: DraftField): unknown {
+  if (field.path === 'server.allowedProjectRoots' || field.path === 'git.network.allowedHttpHosts') {
+    const lines = typeof field.value === 'string' ? field.value.split('\n').map((line) => line.trim()).filter(Boolean) : [];
+    return field.path === 'git.network.allowedHttpHosts' ? lines.map((host) => host.toLowerCase()) : lines;
+  }
+  return field.value;
+}
+
+/** How many dirty fields the service already matches (used after a re-read). */
+function appliedCount(fields: readonly DraftField[], settings: AppSettings): number {
+  return fields.filter((field) => sameDraftValue(readByPath(settings, field.path), appliedValue(field))).length;
 }
 
 const SettingsDraftContext = createContext<SettingsDraftValue | undefined>(undefined);
@@ -67,6 +107,9 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
   const queryClient = useQueryClient();
   const [fields, setFields] = useState<Record<string, DraftField>>(restoredFields);
   const [saveMessage, setSaveMessage] = useState<SaveMessage | undefined>(undefined);
+  const [pending, setPending] = useState<PendingCommand | undefined>(() => pendingForScope('/api/settings'));
+
+  useEffect(() => subscribePending(() => { setPending(pendingForScope('/api/settings')); }), []);
 
   useEffect(() => {
     // These draft rows contain execution/monitoring limits, never credential inputs.
@@ -118,13 +161,56 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
     },
     onError: (error) => {
       if (pendingForScope('/api/settings') !== undefined) {
-        setSaveMessage({ tone: 'unknown', message: '保存结果未明：请使用上方“核对原操作”。核对前保留修改并禁止再次保存。' });
+        const dirtyCount = Object.values(fields).length;
+        setSaveMessage({
+          tone: 'unknown',
+          message: `没有收到保存结果：正在重新读取设置，核对 ${String(dirtyCount)} 处修改是否已经生效。确认前普通设置保持只读；Git 账号仍可单独查看。`,
+        });
         return;
       }
       setSaveMessage({
         tone: 'danger',
         message: isServiceUnavailable(error) ? '服务未连接，保存未获确认。' : errorMessage(error),
       });
+    },
+  });
+
+  /**
+   * P22-04「重新读取」: query the original request key (never re-send), re-read
+   * the settings and compare every dirty field with the service value.
+   */
+  const reconcileMutation = useMutation({
+    mutationFn: async () => {
+      const current = pendingForScope('/api/settings');
+      if (current === undefined) return undefined;
+      const result = await fetchOperationByKey(current.requestKey);
+      const bootstrap = (await apiGet<BootstrapResponse>(ROUTES.bootstrap)).data;
+      queryClient.setQueryData<BootstrapResponse>(queryKeys.bootstrap, bootstrap);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings });
+      const dirty = Object.values(fields);
+      return { operation: result.operation, applied: appliedCount(dirty, bootstrap.settings), total: dirty.length };
+    },
+    onSuccess: (result) => {
+      if (result === undefined) {
+        setSaveMessage({ tone: 'ok', message: '没有待核对的保存请求，页面已重新读取设置。' });
+        return;
+      }
+      if (result.operation.status === 'succeeded' || (result.total > 0 && result.applied === result.total)) {
+        setFields({});
+        setSaveMessage({ tone: 'ok', message: `核对结果：上次保存已生效（${String(result.applied)}/${String(result.total)} 处修改已在服务端确认），页面已重新读取设置。` });
+        return;
+      }
+      if (result.operation.status === 'failed') {
+        setSaveMessage({ tone: 'danger', message: `核对结果：上次保存已失败，服务没有应用修改；${String(result.total)} 处修改仍保留，可再次保存。` });
+        return;
+      }
+      setSaveMessage({
+        tone: 'unknown',
+        message: `核对结果：仍有 ${String(Math.max(result.total - result.applied, 0))} 处修改未确认生效（共 ${String(result.total)} 处）；保持只读，可稍后再次“重新读取核对”。`,
+      });
+    },
+    onError: (error) => {
+      setSaveMessage({ tone: 'danger', message: `重新读取失败：${errorMessage(error)}；没有重新提交保存。` });
     },
   });
 
@@ -139,14 +225,21 @@ export function SettingsDraftProvider({ children }: { readonly children: ReactNo
       dirtySections,
       saving: saveMutation.isPending,
       saveMessage,
+      pending: pending === undefined ? undefined : { requestKey: pending.requestKey, path: pending.path },
+      readOnly: pending !== undefined,
+      reconciling: reconcileMutation.isPending,
       setField,
       discard,
       save: () => {
         if (dirtyFields.length === 0 || saveMutation.isPending || pendingForScope('/api/settings') !== undefined) return;
         saveMutation.mutate();
       },
+      reconcile: () => {
+        if (reconcileMutation.isPending) return;
+        reconcileMutation.mutate();
+      },
     };
-  }, [fields, saveMessage, saveMutation, saveMutation.isPending]);
+  }, [fields, saveMessage, pending, reconcileMutation.isPending, saveMutation, saveMutation.isPending]);
 
   return <SettingsDraftContext.Provider value={value}>{children}</SettingsDraftContext.Provider>;
 }
@@ -216,6 +309,7 @@ export function DraftNumberControl({
           step={step}
           value={displayValue}
           aria-label={label}
+          disabled={draft.readOnly}
           aria-invalid={issue === undefined ? undefined : true}
           style={{ width: compact ? 112 : 140 }}
           title={`范围 ${min}–${max} ${unit}`}
@@ -265,6 +359,7 @@ export function DraftBooleanRow({ path, label, hint, section, baseline, effect =
         <input
           type="checkbox"
           checked={value}
+          disabled={draft.readOnly}
           onChange={(event) => {
             draft.setField({
               path,

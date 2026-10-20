@@ -1,5 +1,6 @@
 import { RuntimeControls } from './RuntimeControls.tsx';
-import { useState, type ReactNode } from 'react';
+import './runtime.css';
+import { useEffect, useState, type ReactNode } from 'react';
 import { OpencodeServiceStatus, type OpencodeServiceStatusValue } from '@agent-workflow/shared';
 import { isServiceUnavailable } from '../../api/client.ts';
 import { useBootstrap, useOpenCodeStatus } from '../../api/hooks.ts';
@@ -33,6 +34,20 @@ const STATE_ICON: Record<OpencodeServiceStatusValue, 'check' | 'clock' | 'alert'
   degraded: 'alert',
   failed: 'alert',
 };
+
+/** 设计词表：已连接 / 离线 / 启动中 / 状态待核实（服务原始枚举作为 hint 保留）。 */
+function designStateLabel(state: OpencodeServiceStatusValue | null, raw: string): string {
+  if (state === 'ready') return '已连接';
+  if (state === 'starting') return '启动中';
+  if (state === 'stopped' || state === 'failed') return '离线';
+  if (state === 'degraded') return '部分可用 · 状态待核实';
+  return `状态待核实：${raw}`;
+}
+
+function ownershipLabel(status: { readonly managed?: boolean; readonly pid?: number } | undefined): string {
+  if (status === undefined) return '未找到可用进程';
+  return status.managed === false ? '外部进程 · 由你自行启动' : 'Loopper 受管进程';
+}
 
 function isOpenCodeState(value: string): value is OpencodeServiceStatusValue {
   return (Object.values(OpencodeServiceStatus) as readonly string[]).includes(value);
@@ -71,6 +86,20 @@ export function RuntimePage() {
   const disconnected = statusQuery.isError && isServiceUnavailable(statusQuery.error);
   const state = status !== undefined && isOpenCodeState(status.state) ? status.state : null;
   const external = status?.managed === false;
+  // 设计 read-error：读取失败时保留上一次结果，但必须明确标注“可能已过时”。
+  const stale = statusQuery.isError && status !== undefined;
+  const lastReadAt = statusQuery.dataUpdatedAt === 0 ? undefined : new Date(statusQuery.dataUpdatedAt).toISOString();
+  const [unknownLock, setUnknownLock] = useState(false);
+
+  useEffect(() => {
+    if (!unknownLock) return;
+    const handler = (event: BeforeUnloadEvent): void => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => { window.removeEventListener('beforeunload', handler); };
+  }, [unknownLock]);
 
   const restartBlockedReason = disconnected
     ? '服务未连接：无法读取 OpenCode 状态，也不能提交重启请求。'
@@ -92,7 +121,24 @@ export function RuntimePage() {
   } else {
     body = (
       <>
-        <section className="card pad" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        {stale ? (
+          <div className="banner danger" role="alert" style={{ marginBottom: 14 }}>
+            <Icon name="alert" />
+            <div className="grow">
+              <b>读取当前状态失败，下面是上一次读取到的结果，可能已经过时</b>
+              <br />
+              {lastReadAt === undefined ? '' : `读取于 ${formatAbsoluteTime(lastReadAt)}。`}
+              当前进程可能已经变化（例如已离线或已重启），不能把这张卡当作实时状态。
+            </div>
+            <div className="actions">
+              <Button variant="secondary" size="sm" icon="refresh" onClick={() => { void statusQuery.refetch(); }}>
+                重新读取
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        <section className={['card', 'pad', stale ? 'stale' : ''].filter(Boolean).join(' ')} style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <span
             className="tile lg"
             style={{
@@ -117,8 +163,8 @@ export function RuntimePage() {
                   状态未知：{status.state}
                 </Badge>
               ) : (
-                <Badge tone={STATE_TONE[state]} icon={STATE_ICON[state]}>
-                  {STATE_LABEL[state]}
+                <Badge tone={stale ? 'unknown' : STATE_TONE[state]} icon={STATE_ICON[state]}>
+                  {designStateLabel(state, status.state)}
                 </Badge>
               )}
               {status === undefined ? null : external ? (
@@ -137,6 +183,11 @@ export function RuntimePage() {
                 : external
                   ? '当前 OpenCode 不是本程序受管进程（未启用或由外部启动）；本页只读取状态，不管理其进程，也不提供重启。'
                   : '受管 OpenCode 通过本地 HTTP 接口执行任务与知识库对话。重启前必须先停止并核对活动会话；服务会拒绝不安全的重启。'}
+            </div>
+            <div className="hint" style={{ marginTop: 4 }}>
+              上次检查 {lastReadAt === undefined ? '未知' : formatAbsoluteTime(lastReadAt)}
+              {' · '}进程归属 {ownershipLabel(status)}
+              {stale ? <span className="stale-tag">上次结果 · 可能已过时</span> : null}
             </div>
           </div>
 
@@ -175,7 +226,62 @@ export function RuntimePage() {
           </div>
         ) : null}
 
-        {status?.lastError === undefined ? null : (
+        {state === 'failed' || state === 'stopped' ? (
+          <div className="banner danger" role="alert" style={{ marginTop: 14 }}>
+            <Icon name="alert" />
+            <div className="grow">
+              <b>OpenCode 没有运行{state === 'failed' ? '（启动失败）' : '（离线）'}</b>
+              <br />
+              任务和知识库暂时不能运行。请检查 CLI 路径与模型设置后再启动。
+              {status?.lastError === undefined ? null : (
+                <span className="mono-wrap" style={{ display: 'block', marginTop: 4 }}>
+                  启动失败原因：{status.lastError}
+                </span>
+              )}
+            </div>
+            <div className="actions">
+              <LinkButton variant="secondary" size="sm" icon="settings" to="/settings?section=opencode">
+                检查 CLI 路径与模型设置
+              </LinkButton>
+            </div>
+          </div>
+        ) : state === 'starting' ? (
+          <div className="banner info" role="status" style={{ marginTop: 14 }}>
+            <Icon name="clock" />
+            <div className="grow">
+              <b>OpenCode 正在启动，等待连接就绪</b>
+              <br />
+              已启动进程 PID {status?.pid === undefined ? '未知' : String(status.pid)}；启动完成后状态会自动刷新。
+            </div>
+          </div>
+        ) : state === null && status !== undefined ? (
+          <div className="banner unknown" role="alert" style={{ marginTop: 14 }}>
+            <Icon name="help" />
+            <div className="grow">
+              <b>服务返回了无法识别的状态「{status.state}」</b>
+              <br />
+              为避免误操作，启动 / 重启已停用。请重新读取；仍无法识别时请查看服务端日志。
+            </div>
+            <div className="actions">
+              <Button variant="secondary" size="sm" icon="refresh" onClick={() => { void statusQuery.refetch(); }}>
+                重新读取
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {unknownLock ? (
+          <div className="banner unknown" role="alert" style={{ marginTop: 14 }}>
+            <Icon name="help" />
+            <div className="grow">
+              <b>没有收到运行时操作的结果，操作已锁定</b>
+              <br />
+              进程可能已经启动/重启，也可能没有；当前状态正常也不能证明操作完成。在按原请求号核对之前，不会重发，也不能再次启动或重启。离开本页时浏览器会提醒。
+            </div>
+          </div>
+        ) : null}
+
+        {state !== 'failed' && state !== 'stopped' && status?.lastError !== undefined ? (
           <div className="banner warn" role="alert" style={{ marginTop: 14 }}>
             <Icon name="alert" />
             <div className="grow">
@@ -184,9 +290,9 @@ export function RuntimePage() {
               <span className="mono-wrap">{status.lastError}</span>
             </div>
           </div>
-        )}
+        ) : null}
 
-        <div className="grid-3" style={{ marginTop: 16 }}>
+        <div className={['grid-3', stale ? 'stale' : ''].filter(Boolean).join(' ')} style={{ marginTop: 16 }}>
           <Fact icon="server" title="应用">
             <dl className="kv" style={{ gridTemplateColumns: '92px minmax(0,1fr)', fontSize: 12.5 }}>
               <dt>名称 / 版本</dt>
@@ -214,6 +320,8 @@ export function RuntimePage() {
               <dd>
                 <MonoValue value={status?.host === undefined ? undefined : `${status.host}${status.port === undefined ? '' : `:${String(status.port)}`}`} />{status?.host ? <Button size="sm" variant="ghost" icon="copy" onClick={() => { void navigator.clipboard.writeText(`${status.host}:${status.port ?? ''}`).then(() => setCopyMessage('监听地址已复制')).catch(() => setCopyMessage('复制失败，请手动复制显示的地址')); }}>复制</Button> : null}
               </dd>
+              <dt>管理方式</dt>
+              <dd>{ownershipLabel(status)}</dd>
               <dt>PID</dt>
               <dd className="mono">{status?.pid === undefined ? '—' : String(status.pid)}</dd>
               <dt>进程代次</dt><dd className="mono">{status?.generation ?? '未知'}</dd>
@@ -267,7 +375,19 @@ export function RuntimePage() {
           </div>
         </section>
 
-        <RuntimeControls state={state} blockedReason={restartBlockedReason} onRefresh={() => { void statusQuery.refetch(); void bootstrap.refetch(); }} />
+        <RuntimeControls
+          state={state}
+          blockedReason={restartBlockedReason}
+          snapshot={{
+            state: status?.state,
+            pid: status?.pid,
+            host: status?.host,
+            port: status?.port,
+            managed: status?.managed,
+          }}
+          onUnknownChange={setUnknownLock}
+          onRefresh={() => { void statusQuery.refetch(); void bootstrap.refetch(); }}
+        />
       </>
     );
   }

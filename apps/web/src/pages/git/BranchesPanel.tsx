@@ -49,11 +49,18 @@ export function BranchesPanel({ branches, loading, error, onRetry, onSelect, act
 
   return (
     <>
-      {groups.map((group) => (
+      {groups.map((group) => {
+        // 设计 g23：GitLab 未配置时「远端分支」整组不可用，并就地说明去设置。
+        const unavailable = group.key === 'remote' && !gitlabConfigured;
+        return (
         <section key={group.key} aria-label={group.label}>
           <div className="branch-group-head">
             {group.label} · {String(group.rows.length)}
+            {unavailable ? <Badge tone="unknown" icon="lock">不可用</Badge> : null}
           </div>
+          {unavailable ? (
+            <p className="mid-note">GitLab 未配置：远端分支相关能力不可用；本地提交仍可浏览。到「设置 → GitLab」配置连接后重新读取。</p>
+          ) : null}
           {group.rows.length === 0 ? <p className="mid-note">没有{group.label}。</p> : null}
           {group.rows.map((branch) => {
             const selected = activeRef === branch.fullRef;
@@ -63,8 +70,9 @@ export function BranchesPanel({ branches, loading, error, onRetry, onSelect, act
                 type="button"
                 className={['branch-row', branch.isCurrent ? 'current' : ''].filter(Boolean).join(' ')}
                 aria-selected={selected}
-                onClick={() => { onSelect(branch); }}
-                title="在提交列表中筛选这个引用"
+                aria-disabled={unavailable}
+                onClick={() => { if (!unavailable) onSelect(branch); }}
+                title={unavailable ? 'GitLab 未配置：远端分支不可用于远端操作；可只读查看引用位' : '在提交列表中筛选这个引用'}
               >
                 <span className="tile" style={{ width: 26, height: 26, borderRadius: 7, flex: 'none' }}>
                   <Icon name="branch" size="sm" />
@@ -106,7 +114,8 @@ export function BranchesPanel({ branches, loading, error, onRetry, onSelect, act
             );
           })}
         </section>
-      ))}
+        );
+      })}
       {branches.length === 0 ? (
         <div className="git-mid-empty">
           <EmptyState compact icon="branch" title="没有读取到分支" description="服务返回的分支列表为空；不会伪造分支名。" />

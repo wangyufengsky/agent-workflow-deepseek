@@ -1,0 +1,186 @@
+/* 知识库对话条目：提问气泡 / 研究员状态 / 研究过程折叠 / 命中来源卡 / 回答与引用上标。
+   全部颜色使用主题令牌。 */
+.kb-conv {
+  margin-top: 14px;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kb-bubble {
+  align-self: flex-end;
+  max-width: 84%;
+  padding: 10px 14px;
+  border-radius: var(--r-lg);
+  background: var(--accent-fill);
+  border: 1px solid var(--accent-line);
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kb-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kb-who-avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.kb-who-name {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.kb-who-actions {
+  margin-left: auto;
+}
+
+.kb-research {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+  overflow: hidden;
+}
+
+.kb-research-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kb-research-toggle:hover {
+  background: var(--fill-2);
+}
+
+.kb-research-live {
+  color: var(--accent);
+}
+
+.kb-research-body {
+  padding: 0 12px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.kb-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kb-hit {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--fill-1);
+}
+
+.kb-hit-n {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-fill);
+  color: var(--accent);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.kb-hit-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.kb-answer {
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kb-answer-streaming {
+  margin: 0;
+}
+
+.kb-answer-pending {
+  margin: 0;
+}
+
+.kb-cite-sup {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin: 0 2px;
+  padding: 0 4px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-fill);
+  color: var(--accent);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  line-height: 1;
+  vertical-align: super;
+  cursor: pointer;
+}
+
+.kb-cite-sup:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.kb-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: kb-caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes kb-caret-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.kb-conv-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}

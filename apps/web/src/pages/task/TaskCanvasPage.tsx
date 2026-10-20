@@ -3,7 +3,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   EXECUTION_STATUS_LABEL,
   PLAN_REVISION_STATUS_LABEL,
-  TASK_ATTENTION_LABEL,
   WORKSPACE_STATE_LABEL,
   type ActionAvailability,
   type OperationReceipt,
@@ -38,6 +37,9 @@ import { TaskDeliveryPanel } from '../delivery/TaskDeliveryPanel.tsx';
 import { ExecutionPanel } from './ExecutionPanel.tsx';
 import { PlanEditPanel } from './PlanEditPanel.tsx';
 import { TaskExtrasPanel, type TaskExtrasMode } from './TaskExtrasPanel.tsx';
+import { WorkspaceDetailDrawer } from './WorkspaceDetailDrawer.tsx';
+import { AUTO_ADVANCE_STATUSES, advanceTargets, hasActiveEditSession, manualAdvanceReason } from './advance.ts';
+import { deriveCanvasSituation, type CanvasPrimaryAction } from './situation.ts';
 import './task.css';
 
 const FIXED_TEMPLATE_REASON = '该任务使用固定模板，创建后不能修改步骤；要改要求，请新建模板任务。';
@@ -56,6 +58,8 @@ export function TaskCanvasPage() {
 
   const [editMode, setEditMode] = useState(false);
   const [extrasMode, setExtrasMode] = useState<TaskExtrasMode | null>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -111,6 +115,7 @@ export function TaskCanvasPage() {
   useEffect(() => {
     setExtrasMode(null);
     setMenuOpen(false);
+    setWorkspaceOpen(false);
   }, [taskId]);
 
   useEffect(() => {
@@ -169,15 +174,19 @@ export function TaskCanvasPage() {
     navigate(`/runs/${encodeURIComponent(taskId)}`);
   };
 
+  const editLockedIds = execution?.editSession !== undefined && !['finished', 'abandoned'].includes(execution.editSession.state) ? execution.editSession.lockedNodeIds : undefined;
   const graph = useMemo(() => {
     if (plan === undefined) return EMPTY_FLOW_GRAPH;
     const nodeIds = plan.graph.nodes.map((node) => node.id);
+    // P13-13: while adjusting a pending plan the canvas shows the same lock layer
+    // as the panel: claimed / running / finished steps (and their in-edges) are locked.
+    const lockedNodeIds = isFixed ? nodeIds : editLockedIds;
     return planRevisionToFlow(plan, {
       layer: 'current',
       execution,
-      ...(isFixed ? { lockedNodeIds: nodeIds, lockedReason: FIXED_TEMPLATE_REASON } : {}),
+      ...(lockedNodeIds === undefined ? {} : { lockedNodeIds, lockedReason: isFixed ? FIXED_TEMPLATE_REASON : '已领取 / 运行中 / 已完成：锁定（含入边）；待执行步骤可修改。' }),
     });
-  }, [execution, isFixed, plan]);
+  }, [editLockedIds, execution, isFixed, plan]);
 
   const legend = useMemo<FlowLegendItem[]>(
     () => [
@@ -185,8 +194,9 @@ export function TaskCanvasPage() {
       { label: '已完成', swatch: 'done' },
       { label: '失败', swatch: 'fail' },
       { label: '未知 / 未开始', swatch: 'unknown' },
+      ...(editLockedIds === undefined ? [] : [{ label: '锁定（已领取 / 运行中 / 已完成）', swatch: 'gap' as const }]),
     ],
-    [],
+    [editLockedIds],
   );
 
   const openNode = (nextNodeId: string) => {
@@ -327,6 +337,58 @@ export function TaskCanvasPage() {
   const progress = execution?.progress;
   const percent = progress === undefined || progress.total === 0 ? 0 : Math.round((progress.done / progress.total) * 100);
   const editSession = execution?.editSession;
+  // P13-01/P13-02: one service-fact projection drives the badge, the situation
+  // bar and the single nearest action; it never maps execution.completed to a
+  // green "task completed".
+  const situation = deriveCanvasSituation({
+    task,
+    ...(plan === undefined ? {} : { plan }),
+    ...(execution === undefined ? {} : { execution }),
+    ...(detail.delivery === undefined ? {} : { delivery: detail.delivery }),
+    ...(workspace === undefined ? {} : { workspace }),
+    ...(detail.attentionItems === undefined ? {} : { attentionItems: detail.attentionItems }),
+    ...(editSession === undefined ? {} : { editSession }),
+  });
+  const autoToggleAllowed = execution !== undefined && AUTO_ADVANCE_STATUSES.includes(execution.status) && !hasActiveEditSession(execution) && !command.state.busy;
+  const autoToggleReason = command.state.busy
+    ? '正在提交操作，等待服务回执…'
+    : execution === undefined
+      ? '开始执行后才能切换自动节点推进。'
+      : hasActiveEditSession(execution)
+        ? '正在调整待执行计划：结束或放弃调整后才能切换自动节点推进。'
+        : !AUTO_ADVANCE_STATUSES.includes(execution.status)
+          ? `当前执行状态（${EXECUTION_STATUS_LABEL[execution.status]}）不能切换自动节点推进。`
+          : undefined;
+  const manualTargets = plan !== undefined && execution !== undefined ? advanceTargets(plan, execution) : { candidates: [], waiting: [] };
+  const manualAdvanceVisible = !readOnly && !isFixed && execution !== undefined && execution.autoAdvance === false && ['running', 'paused'].includes(execution.status);
+  const manualAdvanceReasonText = manualAdvanceVisible && execution !== undefined ? manualAdvanceReason(execution, manualTargets, plan, command.state.busy) : '开启自动推进时由服务自动领取下一步；关闭后才出现手动推进。';
+  const startVisible = !readOnly && (execution === undefined || ['idle', 'ready'].includes(execution.status));
+  const runPrimary = (action: CanvasPrimaryAction) => {
+    switch (action.kind) {
+      case 'accept':
+        goAccept(action.nodeId);
+        break;
+      case 'delivery':
+        requestDeliveryFocus();
+        break;
+      case 'inbox':
+        navigate('/inbox');
+        break;
+      case 'resume':
+        runResume();
+        break;
+      case 'reread':
+        reuseRefresh();
+        break;
+      case 'recovery':
+        if (taskId !== undefined) navigate(`/recovery?taskId=${encodeURIComponent(taskId)}`);
+        break;
+      case 'focus':
+        if (action.nodeId !== undefined) openNode(action.nodeId);
+        break;
+    }
+  };
+  const snapshotTemplate = task.fixedTemplate?.snapshot === undefined ? undefined : task.fixedTemplate;
 
   return (
     <div className="canvas-page task-canvas">
@@ -344,15 +406,26 @@ export function TaskCanvasPage() {
                 固定模板 · {task.fixedTemplate?.templateId} v{task.fixedTemplate?.templateVersion}
               </Badge>
             ) : null}
-            {task.attention === 'none' ? null : (
-              <Badge tone={task.attention === 'waiting_user' ? 'wait' : task.attention === 'failed' ? 'fail' : task.attention === 'blocked' ? 'stall' : 'unknown'} icon={task.attention === 'failed' ? 'x' : 'help'}>
-                {TASK_ATTENTION_LABEL[task.attention]}
+            <Badge tone={situation.status.tone} icon={situation.status.icon}>
+              {situation.status.label}
+            </Badge>
+            {situation.secondary === undefined ? null : (
+              <Badge tone={situation.secondary.tone} icon={situation.secondary.icon}>
+                {situation.secondary.label}
               </Badge>
+            )}
+            {workspace === undefined ? null : (
+              <button type="button" className="task-wschip" aria-label="工作区详情" title="工作区详情" onClick={() => { setWorkspaceOpen(true); }}>
+                <Icon name={workspace.kind === 'git_worktree' ? 'branch' : 'folder'} size="sm" />
+                <span>
+                  {workspace.kind === 'git_worktree' ? 'worktree' : '独立副本'} · {WORKSPACE_STATE_LABEL[workspace.state]}
+                </span>
+              </button>
             )}
           </div>
           <div className="task-subline">
             <span>
-              {readOnly ? '核对父任务已有产物' : <>{EXECUTION_STATUS_LABEL[execution?.status ?? 'idle']} · 计划修订 {plan?.revisionNumber ?? '—'} · {plan === undefined ? '无计划' : PLAN_REVISION_STATUS_LABEL[plan.status]}</>}
+              {readOnly ? '核对父任务已有产物' : <>计划修订 {plan?.revisionNumber ?? '—'} · {plan === undefined ? '无计划' : PLAN_REVISION_STATUS_LABEL[plan.status]}</>}
             </span>
             <span className="sep">·</span>
             <span>{readOnly ? '不创建新执行或工作区' : <>工作区 {workspace === undefined ? '未创建' : WORKSPACE_STATE_LABEL[workspace.state]}</>}</span>
@@ -362,13 +435,61 @@ export function TaskCanvasPage() {
                 <span>自动推进 {execution.autoAdvance ? '开启' : '关闭'}</span>
               </>
             )}
+            {snapshotTemplate === undefined ? null : (
+              <span className="task-snapseg" role="group" aria-label="运行面板">
+                <Button size="sm" variant="ghost" icon="chart" onClick={() => { openExtras('snapshot-review'); }}>
+                  执行进度
+                </Button>
+                <Button size="sm" variant="ghost" icon="doc" onClick={() => { openExtras('snapshot-review'); }}>
+                  模板报告
+                </Button>
+              </span>
+            )}
           </div>
         </div>
 
         <StageCapsule current={task.stage} lifecycle={task.lifecycle} attention={task.attention} compact className="task-stages" />
 
         <div className="task-acts">
-          {execution === undefined ? null : (
+          {startVisible ? (
+            <Button
+              variant="primary"
+              size="sm"
+              icon="play"
+              disabled={command.state.busy || actions.startExecution?.allowed !== true}
+              disabledReason={command.state.busy ? '正在提交操作，等待服务回执…' : actions.startExecution?.reason}
+              onClick={runStart}
+            >
+              开始执行
+            </Button>
+          ) : null}
+          {execution === undefined || readOnly ? null : (
+            <span className={`task-auto${autoToggleAllowed ? '' : ' is-disabled'}`} title={autoToggleReason ?? (execution.autoAdvance ? '点击关闭：只影响后续领取' : '点击开启：验收通过后自动领取下一步')}>
+              自动推进
+              <button
+                type="button"
+                className="switch"
+                role="switch"
+                aria-checked={execution.autoAdvance}
+                aria-label="自动节点推进"
+                disabled={!autoToggleAllowed}
+                onClick={() => { runToggleAutoAdvance(!execution.autoAdvance); }}
+              />
+            </span>
+          )}
+          {manualAdvanceVisible ? (
+            <Button
+              variant="primary"
+              size="sm"
+              icon="play"
+              disabled={command.state.busy || manualAdvanceReasonText !== undefined}
+              disabledReason={command.state.busy ? '正在提交操作，等待服务回执…' : manualAdvanceReasonText}
+              onClick={runAdvanceAll}
+            >
+              {manualTargets.candidates.length > 0 ? `整体推进 · 启动 ${String(manualTargets.candidates.length)} 步` : '整体推进'}
+            </Button>
+          ) : null}
+          {execution === undefined || readOnly ? null : (
             <Button
               variant="secondary"
               size="sm"
@@ -380,12 +501,12 @@ export function TaskCanvasPage() {
               调整待执行计划
             </Button>
           )}
-          {execution?.status === 'running' ? (
+          {execution?.status === 'running' && !readOnly ? (
             <Button variant="secondary" size="sm" icon="pause" disabled={command.state.busy || actions.pauseExecution?.allowed !== true} disabledReason={command.state.busy ? '正在提交操作，等待服务回执…' : actions.pauseExecution?.reason} onClick={runPause}>
               暂停
             </Button>
           ) : null}
-          {execution?.status === 'paused' ? (
+          {execution?.status === 'paused' && !readOnly ? (
             <Button variant="secondary" size="sm" icon="play" disabled={command.state.busy || actions.resumeExecution?.allowed !== true} disabledReason={command.state.busy ? '正在提交操作，等待服务回执…' : actions.resumeExecution?.reason} onClick={runResume}>
               继续
             </Button>
@@ -393,6 +514,11 @@ export function TaskCanvasPage() {
           {detail?.delivery !== undefined || execution?.status === 'completed' ? (
             <Button variant="secondary" size="sm" icon="doc" onClick={requestDeliveryFocus}>
               查看变更并交付
+            </Button>
+          ) : null}
+          {isFixed && !readOnly ? (
+            <Button variant="ghost" size="sm" icon="file" onClick={openRunContent}>
+              阅读运行内容
             </Button>
           ) : null}
           <Button variant="secondary" size="sm" icon="file" onClick={openRequirement}>
@@ -408,26 +534,42 @@ export function TaskCanvasPage() {
             />
             {!menuOpen ? null : (
               <div className="menu task-menu task-extras-menu" role="menu" aria-label="更多任务操作">
-                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); if (taskId !== undefined) navigate(`/recovery?taskId=${encodeURIComponent(taskId)}`); }}>
-                  <Icon name="refresh" size="sm" />
-                  任务恢复…
+                {workspace === undefined ? null : (
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setWorkspaceOpen(true); }}>
+                    <Icon name="folder" size="sm" />
+                    工作区详情…
+                  </button>
+                )}
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); setPanelOpen(true); }}>
+                  <Icon name="panel" size="sm" />
+                  执行面板…
                 </button>
+                {execution === undefined || !['failed', 'stopped', 'unknown'].includes(execution.status) ? null : (
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); if (taskId !== undefined) navigate(`/recovery?taskId=${encodeURIComponent(taskId)}`); }}>
+                    <Icon name="refresh" size="sm" />
+                    任务恢复…
+                  </button>
+                )}
                 <button type="button" role="menuitem" onClick={() => { openExtras('freeze'); }}>
                   <Icon name="layers" size="sm" />
-                  冻结计划…
+                  冻结计划快照…
                 </button>
                 <button type="button" role="menuitem" onClick={() => { openExtras('audit'); }}>
                   <Icon name="clock" size="sm" />
                   审计记录
                 </button>
-                {task.fixedTemplate?.snapshot === undefined ? null : <button type="button" role="menuitem" onClick={() => { openExtras('snapshot-review'); }}>
-                  <Icon name="eye" size="sm" />
-                  快照评审
-                </button>}
-                <button type="button" role="menuitem" onClick={openRunContent}>
-                  <Icon name="terminal" size="sm" />
-                  运行内容
-                </button>
+                {snapshotTemplate === undefined ? null : (
+                  <button type="button" role="menuitem" onClick={() => { openExtras('snapshot-review'); }}>
+                    <Icon name="eye" size="sm" />
+                    快照评审
+                  </button>
+                )}
+                {isFixed ? null : (
+                  <button type="button" role="menuitem" onClick={openRunContent}>
+                    <Icon name="terminal" size="sm" />
+                    运行内容
+                  </button>
+                )}
                 <hr />
                 <button
                   type="button"
@@ -466,50 +608,37 @@ export function TaskCanvasPage() {
         </div>
       </div>
 
-      <div className="task-situ" aria-live="polite">
-        <span className={`situ-status ${execution?.status === 'failed' ? 'bad' : execution?.status === 'unknown' ? 'unk' : execution?.status === 'running' ? 'run' : execution?.status === 'completed' ? 'ok' : ''}`}>
-          <Icon name={execution?.status === 'failed' ? 'x' : execution?.status === 'unknown' ? 'help' : execution?.status === 'running' ? 'play' : execution?.status === 'completed' ? 'check' : 'clock'} size="sm" />
-          {EXECUTION_STATUS_LABEL[execution?.status ?? 'idle']}
-        </span>
-        <div className="situ-progress">
-          <div className="progress-bar">
-            <span style={{ width: `${String(percent)}%` }} />
-          </div>
-          <span className="num">{progress === undefined ? '—' : `${String(progress.done)} / ${String(progress.total)} 步`}</span>
-        </div>
-        <span className="situ-kv">
-          <span className="k">执行中</span>
-          {progress?.running ?? 0}
-        </span>
-        <span className="situ-kv">
-          <span className="k">失败</span>
-          {progress?.failed ?? 0}
-        </span>
-        <span className="situ-kv">
-          <span className="k">自动推进</span>
-          {execution === undefined ? '—' : execution.autoAdvance ? '开启' : '关闭'}
-        </span>
-        {pendingAcceptanceCount > 0 ? (
-          <span className="situ-kv warn">
-            <span className="k">待验收</span>
-            {pendingAcceptanceCount}
+      <div className={`task-situ situ-${situation.mode}`} role="status" aria-live="polite">
+        {situation.facts.map((fact, index) => (
+          <span key={fact.key} className={`situ-fact situ-${fact.color}`}>
+            <span className="situ-fk">{fact.label}</span>
+            <span className="situ-fv">
+              <Icon name={fact.icon} size="sm" />
+              <span>{fact.text}</span>
+            </span>
+            {index === situation.facts.length - 1 ? null : <span className="sep" aria-hidden="true" />}
           </span>
-        ) : null}
-        {rejectedAcceptance.length > 0 ? (
-          <span className="situ-kv warn">
-            <span className="k">已退回</span>
-            {rejectedAcceptance.length}
+        ))}
+        <span className="grow" />
+        {situation.primary === undefined ? (
+          <span className="hint">
+            {readOnly
+              ? '只读验证：核对父任务已有产物'
+              : execution?.notice !== undefined
+                ? execution.notice.message
+                : execution?.status === 'running'
+                  ? `没有需要你处理的事 · 下一步：${execution.autoAdvance ? '步骤验收通过后自动开始下游步骤' : '验收通过后由你「整体推进」'}`
+                  : execution?.status === 'paused'
+                    ? '下一步：继续任务后恢复调度；也可以先调整待执行计划'
+                    : execution?.status === 'idle' || execution?.status === 'ready'
+                      ? '下一步：准备工作区完成后开始执行'
+                      : '下一步以服务回读的状态为准'}
           </span>
-        ) : null}
-        {editSession === undefined ? null : (
-          <span className="situ-kv warn">
-            <span className="k">调整</span>
-            {editSession.state === 'editing' ? '编辑中' : editSession.state === 'saved' ? '已保存 · 待重新确认' : editSession.state === 'conflict' ? '领取竞态' : editSession.state}
-          </span>
+        ) : (
+          <Button size="sm" variant={situation.mode === 'fail' || situation.mode === 'need' || situation.mode === 'wait' ? 'primary' : 'secondary'} icon={situation.primary.icon} onClick={() => { runPrimary(situation.primary!); }}>
+            {situation.primary.label}
+          </Button>
         )}
-        <span className="situ-notice">
-          {readOnly ? '只读验证：核对父任务已有产物。' : execution?.notice === undefined ? (execution === undefined ? '执行尚未创建；下一步在需求画布准备工作区。' : '没有待处理情况。') : execution.notice.message}
-        </span>
       </div>
 
       <div className="task-banners">
@@ -597,8 +726,11 @@ export function TaskCanvasPage() {
               <b>执行结果待核对。</b>不会自动重发；以服务回读的状态为准。可按原配置重试失败步骤、跳过节点或取消执行（保留工作区）。
             </div>
             <div className="actions">
+              <Button variant="secondary" size="sm" icon="refresh" onClick={reuseRefresh}>
+                立即重新读取
+              </Button>
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
                 icon="refresh"
                 onClick={() => {
@@ -608,6 +740,9 @@ export function TaskCanvasPage() {
                 到恢复页处理
               </Button>
             </div>
+            <p className="hint" style={{ flexBasis: '100%', marginTop: 4 }}>
+              画布按实时连接自动重读；手动重新读取只核对服务当前状态，不会重发写操作。恢复/重试与核对是两件事。
+            </p>
           </div>
         ) : null}
         {!readOnly && plan !== undefined && plan.status === 'unconfirmed' && !isFixed ? (
@@ -626,7 +761,26 @@ export function TaskCanvasPage() {
         {isFixed && !readOnly ? (
           <div className="banner info">
             <Icon name="lock" />
-            <div className="grow">{FIXED_TEMPLATE_REASON}可以查看、确认、准备工作区并按原配置执行。</div>
+            <div className="grow">
+              <b>{FIXED_TEMPLATE_REASON}</b>
+              <div className="fixed-template-lists">
+                <div>
+                  <div className="eyebrow">不能做的事</div>
+                  <ul className="list-plain">
+                    <li>新增 / 删除步骤、改依赖、职业、模型、验收或模板参数</li>
+                    <li>让 AI 细化或调整计划（固定模板 = 固定流程）</li>
+                  </ul>
+                </div>
+                <div>
+                  <div className="eyebrow">可以做的事</div>
+                  <ul className="list-plain">
+                    <li>查看与确认计划、准备独立工作区、按原配置开始执行</li>
+                    <li>查看执行现场、人工验收、按原配置重试失败步骤</li>
+                    <li>查看变更并交付；要改要求请新建模板任务</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </div>
         ) : null}
       </div>
@@ -707,11 +861,14 @@ export function TaskCanvasPage() {
           </aside>
         ) : extrasMode !== null ? (
           <TaskExtrasPanel taskId={taskId} mode={extrasMode} plan={plan} onClose={() => { setExtrasMode(null); }} />
-        ) : (
+        ) : panelOpen ? (
+          // P13-03: the right panel is hidden by default (design `.side.hidden`);
+          // it only opens from a step click or an explicit 更多 → 执行面板 action.
           <aside className="side task-side" aria-label="执行面板">
             <div className="side-head task-side-head">
               <h2 className="grow">执行面板</h2>
               <Badge tone={execution?.status === 'running' ? 'run' : execution?.status === 'failed' ? 'fail' : 'idle'}>{EXECUTION_STATUS_LABEL[execution?.status ?? 'idle']}</Badge>
+              <IconButton icon="x" label="关闭执行面板，回到全图" onClick={() => { setPanelOpen(false); }} />
             </div>
             <div className="side-body task-side-body">
               <ExecutionPanel
@@ -734,7 +891,7 @@ export function TaskCanvasPage() {
               />
             </div>
           </aside>
-        )}
+        ) : null}
       </div>
 
       <Modal
@@ -743,6 +900,12 @@ export function TaskCanvasPage() {
         onClose={() => setCancelOpen(false)}
         footer={
           <>
+            {workspace === undefined ? null : (
+              <Button variant="ghost" size="sm" icon="folder" onClick={() => { setCancelOpen(false); setWorkspaceOpen(true); }}>
+                查看工作区详情
+              </Button>
+            )}
+            <span className="spacer" />
             <Button variant="ghost" size="sm" onClick={() => setCancelOpen(false)}>
               返回
             </Button>
@@ -755,10 +918,30 @@ export function TaskCanvasPage() {
         <p>
           取消会停止这一轮执行；工作区与已产生的记录保留。已提交的结果与回执仍然可读；取消不是删除，也不会自动清理工作区。
         </p>
+        <p className="cancel-retain">
+          <Icon name="lock" size="sm" />
+          <span>
+            <b>文件保留，可稍后交付 / 查看。</b>任务{workspace?.kind === 'git_worktree' ? '工作区与任务分支' : '副本'}不会被清理；可查看变更、交付已完成的部分，或在工作区详情中单独清理。
+          </span>
+        </p>
         <p className="hint" style={{ marginTop: 8 }}>
           当前状态：{EXECUTION_STATUS_LABEL[execution?.status ?? 'idle']}。运行中的步骤可能先完成当前快照。
         </p>
       </Modal>
+
+      <WorkspaceDetailDrawer
+        open={workspaceOpen}
+        task={task}
+        {...(plan === undefined ? {} : { plan })}
+        {...(execution === undefined ? {} : { execution })}
+        {...(workspace === undefined ? {} : { workspace })}
+        {...(detail.delivery === undefined ? {} : { delivery: detail.delivery })}
+        onClose={() => { setWorkspaceOpen(false); }}
+        onRefresh={async () => {
+          await detailQuery.refetch();
+          await executionViewQuery.refetch();
+        }}
+      />
     </div>
   );
 }

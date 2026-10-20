@@ -16,12 +16,12 @@ import {
   fetchTaskDelivery,
   fetchTaskDetail,
   gitKeys,
-  mergeDelivery,
   pushDelivery,
   selectDelivery,
   toReceiptView,
   type ReceiptView,
 } from '../../api/git.ts';
+import { fetchDeliveryMergeRequestFact, verifyDeliveryMergeRequest, verifyDeliveryPush } from '../../api/workflow.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
@@ -42,9 +42,10 @@ import { DeliveryFileSelect } from './DeliveryFileSelect.tsx';
 import { DeliveryGoalPicker } from './DeliveryGoalPicker.tsx';
 import { DeliveryStepList } from './DeliveryStepList.tsx';
 import { DeliveryApplyPreview } from './DeliveryApplyPreview.tsx';
+import { TaskChangesView } from './TaskChangesView.tsx';
 import './delivery.css';
 
-type DeliveryDialog = 'commit' | 'push' | 'mr' | 'merge' | null;
+type DeliveryDialog = 'commit' | 'push' | 'mr' | null;
 
 const RETENTION_LABEL: Record<string, string> = {
   retained: '保留中',
@@ -52,6 +53,44 @@ const RETENTION_LABEL: Record<string, string> = {
   partial: '部分清理',
   cleaned: '已清理',
 };
+
+const MR_STATE_LABEL: Record<string, string> = {
+  opened: '打开中 · 未合并',
+  merged: '已合并',
+  closed: '已关闭',
+  locked: '已锁定',
+};
+
+const DELIVERY_STEP_TITLE: Record<string, string> = {
+  commit: '提交',
+  push: '推送',
+  mergeRequest: '创建合并请求',
+  apply: '应用到原目录',
+};
+
+/**
+ * DEL-11：交付投影文案按当前未完成步骤拼（等待确认/进行中/待核对），
+ * 不再只显示通用“等待确认下一步”。
+ */
+function projectionLabelFor(delivery: TaskDelivery): string {
+  if (delivery.projection === 'awaiting_confirmation') {
+    const commit = delivery.steps.find((step) => step.step === 'commit');
+    const push = delivery.steps.find((step) => step.step === 'push');
+    const mr = delivery.steps.find((step) => step.step === 'mergeRequest');
+    if (commit?.state === 'succeeded' && push?.state !== 'succeeded') return '提交完成 · 等待推送确认';
+    if (push?.state === 'succeeded' && mr?.state !== 'succeeded') return '推送完成 · 等待创建合并请求';
+    return delivery.goal === 'apply_to_original' ? '等待你确认应用' : projectionLabel(delivery.projection);
+  }
+  if (delivery.projection === 'unknown_receipt') {
+    const unknown = delivery.steps.find((step) => step.state === 'unknown');
+    return unknown === undefined ? '结果待核对' : `${DELIVERY_STEP_TITLE[unknown.step] ?? unknown.step}结果待核对`;
+  }
+  if (delivery.projection === 'in_progress') {
+    const running = delivery.steps.find((step) => step.state === 'in_progress');
+    return running === undefined ? projectionLabel(delivery.projection) : `${DELIVERY_STEP_TITLE[running.step] ?? running.step}中…`;
+  }
+  return projectionLabel(delivery.projection);
+}
 
 const VERIFICATION_LABEL: Record<string, string> = {
   all_passed: '验证全部通过',
@@ -95,6 +134,9 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
   const [lookupKey, setLookupKey] = useState<string | null>(null);
   const [reconciledKeys, setReconciledKeys] = useState<ReadonlySet<string>>(new Set());
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [mrVerifyNote, setMrVerifyNote] = useState<{ readonly found: boolean; readonly note: string } | null>(null);
+  const [pushVerifyNote, setPushVerifyNote] = useState<{ readonly found: boolean; readonly note: string } | null>(null);
+  const [changesView, setChangesView] = useState(false);
   const [focusNotice, setFocusNotice] = useState(0);
   const changesFocusRef = useRef<HTMLDivElement>(null);
   const handledFocusRequest = useRef(0);
@@ -110,9 +152,6 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
   const [mrTarget, setMrTarget] = useState('');
   const [mrTitle, setMrTitle] = useState('');
   const [mrDescription, setMrDescription] = useState('');
-  const [mergeTarget, setMergeTarget] = useState('');
-  const [mergeMessage, setMergeMessage] = useState('');
-  const [mergeStrategy, setMergeStrategy] = useState<'no_ff' | 'ff_only'>('no_ff');
 
   const detailQuery = useQuery({
     queryKey: gitKeys.taskDetail(taskId),
@@ -153,6 +192,16 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
     queryFn: () => fetchOperationByKey(lookupKey ?? ''),
     enabled: lookupKey !== null,
     retry: false,
+  });
+
+  // DEL-12：已交付后读 GitLab 的 MR 状态（只读独立事实；读不到不伪造状态）。
+  const hasMergeRequestStep = delivery?.steps.some((step) => step.step === 'mergeRequest' && step.mrIid !== undefined) ?? false;
+  const mrFactQuery = useQuery({
+    queryKey: ['task', taskId, 'delivery', 'mr-fact'] as const,
+    queryFn: () => fetchDeliveryMergeRequestFact(taskId),
+    enabled: delivery?.projection === 'delivered' && hasMergeRequestStep,
+    retry: false,
+    staleTime: 30_000,
   });
 
   useEffect(() => {
@@ -301,30 +350,33 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
     onError: () => { setPendingAction(null); },
   });
 
-  const mergeMutation = useMutation({
-    mutationFn: () =>
-      mergeDelivery({
-        taskId,
-        targetBranch: mergeTarget,
-        expectedTargetSha: mergeTargetTip ?? '',
-        sourceSha: commitStep?.commitSha ?? '',
-        message: mergeMessage,
-        strategy: mergeStrategy,
-      }),
+  const mrVerifyMutation = useMutation({
+    mutationFn: (requestKey: string) => verifyDeliveryMergeRequest({ taskId, targetRequestKey: requestKey }),
     retry: false,
     onSuccess: (data) => {
-      recordReceipt(data.receipt);
-      setDialog(null);
-      setPendingAction(null);
+      setMrVerifyNote({ found: data.resource?.found === true, note: data.resource?.note ?? '已核对原操作。' });
       void invalidate();
     },
-    onError: () => { setPendingAction(null); },
+    onError: (error) => {
+      setMrVerifyNote({ found: false, note: error instanceof Error ? error.message : '核对原操作失败。' });
+    },
+  });
+
+  const pushVerifyMutation = useMutation({
+    mutationFn: (requestKey: string) => verifyDeliveryPush({ taskId, targetRequestKey: requestKey }),
+    retry: false,
+    onSuccess: (data) => {
+      setPushVerifyNote({ found: data.resource?.found === true, note: data.resource?.note ?? '已核对原推送。' });
+      void invalidate();
+    },
+    onError: (error) => {
+      setPushVerifyNote({ found: false, note: error instanceof Error ? error.message : '核对原推送失败。' });
+    },
   });
 
   const commitStep = stepOf(delivery, 'commit');
   const pushStep = stepOf(delivery, 'push');
   const mrStep = stepOf(delivery, 'mergeRequest');
-  const mergeStep = stepOf(delivery, 'merge');
   const applyStep = stepOf(delivery, 'apply');
 
   const taskBranch = workspace?.branch;
@@ -343,11 +395,6 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
     () => branches.find((item) => item.name === mrTarget)?.tipSha ?? targetTip,
     [branches, mrTarget, targetTip],
   );
-  const mergeTargetTip = useMemo(
-    () => branches.find((item) => item.name === mergeTarget)?.tipSha ?? targetTip,
-    [branches, mergeTarget, targetTip],
-  );
-
   const stepsStarted = delivery !== undefined && delivery.steps.some((step) => step.state !== 'not_started');
   const delivered = delivery?.projection === 'delivered';
   const hasUnknown = (delivery !== undefined && delivery.projection === 'unknown_receipt')
@@ -404,13 +451,6 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
     setDialog('mr');
   };
 
-  const openMergeDialog = () => {
-    setMergeTarget(targetBranch ?? '');
-    setMergeMessage(detail?.task.title ?? '');
-    setMergeStrategy('no_ff');
-    setDialog('merge');
-  };
-
   const verificationFailed = delivery?.verificationOutcome === 'failed';
 
   const commitBlockedReason =
@@ -433,11 +473,38 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
         : mrTitle.trim().length === 0 ? '标题不能为空。'
           : null;
 
-  const mergeBlockedReason =
-    commitStep?.commitSha === undefined ? '没有已成功的提交，不能合并。'
-      : mergeTargetTip === undefined ? '没有读取到目标分支当前 tip；先刷新分支。'
-        : mergeTarget.trim().length === 0 ? '目标分支不能为空。'
-          : null;
+  if (changesView && delivery !== undefined) {
+    return (
+      <TaskChangesView
+        taskId={taskId}
+        taskTitle={detail?.task.title ?? '任务'}
+        projectName={detail?.project.name ?? '项目未知'}
+        branch={workspace?.branch}
+        baseRef={workspace?.baseRef}
+        baseSha={workspace?.baseSha}
+        workspaceDisplayRoot={workspace?.displayRoot}
+        changes={changes}
+        loading={changesQuery.isPending}
+        error={changesQuery.isError ? changesQuery.error : null}
+        onRetry={() => { void changesQuery.refetch(); }}
+        files={changes?.files ?? []}
+        selected={selectedFileIds}
+        deliverySelected={new Set(delivery.selectedFileIds)}
+        onToggle={(fileId, selected) => {
+          setSelectedFileIds((current) => {
+            const next = new Set(current);
+            if (selected) next.add(fileId);
+            else next.delete(fileId);
+            return next;
+          });
+        }}
+        onSelectAll={() => { setSelectedFileIds(new Set((changes?.files ?? []).map((file) => file.fileId))); }}
+        onSelectNone={() => { setSelectedFileIds(new Set()); }}
+        verificationLabel={delivery.verificationOutcome === undefined ? undefined : VERIFICATION_LABEL[delivery.verificationOutcome] ?? delivery.verificationOutcome}
+        onClose={() => { setChangesView(false); }}
+      />
+    );
+  }
 
   if (detailQuery.isPending) {
     return (
@@ -516,6 +583,8 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
               void detailQuery.refetch();
               void deliveryQuery.refetch();
               void changesQuery.refetch();
+              // DEL-16：目标分支 tip 必须随「重新读取」一起重取，漂移后才能用新 tip 重新确认。
+              if (projectGit && projectId !== undefined) void branchesQuery.refetch();
             }}
           />
           {onClose === undefined ? null : <IconButton icon="x" label="关闭交付面板" onClick={onClose} />}
@@ -526,7 +595,7 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
         <div className="delivery-projection" aria-live="polite">
           <div className="delivery-projection-head">
             <Badge tone={deliveryProjectionTone(delivery.projection)} icon={delivery.projection === 'delivered' ? 'check' : delivery.projection === 'unknown_receipt' ? 'help' : delivery.projection === 'blocked' ? 'alert' : 'clock'}>
-              {projectionLabel(delivery.projection)}
+              {projectionLabelFor(delivery)}
             </Badge>
             <span className="muted-note">最后更新 {formatTime(delivery.lastUpdatedAt)}</span>
             <span className="grow" />
@@ -584,6 +653,30 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
           </div>
         )}
 
+        {mrVerifyNote === null ? null : (
+          <div className={`banner ${mrVerifyNote.found ? 'ok' : 'info'}`} role="status">
+            <Icon name={mrVerifyNote.found ? 'check' : 'search'} />
+            <div className="grow">
+              <b>{mrVerifyNote.found ? '核对到已有原合并请求' : '已核对远端事实'}</b>
+              <br />
+              {mrVerifyNote.note}
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => { setMrVerifyNote(null); }}>关闭</Button>
+          </div>
+        )}
+
+        {pushVerifyNote === null ? null : (
+          <div className={`banner ${pushVerifyNote.found ? 'ok' : 'warn'}`} role="status">
+            <Icon name={pushVerifyNote.found ? 'check' : 'help'} />
+            <div className="grow">
+              <b>{pushVerifyNote.found ? '核对到远端已推送' : '已核对原推送'}</b>
+              <br />
+              {pushVerifyNote.note}
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => { setPushVerifyNote(null); }}>关闭</Button>
+          </div>
+        )}
+
         {lookupKey === null ? null : lookupQuery.isPending ? (
           <div className="banner info"><Icon name="clock" /><div className="grow">正在核对原操作…</div></div>
         ) : lookupQuery.isError ? (
@@ -601,11 +694,23 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
             {commitStep?.commitSha === undefined ? null : <span className="fact">提交 {commitStep.commitSha}</span>}
             {pushStep?.remoteRef === undefined ? null : <span className="fact">远端 {pushStep.remoteRef}{pushStep.pushedSha === undefined ? '' : ` @ ${shortSha(pushStep.pushedSha)}`}</span>}
             {mrStep?.mrIid === undefined ? null : <span className="fact">合并请求 !{String(mrStep.mrIid)}{mrStep.mrWebUrl === undefined ? '' : ` · ${mrStep.mrWebUrl}`}</span>}
-            {mergeStep?.commitSha === undefined ? null : <span className="fact">合并提交 {mergeStep.commitSha}</span>}
             {delivery.taskCompletionRef === undefined ? null : <span className="fact">完成记录 {delivery.taskCompletionRef}</span>}
-            {mrStep?.mrIid !== undefined && mergeStep === undefined ? (
-              <span className="fact">MR 未合并是 GitLab 的独立事实；之后合并或关闭不改写交付记录。</span>
-            ) : null}
+            {mrStep?.mrIid === undefined ? (
+              <span className="fact">合并在 GitLab 中进行，产品内合并未提供。</span>
+            ) : (
+              <span className="fact">合并在 GitLab 中进行，产品内合并未提供。</span>
+            )}
+            {mrStep?.mrIid === undefined ? null : mrFactQuery.isPending ? (
+              <span className="fact">正在读取 GitLab 的 MR 状态…</span>
+            ) : mrFactQuery.data?.available === true && mrFactQuery.data.mergeRequest !== undefined ? (
+              <span className="fact">
+                MR 状态（GitLab 只读）：{MR_STATE_LABEL[mrFactQuery.data.mergeRequest.state] ?? mrFactQuery.data.mergeRequest.state}
+                {' · '}更新 {formatTime(mrFactQuery.data.mergeRequest.updatedAt)}
+                {' · '}MR 合并/关闭不改写任务交付记录。
+              </span>
+            ) : (
+              <span className="fact">MR 状态未读取：{mrFactQuery.data?.reason ?? (mrFactQuery.isError ? '读取失败（交付事实不受影响）' : '服务未返回')}</span>
+            )}
             {delivery.workspaceRetention === 'retained' ? (
               <span className="fact">工作区保留中；没有自动清理。</span>
             ) : null}
@@ -695,8 +800,6 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
           delivery={delivery}
           goal={delivery.goal ?? null}
           projectGit={projectGit}
-          targetBranch={targetBranch}
-          targetTip={targetTip}
           hasUnknown={hasUnknown}
           actions={actions}
           pendingAction={pendingAction}
@@ -707,11 +810,19 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
           onCommit={() => { setPendingAction(null); openCommitDialog(); }}
           onPush={() => { setPendingAction(null); openPushDialog(); }}
           onCreateMr={() => { setPendingAction(null); openMrDialog(); }}
-          onMerge={() => { setPendingAction(null); openMergeDialog(); }}
           onVerify={(requestKey) => { setLookupKey(requestKey); }}
+          onVerifyMr={(requestKey) => { setLookupKey(null); mrVerifyMutation.mutate(requestKey); }}
+          onVerifyPush={(requestKey) => { setLookupKey(null); pushVerifyMutation.mutate(requestKey); }}
         />
 
-        {!projectGit ? <DeliveryApplyPreview delivery={delivery} /> : null}
+        {!projectGit ? (
+          <DeliveryApplyPreview
+            delivery={delivery}
+            originalRoot={project?.rootPath}
+            copyRoot={workspace?.displayRoot}
+            files={changes?.files}
+          />
+        ) : null}
 
         {changes?.verification === undefined ? null : (
           <div className="delivery-hint">
@@ -729,8 +840,19 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
       </div>
 
       <div className="delivery-foot">
-        {onOpenChanges === undefined ? null : (
-          <Button variant="secondary" size="sm" icon="gitRepo" onClick={onOpenChanges}>
+        {projectGit ? (
+          <Button
+            variant="primary"
+            size="sm"
+            icon="gitRepo"
+            disabled={hasUnknown || changes === undefined}
+            disabledReason={hasUnknown ? '有回执未知的操作，先核对原操作。' : changes === undefined ? (changesQuery.isError ? '变更集读取失败；先重新读取。' : '变更集还没有读取成功。') : undefined}
+            onClick={() => { setChangesView(true); }}
+          >
+            查看变更并交付
+          </Button>
+        ) : onOpenChanges === undefined ? null : (
+          <Button variant="secondary" size="sm" icon="folder" onClick={onOpenChanges}>
             查看变更并交付
           </Button>
         )}
@@ -860,9 +982,13 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
               推送成功后继续打开「创建合并请求」确认框（仍为独立确认，不会自动创建）。
             </label>
           ) : null}
+          <div className="delivery-dialog-facts">
+            <div className="row-line"><span className="k">账户 / 服务器公开名</span><span className="v">服务未返回（C1，不猜测显示）</span></div>
+            <div className="row-line"><span className="k">连接版本</span><span className="v">服务未返回（C1）</span></div>
+          </div>
           <div className="dialog-warning">
             <Icon name="shield" />
-            <span>凭据只在服务端；推送失败会给出服务原因。推送被拒时只引导获取远端更新，不提供强推。</span>
+            <span>语义：只创建新远端分支 · 不强推 · 不覆盖。服务端当前未提供「预览推送」只读读口（C1），确认后只发一次推送；远端同名 / 认证失败会给出服务原因并保留本地提交，不提供自动重试。</span>
           </div>
           {pushMutation.isError ? <FailureNotice error={pushMutation.error} compact /> : null}
         </div>
@@ -902,7 +1028,14 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
               </select>
               {mrTargetTip === undefined ? ' · 当前 tip 未读取' : ` · tip ${shortSha(mrTargetTip)}`}
             </span></div>
+            <div className="row-line"><span className="k">目标 tip 读取于</span><span className="v">{branchesQuery.dataUpdatedAt === 0 ? '未读取' : formatTime(new Date(branchesQuery.dataUpdatedAt).toISOString())}{branchesQuery.isFetching ? ' · 重新读取中…' : ''}</span></div>
             <div className="row-line"><span className="k">评审人</span><span className="v">暂未接通（非必填）</span></div>
+          </div>
+          <div className="row-wrap">
+            <Button variant="ghost" size="sm" icon="refresh" disabled={branchesQuery.isFetching} disabledReason={branchesQuery.isFetching ? '正在重新读取分支…' : undefined} onClick={() => { void branchesQuery.refetch(); }}>
+              重新读取目标分支
+            </Button>
+            <span className="delivery-hint">目标已前移时先用新 tip 重新确认，不拿旧确认直接创建。</span>
           </div>
           <label className="form-label">
             标题 <span className="req">*</span>
@@ -914,67 +1047,12 @@ export function TaskDeliveryPanel({ taskId, onClose, onOpenChanges, inline, focu
           </label>
           <div className="dialog-warning">
             <Icon name="info" />
-            <span>创建成功即完成所选交付，不等待合并；你也可以在 GitLab 完成合并，或在下方用本地合并（独立确认，no-ff + CAS）。已有同源 → 目标的打开 MR 时服务不会重复创建。</span>
+            <span>创建成功即完成所选交付，不等待合并。合并在 GitLab 中进行：产品内不提供合并按钮。已有同源 → 目标的打开 MR 时服务会显示原链接，不会重复创建。</span>
           </div>
           {mrMutation.isError ? <FailureNotice error={mrMutation.error} compact /> : null}
         </div>
       </Modal>
 
-      {/* ④ 合并确认 */}
-      <Modal
-        open={dialog === 'merge'}
-        title="合并到目标分支？"
-        onClose={() => { setDialog(null); }}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => { setDialog(null); }}>取消</Button>
-            <span className="spacer" />
-            <Button
-              variant="danger"
-              icon="split"
-              disabled={mergeBlockedReason !== null || mergeMutation.isPending}
-              disabledReason={mergeMutation.isPending ? '正在合并，等待服务回执…' : mergeBlockedReason ?? undefined}
-              onClick={() => { setPendingAction('merge'); mergeMutation.mutate(); }}
-            >
-              {mergeMutation.isPending ? '合并中…' : '确认合并'}
-            </Button>
-          </>
-        }
-      >
-        <div className="stack-loose">
-          <div className="delivery-dialog-facts">
-            <div className="row-line"><span className="k">源提交</span><span className="v mono">{commitStep?.commitSha ?? '—'}</span></div>
-            <div className="row-line"><span className="k">目标分支</span><span className="v">
-              <select className="select" style={{ height: 30, width: 'auto', display: 'inline-block' }} value={mergeTarget} onChange={(event) => { setMergeTarget(event.target.value); }}>
-                {branches.map((branch) => (
-                  <option key={`${branch.kind}:${branch.fullRef}`} value={branch.name}>
-                    {branch.kind === 'local' ? '' : '远端 · '}{branch.name}
-                  </option>
-                ))}
-              </select>
-            </span></div>
-            <div className="row-line"><span className="k">目标 tip</span><span className="v mono">{mergeTargetTip ?? '未读取到；不能合并'}</span></div>
-            <div className="row-line"><span className="k">策略</span><span className="v">
-              <select className="select" style={{ height: 30, width: 'auto', display: 'inline-block' }} value={mergeStrategy} onChange={(event) => { setMergeStrategy(event.target.value === 'ff_only' ? 'ff_only' : 'no_ff'); }}>
-                <option value="no_ff">no_ff（创建合并提交）</option>
-                <option value="ff_only">ff_only（仅快进）</option>
-              </select>
-            </span></div>
-          </div>
-          <label className="form-label">
-            合并信息
-            <input className="input" value={mergeMessage} onChange={(event) => { setMergeMessage(event.target.value); }} placeholder="合并提交信息" />
-          </label>
-          <div className="dialog-warning">
-            <Icon name="alert" />
-            <span>
-              直接合并会更新本地目标分支；目标受保护、有冲突或已前移时服务会拒绝并保留原事实。
-              推荐使用「创建合并请求」路径。合并与推送是独立命令，不会自动连锁。
-            </span>
-          </div>
-          {mergeMutation.isError ? <FailureNotice error={mergeMutation.error} compact /> : null}
-        </div>
-      </Modal>
     </div>
   );
 }

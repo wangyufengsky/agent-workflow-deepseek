@@ -11,6 +11,7 @@ import type {
   OperationRecord,
   PlanNode,
   PlanRevision,
+  RuntimeInteraction,
   Task,
   TaskDelivery,
   TaskTemplate,
@@ -18,6 +19,7 @@ import type {
 } from '@agent-workflow/shared';
 import { AppError, DEFAULT_CATALOG, ErrorCode, NodeStatus, createId, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
+import { executionAcceptanceGate } from './actions.ts';
 
 /**
  * W3-5 · Task-canvas extras read models (backend core, not wired to HTTP yet).
@@ -980,4 +982,55 @@ function planHashOf(plan: PlanRevision): string {
     graph: plan.graph,
   });
   return createHash('sha256').update(content).digest('hex');
+}
+
+/* ------------------------------------------------------------------ */
+/* P13-04: service-projected attention items for the task canvas       */
+/* ------------------------------------------------------------------ */
+
+const RUNTIME_INTERACTIONS_KEY = 'runtime.interactions';
+
+/**
+ * Facts that need the user while looking at the task canvas:
+ * runtime approvals/questions (from the runtime interaction ledger) and executed
+ * steps still waiting for the human acceptance verdict.
+ *
+ * Stalled steps are NOT modelled here: the execution service has no stall fact,
+ * so the canvas must not invent one (recorded as C1 in the design fix log).
+ */
+export function taskAttentionItems(input: {
+  readonly store: Store;
+  readonly task: Task;
+  readonly plan?: PlanRevision;
+  readonly execution?: ExecutionView;
+}): readonly import('@agent-workflow/shared').TaskAttentionItem[] {
+  const { store, task, plan, execution } = input;
+  const items: import('@agent-workflow/shared').TaskAttentionItem[] = [];
+  const gate = execution === undefined || plan === undefined ? undefined : executionAcceptanceGate(store, execution, plan);
+  for (const nodeId of gate?.pending ?? []) {
+    const title = plan?.graph.nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
+    items.push({
+      kind: 'pending_acceptance',
+      nodeId,
+      title: `「${title}」待人工验收`,
+      detail: '验收通过前不会结束执行或放行下游步骤；退回修改后可按原配置重试。',
+    });
+  }
+  const interactions = store.settings.getJson<readonly RuntimeInteraction[]>(RUNTIME_INTERACTIONS_KEY) ?? [];
+  for (const item of interactions) {
+    if (item.state === 'resolved') continue;
+    if (item.binding.taskId !== task.id || item.binding.projectId !== task.projectId) continue;
+    if (item.binding.executionId !== undefined && task.executionId !== item.binding.executionId) continue;
+    if (item.binding.roundId !== undefined && task.currentPlanningRoundId !== item.binding.roundId) continue;
+    const kind: import('@agent-workflow/shared').TaskAttentionItem['kind'] =
+      item.kind === 'question' ? 'runtime_question' : item.kind === 'policy' || item.hard ? 'runtime_policy' : 'runtime_approval';
+    items.push({
+      kind,
+      title: item.kind === 'question' ? `「${item.stepName}」等你回答` : item.hard ? `「${item.stepName}」策略已阻止` : `「${item.stepName}」请求只读授权`,
+      detail: item.state === 'unknown' ? '原请求结果待核对；只按原请求核对，不重发。审批在待处理中心处理。' : item.reason,
+      ...(item.binding.nodeId === undefined ? {} : { nodeId: item.binding.nodeId }),
+      interactionId: item.id,
+    });
+  }
+  return items;
 }

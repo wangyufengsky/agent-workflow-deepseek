@@ -14,6 +14,7 @@ import { Icon } from '../../components/Icon.tsx';
 import { Modal } from '../../components/Modal.tsx';
 import { SettingsHeading } from './shared.tsx';
 import { ModelCatalogPicker } from './ModelCatalogPicker.tsx';
+import { useSettingsDraft } from './draft.tsx';
 
 const ROLE_META = [
   { id: 'planner', label: '规划' },
@@ -40,6 +41,7 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
   const queryClient = useQueryClient();
   const [editor, setEditor] = useState<ModelProfile | null>(null);
   const [editorError, setEditorError] = useState<string | undefined>(undefined);
+  const draft = useSettingsDraft();
   const [pathDraft, setPathDraft] = useState(settings.opencode.binaryPath);
   const [runtimeDraft, setRuntimeDraft] = useState({
     enabled: settings.opencode.enabled,
@@ -142,7 +144,7 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
           <div className="v">
             <div className="row wrap" style={{ gap: 8 }}>
               <input className="input mono" style={{ width: 320 }} value={pathDraft} onChange={(event) => { setPathDraft(event.target.value); }} aria-label="OpenCode 可执行文件" />
-              <Button variant="secondary" size="sm" icon="check" disabled={savePath.isPending || pathDraft.trim() === '' || pathDraft.trim() === settings.opencode.binaryPath} onClick={() => { savePath.mutate(); }}>
+              <Button variant="secondary" size="sm" icon="check" disabled={draft.readOnly || savePath.isPending || pathDraft.trim() === '' || pathDraft.trim() === settings.opencode.binaryPath} disabledReason={draft.readOnly ? '正在核对上一次保存，普通设置只读。' : undefined} onClick={() => { savePath.mutate(); }}>
                 {savePath.isPending ? '保存中…' : '保存路径'}
               </Button>
               <Button
@@ -190,7 +192,7 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
                 Agent
                 <input className="input" style={{ width: 120 }} value={runtimeDraft.agent} onChange={(event) => { setRuntimeDraft({ ...runtimeDraft, agent: event.target.value }); }} />
               </label>
-              <Button variant="secondary" size="sm" icon="check" disabled={saveRuntime.isPending} onClick={() => { saveRuntime.mutate(); }}>
+              <Button variant="secondary" size="sm" icon="check" disabled={draft.readOnly || saveRuntime.isPending} disabledReason={draft.readOnly ? '正在核对上一次保存，普通设置只读。' : undefined} onClick={() => { saveRuntime.mutate(); }}>
                 {saveRuntime.isPending ? '保存中…' : '保存运行时配置'}
               </Button>
             </div>
@@ -275,7 +277,7 @@ export function ModelSection({ data }: { readonly data: BootstrapResponse }) {
           <>
             <Button variant="ghost" onClick={() => { setEditor(null); }}>取消</Button>
             <span className="spacer" />
-            <Button variant="primary" icon="check" disabled={saveModels.isPending} onClick={persistEditor}>{saveModels.isPending ? '保存中…' : '保存模型'}</Button>
+            <Button variant="primary" icon="check" disabled={draft.readOnly || saveModels.isPending} disabledReason={draft.readOnly ? '正在核对上一次保存，普通设置只读。' : undefined} onClick={persistEditor}>{saveModels.isPending ? '保存中…' : '保存模型'}</Button>
           </>
         }
       >

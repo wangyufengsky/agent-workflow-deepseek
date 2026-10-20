@@ -12,6 +12,13 @@ interface PendingQuestion {
   readonly status: 'accepted' | 'unknown';
 }
 
+/** Stop is a write command too: its receipt may be accepted/unknown/failed. */
+export interface StopCommandState {
+  readonly requestKey: string;
+  readonly status: 'accepted' | 'unknown' | 'failed';
+  readonly message?: string;
+}
+
 function restore(): PendingQuestion | undefined {
   try {
     const value = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? 'null') as PendingQuestion | null;
@@ -28,6 +35,7 @@ export function useKnowledgeAsk(onResult: (result: KnowledgeAskResponse) => void
   const [checking, setChecking] = useState(false);
   const [progress, setProgress] = useState<KnowledgeRunProgress>();
   const [stopping, setStopping] = useState(false);
+  const [stopState, setStopState] = useState<StopCommandState>();
   const [error, setError] = useState<string>();
   const active = useRef(pending);
   const activeKey = () => active.current?.input.requestKey;
@@ -117,11 +125,37 @@ export function useKnowledgeAsk(onResult: (result: KnowledgeAskResponse) => void
   const stop = async () => {
     const current = active.current;
     if (current === undefined || stopping || progress?.stopRequestKey !== undefined) return;
+    const stopKey = createRequestKey();
     setStopping(true);
     try {
-      await apiPost<CommandResponse>(ROUTES.knowledgeStop(current.input.requestKey), { requestKey: createRequestKey(), projectId: current.input.projectId });
-    } catch (caught) { setError(`停止结果待核对：${errorMessage(caught)}`); }
-    finally { setStopping(false); }
+      const { data } = await apiPost<CommandResponse>(ROUTES.knowledgeStop(current.input.requestKey), { requestKey: stopKey, projectId: current.input.projectId });
+      if (data.receipt.status === 'succeeded') setStopState(undefined);
+      else if (data.receipt.status === 'failed') {
+        setStopState({ requestKey: stopKey, status: 'failed', message: data.receipt.error?.message ?? '服务确认停止失败；回答仍在继续或已结束，请重新读取状态。' });
+      } else setStopState({ requestKey: stopKey, status: data.receipt.status === 'unknown' ? 'unknown' : 'accepted' });
+    } catch (caught) {
+      // Network uncertainty: keep the original stop request key and only reconcile.
+      setStopState({ requestKey: stopKey, status: 'unknown', message: errorMessage(caught) });
+    } finally { setStopping(false); }
+  };
+
+  /** GET-only reconciliation of the original stop request (never re-sends it). */
+  const reconcileStop = async () => {
+    const target = stopState ?? (progress?.stopRequestKey === undefined ? undefined : { requestKey: progress.stopRequestKey, status: 'accepted' as const });
+    if (target === undefined) return;
+    setStopping(true);
+    try {
+      const { data } = await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(target.requestKey));
+      if (data.operation.status === 'succeeded') {
+        setStopState(undefined);
+      } else if (data.operation.status === 'failed') {
+        setStopState({ requestKey: target.requestKey, status: 'failed', message: data.operation.error?.message ?? '原停止请求失败。' });
+      } else {
+        setStopState({ requestKey: target.requestKey, status: data.operation.status === 'unknown' ? 'unknown' : 'accepted' });
+      }
+    } catch (caught) {
+      setStopState({ requestKey: target.requestKey, status: 'unknown', message: `尚未核对到确定结果：${errorMessage(caught)}` });
+    } finally { setStopping(false); }
   };
 
   const ask = async (input: Omit<KnowledgeAskRequest, 'requestKey'>) => {
@@ -153,5 +187,5 @@ export function useKnowledgeAsk(onResult: (result: KnowledgeAskResponse) => void
     } finally { if (activeKey() === undefined || activeKey() === current.input.requestKey) setBusy(false); }
   };
 
-  return { pending, busy, checking, error, progress, stopping, stop, openRun, ask, reconcile };
+  return { pending, busy, checking, error, progress, stopping, stop, stopState, reconcileStop, openRun, ask, reconcile };
 }

@@ -50,6 +50,7 @@ import {
 import { executionPolicy as frozenExecutionPolicy } from './execution-policy.ts';
 import type { Store } from '@agent-workflow/storage';
 import { READ_ONLY_RECOVERY_REASON, executionAcceptanceGate, computeTaskActions, computeTaskAttention, planningView, readNodeAcceptance, readOnlyRecoveryError } from './actions.ts';
+import { taskAttentionItems } from './task-extras.ts';
 import type { CommandService } from './operations.ts';
 import type { OpenCodePort, GitPort } from './ports.ts';
 import type { EngineContext } from './actions.ts';
@@ -492,6 +493,7 @@ export class TaskService {
       execution: execution === undefined ? undefined : { ...execution, acceptance: { pending: gate!.pending, rejected: gate!.rejected } },
       workspace,
       delivery,
+      attentionItems: taskAttentionItems({ store: this.#store, task, plan, execution }),
       capabilities,
     };
   }
@@ -563,7 +565,13 @@ export class TaskService {
     const execution = task.executionId === undefined ? this.#store.executions.byTask(task.id) : this.#store.executions.get(task.executionId);
     const delivery = task.deliveryId === undefined ? this.#store.deliveries.byTask(task.id) : this.#store.deliveries.get(task.deliveryId);
     const method = findMethod(this.#catalog, task.methodId);
-    const progress = execution?.progress ?? { done: 0, total: this.#store.plans.get(task.currentPlanRevisionId ?? '')?.graph.nodes.length ?? 0, running: 0, failed: 0 };
+    const plan = this.#store.plans.get(task.currentPlanRevisionId ?? '');
+    const progress = execution?.progress ?? { done: 0, total: plan?.graph.nodes.length ?? 0, running: 0, failed: 0 };
+    // P12-01/P12-02: project the real node states and the human-acceptance gate so
+    // the list row never has to approximate them from the aggregate counter.
+    const gate = execution === undefined || plan === undefined ? undefined : executionAcceptanceGate(this.#store, execution, plan);
+    const pendingAcceptance = gate?.pending ?? [];
+    const rejectedAcceptance = gate?.rejected ?? [];
     return {
       id: task.id,
       projectId: task.projectId,
@@ -574,10 +582,29 @@ export class TaskService {
       attention: task.attention,
       methodName: method?.name ?? task.methodId,
       archivedAt: this.#store.settings.getJson<string>(`task.archived.${task.id}`) ?? undefined,
-      planRevision: this.#store.plans.get(task.currentPlanRevisionId ?? '')?.revisionNumber,
+      planRevision: plan?.revisionNumber,
       archiveAction: this.#archiveAction(task),
       planning: round === undefined ? undefined : { status: round.status, stage: round.stage, lastActivity: round.lastActivity ?? '' },
       progress,
+      execution: execution === undefined ? undefined : {
+        status: execution.status,
+        paused: execution.status === 'paused',
+        pendingAcceptance: pendingAcceptance.length,
+        rejectedAcceptance: rejectedAcceptance.length,
+      },
+      stepStates: plan === undefined ? undefined : plan.graph.nodes.map((node) => {
+        const state = execution?.nodes.find((item) => item.nodeId === node.id);
+        return {
+          nodeId: node.id,
+          title: node.title,
+          kind: node.kind,
+          status: state?.status ?? 'pending',
+          attemptCount: state?.attemptCount ?? 0,
+          ...(state?.error === undefined ? {} : { errorMessage: state.error.message }),
+          ...(pendingAcceptance.includes(node.id) ? { pendingAcceptance: true } : {}),
+          ...(rejectedAcceptance.includes(node.id) ? { rejectedAcceptance: true } : {}),
+        };
+      }),
       deliveryProjection: delivery?.projection,
       updatedAt: task.updatedAt,
     };

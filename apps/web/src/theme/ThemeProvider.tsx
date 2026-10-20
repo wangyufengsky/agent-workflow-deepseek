@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { nextTheme, type ThemeIdValue } from '@agent-workflow/shared';
+import type { ThemeIdValue } from '@agent-workflow/shared';
 import { applyTheme, persistTheme, readThemeFromSearch, readStoredTheme, resolveInitialTheme } from './theme.ts';
 
 export interface ThemeContextValue {
@@ -7,8 +7,6 @@ export interface ThemeContextValue {
   readonly theme: ThemeIdValue;
   /** Applies + persists a theme (writes CSS variables, data-theme, localStorage and URL). */
   readonly setTheme: (theme: ThemeIdValue) => void;
-  /** One-click cycle used by the shell header. */
-  readonly cycleTheme: (direction?: 1 | -1) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -21,13 +19,6 @@ export function ThemeProvider({ children }: { readonly children: ReactNode }) {
     persistTheme(next);
     setThemeState(next);
   }, []);
-
-  const cycleTheme = useCallback(
-    (direction: 1 | -1 = 1) => {
-      setTheme(nextTheme(theme, direction));
-    },
-    [setTheme, theme],
-  );
 
   // Keep the document in sync even if a child re-renders before the setter runs.
   useEffect(() => {
@@ -48,7 +39,7 @@ export function ThemeProvider({ children }: { readonly children: ReactNode }) {
     };
   }, []);
 
-  const value = useMemo<ThemeContextValue>(() => ({ theme, setTheme, cycleTheme }), [cycleTheme, setTheme, theme]);
+  const value = useMemo<ThemeContextValue>(() => ({ theme, setTheme }), [setTheme, theme]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

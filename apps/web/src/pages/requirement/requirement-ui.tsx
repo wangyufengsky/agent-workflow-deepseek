@@ -32,6 +32,16 @@ export function Section({ title, aside, children, className }: { readonly title:
   );
 }
 
+/** P11-14: plan source rendered as a Chinese product label, never the raw enum. */
+const PLAN_SOURCE_LABEL: Record<PlanRevision['source'], string> = {
+  initial: '初始计划',
+  skeleton: '方法骨架',
+  applied: '应用候选',
+  manual: '手工创建',
+  template: '固定模板',
+  edit: '手改草稿',
+};
+
 export function RevisionMeta({ plan }: { readonly plan: PlanRevision }) {
   return (
     <dl className="kv-list">
@@ -40,7 +50,7 @@ export function RevisionMeta({ plan }: { readonly plan: PlanRevision }) {
         #{plan.revisionNumber} · {PLAN_REVISION_STATUS_LABEL[plan.status]}
       </dd>
       <dt>来源</dt>
-      <dd>{plan.source}</dd>
+      <dd>{PLAN_SOURCE_LABEL[plan.source]}</dd>
       <dt>步骤 / 依赖</dt>
       <dd>
         {String(plan.graph.nodes.length)} 步 · {String(plan.graph.edges.length)} 条依赖 · {String(plan.graph.groups.length)} 组

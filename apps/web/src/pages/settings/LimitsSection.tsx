@@ -1,4 +1,5 @@
 import type { PublicSettings } from '@agent-workflow/shared';
+import { Icon } from '../../components/Icon.tsx';
 import { DraftBooleanRow, DraftNumberRow, useSettingsDraft } from './draft.tsx';
 import { SettingsHeading } from './shared.tsx';
 
@@ -77,14 +78,23 @@ export function LimitsSection({ settings }: { readonly settings: PublicSettings 
         <DraftNumberRow path="execution.pauseTimeoutMs" label="停止确认等待上限" hint="超过等待上限保留原请求号进入未知，不自动重发停止。用于新执行。" section="limits" baseline={settings.execution.pauseTimeoutMs} min={1} max={120} unit="秒" factor={1000} effect="new_execution" />
         <DraftNumberRow path="execution.maxTaskAttempts" label="任务总尝试上限" hint="所有节点的尝试合计，包含首次执行；达到上限后保留现场并停止新增领取。" section="limits" baseline={settings.execution.maxTaskAttempts} min={1} max={50} unit="次" effect="new_execution" />
         <DraftNumberRow path="execution.sessionErrorThreshold" label="会话异常阈值" hint="达到阈值后不再领取新步骤；检查运行环境后通过恢复任务继续。" section="limits" baseline={settings.execution.sessionErrorThreshold} min={1} max={10} unit="次" effect="new_execution" />
-        <DraftBooleanRow path="execution.timeoutEnabled" label="启用业务超时限制" hint="默认关闭。开启后总时长、尝试与设计阶段时限用于新任务；职业单独设置的时限仍有效。" section="limits" baseline={settings.execution.timeoutEnabled} effect="new_execution" />
+        <DraftBooleanRow path="execution.timeoutEnabled" label="启用业务超时限制" hint="默认关闭：任务不会因为运行时间长而被中断。开启后总时长、尝试与设计阶段时限用于新任务；职业单独设置的时限仍有效。" section="limits" baseline={settings.execution.timeoutEnabled} effect="new_execution" />
         {timeoutsEnabled ? (
-          <div role="group" aria-label="业务超时时长">
-            <DraftNumberRow path="execution.taskTimeoutMinutes" label="任务最大时长" hint="从首次开始到结束的总时长，包含暂停和等待；达到时限后确认停止全部活动步骤。" section="limits" baseline={settings.execution.taskTimeoutMinutes} min={1} max={10080} unit="分钟" effect="new_execution" />
+          <div className="settings-limit-group" role="group" aria-label="业务超时时长">
+            <div className="banner warn" style={{ margin: '6px 0 4px' }}>
+              <Icon name="alert" />
+              <div className="grow">开启后，超过下列时长的<b>新任务</b>会被中断。已在运行的任务不受影响。</div>
+            </div>
+            <DraftNumberRow path="execution.taskTimeoutMinutes" label="任务最大时长" hint="从首次开始到结束的总时长，包含暂停和等待；达到时限后确认停止全部活动步骤。上限 10080 分钟，即 7 天。" section="limits" baseline={settings.execution.taskTimeoutMinutes} min={1} max={10080} unit="分钟" effect="new_execution" />
             <DraftNumberRow path="execution.nodeTimeoutMinutes" label="尝试超时" hint="单次尝试的最长时间；无法确认会话停稳时只核对原操作。" section="limits" baseline={settings.execution.nodeTimeoutMinutes} min={1} max={1440} unit="分钟" effect="new_execution" />
             <DraftNumberRow path="execution.designTimeoutMinutes" label="设计阶段超时" hint="同一设计阶段从首次开始的累计时长，包含该阶段的重试与等待。" section="limits" baseline={settings.execution.designTimeoutMinutes} min={1} max={1440} unit="分钟" effect="new_execution" />
           </div>
-        ) : <p className="hint">业务时限关闭；已填写的时长保留，关闭期间不生效。验证命令超时始终有效。</p>}
+        ) : (
+          <div className="settings-limit-off">
+            <Icon name="info" size="sm" />
+            <span>开启后可以设置最大时长、尝试超时和设计超时。之前填写的时长会保留，关闭期间不生效。</span>
+          </div>
+        )}
       </div>
     </div>
   );

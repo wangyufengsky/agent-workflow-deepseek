@@ -20,6 +20,10 @@ export const GIT_LIMITS = {
   defaultDiffMaxLines: 4_000,
   /** Hard cap on unified diff lines returned for one file. */
   maxDiffLines: 20_000,
+  /** Default unified context lines around each hunk (`git diff -U3`). */
+  defaultDiffContextLines: 3,
+  /** Hard cap for user-requested expansion of unchanged context (`展开全部`). */
+  maxDiffContextLines: 2_000,
   /** Hard cap on raw unified diff bytes for one file. */
   maxDiffBytes: 8 * 1024 * 1024,
   /** Hard cap on `fileAtRevision()` output lines. */

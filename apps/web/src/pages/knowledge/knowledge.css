@@ -7,7 +7,9 @@
 }
 
 .kb-layout.with-panel {
-  grid-template-columns: minmax(0, 1fr) 520px;
+  /* Design: cite panel uses --drawer-lg (520px) from ds.css, not a literal. */
+  grid-template-columns: minmax(0, 1fr) var(--drawer-lg);
+  transition: grid-template-columns 0.4s var(--ease);
 }
 
 @media (max-width: 1200px) {

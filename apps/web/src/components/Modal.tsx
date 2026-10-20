@@ -1,6 +1,7 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { IconButton } from './IconButton.tsx';
+import { trapTabKey } from './focusTrap.ts';
 
 export interface ModalProps {
   readonly open: boolean;
@@ -11,24 +12,33 @@ export interface ModalProps {
   readonly className?: string;
 }
 
-/** Base dialog (design: .dialog / .scrim) with Esc close and focus restore. */
+/** Base dialog (design: .dialog / .scrim) with Esc close, Tab trap and focus restore. */
 export function Modal({ open, title, children, footer, onClose, className }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+  // `onClose` is usually an inline callback; keep it in a ref so parent
+  // re-renders cannot re-run the focus effect and steal focus.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialogRef.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        onCloseRef.current();
+        return;
+      }
+      if (dialogRef.current !== null) trapTabKey(event, dialogRef.current);
     };
     document.addEventListener('keydown', handleKey);
     return () => {
       document.removeEventListener('keydown', handleKey);
       previousFocus.current?.focus();
     };
-  }, [onClose, open]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -39,13 +49,15 @@ export function Modal({ open, title, children, footer, onClose, className }: Mod
         className={['dialog', 'open', className ?? ''].filter(Boolean).join(' ')}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-labelledby={titleId}
         tabIndex={-1}
         ref={dialogRef}
       >
         <div className="dialog-body">
           <div className="dialog-title-row">
-            <h2 className="grow">{title}</h2>
+            <h2 className="grow" id={titleId}>
+              {title}
+            </h2>
             <IconButton icon="x" label="关闭对话框" className="close-btn" onClick={onClose} />
           </div>
           <div>{children}</div>

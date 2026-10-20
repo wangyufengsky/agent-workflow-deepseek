@@ -9,7 +9,27 @@ import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { formatAbsoluteTime } from '../../app/format.ts';
 
 const RECEIPT_LABEL: Record<string, string> = { accepted: '已受理', succeeded: '已成功', failed: '已失败', unknown: '结果未知' };
-export function RuntimeControls({ state, blockedReason, onRefresh }: { readonly state: string | null; readonly blockedReason?: string; readonly onRefresh: () => void }) {
+export interface RuntimeSnapshot {
+  readonly state?: string;
+  readonly pid?: number;
+  readonly host?: string;
+  readonly port?: number;
+  readonly managed?: boolean;
+}
+
+export function RuntimeControls({
+  state,
+  blockedReason,
+  snapshot,
+  onUnknownChange,
+  onRefresh,
+}: {
+  readonly state: string | null;
+  readonly blockedReason?: string;
+  readonly snapshot?: RuntimeSnapshot;
+  readonly onUnknownChange?: (unknown: boolean) => void;
+  readonly onRefresh: () => void;
+}) {
   const [confirm, setConfirm] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [unknown, setUnknown] = useState(false);
@@ -22,11 +42,11 @@ export function RuntimeControls({ state, blockedReason, onRefresh }: { readonly 
     try {
       const result = (await apiPost<OpenCodeRestartResponse>(action === 'start' ? ROUTES.opencodeStart : ROUTES.opencodeRestart, { requestKey: key, [action === 'start' ? 'confirmStart' : 'confirmRestart']: true })).data;
       const settled = result.receipt.status === 'succeeded' || result.receipt.status === 'failed';
-      setUnknown(!settled); if (settled) setPending(null);
+      setUnknown(!settled); if (settled) setPending(null); onUnknownChange?.(!settled);
       setMessage(`原操作回执：${RECEIPT_LABEL[result.receipt.status] ?? result.receipt.status}。${settled ? '' : '请按原请求号核对，不能重复提交。'}`);
     } catch (error) {
       const uncertain = error instanceof ApiClientError && ['unavailable', 'timeout', 'protocol'].includes(error.kind);
-      setUnknown(uncertain); if (!uncertain) setPending(null);
+      setUnknown(uncertain); if (!uncertain) setPending(null); onUnknownChange?.(uncertain);
       setMessage(uncertain ? '操作结果未知，请核对原请求；当前进程状态不能证明该操作成功。' : errorMessage(error));
     } finally { onRefresh(); void history.refetch(); }
   };
@@ -35,7 +55,7 @@ export function RuntimeControls({ state, blockedReason, onRefresh }: { readonly 
     try {
       const result = (await apiGet<{ operation: OperationRecord }>(`/api/operations/${encodeURIComponent(pending)}`)).data.operation;
       setMessage(`原请求回执：${RECEIPT_LABEL[result.status] ?? result.status}${result.error === undefined ? '' : ` · ${result.error.message}`}`);
-      if (result.status === 'succeeded' || result.status === 'failed') { setPending(null); setUnknown(false); }
+      if (result.status === 'succeeded' || result.status === 'failed') { setPending(null); setUnknown(false); onUnknownChange?.(false); }
       void history.refetch(); onRefresh();
     } catch (error) { setMessage(errorMessage(error)); }
   };
@@ -45,6 +65,10 @@ export function RuntimeControls({ state, blockedReason, onRefresh }: { readonly 
     {unknown ? <Button size="sm" icon="refresh" onClick={() => { void reconcile(); }}>核对原请求</Button> : null}
     <p className="hint">历史来自本机操作回执，保留启动与重启的真实结果；服务启动时的自动拉起不伪装成手动操作。</p>
     {history.isError ? <ServiceNotice error={history.error} /> : history.isLoading ? <p className="hint">正在读取操作历史…</p> : history.data?.length === 0 ? <p className="hint">暂无手动启动或重启记录。</p> : history.data?.map((operation) => <div className="row wrap" key={operation.requestKey} style={{ marginTop: 8 }}><Badge icon={operation.status === 'succeeded' ? 'check' : operation.status === 'failed' ? 'alert' : 'clock'}>{RECEIPT_LABEL[operation.status] ?? operation.status}</Badge><span>{operation.operation === 'opencode.start' ? '启动' : '重启'} · {formatAbsoluteTime(operation.acceptedAt)}</span><span className="hint mono-wrap">{operation.requestKey} {operation.error?.message}</span></div>)}
-    <Modal open={confirm} title={`确认${label} OpenCode`} onClose={() => setConfirm(false)} footer={<><Button onClick={() => setConfirm(false)}>取消</Button><Button variant="primary" onClick={() => { void execute(); }}>确认{label}</Button></>}><p>当前状态：{state ?? '未知'}。此确认仅表示本次操作意图，提交后以原请求回执核对结果。</p><p>重启会结束运行时会话。服务会拒绝存在活动或待核对任务、规划、知识对话的重启；请先停止并核对它们。</p></Modal>
+    <Modal open={confirm} title={`确认${label} OpenCode`} onClose={() => setConfirm(false)} footer={<><Button onClick={() => setConfirm(false)}>取消</Button><Button variant="primary" onClick={() => { void execute(); }}>确认{label}</Button></>}>
+      <p>确认时会读取到的事实（快照）：状态 {snapshot?.state ?? state ?? '未知'} · 进程 PID {snapshot?.pid === undefined ? '未知' : String(snapshot.pid)} · 监听地址 {snapshot?.host === undefined ? '未知' : `${snapshot.host}${snapshot.port === undefined ? '' : `:${String(snapshot.port)}`}`} · 归属 {snapshot?.managed === false ? '外部进程' : 'Loopper 受管进程'}。</p>
+      <p>后果：重启会结束当前 OpenCode 运行时会话。产品策略是安全优先——若存在活动或待核对的任务、规划、知识对话，服务会拒绝本次重启并给出原因；请先在各自页面停止并核对它们，再回来重试。此确认只表示本次操作意图，提交后以原请求回执为准。</p>
+      {action === 'start' ? <p>启动会按「设置 → OpenCode」中的 CLI 路径启动，并由本程序管理该进程。</p> : null}
+    </Modal>
   </section>;
 }

@@ -218,11 +218,17 @@ export const DeliveryProjection = {
 } as const;
 export type DeliveryProjectionValue = (typeof DeliveryProjection)[keyof typeof DeliveryProjection];
 
+/**
+ * Delivery step kinds. `merge` is retained only for the legacy Git fix domain
+ * (FixRun.steps reuses this shape); the task delivery command path no longer
+ * creates it — product-internal merge was removed (DEL-07 / design §2.2).
+ */
 export const DeliveryStep = {
   COMMIT: 'commit',
   PUSH: 'push',
   MERGE_REQUEST: 'mergeRequest',
   APPLY: 'apply',
+  /** @deprecated Git 修复域历史步骤；交付域不再产生，产品内合并已移除。 */
   MERGE: 'merge',
 } as const;
 export type DeliveryStepValue = (typeof DeliveryStep)[keyof typeof DeliveryStep];
@@ -575,6 +581,7 @@ export const OperationKind = {
   PLAN_EDIT_SAVE: 'plan.edit.save',
   PLAN_EDIT_FINISH: 'plan.edit.finish',
   PLAN_EDIT_ABANDON: 'plan.edit.abandon',
+  PLAN_EDIT_DRAFT: 'plan.edit.draft',
   PLAN_CONFIRM: 'plan.confirm',
   PLAN_FREEZE: 'task.plan.freeze',
   PLAN_RECONFIRM: 'plan.reconfirm',
@@ -594,8 +601,9 @@ export const OperationKind = {
   DELIVERY_SELECT: 'task.delivery.select',
   DELIVERY_COMMIT: 'task.delivery.commit',
   DELIVERY_PUSH: 'task.delivery.push',
+  DELIVERY_PUSH_VERIFY: 'task.delivery.push.verify',
   DELIVERY_MR_CREATE: 'task.delivery.mergeRequest.create',
-  DELIVERY_MERGE: 'task.delivery.merge',
+  DELIVERY_MR_VERIFY: 'task.delivery.mergeRequest.verify',
   DELIVERY_APPLY: 'task.delivery.apply',
   GIT_FETCH: 'git.fetch',
   REVIEW_START: 'review.start',
@@ -692,6 +700,7 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'plan.edit.save': op('plan.edit.save', 'task', true, '保存待执行计划调整'),
   'plan.edit.finish': op('plan.edit.finish', 'task', true, '结束调整并继续执行'),
   'plan.edit.abandon': op('plan.edit.abandon', 'task', true, '放弃待执行计划调整'),
+  'plan.edit.draft': op('plan.edit.draft', 'task', true, '手改未确认计划草稿（不调用模型、不执行）'),
   'plan.confirm': op('plan.confirm', 'task', true, '确认计划'),
   'task.plan.freeze': op('task.plan.freeze', 'task', true, '冻结计划快照（不改变计划与执行）'),
   'plan.reconfirm': op('plan.reconfirm', 'task', true, '重新确认计划'),
@@ -711,8 +720,9 @@ export const OPERATIONS: Record<OperationKindValue, OperationDefinition> = {
   'task.delivery.select': op('task.delivery.select', 'task', true, '选择交付目标与范围'),
   'task.delivery.commit': op('task.delivery.commit', 'task', true, '提交任务变更'),
   'task.delivery.push': op('task.delivery.push', 'task', true, '推送任务分支'),
+  'task.delivery.push.verify': op('task.delivery.push.verify', 'task', true, '核对推送回执'),
   'task.delivery.mergeRequest.create': op('task.delivery.mergeRequest.create', 'task', true, '创建合并请求'),
-  'task.delivery.merge': op('task.delivery.merge', 'task', true, '合并任务分支'),
+  'task.delivery.mergeRequest.verify': op('task.delivery.mergeRequest.verify', 'task', true, '核对合并请求创建回执'),
   'task.delivery.apply': op('task.delivery.apply', 'task', true, '应用到原目录'),
   'task.recovery.create': op('task.recovery.create', 'task', true, '创建恢复草稿'),
   'catalog.role.save': op('catalog.role.save', 'global', true, '保存职业草稿'),

@@ -16,9 +16,8 @@ import { Button } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
-import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
-import { PptCreateDialog } from './PptCreateDialog.tsx';
+import { PptCreatePage } from './PptCreatePage.tsx';
 import { PptWorkbench } from './PptWorkbench.tsx';
 import { PptWorksView } from './PptWorksView.tsx';
 import {
@@ -37,7 +36,7 @@ import './ppt.css';
 
 const WORKS_QUERY_KEY = ['ppt', 'works'] as const;
 
-type PptView = 'works' | 'workbench';
+type PptView = 'works' | 'create' | 'workbench';
 
 /** 执行写命令并取出服务回执；未知/失败由调用方按回执状态展示。 */
 async function executePptCommand(command: PptCommand, requestKey: string): Promise<OperationReceipt> {
@@ -103,13 +102,14 @@ export function PptPage() {
   );
 
   const [params,setParams]=useSearchParams();
-  const view:PptView=params.has('work')?'workbench':'works';
+  /* P05-01：独立创作页是设计的主入口（?view=create）；作品库与工作台保持原路由语义。 */
+  const view:PptView=params.has('work')?'workbench':params.get('view')==='create'?'create':'works';
   const selectedId=params.get('work');
   const lastSelected=useRef<string|null>(selectedId);
   if(selectedId!==null)lastSelected.current=selectedId;
   const setSelectedId=(value:string|null|((current:string|null)=>string|null))=>{const id=typeof value==='function'?value(selectedId):value;const next=new URLSearchParams(params);if(id===null)next.delete('work');else next.set('work',id);setParams(next);};
-  const setView=(value:PptView)=>{const next=new URLSearchParams(params);if(value==='works')next.delete('work');else if(!next.has('work')){const id=lastSelected.current??works[0]?.id;if(id)next.set('work',id);}setParams(next);};
-  const [createOpen, setCreateOpen] = useState(false);
+  const setView=(value:PptView)=>{const next=new URLSearchParams(params);if(value==='works'){next.delete('work');next.delete('view');}else if(value==='create'){next.delete('work');next.set('view','create');setCreateReceipt(prev=>prev?.outcome==='succeeded'?null:prev);}else{next.delete('view');if(!next.has('work')){const id=lastSelected.current??works[0]?.id;if(id)next.set('work',id);}}setParams(next);};
+  const [createReceipt, setCreateReceipt] = useState<PptReceiptState | null>(null);
   const [busyKind, setBusyKind] = useState<PptCommandKind | null>(null);
   const [receipt, setReceipt] = useState<PptReceiptState | null>(null);
   const [lastResult, setLastResult] = useState<PptCommandSignal | null>(null);
@@ -128,13 +128,14 @@ export function PptPage() {
   },[worksQuery.data]);
 
   const selectedWork = selectedId === null ? undefined : works.find((work) => work.id === selectedId);
-  const viewOptions: readonly SegmentOption<PptView>[] = [
-    { value: 'works', label: '作品' },
-    { value: 'workbench', label: '工作台' },
-  ];
-
   const refreshWorks = async (): Promise<void> => {
     await queryClient.invalidateQueries({ queryKey: WORKS_QUERY_KEY });
+  };
+
+  /** 创建命令的回执同时发布给创作页：失败/超时/UNKNOWN 必须显示在操作发生处（P05-03）。 */
+  const publishReceipt = (next: PptReceiptState | null, kind: PptCommandKind): void => {
+    setReceipt(next);
+    if (kind === 'create') setCreateReceipt(next);
   };
 
   const runCommand = async (command: PptCommand): Promise<void> => {
@@ -144,7 +145,7 @@ export function PptPage() {
     busyRef.current = command.kind;
     setBusyKind(command.kind);
     if (command.kind === 'generate' || command.kind === 'generateSlides') window.setTimeout(() => { void refreshWorks(); }, 150);
-    setReceipt(null);
+    publishReceipt(null, command.kind);
     const label = PPT_COMMAND_LABEL[command.kind];
     const requestKey = pptCommandRequestKey(command) ?? createRequestKey();
     try {
@@ -160,34 +161,33 @@ export function PptPage() {
           const latest = queryClient.getQueryData<readonly PptWork[]>(WORKS_QUERY_KEY);
           const createdId = fromOutcome ?? latest?.[0]?.id;
           if (createdId !== undefined) setSelectedId(createdId);
-          setCreateOpen(false);
         } else if (command.kind === 'delete') {
           setSelectedId((prev) => (prev === command.workId ? null : prev));
           setView('works');
         }
-        setReceipt({
+        publishReceipt({
           label,
           outcome,
           receipt: receiptView,
           requestKey: receiptView.requestKey,
           message: rawReceipt.outcome?.stopped === true ? '原生成已核对停止，已有内容保留；未采用迟到生成结果。' : '回执已结算，作品列表已刷新。',
-        });
+        }, command.kind);
       } else if (outcome === 'accepted') {
         signalMessage = '服务已接受但尚未结算：界面不会重复提交，请稍后刷新作品列表核对。';
-        setReceipt({ label, outcome, receipt: receiptView, requestKey: receiptView.requestKey, message: signalMessage });
+        publishReceipt({ label, outcome, receipt: receiptView, requestKey: receiptView.requestKey, message: signalMessage }, command.kind);
       } else if (outcome === 'unknown') {
         signalMessage = '服务返回 unknown 回执：结果未明，界面不会自动重发，可用「核对原操作」按请求号确认。';
-        setReceipt({ label, outcome, receipt: receiptView, requestKey: receiptView.requestKey, message: signalMessage });
+        publishReceipt({ label, outcome, receipt: receiptView, requestKey: receiptView.requestKey, message: signalMessage }, command.kind);
       } else {
         const detail = receiptView.error?.message;
         signalMessage = detail === undefined ? '服务返回失败回执，但没有说明原因。' : `服务拒绝或未完成这次操作：${detail}`;
-        setReceipt({
+        publishReceipt({
           label,
           outcome,
           receipt: receiptView,
           requestKey: receiptView.requestKey,
           message: detail === undefined ? signalMessage : '回执状态为 failed；失败原因见下。',
-        });
+        }, command.kind);
       }
       setLastResult({ kind: command.kind, outcome, ...(signalMessage === undefined ? {} : { message: signalMessage }), at: Date.now() });
     } catch (error) {
@@ -202,20 +202,25 @@ export function PptPage() {
           ? '没有收到服务回执：结果未明，界面不会自动重发。该命令的请求号由服务端生成且未返回，请刷新作品列表按真实状态核对。'
           : '没有收到服务回执：结果未明，界面不会自动重发。可用请求号核对原操作，再按读口刷新作品列表。'
         : detail;
-      setReceipt({ label, outcome, requestKey: effectiveKey, message });
+      publishReceipt({ label, outcome, requestKey: effectiveKey, message }, command.kind);
       setLastResult({ kind: command.kind, outcome, message, at: Date.now() });
     } finally {
       if(epoch===commandEpoch.current){busyRef.current = null;setBusyKind(null);}
+      /* P07-09：更新失败/冲突后主动重读作品，让方案抽屉进入“已有新版本”并可用读取最新方案。 */
+      if(command.kind==='update') void refreshWorks();
     }
   };
 
   const verifyReceipt = async (requestKey: string): Promise<void> => {
     setReceipt((prev) => (prev === null ? prev : { ...prev, lookupBusy: true, lookupError: undefined }));
+    setCreateReceipt((prev) => (prev === null || prev.requestKey !== requestKey ? prev : { ...prev, lookupBusy: true, lookupError: undefined }));
     try {
       const response = await apiGet<OperationsByKeyResponse>(ROUTES.operationsByKey(requestKey));
       const record = response.data.operation;
       const lookup = toPptLookup(record);
-      setReceipt((prev) => (prev === null ? prev : { ...prev, outcome: record.status, receipt: toPptReceipt(record), message: record.outcome?.stopped === true ? '原生成已停止，已有内容保留' : record.status==='succeeded' ? '原操作已结算' : prev.message, lookupBusy: false, lookup }));
+      const apply = (prev: PptReceiptState): PptReceiptState => ({ ...prev, outcome: record.status, receipt: toPptReceipt(record), message: record.outcome?.stopped === true ? '原生成已停止，已有内容保留' : record.status==='succeeded' ? '原操作已结算' : prev.message, lookupBusy: false, lookup });
+      setReceipt((prev) => (prev === null ? prev : apply(prev)));
+      setCreateReceipt((prev) => (prev === null || prev.requestKey !== requestKey ? prev : apply(prev)));
       if (record.status === 'succeeded') {
         await refreshWorks();
         const workId = typeof record.outcome?.workId === 'string' ? record.outcome.workId : undefined;
@@ -227,7 +232,9 @@ export function PptPage() {
         }
       }
     } catch (error) {
-      setReceipt((prev) => (prev === null ? prev : { ...prev, lookupBusy: false, lookupError: errorMessage(error) }));
+      const fail = (prev: PptReceiptState): PptReceiptState => ({ ...prev, lookupBusy: false, lookupError: errorMessage(error) });
+      setReceipt((prev) => (prev === null ? prev : fail(prev)));
+      setCreateReceipt((prev) => (prev === null || prev.requestKey !== requestKey ? prev : fail(prev)));
     }
   };
 
@@ -236,20 +243,50 @@ export function PptPage() {
 
   return (
     <div className="page">
-      {view==='works' ? <PageHeader
-        title="PPT 制作"
-        lede="作品库与工作台：网格/列表查看全部作品；选中作品后在四步工作台完成讨论需求、设计方案、制作检查与导出。所有写操作返回真实回执，模型调用可能较慢。"
-        actions={
-          <div className="row wrap" style={{ gap: 8 }}>
-            <SegmentedControl ariaLabel="PPT 视图" options={viewOptions} value={view} onChange={setView} />
-            <Button variant="primary" size="sm" icon="plus" onClick={() => setCreateOpen(true)}>
+      {view === 'works' ? (
+        <PageHeader
+          eyebrow="PPT 制作"
+          title="全部作品"
+          lede="全部演示作品。点选作品进入四步工作台；所有写操作都返回服务回执。"
+          actions={
+            <Button variant="primary" size="sm" icon="plus" onClick={() => setView('create')}>
               新建演示
             </Button>
+          }
+        />
+      ) : view === 'create' ? (
+        <div>
+          <div className="row wrap" style={{ gap: 8 }}>
+            <span className="grow" />
+            <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => setView('works')}>
+              全部作品
+            </Button>
           </div>
-        }
-      /> : null}
+          <PptCreatePage
+            projects={projects}
+            projectsLoading={projectsQuery.isLoading}
+            {...(projectsQuery.isError ? { projectsError: projectsQuery.error } : {})}
+            receipt={createReceipt}
+            busy={busyKind === 'create'}
+            onVerify={(requestKey) => {
+              void verifyReceipt(requestKey);
+            }}
+            onRetryProjects={() => {
+              void projectsQuery.refetch();
+            }}
+            onCreate={(body) => {
+              void runCommand({ kind: 'create', body });
+            }}
+            onOpenWork={(workId) => {
+              setSelectedId(workId);
+            }}
+            onOpenWorks={() => setView('works')}
+            recentWorks={works}
+          />
+        </div>
+      ) : null}
 
-      {projectsQuery.isError ? (
+      {view !== 'create' && projectsQuery.isError ? (
         <div style={{ marginBottom: 16 }}>
           <ServiceNotice
             error={projectsQuery.error}
@@ -260,7 +297,7 @@ export function PptPage() {
         </div>
       ) : null}
 
-      {receipt === null ? null : (
+      {receipt === null || view === 'create' ? null : (
         <div style={{ marginBottom: 16 }}>
           <PptReceiptBanner
             state={receipt}
@@ -286,16 +323,28 @@ export function PptPage() {
             setSelectedId(work.id);
             }}
           onNew={() => {
-            setCreateOpen(true);
+            setView('create');
           }}
           onCommand={(command) => { void runCommand(command); }}
             onRetry={() => {
             void worksQuery.refetch();
           }}
         />
-      ) : selectedWork === undefined ? (
+      ) : selectedWork === undefined && selectedId !== null && worksQuery.isLoading ? (
         <section className="card pad" style={{ marginTop: 16 }}>
-          {selectedId !== null && !worksQuery.isLoading && !worksQuery.isError ? (
+          <p role="status"><Icon name="clock" size="sm" /> 正在读取作品…</p>
+          <p className="hint">深链刷新时会先读取作品列表；不会把加载中当成“作品不存在”。</p>
+        </section>
+      ) : selectedWork === undefined && selectedId !== null && worksQuery.isError ? (
+        <section className="card pad" style={{ marginTop: 16 }}>
+          <ServiceNotice error={worksQuery.error} onRetry={() => { void worksQuery.refetch(); }} />
+          <div style={{ marginTop: 12 }}>
+            <Button variant="ghost" size="sm" icon="arrowLeft" onClick={() => setSelectedId(null)}>去作品库</Button>
+          </div>
+        </section>
+      ) : view === 'create' ? null : selectedWork === undefined ? (
+        <section className="card pad" style={{ marginTop: 16 }}>
+          {selectedId !== null && !worksQuery.isLoading && !worksQuery.isError && works.length > 0 ? (
             <>
               <div className="banner warn" style={{ marginBottom: 16 }}>
                 <Icon name="help" />
@@ -339,7 +388,7 @@ export function PptPage() {
                   size="sm"
                   icon={works.length === 0 ? 'plus' : 'arrowLeft'}
                   onClick={() => {
-                    if (works.length === 0) setCreateOpen(true);
+                    if (works.length === 0) setView('create');
                     else setView('works');
                   }}
                 >
@@ -360,26 +409,13 @@ export function PptPage() {
             onCommand={(command) => {
               void runCommand(command);
             }}
+            onRefresh={() => { void refreshWorks(); }}
             onBack={() => {
               setView('works');
             }}
           />
         </div>
       )}
-
-      {createOpen ? (
-        <PptCreateDialog
-          projects={projects}
-          projectsLoading={projectsQuery.isLoading}
-          busy={busyKind === 'create'}
-          onClose={() => {
-            setCreateOpen(false);
-          }}
-          onCreate={(body) => {
-            void runCommand({ kind: 'create', body });
-          }}
-        />
-      ) : null}
     </div>
   );
 }

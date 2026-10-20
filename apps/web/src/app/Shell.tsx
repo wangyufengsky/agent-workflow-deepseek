@@ -1,27 +1,13 @@
 import { PendingCommands } from '../components/PendingCommands.tsx';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { DisplayMode, THEMES, type DisplayModeValue } from '@agent-workflow/shared';
 import { useBootstrap, useInboxLiveSummary } from '../api/hooks.ts';
 import { StatusDot, type StatusDotTone } from '../components/Badge.tsx';
 import { Button } from '../components/Button.tsx';
 import { Icon } from '../components/Icon.tsx';
-import { SegmentedControl } from '../components/SegmentedControl.tsx';
-import { useTheme } from '../theme/ThemeProvider.tsx';
+import { applyMotionPreference, resolveMotionPreference } from '../theme/motion.ts';
 import { formatCount } from './format.ts';
-import { activeNavId, breadcrumbsFor, findNavItem, NAV_GROUPS } from './navigation.ts';
-
-const DISPLAY_MODE_KEY = 'agent-workflow.display-mode';
-
-function readDisplayMode(): DisplayModeValue {
-  try {
-    const value = window.localStorage.getItem(DISPLAY_MODE_KEY);
-    if (value === DisplayMode.PRESENT || value === DisplayMode.REVIEW) return value;
-  } catch {
-    // Storage unavailable; fall back to the default display mode.
-  }
-  return DisplayMode.PRESENT;
-}
+import { activeNavId, breadcrumbsFor, findNavItem, NAV_GROUPS, shellHeaderPolicy, type BreadcrumbContext } from './navigation.ts';
 
 interface RuntimeState {
   readonly tone: StatusDotTone;
@@ -41,16 +27,23 @@ export function Shell() {
   const location = useLocation();
   const contentRef = useRef<HTMLDivElement>(null);
   const bootstrap = useBootstrap();
-  const { theme, cycleTheme } = useTheme();
-  const [displayMode, setDisplayMode] = useState<DisplayModeValue>(() => readDisplayMode());
 
   const activeId = activeNavId(location.pathname);
   const activeItem = findNavItem(activeId);
-  const crumbs = breadcrumbsFor(location.pathname);
+  const header = shellHeaderPolicy(location.pathname, location.search);
+  // Data-bearing breadcrumb levels come from real service data only.
+  const gitProjectId = /^\/git\/([^/]+)$/.exec(location.pathname)?.[1];
+  const recoveryTaskId = /^\/tasks\/([^/]+)\/recovery$/.exec(location.pathname)?.[1];
+  const breadcrumbContext: BreadcrumbContext = {
+    projectName: gitProjectId === undefined ? undefined : bootstrap.data?.projects.find((project) => project.id === gitProjectId)?.name,
+    taskTitle: recoveryTaskId === undefined ? undefined : bootstrap.data?.tasks.find((task) => task.id === recoveryTaskId)?.title,
+  };
+  const crumbs = breadcrumbsFor(location.pathname, location.search, breadcrumbContext);
   const connection = bootstrap.isLoading ? 'loading' : bootstrap.isError ? 'disconnected' : 'connected';
   const opencodeStatus = bootstrap.data?.integration.opencode.status;
   const runtime = runtimeState(connection, opencodeStatus);
   const waitingUser = bootstrap.data?.counts.waitingUser;
+  const serviceReducedMotion = bootstrap.data?.settings.ui.reducedMotion;
 
   useEffect(() => {
     contentRef.current?.scrollTo({ top: 0 });
@@ -61,14 +54,11 @@ export function Shell() {
     document.title = `${leaf} · Agent Workflow`;
   }, [crumbs]);
 
-  const changeDisplayMode = (mode: DisplayModeValue) => {
-    setDisplayMode(mode);
-    try {
-      window.localStorage.setItem(DISPLAY_MODE_KEY, mode);
-    } catch {
-      // Non-persistent toggle is still usable.
-    }
-  };
+  // Consumer for settings.ui.reducedMotion: an explicit local choice wins,
+  // otherwise the service configuration decides (see theme/motion.ts).
+  useEffect(() => {
+    applyMotionPreference(resolveMotionPreference(serviceReducedMotion));
+  }, [serviceReducedMotion]);
 
   return (
     <div className="app">
@@ -126,57 +116,26 @@ export function Shell() {
       </nav>
 
       <div className="main">
-        <header className="header">
-          <h1>
-            <Icon name={activeItem?.icon ?? (activeId === 'start' ? 'plus' : 'file')} />
-            <span className="crumbs">
-              {crumbs.map((crumb, index) => (
-                <span key={`${crumb.label}-${String(index)}`} className="row" style={{ gap: 6 }}>
-                  {index > 0 ? <span className="sep">/</span> : null}
-                  {crumb.to === undefined ? <span className="cur">{crumb.label}</span> : <Link to={crumb.to}>{crumb.label}</Link>}
-                </span>
-              ))}
-            </span>
-          </h1>
-          <div id="page-header-context" className="row" />
-          <span className="spacer" />
-          <div className="header-actions">
-            <div id="page-header-actions" className="row" />
-            <Link className="project-chip" to="/projects" title="项目">
-              <Icon name="folder" size="sm" />
-              <span>{bootstrap.data === undefined ? '项目' : `${formatCount(bootstrap.data.projects.length)} 个项目`}</span>
-            </Link>
-            <span className="conn-chip" title={bootstrap.isError ? '服务未连接' : '服务连接状态'}>
-              <StatusDot
-                tone={connection === 'connected' ? 'ok' : connection === 'loading' ? 'muted' : 'danger'}
-                pulse={connection === 'loading'}
-                label={connection === 'connected' ? '服务已连接' : connection === 'loading' ? '正在连接服务' : '服务未连接'}
-              />
-              <span>{connection === 'connected' ? '服务已连接' : connection === 'loading' ? '正在连接' : '服务未连接'}</span>
-            </span>
-            <SegmentedControl
-              className="display-seg"
-              ariaLabel="显示模式"
-              value={displayMode}
-              onChange={changeDisplayMode}
-              options={[
-                { value: DisplayMode.PRESENT, label: '展示' },
-                { value: DisplayMode.REVIEW, label: '审阅' },
-              ]}
-            />
-            <button
-              type="button"
-              className="header-theme"
-              onClick={() => {
-                cycleTheme();
-              }}
-              title="切换主题（下一套）"
-            >
-              <Icon name="sparkle" size="sm" />
-              <span>{THEMES[theme].label}</span>
-            </button>
-          </div>
-        </header>
+        {header.hidden ? null : (
+          <header className="header">
+            <h1>
+              <Icon name={activeItem?.icon ?? (activeId === 'start' ? 'plus' : 'file')} />
+              <span className="crumbs">
+                {crumbs.map((crumb, index) => (
+                  <span key={`${crumb.label}-${String(index)}`} className="row" style={{ gap: 6 }}>
+                    {index > 0 ? <span className="sep">/</span> : null}
+                    {crumb.to === undefined ? <span className="cur">{crumb.label}</span> : <Link to={crumb.to}>{crumb.label}</Link>}
+                  </span>
+                ))}
+              </span>
+            </h1>
+            <div id="page-header-context" className="row" />
+            <span className="spacer" />
+            <div className="header-actions">
+              <div id="page-header-actions" className="row" />
+            </div>
+          </header>
+        )}
 
         {bootstrap.isError ? (
           <div className="connection-strip" role="alert">

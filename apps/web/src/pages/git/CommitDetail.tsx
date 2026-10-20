@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FileChange, GitBranch, GitCommit, GitRepo, ReviewFinding } from '@agent-workflow/shared';
-import { GIT_EMPTY_TREE_SHA, classifyGitFailure, fetchGitCommit, fetchGitCommitFiles, fetchReview, gitKeys } from '../../api/git.ts';
+import { GIT_EMPTY_TREE_SHA, classifyGitFailure, fetchGitCommit, fetchGitCommitFiles, fetchReview, gitKeys, updateFinding } from '../../api/git.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
@@ -48,6 +48,7 @@ export function CommitDetail({ projectId, sha, repo, branches, onDiffFullscreenC
   const [selectedFindingIds, setSelectedFindingIds] = useState<ReadonlySet<string>>(new Set());
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
   const [diffFullscreen, setDiffFullscreen] = useState(false);
+  const [openSetupRequest, setOpenSetupRequest] = useState(0);
   const [actionError, setActionError] = useState<unknown>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
 
@@ -92,6 +93,22 @@ export function CommitDetail({ projectId, sha, repo, branches, onDiffFullscreenC
     retry: shouldRetry,
   });
   const reviewFindings = reviewQuery.data?.findings ?? [];
+
+  // diff 行下问题卡直接接受 / 忽略：与审查页签一样走 review.finding.update；历史审查只读。
+  const findingStatusMutation = useMutation({
+    mutationFn: (input: { findingId: string; status: 'accepted' | 'dismissed' }) =>
+      updateFinding({ projectId, findingId: input.findingId, status: input.status }),
+    retry: false,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: gitKeys.review(projectId, reviewRunId ?? '') });
+      void queryClient.invalidateQueries({ queryKey: gitKeys.commit(projectId, sha) });
+    },
+    onError: (error) => { setActionError(error); },
+  });
+
+  const historicalReview = reviewRunId !== undefined && commit?.review !== undefined && reviewRunId !== commit.review.reviewRunId;
+  // g34：审查完成且没有问题时，修复页签不可用（没有问题可修），并写明原因。
+  const reviewClean = reviewQuery.data?.state === 'completed' && reviewFindings.length === 0;
 
   useEffect(() => {
     if (files.length === 0) {
@@ -188,6 +205,20 @@ export function CommitDetail({ projectId, sha, repo, branches, onDiffFullscreenC
           提交列表
         </button>
 
+        {diffFullscreen ? (
+          <div className="diff-full-bar" role="status">
+            <Icon name="panel" size="sm" />
+            <span>全宽阅读</span>
+            <ShaCopy value={commit.sha} label="提交 SHA" truncate={10} />
+            <span className="ellipsis">{commit.subject}</span>
+            <span className="grow" />
+            <span className="muted-note">Esc 或「退出全宽」回到三栏；选中与滚动位置保留。</span>
+            <Button variant="secondary" size="sm" icon="arrowLeft" onClick={() => { setDiffFullscreen(false); }}>
+              退出全宽
+            </Button>
+          </div>
+        ) : null}
+
         <div className="commit-head">
           <div className="commit-head-top">
             <div className="grow" style={{ minWidth: 0 }}>
@@ -208,7 +239,7 @@ export function CommitDetail({ projectId, sha, repo, branches, onDiffFullscreenC
               </div>
             </div>
             <div className="commit-head-actions">
-              <Button variant="primary" size="sm" icon="sparkle" onClick={() => { setTab('review'); }}>
+              <Button variant="primary" size="sm" icon="sparkle" onClick={() => { setTab('review'); setOpenSetupRequest((current) => current + 1); }}>
                 AI 审查此提交
               </Button>
             </div>
@@ -273,9 +304,18 @@ export function CommitDetail({ projectId, sha, repo, branches, onDiffFullscreenC
           <button type="button" role="tab" className="tab" aria-selected={tab === 'review'} onClick={() => { setTab('review'); }}>
             AI 审查
           </button>
-          <button type="button" role="tab" className="tab" aria-selected={tab === 'fix'} onClick={() => { setTab('fix'); }}>
+          <button
+            type="button"
+            role="tab"
+            className="tab"
+            aria-selected={tab === 'fix'}
+            aria-disabled={reviewClean}
+            title={reviewClean ? '审查没有发现问题，没有可修复内容' : undefined}
+            onClick={() => { if (!reviewClean) setTab('fix'); }}
+          >
             修复 {selectedFindingIds.size === 0 ? '' : `(${String(selectedFindingIds.size)})`}
           </button>
+          {reviewClean ? <span className="action-reason"><Icon name="lock" size="sm" />审查没有发现问题，修复页签不可用。</span> : null}
           <span className="spacer" />
         </div>
 
@@ -369,6 +409,9 @@ export function CommitDetail({ projectId, sha, repo, branches, onDiffFullscreenC
                             findings={fixDiff === null ? reviewFindings : []}
                             focusFindingId={fixDiff === null ? focusFindingId : null}
                             onFindingSelect={(finding) => { locateFinding(finding); }}
+                            onUpdateFindingStatus={historicalReview ? undefined : (findingId, status) => { findingStatusMutation.mutate({ findingId, status }); }}
+                            findingStatusBusyId={findingStatusMutation.isPending ? findingStatusMutation.variables?.findingId ?? null : null}
+                            onBackToReview={() => { setTab('review'); }}
                             fullscreen={diffFullscreen}
                             onToggleFullscreen={() => { setDiffFullscreen((current) => !current); }}
                           />
@@ -384,14 +427,17 @@ export function CommitDetail({ projectId, sha, repo, branches, onDiffFullscreenC
               projectId={projectId}
               commit={commit}
               reviewRunId={reviewRunId}
+              latestReviewRunId={commit.review?.reviewRunId}
               selectedFindingIds={selectedFindingIds}
               onToggleFinding={toggleFinding}
               onReviewStarted={(id) => {
                 setReviewRunId(id);
                 void queryClient.invalidateQueries({ queryKey: gitKeys.commit(projectId, sha) });
               }}
+              onSelectReviewRun={(id) => { setReviewRunId(id); }}
               onLocate={locateFinding}
               onRequestFix={() => { setTab('fix'); }}
+              openSetupRequest={openSetupRequest}
             />
           ) : (
             <FixPanel

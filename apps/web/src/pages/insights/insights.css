@@ -1,0 +1,22 @@
+.insights-tiles { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+@media (max-width: 1100px) { .insights-tiles { grid-template-columns: 1fr; } }
+.insights-layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+.insights-layout.no { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1180px) { .insights-layout { grid-template-columns: minmax(0, 1fr); } }
+.insights-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.insights-table th { text-align: left; font-weight: 500; font-size: 12px; color: var(--muted); padding: 10px 14px; box-shadow: inset 0 -1px 0 var(--line); }
+.insights-table td { padding: 12px 14px; box-shadow: inset 0 -1px 0 var(--line); vertical-align: middle; }
+.insights-table tbody tr { cursor: pointer; transition: background var(--t-fast); }
+.insights-table tbody tr:hover { background: var(--fill-2); }
+.insights-table tbody tr[aria-selected='true'] { background: var(--fill-3); }
+.insights-table td.n, .insights-table th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.insights-table td .badge { white-space: nowrap; }
+/* P15-03: tokens bar (design .tbar) — width encodes magnitude relative to the page max. */
+.insights-tbar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.insights-tbar i { display: block; height: 6px; border-radius: 3px; background: var(--accent); opacity: 0.75; }
+.insights-foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px 12px; }
+.insights-skel { height: 14px; border-radius: 4px; background: var(--fill-2); }
+.insights-mini { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border-radius: 12px; overflow: hidden; }
+.insights-mini > div { background: var(--panel); padding: 10px 12px; }
+.insights-mini .k { font-size: 11.5px; color: var(--muted); }
+.insights-mini .v { font-size: 15px; font-weight: 500; margin-top: 2px; font-variant-numeric: tabular-nums; }

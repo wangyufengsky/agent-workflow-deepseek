@@ -8,11 +8,27 @@ import {
   DELIVERY_STEP_STATE_LABEL,
   deliveryStepStateTone,
   formatAbsolute,
-  shortSha,
 } from '../git/git-shared.tsx';
 
 function stepOf(delivery: TaskDelivery, step: DeliveryStepValue) {
   return delivery.steps.find((item) => item.step === step);
+}
+
+/**
+ * 写操作失败的设计出路（DEL-15/18）：按服务错误码给出唯一可行下一步，
+ * 不提供“再试一次”式盲重发；UNKNOWN 另有「核对原操作」。
+ */
+const FAILURE_HINT: Record<string, string> = {
+  HOOK_REJECTED: '提交被 hook 拒绝：修改提交信息后可发起新的提交确认；不提供跳过 hook。',
+  GITLAB_AUTH_FAILED: '认证失败或账户用途不足：到 设置 → Git 账号 检查连接；提交保留在本地。',
+  PUSH_REJECTED_NON_FF: '远端已有同名分支或非快进：换一个新的远端分支名重新确认；不会强推。',
+  STALE_TARGET: '版本或目标已变化：重新读取后重新确认，不静默采用新版本。',
+  RECEIPT_UNKNOWN: '结果未知：只核对原操作，不自动重发。',
+  WORKSPACE_NOT_READY: '工作区未就绪：先完成独立工作区准备。',
+};
+
+function failureHint(code: string | undefined): string | undefined {
+  return code === undefined ? undefined : FAILURE_HINT[code];
 }
 
 function serverAction(actions: Record<string, ActionAvailability>, ...keys: readonly string[]): ActionAvailability | undefined {
@@ -34,7 +50,7 @@ interface StepCardProps {
   readonly busy: boolean;
   readonly pendingLabel: string;
   readonly buttonLabel: string;
-  readonly buttonIcon: 'check' | 'upload' | 'gitRepo' | 'split' | 'folder';
+  readonly buttonIcon: 'check' | 'upload' | 'gitRepo' | 'folder';
   readonly onAction: () => void;
   readonly onVerify: (requestKey: string) => void;
   readonly extraActions?: ReactNode;
@@ -95,6 +111,9 @@ function StepCard({
           {state.error.message}
           {state.error.code.length === 0 ? '' : ` · ${state.error.code}`}
           {state.error.output === undefined ? null : <code className="out">{state.error.output}</code>}
+          {failureHint(state.error.code) === undefined ? null : (
+            <span className="delivery-hint">{failureHint(state.error.code)}</span>
+          )}
         </div>
       )}
       <div className="delivery-step-actions">
@@ -135,8 +154,6 @@ export interface DeliveryStepListProps {
   readonly delivery: TaskDelivery;
   readonly goal: DeliveryGoalValue | null;
   readonly projectGit: boolean;
-  readonly targetBranch: string | undefined;
-  readonly targetTip: string | undefined;
   readonly hasUnknown: boolean;
   readonly actions: Record<string, ActionAvailability>;
   readonly pendingAction: string | null;
@@ -144,17 +161,21 @@ export interface DeliveryStepListProps {
   readonly onCommit: () => void;
   readonly onPush: () => void;
   readonly onCreateMr: () => void;
-  readonly onMerge: () => void;
   readonly onVerify: (requestKey: string) => void;
+  /** MR 创建回执未知时「核对原操作」走远端事实核对，而不是只看本地台账。 */
+  readonly onVerifyMr: (requestKey: string) => void;
+  /** 推送回执未知时「核对原推送」按远端分支事实核对（DEL-17），不重发推送。 */
+  readonly onVerifyPush: (requestKey: string) => void;
 }
 
-/** 交付步骤：提交 / 推送 / 创建 MR 各自独立确认，另有独立的合并且不自动连锁。 */
+/**
+ * 交付步骤：提交 / 推送 / 创建合并请求各自独立确认，不自动连锁。
+ * 设计明令不做产品内合并：这里没有「合并到目标分支」步骤，合并只在 GitLab 中进行。
+ */
 export function DeliveryStepList({
   delivery,
   goal,
   projectGit,
-  targetBranch,
-  targetTip,
   hasUnknown,
   actions,
   pendingAction,
@@ -162,13 +183,13 @@ export function DeliveryStepList({
   onCommit,
   onPush,
   onCreateMr,
-  onMerge,
   onVerify,
+  onVerifyMr,
+  onVerifyPush,
 }: DeliveryStepListProps) {
   const commitStep = stepOf(delivery, 'commit');
   const pushStep = stepOf(delivery, 'push');
   const mrStep = stepOf(delivery, 'mergeRequest');
-  const mergeStep = stepOf(delivery, 'merge');
   const applyStep = stepOf(delivery, 'apply');
 
   if (!projectGit) {
@@ -209,11 +230,6 @@ export function DeliveryStepList({
   const commitAllowedReason = eligibilityReason ?? (hasUnknown ? '有回执未知的操作，先核对原操作。' : null);
   const pushAllowedReason = commitStep?.state !== 'succeeded' ? '提交成功后才能推送。' : commitAllowedReason;
   const mrAllowedReason = pushStep?.state !== 'succeeded' ? '推送成功后才能创建合并请求。' : commitAllowedReason;
-  const mergeAllowedReason = commitStep?.state !== 'succeeded'
-    ? '提交成功后才能合并。'
-    : targetBranch === undefined || targetTip === undefined
-      ? '没有读取到目标分支当前 tip，无法安全合并；先刷新分支。'
-      : commitAllowedReason;
 
   return (
     <section className="delivery-section" aria-label="交付步骤">
@@ -221,7 +237,7 @@ export function DeliveryStepList({
         <h3>交付步骤</h3>
         <Badge tone="neutral">{DELIVERY_GOAL_LABEL[goal]}</Badge>
         <span className="spacer" />
-        <span className="muted-note">每步独立确认 · 不会自动连锁</span>
+        <span className="muted-note">每步独立确认 · 不会自动连锁 · 合并只在 GitLab 中进行</span>
       </div>
       <div className="delivery-steps">
         <StepCard
@@ -254,7 +270,7 @@ export function DeliveryStepList({
             buttonLabel="确认推送"
             buttonIcon="upload"
             onAction={onPush}
-            onVerify={onVerify}
+            onVerify={onVerifyPush}
           />
         ) : null}
 
@@ -262,7 +278,7 @@ export function DeliveryStepList({
           <StepCard
             ordinal="③"
             title="创建合并请求"
-            desc="源为实际已推送的 ref / SHA；创建成功即完成所选交付，不等待合并。已有同源 → 目标的打开 MR 时不会重复创建。"
+            desc="源为实际已推送的 ref / SHA；创建成功即完成所选交付，不等待合并。已有同源 → 目标的打开 MR 时显示原链接，不会重复创建；合并请在 GitLab 中完成（产品内不提供合并按钮）。"
             state={mrStep}
             current={pushStep?.state === 'succeeded' && (mrStep === undefined || mrStep.state === 'not_started')}
             fallbackReason={mrAllowedReason}
@@ -272,26 +288,7 @@ export function DeliveryStepList({
             buttonLabel="预览并创建合并请求"
             buttonIcon="gitRepo"
             onAction={onCreateMr}
-            onVerify={onVerify}
-          />
-        ) : null}
-
-        {commitStep?.state === 'succeeded' ? (
-          <StepCard
-            ordinal="④"
-            title="合并到目标分支"
-            desc={`独立于 MR 的写操作：服务在临时 worktree 合并并 CAS 更新本地目标分支 ${targetBranch ?? '（目标未知）'}。推荐使用合并请求；目标分支受保护、冲突或前移时服务会拒绝并要求重新确认。`}
-            state={mergeStep}
-            current={mergeStep === undefined || mergeStep.state === 'not_started'}
-            fallbackReason={mergeAllowedReason}
-            action={serverAction(actions, 'merge', 'delivery.merge')}
-            busy={pendingAction === 'merge'}
-            pendingLabel="合并中…"
-            buttonLabel="预览并确认合并"
-            buttonIcon="split"
-            onAction={onMerge}
-            onVerify={onVerify}
-            extraActions={targetTip === undefined ? null : <span className="delivery-step-receipt">目标 tip {shortSha(targetTip)}</span>}
+            onVerify={onVerifyMr}
           />
         ) : null}
       </div>

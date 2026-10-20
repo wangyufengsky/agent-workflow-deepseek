@@ -60,6 +60,7 @@ const MAX_TITLE_CHARS = 300;
 const MAX_DETAIL_CHARS = 4_000;
 const MAX_SUMMARY_CHARS = 4_000;
 const MAX_LOCATION_LINES = 500;
+const MAX_SUGGESTION_CHARS = 8_000;
 
 export interface ReviewServiceOptions {
   readonly store: Store;
@@ -77,6 +78,13 @@ interface DiffContext {
   readonly files: ReadonlyMap<string, FileChange>;
   readonly pages: ReadonlyMap<string, DiffPage>;
   readonly unreadable: ReadonlySet<string>;
+}
+
+/** 「建议修改」只读 patch：服务存储于 finding 上，由读取口投影为 ReviewSuggestionsResponse。 */
+export interface ReviewFindingSuggestion {
+  readonly format: 'unified_patch';
+  readonly patch: string;
+  readonly appliesTo: string;
 }
 
 interface ParsedFinding {
@@ -107,6 +115,7 @@ export const REVIEW_OUTPUT_SCHEMA: Record<string, unknown> = {
           side: { type: 'string', enum: ['old', 'new'] },
           title: { type: 'string' },
           detail: { type: 'string' },
+          suggestion: { type: 'string', description: '可选：一段建议修改的 unified patch 文本（只展示，不自动应用）' },
         },
       },
     },
@@ -116,7 +125,7 @@ export const REVIEW_OUTPUT_SCHEMA: Record<string, unknown> = {
 export const REVIEW_SYSTEM_PROMPT = `你是「代码审查员（reviewer）」，只读审查，不修改任何文件。
 硬性规则：
 1. 只输出一个 JSON 对象，不要 Markdown 代码块、不要解释、不要前后缀。结构：
-   {"summary":"一句话结论","findings":[{"severity":"blocker|critical|major|suggestion","dimension":"correctness|security|performance|quality|style|tests","path":"相对路径","startLine":12,"endLine":14,"side":"old|new","title":"问题标题","detail":"依据与建议"}]}
+   {"summary":"一句话结论","findings":[{"severity":"blocker|critical|major|suggestion","dimension":"correctness|security|performance|quality|style|tests","path":"相对路径","startLine":12,"endLine":14,"side":"old|new","title":"问题标题","detail":"依据与建议","suggestion":"可选：建议修改的 unified patch 文本"}]}
 2. 只报告本次 diff 引入或直接相关的问题；不要报告与本次改动无关的历史问题。
 3. path 必须是本次 diff 中出现的文件；行号必须是该文件中 diff 可见的行；side=new 指新版本行号，side=old 指旧版本行号。
 4. 没有问题就输出 {"summary":"...","findings":[]}。不要编造问题，不要为了凑数降低标准。
@@ -491,7 +500,9 @@ export class ReviewService {
     const failed: ReviewRun = {
       ...current,
       state: unknown ? ReviewRunState.UNKNOWN : ReviewRunState.FAILED,
-      stage: unknown ? 'unknown' : 'failed',
+      // 失败时保留失败前最后一个真实阶段（读取改动 / 分析 / 汇总），供界面显示
+      // 「停在哪个阶段」；只有未知才写 unknown。不虚构失败阶段。
+      stage: unknown ? 'unknown' : (current.stage ?? 'failed'),
       endedAt: unknown ? current.endedAt : nowIso(),
       receipt: this.#commands.get(startKey) === undefined ? current.receipt : this.#commands.toReceipt(this.#commands.get(startKey)!),
     };
@@ -592,6 +603,7 @@ ${rendered.text}
 只输出 JSON 对象：{"summary":"一句话结论","findings":[...]}。
 fields：severity ∈ blocker/critical/major/suggestion；dimension ∈ ${review.dimensions.join('/')}；path 必须来自上面的文件列表；
 startLine/endLine 必须落在 diff 行号内；side=old 用旧版本行号，side=new 用新版本行号。
+suggestion 可选：一段 unified patch 文本（建议怎么改），服务只展示原文，不自动应用。
 没有问题就返回空 findings；不要臆造。${rendered.notes.length === 0 ? '' : `\n服务提示：${rendered.notes.join('；')}`}`;
   }
 
@@ -758,7 +770,13 @@ function parseFinding(raw: unknown, review: ReviewRun, context: DiffContext): Pa
     detail,
     status: FindingStatus.OPEN,
   };
-  if (path === undefined || path === '') return { finding: base, unverified: false };
+  const noLocationSuggestion = normalizeSuggestion(raw.suggestion, review.subject.commitSha);
+  if (path === undefined || path === '') {
+    return {
+      finding: (noLocationSuggestion === undefined ? base : { ...base, suggestion: noLocationSuggestion }) as ReviewFinding,
+      unverified: false,
+    };
+  }
   if (!context.files.has(path)) return undefined;
 
   const startLine = toPositiveInteger(locationInput.startLine);
@@ -767,25 +785,26 @@ function parseFinding(raw: unknown, review: ReviewRun, context: DiffContext): Pa
   if (startLine === undefined || endLine === undefined || side === undefined) return undefined;
   if (endLine < startLine || endLine - startLine > MAX_LOCATION_LINES) return undefined;
 
+  const suggestion = normalizeSuggestion(raw.suggestion, review.subject.commitSha);
+
   const file = context.files.get(path);
   const page = context.pages.get(path);
   const cannotVerify = file?.binary === true || context.unreadable.has(path) || page === undefined || (page.truncated !== undefined && page.truncated !== null);
   if (!cannotVerify && page !== undefined && !locationInHunks(page.hunks, side, startLine, endLine)) return undefined;
 
-  return {
-    finding: {
-      ...base,
-      location: {
-        path,
-        revision: review.subject.commitSha,
-        baseRevision: review.subject.compareBase.baseSha,
-        startLine,
-        endLine,
-        side,
-      },
+  const finding = {
+    ...base,
+    location: {
+      path,
+      revision: review.subject.commitSha,
+      baseRevision: review.subject.compareBase.baseSha,
+      startLine,
+      endLine,
+      side,
     },
-    unverified: cannotVerify,
-  };
+    ...(suggestion === undefined ? {} : { suggestion }),
+  } as ReviewFinding;
+  return { finding, unverified: cannotVerify };
 }
 
 function locationInHunks(hunks: readonly DiffHunk[], side: 'old' | 'new', startLine: number, endLine: number): boolean {
@@ -800,6 +819,17 @@ function locationInHunks(hunks: readonly DiffHunk[], side: 'old' | 'new', startL
     if (startLine <= hunkEnd && endLine >= hunkStart) return true;
   }
   return false;
+}
+
+/**
+ * `suggestion` 是模型给出的可选「建议修改」patch。服务只做长度/格式裁剪与
+ * 绑定被审查提交的 SHA（appliesTo），不自动应用，也不把它当成已改代码。
+ */
+function normalizeSuggestion(value: unknown, appliesTo: string): ReviewFindingSuggestion | undefined {
+  if (typeof value !== 'string') return undefined;
+  const patch = value.replace(/\r\n/g, '\n').trim();
+  if (patch === '') return undefined;
+  return { format: 'unified_patch', patch: patch.slice(0, MAX_SUGGESTION_CHARS), appliesTo };
 }
 
 function toPositiveInteger(value: unknown): number | undefined {

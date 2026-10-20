@@ -1,6 +1,6 @@
 import { useSearchParams } from 'react-router-dom';
 import { RoleUsage, RolePermissionEstimate, RoleImageChoices } from './RoleInsights.tsx';
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ROUTES,
@@ -12,6 +12,8 @@ import {
   type RoleCatalogResponse,
   type RoleImageBinding,
   type RolePublishCheck,
+  type RolePublishedReceipt,
+  type RolePublishedReceiptResponse,
   type RoleRevisionSnapshot,
   type RoleSaveRequest,
   type RoleValidateResponse,
@@ -22,7 +24,9 @@ import {
   type RoleResourcePermissions,
   type RoleResourceTool,
 } from '@agent-workflow/shared';
-import { apiGet, apiPost, errorMessage, isServiceUnavailable } from '../../api/client.ts';
+import { apiGet, apiPost, errorMessage, isApiClientError, isServiceUnavailable } from '../../api/client.ts';
+import { pendingForScope, settleCommand, subscribePending, type PendingCommand } from '../../api/pending-commands.ts';
+import { fetchOperationByKey } from '../../api/workflow.ts';
 import { fetchRoleCatalog } from '../../api/catalog-editor.ts';
 import { useBootstrap } from '../../api/hooks.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -37,7 +41,36 @@ import { ReceiptNotice } from '../../flow/workflow-ui.tsx';
 import './roles.css';
 
 type RoleTab = 'overview' | 'caps' | 'perms' | 'look';
+type RoleViewMode = 'draft' | 'published';
 type AddKind = 'tools' | 'files' | 'resources';
+
+/** A persisted in-flight role command that has no confirmed receipt yet. */
+interface PendingRoleCommand {
+  readonly requestKey: string;
+  readonly path: string;
+  readonly kind: 'save' | 'publish' | 'other';
+}
+
+interface RoleConflict {
+  readonly kind: 'save' | 'publish';
+  readonly message: string;
+  readonly currentDraftVersion: number;
+  readonly currentRevision: string | null;
+}
+
+interface PublishedViewState {
+  readonly status: 'idle' | 'loading' | 'error' | 'ready';
+  readonly receipt?: RolePublishedReceipt;
+  readonly dependency?: string;
+  readonly error?: string;
+  /** Set after「核对当前发布引用」compares the re-read revision. */
+  readonly verified?: string;
+}
+
+interface ReconcileMessage {
+  readonly tone: 'ok' | 'danger' | 'unknown';
+  readonly text: string;
+}
 
 interface RoleForm {
   readonly name: string;
@@ -72,6 +105,25 @@ interface PublishReview {
   readonly diff: readonly string[];
   readonly historyNote?: string;
   readonly previous?: RoleRevisionSnapshot;
+}
+
+function rolePendingFrom(command: PendingCommand | undefined): PendingRoleCommand | undefined {
+  if (command === undefined) return undefined;
+  const kind = command.path.endsWith('/publish') ? 'publish' : command.path === ROUTES.catalogRoleSave ? 'save' : 'other';
+  return { requestKey: command.requestKey, path: command.path, kind };
+}
+
+/** `r3` draft publishes as `r4`; used only when the service did not expose draftRevision. */
+function roleDraftRevisionLabel(revision: string | undefined): string {
+  if (revision === undefined || revision === '') return '?';
+  const match = /^r(\d+)$/.exec(revision);
+  return match === null ? revision : `r${String(Number.parseInt(match[1] ?? '0', 10) + 1)}`;
+}
+
+function toolKindLabel(kind: RoleResourceTool['kind']): string {
+  if (kind === 'native') return '原生工具';
+  if (kind === 'assist') return '辅助工具';
+  return '外部 MCP';
 }
 
 function avatarText(image: RoleImageBinding | undefined, name: string): string {
@@ -129,7 +181,7 @@ function fingerprint(form: RoleForm): string {
   });
 }
 
-function buildSaveBody(form: RoleForm, roleId: string | undefined): RoleSaveRequest {
+function buildSaveBody(form: RoleForm, roleId: string | undefined, expectedDraftVersion: number | undefined): RoleSaveRequest {
   const model = form.model.trim();
   const capabilities = form.capabilityGroups.map((group) => ({
     id: group.id,
@@ -155,6 +207,7 @@ function buildSaveBody(form: RoleForm, roleId: string | undefined): RoleSaveRequ
   return {
     requestKey: createRequestKey(),
     ...(roleId === undefined ? {} : { roleId }),
+    ...(expectedDraftVersion === undefined ? {} : { expectedDraftVersion }),
     name: form.name.trim(),
     purpose: form.purpose.trim(),
     responsibilities: form.responsibilities.map((line) => line.trim()).filter((line) => line.length > 0),
@@ -305,6 +358,21 @@ export function RolesPage() {
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishReview, setPublishReview] = useState<PublishReview | null>(null);
   const [checking, setChecking] = useState(false);
+  const [viewMode, setViewMode] = useState<RoleViewMode>('draft');
+  const [publishedView, setPublishedView] = useState<PublishedViewState>({ status: 'idle' });
+  const [pendingRole, setPendingRole] = useState<PendingRoleCommand | undefined>(() => rolePendingFrom(pendingForScope(ROUTES.catalogRoleSave)));
+  const [conflict, setConflict] = useState<RoleConflict | undefined>(undefined);
+  const [discardConflictOpen, setDiscardConflictOpen] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileMessage, setReconcileMessage] = useState<ReconcileMessage | undefined>(undefined);
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const [permissionJsonOpen, setPermissionJsonOpen] = useState(false);
+  const publishBaseRef = useRef<{ readonly revision: string; readonly draftVersion: number } | null>(null);
+  const saveBaseRef = useRef<number | null>(null);
+
+  useEffect(() => subscribePending(() => {
+    setPendingRole(rolePendingFrom(pendingForScope(ROUTES.catalogRoleSave)));
+  }), []);
 
   const invalidate = async () => {
     await Promise.all([
@@ -345,27 +413,219 @@ export function RolesPage() {
     setHistory(null);
     setPublishOpen(false);
     setPublishReview(null);
+    setViewMode('draft');
+    setPublishedView({ status: 'idle' });
+    setConflict(undefined);
+    setReconcileMessage(undefined);
+    setPermissionJsonOpen(false);
   }, [editingId, selected]);
 
   const planningMethods = useMemo(() => {
     if (selected === undefined) return [];
     return methods
       .filter((method) => method.planningStrategy?.roleId === selected.id)
-      .map((method) => ({ id: method.id, name: method.name, revision: method.revision }));
+      .map((method) => ({
+        id: method.id,
+        name: method.name,
+        revision: method.revision,
+        strategyVersion: method.planningStrategy?.version,
+      }));
   }, [methods, selected]);
 
   const dirty = form !== null && baseline !== null && fingerprint(form) !== fingerprint(baseline);
   const pendingCommand = commandEditor !== null;
-  const locked = isLockingReceipt(receiptState?.receipt);
+  const planningRole = planningMethods.length > 0;
+  // A persisted pending command (timeout / disconnect / reload) locks the page
+  // until it is reconciled by its original request key — it is never re-sent.
+  const locked = isLockingReceipt(receiptState?.receipt) || pendingRole !== undefined;
+  const draftRevisionLabel = selected === undefined ? '?' : selected.draftRevision ?? roleDraftRevisionLabel(selected.revision);
+
+  /** UNKNOWN vs definitive failure: only a definitive rejection unlocks. */
+  const handleRoleCommandError = (error: unknown, kind: 'save' | 'publish') => {
+    const pending = pendingForScope(ROUTES.catalogRoleSave);
+    if (pending !== undefined) {
+      setPendingRole(rolePendingFrom(pending));
+      setFailure(undefined);
+      setReceiptState(undefined);
+      setReconcileMessage(undefined);
+      return;
+    }
+    if (isApiClientError(error) && error.status === 409) {
+      const details = error.details ?? {};
+      setConflict({
+        kind,
+        message: error.message,
+        currentDraftVersion: typeof details.currentDraftVersion === 'number' ? details.currentDraftVersion : 0,
+        currentRevision: typeof details.currentRevision === 'string' ? details.currentRevision : null,
+      });
+      setFailure(undefined);
+      setReceiptState(undefined);
+      return;
+    }
+    setFailure(
+      isServiceUnavailable(error)
+        ? '服务未连接，操作结果没有确认；没有重新提交，请核对后再继续。'
+        : errorMessage(error),
+    );
+  };
+
+  /** B-02 read-only receipt read, also used as「核对当前发布引用」. */
+  const readPublished = async (mode: 'initial' | 'verify') => {
+    if (selected === undefined) return;
+    const previous = publishedView.receipt;
+    setPublishedView({ status: 'loading' });
+    try {
+      const response = await apiGet<RolePublishedReceiptResponse>(ROUTES.catalogRolePublished(selected.id));
+      const receipt = response.data.published;
+      if (receipt === undefined) {
+        setPublishedView({
+          status: 'ready',
+          ...(response.data.dependency === undefined ? {} : { dependency: response.data.dependency }),
+        });
+        return;
+      }
+      const sameDigest = previous?.contentSha256 === receipt.contentSha256;
+      const verified = mode === 'verify'
+        ? previous === undefined
+          ? `已读取当前发布引用：修订 ${receipt.revision}（内容摘要 ${receipt.contentSha256.slice(0, 7)}）。`
+          : previous.revision === receipt.revision
+            ? `发布引用一致：仍为修订 ${receipt.revision}${sameDigest ? '，内容摘要未变' : ''}。`
+            : `发布引用已更新为修订 ${receipt.revision}；这里显示的是最新发布内容，草稿与已冻结任务不受影响。`
+        : undefined;
+      setPublishedView({ status: 'ready', receipt, ...(verified === undefined ? {} : { verified }) });
+    } catch (error) {
+      setPublishedView({
+        status: 'error',
+        error: isServiceUnavailable(error) ? '服务暂时没有响应。草稿和已发布修订都没有变化。' : errorMessage(error),
+      });
+    }
+  };
+
+  /**
+   * Reconcile the original request key only (GET /api/operations/:key). A
+   * never-repeated save/publish: unlock only when the service state proves the
+   * operation happened, otherwise keep the lock and say it is still unknown.
+   */
+  const reconcileRoleCommand = async () => {
+    const pending = pendingRole ?? rolePendingFrom(pendingForScope(ROUTES.catalogRoleSave));
+    if (pending === undefined) return;
+    setReconciling(true);
+    setReconcileMessage(undefined);
+    try {
+      const result = await fetchOperationByKey(pending.requestKey);
+      const catalog = await fetchRoleCatalog();
+      queryClient.setQueryData(['catalog', 'roles'], catalog);
+      void queryClient.invalidateQueries({ queryKey: ['bootstrap'] });
+      const entry = catalog.roles.find((role) => role.id === editingId) ?? catalog.roles.find((role) => role.id === selected?.id);
+      if (result.operation.status === 'succeeded') {
+        if (entry !== undefined) {
+          const next = formFromEntry(entry);
+          setForm(next);
+          setBaseline(next);
+        }
+        setReceiptState(undefined);
+        setReconcileMessage({ tone: 'ok', text: '核对结果：原操作已被服务确认成功，目录与草稿已重新读取。' });
+        setPublishedView({ status: 'idle' });
+        return;
+      }
+      if (result.operation.status === 'failed') {
+        setReceiptState(undefined);
+        const reason = result.operation.error?.message;
+        setReconcileMessage({
+          tone: 'danger',
+          text: `核对结果：原操作已失败，服务没有应用该请求。本地修改仍保留，可重新保存。${reason === undefined ? '' : `原因：${reason}`}`,
+        });
+        return;
+      }
+      if (pending.kind === 'publish') {
+        const base = publishBaseRef.current;
+        const publishedRevision = entry?.revision;
+        if (entry !== undefined && base !== null && publishedRevision !== undefined && publishedRevision !== base.revision) {
+          settleCommand(pending.requestKey);
+          const next = formFromEntry(entry);
+          setForm(next);
+          setBaseline(next);
+          setReconcileMessage({
+            tone: 'ok',
+            text: `核对结果：目录里的发布修订已变为 ${publishedRevision}，原发布请求已生效；不会重复发布。`,
+          });
+          setPublishedView({ status: 'idle' });
+          return;
+        }
+        setReconcileMessage({
+          tone: 'unknown',
+          text: '核对结果：回复仍为未知，目录里还没有出现新的发布修订。保持锁定，请稍后再核对原操作；不会重复发布。',
+        });
+        return;
+      }
+      if (entry !== undefined && form !== null) {
+        const serverDraft = formFromEntry(entry);
+        // Only a base version captured in this page lifetime proves the draft
+        // version advanced because of *this* save; after a reload keep locked.
+        const applied = pending.kind === 'save'
+          && saveBaseRef.current !== null
+          && (entry.draftVersion ?? 0) > saveBaseRef.current
+          && fingerprint(serverDraft) === fingerprint(form);
+        if (applied) {
+          settleCommand(pending.requestKey);
+          setForm(serverDraft);
+          setBaseline(serverDraft);
+          setReceiptState(undefined);
+          setReconcileMessage({
+            tone: 'ok',
+            text: '核对结果：服务器草稿与本地修改一致，原保存已生效；已解除锁定，不会重新保存。',
+          });
+          return;
+        }
+      }
+      setReconcileMessage({
+        tone: 'unknown',
+        text: '核对结果：回复仍为未知，服务器草稿与本地修改不一致或这次修改尚未应用。保持锁定，请稍后再核对原操作；不会重新提交。',
+      });
+    } catch (error) {
+      setReconcileMessage({ tone: 'danger', text: `核对失败：${errorMessage(error)}。没有重新提交任何请求。` });
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  /** 409: keep both drafts, read the server draft only after an explicit confirm. */
+  const discardLocalAndReload = async () => {
+    setDiscardConflictOpen(false);
+    if (selected === undefined) return;
+    try {
+      const catalog = await fetchRoleCatalog();
+      queryClient.setQueryData(['catalog', 'roles'], catalog);
+      const entry = catalog.roles.find((role) => role.id === selected.id);
+      if (entry !== undefined) {
+        const next = formFromEntry(entry);
+        setForm(next);
+        setBaseline(next);
+      }
+      setConflict(undefined);
+      setFailure(undefined);
+      setReceiptState(undefined);
+      setReconcileMessage({
+        tone: 'ok',
+        text: `已放弃本地修改并读取服务器草稿${entry?.draftVersion === undefined ? '' : `（草稿版本 ${String(entry.draftVersion)}）`}；已发布修订保持原样。`,
+      });
+    } catch (error) {
+      setFailure(`读取服务器草稿失败：${errorMessage(error)}`);
+    }
+  };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (selected === undefined || form === null) throw new Error('没有选中的职业');
-      const response = await apiPost<CommandResponse<RoleCatalogResponse>>(ROUTES.catalogRoleSave, buildSaveBody(form, selected.id));
+      const expectedDraftVersion = selected.draftVersion ?? 0;
+      saveBaseRef.current = expectedDraftVersion;
+      const response = await apiPost<CommandResponse<RoleCatalogResponse>>(ROUTES.catalogRoleSave, buildSaveBody(form, selected.id, expectedDraftVersion));
       return response.data;
     },
     onSuccess: (data) => {
       setFailure(undefined);
+      setConflict(undefined);
+      setReconcileMessage(undefined);
       setReceiptState({ kind: 'save', receipt: data.receipt });
       applyCatalog(data.resource);
       if (data.receipt.status === 'succeeded') {
@@ -378,25 +638,31 @@ export function RolesPage() {
       }
     },
     onError: (error) => {
-      setFailure(isServiceUnavailable(error) ? '服务未连接，草稿未保存。' : errorMessage(error));
+      handleRoleCommandError(error, 'save');
     },
   });
 
   const publishMutation = useMutation({
     mutationFn: async () => {
       if (selected === undefined) throw new Error('没有选中的职业');
+      publishBaseRef.current = { revision: selected.revision, draftVersion: selected.draftVersion ?? 0 };
       const response = await apiPost<CommandResponse<RoleCatalogResponse>>(ROUTES.catalogRolePublish(selected.id), {
         requestKey: createRequestKey(),
+        expectedDraftVersion: selected.draftVersion ?? 0,
         confirmPublish: true,
       });
       return response.data;
     },
     onSuccess: (data) => {
       setFailure(undefined);
+      setConflict(undefined);
+      setReconcileMessage(undefined);
       setReceiptState({ kind: 'publish', receipt: data.receipt });
       applyCatalog(data.resource);
       setPublishOpen(false);
       setPublishReview(null);
+      setPublishConfirmOpen(false);
+      setPublishedView({ status: 'idle' });
       if (data.receipt.status === 'succeeded') {
         const nextEntry = data.resource?.roles.find((role) => role.id === editingId);
         if (nextEntry !== undefined) {
@@ -407,7 +673,8 @@ export function RolesPage() {
       }
     },
     onError: (error) => {
-      setFailure(isServiceUnavailable(error) ? '服务未连接，未发布。' : errorMessage(error));
+      setPublishConfirmOpen(false);
+      handleRoleCommandError(error, 'publish');
     },
   });
 
@@ -490,7 +757,9 @@ export function RolesPage() {
 
   const createBusy = newRoleMutation.isPending || archiveMutation.isPending || restoreMutation.isPending;
   const actionBusy = saveMutation.isPending || publishMutation.isPending || checking || createBusy;
-  const readOnly = locked || actionBusy;
+  /** Navigation / independent reads stay available for read-only planning roles. */
+  const roleReadOnly = locked || actionBusy;
+  const readOnly = roleReadOnly || planningRole;
   const commandBlockedReason = pendingCommand ? '还有一项命令参数修改没有应用；先应用或放弃后再继续。' : undefined;
   const invalidReason = form === undefined ? '没有选中的职业' : form === null || form.name.trim() === ''
     ? '名称不能为空。'
@@ -507,21 +776,29 @@ export function RolesPage() {
             : undefined;
   const saveDisabledReason = locked
     ? '保存结果未明或已受理，内容已锁定；先按原请求号核对。'
-    : actionBusy
-      ? '正在处理上一个请求。'
-      : commandBlockedReason
-        ?? (dirty ? invalidReason : '没有未保存的修改。');
+    : conflict !== undefined
+      ? '版本冲突：先放弃本地修改并读取服务器草稿，再继续编辑保存。'
+      : planningRole
+      ? '规划职责在目录里只读（v5 Q9）；修改方式另行决定。'
+      : actionBusy
+        ? '正在处理上一个请求。'
+        : commandBlockedReason
+          ?? (dirty ? invalidReason : '没有未保存的修改。');
   const publishDisabledReason = locked
     ? '保存/发布结果未明，内容已锁定；先按原请求号核对。'
-    : actionBusy
-      ? '正在处理上一个请求。'
-      : commandBlockedReason !== undefined
-        ? commandBlockedReason
-        : dirty
-          ? '先保存草稿再发布。'
-          : selected === undefined || !selected.hasDraft
-            ? '没有待发布的草稿；先保存草稿。'
-            : invalidReason;
+    : conflict !== undefined
+      ? '版本冲突：先放弃本地修改并读取服务器草稿，再重新检查发布。'
+      : planningRole
+      ? '规划职责在目录里只读（v5 Q9），不能在这里发布。'
+      : actionBusy
+        ? '正在处理上一个请求。'
+        : commandBlockedReason !== undefined
+          ? commandBlockedReason
+          : dirty
+            ? '先保存草稿再发布。'
+            : selected === undefined || !selected.hasDraft
+              ? '没有待发布的草稿；先保存草稿。'
+              : invalidReason;
 
   const updateForm = (next: RoleForm) => {
     setForm(next);
@@ -529,7 +806,7 @@ export function RolesPage() {
   };
 
   const openNewRole = () => {
-    if (readOnly) return;
+    if (roleReadOnly) return;
     if (pendingCommand) {
       setFailure('还有一项命令参数修改没有应用；先应用或放弃后再新建职业。');
       setTab('perms');
@@ -544,7 +821,7 @@ export function RolesPage() {
   };
 
   const requestSelect = (roleId: string) => {
-    if (selected?.id === roleId || readOnly) return;
+    if (selected?.id === roleId || roleReadOnly) return;
     if (pendingCommand) {
       setSwitchPrompt({ targetId: roleId, kind: 'command' });
       return;
@@ -709,6 +986,246 @@ export function RolesPage() {
   const draftLabel = selected === undefined
     ? ''
     : dirty ? '有未保存修改' : selected.hasDraft ? '草稿待发布' : '没有草稿';
+  const returnTaskId = roleParams.get('taskId');
+
+  /** B-02 view switch: draft ⇄ published, always read-only on the published side. */
+  const renderViewSwitch = (): ReactNode => {
+    if (selected === undefined || form === null) return null;
+    const note = viewMode === 'published'
+      ? conflict !== undefined
+        ? <span className="rv-lockrow"><Icon name="edit" size="sm" /><span>草稿的本地修改已保留，切回“草稿”继续编辑</span></span>
+        : <span className="rv-lockrow"><Icon name="lock" size="sm" /><span>只读 · 查看已发布版本不会发布，也不会改动草稿</span></span>
+      : <span className="rv-lockrow"><Icon name="info" size="sm" /><span>保存草稿不会生成可执行版本；新版本要经过“检查并发布”</span></span>;
+    return (
+      <div className="rv-bar">
+        <div className="seg" role="group" aria-label="查看草稿或已发布版本">
+          <button type="button" aria-pressed={viewMode === 'draft'} disabled={locked} onClick={() => { setViewMode('draft'); }}>
+            <Icon name="edit" size="sm" />
+            草稿 {draftRevisionLabel}
+          </button>
+          <button type="button" aria-pressed={viewMode === 'published'} disabled={locked} onClick={() => { setViewMode('published'); setTab('overview'); }}>
+            <Icon name="check" size="sm" />
+            已发布版本
+          </button>
+        </div>
+        {note}
+      </div>
+    );
+  };
+
+  /** B-02「已发布版本核对」: unchecked / loading / error / dep / receipt states. */
+  const renderPublished = (): ReactNode => {
+    if (selected === undefined) return null;
+    const state = publishedView;
+    const busy = state.status === 'loading';
+    const referenceButton = (
+      <Button
+        variant="secondary"
+        size="sm"
+        icon="refresh"
+        disabled={locked || busy}
+        disabledReason={locked ? '原操作未核对，暂不能核对发布引用。' : busy ? '正在读取固定的发布修订…' : undefined}
+        onClick={() => { void readPublished('verify'); }}
+      >
+        {busy ? '读取中…' : '核对当前发布引用'}
+      </Button>
+    );
+    if (state.status === 'idle') {
+      return (
+        <section className="card" style={{ marginTop: 12 }}>
+          <div className="empty rv-empty">
+            <span className="tile" aria-hidden="true"><Icon name="doc" /></span>
+            <h3>尚未核对发布回执</h3>
+            <p>这里只显示从服务器读取并核对过的发布修订。保存草稿不会生成可执行的版本；要得到新版本，需要在草稿里“检查并发布”。</p>
+            <Button variant="primary" icon="refresh" style={{ marginTop: 6 }} disabled={locked} disabledReason={locked ? '原操作未核对。' : undefined} onClick={() => { void readPublished('initial'); }}>
+              核对当前发布引用
+            </Button>
+          </div>
+        </section>
+      );
+    }
+    if (state.status === 'loading') {
+      return (
+        <section className="card" style={{ marginTop: 12 }} aria-busy="true">
+          <div className="rv-head">
+            <span className="tile" aria-hidden="true"><Icon name="doc" /></span>
+            <div className="grow col" style={{ gap: 8 }}>
+              <Skeleton width={160} height={18} />
+              <span className="hint">正在读取固定的发布修订…</span>
+            </div>
+            {referenceButton}
+          </div>
+          <div className="rv-body">
+            <div className="col" style={{ gap: 8 }}>
+              <Skeleton width={120} height={12} />
+              <Skeleton height={96} />
+            </div>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {[72, 64, 90, 70, 80].map((width) => <Skeleton key={width} width={width} height={24} radius={999} />)}
+            </div>
+            <Skeleton height={42} />
+          </div>
+        </section>
+      );
+    }
+    if (state.status === 'error') {
+      return (
+        <>
+          <div className="banner danger" role="alert" style={{ marginTop: 12 }}>
+            <Icon name="alert" />
+            <div className="grow">
+              <b>没能读取发布修订</b>
+              <br />
+              {state.error ?? '服务暂时没有响应。草稿和已发布修订都没有变化。'}
+            </div>
+            <div className="actions">
+              <Button variant="secondary" size="sm" icon="refresh" onClick={() => { void readPublished('initial'); }}>重试</Button>
+            </div>
+          </div>
+          <section className="card" style={{ marginTop: 12 }}>
+            <div className="empty rv-empty">
+              <span className="tile" aria-hidden="true"><Icon name="doc" /></span>
+              <h3>尚未核对发布回执</h3>
+              <p>重试成功后，这里显示固定的发布修订内容。</p>
+            </div>
+          </section>
+        </>
+      );
+    }
+    const receipt = state.receipt;
+    if (receipt === undefined) {
+      return (
+        <>
+          <div className="banner info" role="status" style={{ marginTop: 12 }}>
+            <Icon name="info" />
+            <div className="grow">
+              <b>这个职业还没有发布过</b>
+              <br />
+              当前只有草稿 {draftRevisionLabel}。发布修订 1 之后，才能在这里核对发布内容、配置形象和预估权限。
+            </div>
+            <div className="actions">{referenceButton}</div>
+          </div>
+          <section className="card" style={{ marginTop: 12 }}>
+            <div className="empty rv-empty">
+              <span className="tile" aria-hidden="true"><Icon name="doc" /></span>
+              <h3>暂无发布修订</h3>
+              <p>{state.dependency ?? '保存草稿不会生成可执行的版本。新建的流程步骤只能选用已发布的修订。'}</p>
+            </div>
+          </section>
+        </>
+      );
+    }
+    return (
+      <>
+        {state.verified === undefined ? null : (
+          <div className="banner ok" role="status" style={{ marginTop: 12 }}>
+            <Icon name="check" />
+            <div className="grow">{state.verified}</div>
+          </div>
+        )}
+        <section className="card" aria-label="本页核对的已发布职业" style={{ marginTop: 12 }}>
+          <div className="rv-head">
+            <span className="tile" aria-hidden="true"><Icon name="doc" /></span>
+            <div className="grow" style={{ minWidth: 0 }}>
+              <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
+                <h3 className="rv-title">发布修订 {receipt.revision}</h3>
+                <Badge tone="ok" icon="check">已核对</Badge>
+                <Badge tone="neutral" outline icon="lock">只读</Badge>
+              </div>
+              <div className="hint" style={{ marginTop: 6 }}>
+                {receipt.roleName} · 这是精确的发布修订（资源权限声明 {String(receipt.resourceCount)} 项）。当前草稿、已绑定的实例和运行中的任务都与它相互独立。
+              </div>
+            </div>
+            {referenceButton}
+          </div>
+          <div className="rv-body">
+            <div>
+              <div className="sec-t">职责与基本指令</div>
+              <div className="rv-doc">{receipt.instructions}</div>
+            </div>
+            <div>
+              <div className="sec-t">能力范围 · {String(receipt.capabilities.length)} 项</div>
+              {receipt.capabilities.length === 0 ? <p className="hint">服务未返回已启用能力；空清单不表示不受限制。</p> : (
+                <div className="rv-chips">
+                  {receipt.capabilities.map((capability) => (
+                    <span className="chip" key={capability.id}><Icon name="check" size="sm" />{capability.label}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <details className="adv rv-dig">
+              <summary>
+                <Icon name="chevRight" size="sm" />
+                <span className="grow">内容摘要</span>
+                <span className="mono">{receipt.contentSha256.slice(0, 7)}</span>
+              </summary>
+              <div className="rv-hash">
+                <span>{receipt.contentSha256}</span>
+                <IconButton
+                  icon="copy"
+                  label="复制内容摘要"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(receipt.contentSha256).catch(() => undefined);
+                    setReconcileMessage({ tone: 'ok', text: '已复制内容摘要。' });
+                  }}
+                />
+              </div>
+            </details>
+          </div>
+          <div className="card-foot rv-foot">
+            <Icon name="shield" size="sm" />
+            <span>在这里核对不会发布新修订、不会改动草稿，也不会改变已冻结任务、实例绑定或运行中步骤所用的修订。</span>
+          </div>
+        </section>
+      </>
+    );
+  };
+
+  /** v5 Q9: the planning role is read-only in the catalog; show what is really known. */
+  const renderPlanningReadOnly = (): ReactNode => {
+    if (selected === undefined || form === null) return null;
+    return (
+      <div className="col" style={{ gap: 12, marginBottom: 12 }}>
+        <div className="banner info">
+          <Icon name="info" />
+          <div className="grow">
+            规划职责在目录里<b>只读</b>：只用于 AI 规划，不出现在流程步骤的“谁来做”里；可以查看版本、绑定与使用情况，修改方式另行决定。
+          </div>
+          {returnTaskId === null ? null : (
+            <div className="actions">
+              <LinkButton to={`/requirement/${encodeURIComponent(returnTaskId)}`} variant="secondary" size="sm" icon="arrowLeft">返回需求画布</LinkButton>
+            </div>
+          )}
+        </div>
+        <section className="card pad">
+          <div className="eyebrow" style={{ marginBottom: 8 }}>绑定的流程方法与规划策略</div>
+          {planningMethods.length === 0 ? <p className="hint">服务未返回规划策略绑定。</p> : (
+            <div className="col" style={{ gap: 8 }}>
+              {planningMethods.map((method) => (
+                <div className="row wrap" key={method.id} style={{ gap: 8 }}>
+                  <span className="grow">{method.name}</span>
+                  <Badge outline>{method.revision}</Badge>
+                  <span className="hint">规划策略 {method.strategyVersion ?? '未返回版本'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="hint" style={{ marginTop: 8 }}>
+            服务未提供规划职责的精确版本（任务类型/模板/提示词引用与修订）、内容摘要、能力上限与最近使用任务的读取契约；本页不补造这些内容。
+          </p>
+        </section>
+        <section className="card pad">
+          <div className="eyebrow" style={{ marginBottom: 8 }}>能力范围 · 只读</div>
+          <div className="row wrap" style={{ gap: 6 }}>
+            {form.capabilityGroups.flatMap((group) => group.items.filter((item) => item.enabled)).map((item) => (
+              <span className="chip" key={item.id}><Icon name="check" size="sm" />{item.label}</span>
+            ))}
+            {form.capabilityGroups.every((group) => group.items.every((item) => !item.enabled)) ? <span className="hint">服务未返回已启用能力。</span> : null}
+          </div>
+        </section>
+      </div>
+    );
+  };
 
   const renderOverview = (): ReactNode => {
     if (selected === undefined || form === null) return null;
@@ -823,7 +1340,7 @@ export function RolesPage() {
               <span className="row between"><span>草稿</span><span className={`badge ${dirty ? 'st-wait' : selected.hasDraft ? 'st-wait' : 'st-idle'}`}>{dirty ? '有未保存修改' : selected.hasDraft ? '待发布' : '没有草稿'}</span></span>
             </div>
             <div className="row wrap" style={{ gap: 8, marginTop: 12 }}>
-              <Button variant="ghost" size="sm" icon="archive" disabled={readOnly} onClick={() => { void openHistory(); }}>
+              <Button variant="ghost" size="sm" icon="archive" disabled={roleReadOnly} onClick={() => { void openHistory(); }}>
                 发布历史
               </Button>
               <Button
@@ -1003,7 +1520,7 @@ export function RolesPage() {
           <>
             {permissions.tools.map((tool, index) => (
               <div className="perm-row" key={`${tool.kind}:${tool.name}:${String(index)}`}>
-                <span className="perm-kind">{tool.kind.toUpperCase()}</span>
+                <span className="perm-kind">{toolKindLabel(tool.kind)}</span>
                 <div style={{ minWidth: 0 }}>
                   <span className="mono" style={{ fontSize: 13 }}>{tool.name}</span>
                   {tool.source === undefined ? null : <span className="hint"> · 来自 {tool.source}</span>}
@@ -1099,7 +1616,11 @@ export function RolesPage() {
         <p className="hint" style={{ marginTop: 10 }}>
           资源权限保存的是上限声明；不会立即改变运行中的任务或工具发现结果。删除/添加后先保存草稿才会持久化。
         </p>
-        <RolePermissionEstimate key={`${selected.id}:${selected.revision}`} id={selected.id} locked={readOnly} />
+        <div className="row wrap" style={{ gap: 8 }}>
+          <Button variant="ghost" size="sm" icon="doc" onClick={() => { setPermissionJsonOpen(true); }}>查看完整权限原文（JSON）</Button>
+          <span className="hint">只读展示资源权限声明的完整原文，不含凭据。</span>
+        </div>
+        <RolePermissionEstimate key={`${selected.id}:${selected.revision}`} id={selected.id} locked={roleReadOnly} onViewPublished={() => { setViewMode('published'); setTab('overview'); }} />
       </div>
     );
   };
@@ -1147,7 +1668,17 @@ export function RolesPage() {
     );
   };
 
-  const content = tab === 'overview' ? renderOverview() : tab === 'caps' ? renderCaps() : tab === 'perms' ? renderPerms() : renderLook();
+  const content = tab === 'overview' ? (
+    <>
+      {renderViewSwitch()}
+      {viewMode === 'published' ? renderPublished() : (
+        <>
+          {planningRole ? renderPlanningReadOnly() : null}
+          {renderOverview()}
+        </>
+      )}
+    </>
+  ) : tab === 'caps' ? renderCaps() : tab === 'perms' ? renderPerms() : renderLook();
 
   let pageBody: ReactNode;
   if (bootstrapLoading) {
@@ -1201,8 +1732,8 @@ export function RolesPage() {
                   type="button"
                   className="role-row"
                   aria-current={active}
-                  disabled={readOnly}
-                  title={readOnly ? '结果未明或正在处理，暂不能切换职业。' : undefined}
+                  disabled={roleReadOnly}
+                  title={roleReadOnly ? '结果未明或正在处理，暂不能切换职业。' : undefined}
                   onClick={() => { requestSelect(role.id); }}
                 >
                   <RoleAvatar image={roleImage} name={roleName} />
@@ -1235,6 +1766,7 @@ export function RolesPage() {
                   {selected.status === 'published' ? <Badge tone="ok" icon="check">{publishedLabel}</Badge> : <Badge tone="idle">{publishedLabel}</Badge>}
                   {selected.hasDraft || dirty ? <Badge tone={dirty ? 'warn' : 'wait'} icon={dirty ? 'edit' : 'clock'}>{draftLabel}</Badge> : null}
                   {pendingCommand ? <Badge tone="warn" icon="alert">有未应用修改</Badge> : null}
+                  {planningRole ? <Badge tone="neutral" outline icon="lock">规划职责 · 只读</Badge> : null}
                 </div>
                 <div className="hint" style={{ marginTop: 6 }}>
                   {form.purpose}
@@ -1252,7 +1784,7 @@ export function RolesPage() {
                   disabledReason={saveDisabledReason}
                   onClick={() => { setFailure(undefined); setReceiptState(undefined); saveMutation.mutate(); }}
                 >
-                  {saveMutation.isPending ? '保存中…' : '保存草稿'}
+                  {saveMutation.isPending ? '保存中…' : locked && pendingRole?.kind === 'save' ? '核对中' : '保存草稿'}
                 </Button>
                 <Button
                   variant="primary"
@@ -1267,7 +1799,7 @@ export function RolesPage() {
             </div>
           </section>
 
-          {receiptState === undefined ? null : (
+          {receiptState === undefined || (receiptState.receipt.status !== 'succeeded' && receiptState.receipt.status !== 'failed') ? null : (
             <ReceiptNotice
               receipt={receiptState.receipt}
               successMessage={receiptState.kind === 'save' ? '草稿已保存。' : receiptState.kind === 'publish' ? '已发布，目录已刷新。' : receiptState.kind === 'restore' ? '已恢复为草稿。' : receiptState.kind === 'archive' ? '目录已更新。' : '职业已创建。'}
@@ -1277,6 +1809,46 @@ export function RolesPage() {
             <div className="banner danger role-banner" role="alert">
               <Icon name="alert" />
               <div className="grow">{failure}</div>
+            </div>
+          )}
+          {conflict === undefined ? null : (
+            <div className="banner warn role-banner" role="alert">
+              <Icon name="alert" />
+              <div className="grow">
+                <b>{conflict.kind === 'publish' ? '版本冲突：服务器上的草稿已更新' : `版本冲突：服务器上的草稿已更新到版本 ${String(conflict.currentDraftVersion)}`}</b>
+                <br />
+                有人在你之后保存了这个职业。你的本地修改和原来的草稿都保留着，没有覆盖任何内容。已发布修订 {conflict.currentRevision ?? selected.revision} 不受影响。
+                <span className="hint" style={{ display: 'block', marginTop: 4 }}>{conflict.message}</span>
+              </div>
+              <div className="actions">
+                <Button variant="secondary" size="sm" onClick={() => { setDiscardConflictOpen(true); }}>放弃本地修改，读取服务器草稿</Button>
+              </div>
+            </div>
+          )}
+          {pendingRole === undefined ? null : (
+            <div className="banner unknown role-banner" role="alert">
+              <Icon name="help" />
+              <div className="grow">
+                <b>{pendingRole.kind === 'publish' ? '上一次发布的结果未明' : pendingRole.kind === 'save' ? '保存结果未明' : '上一次操作的结果未明'}</b>
+                <br />
+                {pendingRole.kind === 'publish'
+                  ? '已发出“发布修订”的请求，但没有收到确认。核对清楚之前，编辑、切换职业和再次发布都已锁定，不会重复发布。'
+                  : pendingRole.kind === 'save'
+                    ? '请求已发出但没有收到确认。正在读取草稿核对全部字段与权限是否一致，确认前所有内容保持锁定，不会重新保存。'
+                    : '上一次写操作没有收到确认。核对清楚之前页面保持锁定，不会重复提交。'}
+                <span className="mono" style={{ display: 'block', marginTop: 4, fontSize: 11.5, color: 'var(--muted)' }}>请求号 {pendingRole.requestKey}</span>
+              </div>
+              <div className="actions">
+                <Button variant="secondary" size="sm" icon="refresh" disabled={reconciling} onClick={() => { void reconcileRoleCommand(); }}>
+                  {reconciling ? '正在核对…' : '核对原操作'}
+                </Button>
+              </div>
+            </div>
+          )}
+          {reconcileMessage === undefined ? null : (
+            <div className={`banner ${reconcileMessage.tone === 'ok' ? 'ok' : reconcileMessage.tone === 'unknown' ? 'unknown' : 'danger'} role-banner`} role={reconcileMessage.tone === 'ok' ? 'status' : 'alert'}>
+              <Icon name={reconcileMessage.tone === 'ok' ? 'check' : reconcileMessage.tone === 'unknown' ? 'help' : 'alert'} />
+              <div className="grow">{reconcileMessage.text}</div>
             </div>
           )}
           {pendingCommand ? (
@@ -1292,7 +1864,7 @@ export function RolesPage() {
               </div>
             </div>
           ) : null}
-          {locked ? (
+          {locked && pendingRole === undefined ? (
             <div className="banner unknown role-banner" role="alert">
               <Icon name="help" />
               <div className="grow">
@@ -1319,7 +1891,7 @@ export function RolesPage() {
                   aria-selected={tab === value}
                   disabled={locked}
                   title={locked ? '原操作未核对，页签已锁定。' : undefined}
-                  onClick={() => { setTab(value as RoleTab); }}
+                  onClick={() => { setTab(value as RoleTab); setViewMode('draft'); }}
                 >
                   {label}
                 </button>
@@ -1342,13 +1914,13 @@ export function RolesPage() {
         actions={
           <div className="row wrap" style={{ gap: 8 }}>
             <LinkButton to="/roles/legacy" variant="ghost" size="sm" icon="archive">
-              历史配置
+              历史角色配置
             </LinkButton>
             <Button
               variant="secondary"
               size="sm"
               icon="plus"
-              disabled={readOnly || pendingCommand !== null || dirty}
+              disabled={roleReadOnly || pendingCommand !== null || dirty}
               disabledReason={locked ? '原操作未核对。' : actionBusy ? '正在处理上一个请求。' : pendingCommand ? '先应用或放弃命令参数修改。' : dirty ? '先保存或放弃当前修改。' : undefined}
               onClick={openNewRole}
             >
@@ -1423,6 +1995,31 @@ export function RolesPage() {
       </Modal>
 
       <Modal
+        open={permissionJsonOpen}
+        title="权限原文（JSON）"
+        className="role-history-dialog"
+        onClose={() => { setPermissionJsonOpen(false); }}
+        footer={
+          <>
+            <span className="hint grow">只读展示当前草稿的资源权限声明；保存前不会写入服务。</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="copy"
+              onClick={() => {
+                if (form !== null) void navigator.clipboard.writeText(JSON.stringify(form.resourcePermissions, null, 2)).catch(() => undefined);
+              }}
+            >
+              复制原文
+            </Button>
+            <Button variant="ghost" onClick={() => { setPermissionJsonOpen(false); }}>关闭</Button>
+          </>
+        }
+      >
+        <pre className="mono role-json" aria-label="权限原文 JSON">{form === null ? '' : JSON.stringify(form.resourcePermissions, null, 2)}</pre>
+      </Modal>
+
+      <Modal
         open={historyOpen}
         title="职业发布历史"
         className="role-history-dialog"
@@ -1442,8 +2039,8 @@ export function RolesPage() {
                     variant="ghost"
                     size="sm"
                     icon="refresh"
-                    disabled={readOnly || dirty || pendingCommand}
-                    disabledReason={readOnly ? '结果未明或正在处理。' : dirty ? '先保存或放弃当前修改。' : pendingCommand ? '先应用或放弃命令参数修改。' : undefined}
+                    disabled={roleReadOnly || dirty || pendingCommand}
+                    disabledReason={roleReadOnly ? '结果未明或正在处理。' : dirty ? '先保存或放弃当前修改。' : pendingCommand ? '先应用或放弃命令参数修改。' : undefined}
                     onClick={() => { setRestoreTarget(entry); }}
                   >
                     恢复为草稿
@@ -1509,7 +2106,7 @@ export function RolesPage() {
               icon="upload"
               disabled={publishMutation.isPending || locked || publishReview?.validation.canPublish !== true}
               disabledReason={publishMutation.isPending ? '正在发布…' : locked ? '原操作未核对。' : publishReview?.validation.canPublish !== true ? '检查未通过，先修复错误项。' : undefined}
-              onClick={() => { publishMutation.mutate(); }}
+              onClick={() => { setPublishConfirmOpen(true); }}
             >
               {publishMutation.isPending ? '发布中…' : `发布修订 ${publishReview?.validation.draftRevision ?? ''}`}
             </Button>
@@ -1558,6 +2155,51 @@ export function RolesPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={publishConfirmOpen}
+        title={publishReview === null ? '发布修订？' : `发布“${displayName}”${publishReview.validation.draftRevision}？`}
+        onClose={() => { if (!publishMutation.isPending) setPublishConfirmOpen(false); }}
+        footer={
+          <>
+            <Button variant="ghost" disabled={publishMutation.isPending} onClick={() => { setPublishConfirmOpen(false); }}>先不发布</Button>
+            <span className="spacer" />
+            <Button
+              variant="primary"
+              icon="upload"
+              disabled={publishMutation.isPending || locked}
+              disabledReason={publishMutation.isPending ? '正在发布…' : locked ? '原操作未核对。' : undefined}
+              onClick={() => { publishMutation.mutate(); }}
+            >
+              {publishMutation.isPending ? '发布中…' : '发布'}
+            </Button>
+          </>
+        }
+      >
+        {failure === undefined ? null : <div className="banner danger" style={{ marginBottom: 10 }}><Icon name="alert" /><div className="grow">{failure}</div></div>}
+        <p>发布后，新创建的流程步骤可以选用这个修订。已经冻结了上一修订的任务继续使用原修订，不会改变。</p>
+        {publishReview === null ? null : (
+          <p className="hint">检查结果：{publishReview.validation.canPublish ? '通过' : '未通过'} · 草稿 {publishReview.validation.draftRevision}</p>
+        )}
+      </Modal>
+
+      <Modal
+        open={discardConflictOpen}
+        title="放弃本地修改，读取服务器草稿？"
+        onClose={() => { setDiscardConflictOpen(false); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setDiscardConflictOpen(false); }}>保留本地修改</Button>
+            <span className="spacer" />
+            <Button variant="danger" icon="refresh" onClick={() => { void discardLocalAndReload(); }}>放弃并读取</Button>
+          </>
+        }
+      >
+        <p>
+          服务器上的草稿已被其他人更新{conflict === undefined ? '' : `（服务器草稿版本 ${String(conflict.currentDraftVersion)}）`}。
+          读取服务器草稿会丢弃你本地的修改；原来的草稿和已发布修订都保留在服务端，不会覆盖任何内容。
+        </p>
       </Modal>
 
       <Modal
