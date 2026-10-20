@@ -277,6 +277,8 @@
 | POST | `/api/projects/:id/charter/confirm` | （待补说明：projectCharterConfirm） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/generate` | （待补说明：projectCharterGenerate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/projects/:id/charter/stop` | （待补说明：projectCharterStop） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET / POST | `/api/projects/:id/git-account` | （待补说明：projectGitAccount） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/projects/:id/git-account/test` | （待补说明：projectGitAccountTest） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/projects/:id/source-path` | （待补说明：projectSourcePath） | 读口；无写回执 |
 | GET | `/api/runtime-interactions` | （待补说明：runtimeInteractions） | 读口；无写回执 |
 | GET | `/api/runtime-interactions/:id` | （待补说明：runtimeInteraction） | 读口；无写回执 |

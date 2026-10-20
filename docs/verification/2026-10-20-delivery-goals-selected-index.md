@@ -27,6 +27,6 @@ npm run typecheck
 - stale revision、空选择、非 Git push 的操作记录 failed；原 key replay 返回原失败。
 - 原有真实 merge/CAS、Git 读取、push non-fast-forward、远端 UNKNOWN 回归继续通过。
 
-G / Chrome CUA：真实服务 5547 + Web 5543，选“仅本地提交”→保存目标→预览→确认提交，界面显示“任务已交付”“本地提交目标已完成”、真实 commit SHA 与“未运行验证”；刷新后仍保持完成。截图 `/tmp/delivery-local-complete.png`，无凭据。该任务的代码文件是本地 fixture；未运行其模型执行节点，不将画布计数作为模型证据。
+G / Chrome CUA：真实服务 5547 + Web 5543，选“仅本地提交”→保存目标→预览→确认提交，界面显示“任务已交付”“本地提交目标已完成”、真实 commit SHA 与“未运行验证”；刷新后仍保持完成。截图 `docs/evidence/delivery-goals-2026-10-20/local-complete.png`，无凭据。该任务的代码文件是本地 fixture；未运行其模型执行节点，不将画布计数作为模型证据。
 
 M / 外部：本批没有真实外部 push、MR 创建或真实模型调用。MR 外部完成态、网络 UNKNOWN 全部 GUI、四主题与全部尺寸不在本批验收结论内。没有重复全仓测试。

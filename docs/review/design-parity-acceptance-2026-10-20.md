@@ -1,6 +1,6 @@
 # 设计一致性验收矩阵 · 2026-10-20
 
-当前整理基线为 **f9bfaba**（已整合快照评审、恢复执行、模型目录、项目证据来源与工具原回执恢复），保留初次审查 `55c389f` 的状态ID/来源身份。后续真实GUI/模型证据见E26–E36；没有将旧审查全部升级PASS。设计只读，状态原名保留。归档与质量后续90d45b9已集成818bf6c，保持原证据身份E25。
+当前整理基线为 **dff166c**（已整合项目账号边界、真实任务分页、入口原回执恢复与质量分项来源），保留初次审查 `55c389f` 的状态ID/来源身份。后续真实GUI/模型证据见E26–E43；没有将旧审查全部升级PASS。设计只读，状态原名保留。归档与质量后续90d45b9已集成818bf6c，保持原证据身份E25。
 
 ## 判定与执行方法
 
@@ -19,7 +19,7 @@
 
 | # / 页面 | 路由与当前实现（I） | 服务/HTTP（H） | 模型/真实外部（M） | 正式GUI（G） | 仍缺的具体GUI状态 / 当前限制 |
 |---|---|---|---|---|---|
-| P01.home.V/.A/.S | `/ · HomePage`；进行中单卡、真实最近任务及动作已接；不再列单卡缺失 | E10；task-catalog HTTP | — | E11：浏览器首页局部观察 | 有任务/无任务/读取失败/需处理分流；四主题×三尺寸、键盘与返回 |
+| P01.home.V/.A/.S | `/ · HomePage`；进行中单卡、真实最近任务及动作已接；不再列单卡缺失 | E10/E39；筛选先于分页的真实HTTP | — | E11/E39：旧ongoing不被225个新结束任务遮蔽 | 有任务/无任务/读取失败/需处理分流；四主题×三尺寸、键盘与返回 |
 | P02.projects.V/.A/.S | `/projects、/projects/:id`；公约实际快照生成/停止/原key、GitLab消费者/docPaths、真实技术栈/当前分支、项目独立账号及新登记根目录限制已接 | E09/E11/E27/E28及补充P02/P22：公约/项目、真实本地Git HTTP/15项回归 | E27：真实公约生成→单独写入1/1 | E27：生成中/草稿/写入；E28：事实识别；补充P02/P22：账号验证不保存→保存→实际fetch/目录允许拒绝 | 项目GitLab/JUnit来源已接748fea2；独立Git账号/允许根目录本批见补充P02/P22记录；公约停止及全主题全异常GUI仍未全覆盖 |
 | P03.knowledge.V/.A/.S | `/knowledge`；冻结来源/权限、真实研究/停止/继续及原生问题已接 | E03/E29：输入许可/同conversation/撤权清正文21项 | E01/E29：真实问答+原生问题答复后原session继续，GUI追问新session | E29/E35：真实问题答复与引用、研究中/待回答/撰写/完成、accepted回执 | 网络失败/DB多来源全部状态、停止继续与重启原会话的完整GUI仍待覆盖 |
 | P04.knowledge-history.V/.A/.S | `/knowledge/history`；持久conversation元数据、实际needs_answer、重命名/归档/恢复、原上下文追问已接 | E29：8项会话定向，21项知识组合 | E29：配置模型实际原生问题与两轮问答1/1 | E29：历史去回答→原会话继续→引用→追问；重启后重命名/归档/恢复/刷新 | 全主题/搜索空/读取失败/UNKNOWN故障UI；服务撤权回归不冒充GUI全态 |
@@ -27,14 +27,14 @@
 | P06.ppt-works.V/.A/.S | `/ppt作品库`；真实SVG封面、复制/归档/恢复/修订已接；不再称无接口 | E04/E05：复制/归档/版本与回执 | — | E04兼容Electron图不算CUA；E06浏览器局部 | 作品库loading/error/empty、分页/筛选、复制unknown、归档恢复和取消、原生文件返回 |
 | P07.ppt-studio.V/.A/.S | `/ppt工作台`；三栏/七模块/逐页持久制作与人工编辑保留、独立助手及精确停止已接 | E04/E05/E06/E30：新增逐页及停止26项 | E05助手；E30真实三页制作及第二轮2/3停止保留 | E05原生保存/PDF；E06布局；E30四主题部分完成/刷新/导出禁用 | 整份助手真实模型、停止失败/idle未知GUI、版本409草稿全矩阵、Windows/Linux导出 |
 | P08.start.V/.A/.S | `/start`；最近3项目/常用3流程+搜索抽屉、当前版本核对、只建草稿 | E11：过期版本/原key HTTP | E01规划不等于开始页全态 | E11：选项目/流程→实际草稿回执 | 版本reading/flow-error、project-error、submit/unknown/handoff-error；三尺寸键盘/取消保留 |
-| P09.workflows.V/.A/.S | `/workflows`；目录/历史/真实使用记录、规划职责策略只读节已接 | E07/E18：目录/版本/跨修订统计 | — | E18：真实目录总2/当前1→精确草稿 | 详情loading/error、more-error、复制/归档取消及unknown、规划职责返回定位 |
-| P10.workflow-editor.V/.A/.S | `/workflows/:id/edit`；真实requires图、并行/连边、拖动/缩放/模板抽屉、版本视觉diff已接 | E07：图/保存/冻结与HTTP；非模型 | — | E07：四主题浏览器、布局保存截图 | 409本地草稿对照、unknown跨刷新、unbound/empty、撤销键盘、PE28/PE38禁用原因全态 |
+| P09.workflows.V/.A/.S | `/workflows`；目录/历史/真实使用记录、规划职责策略只读节已接 | E07/E18：目录/版本/跨修订统计 | — | E18：真实目录总2/当前1→精确草稿 | 详情loading/error、more-error、复制/归档取消完整GUI、规划职责返回定位；E40已补创建原key跨刷新 |
+| P10.workflow-editor.V/.A/.S | `/workflows/:id/edit`；真实requires图、并行/连边、拖动/缩放/模板抽屉、版本视觉diff已接 | E07：图/保存/冻结与HTTP；非模型 | — | E07四主题/布局保存；E39真实保存丢回执刷新锁定/原key | 409本地草稿对照、unbound/empty、撤销键盘、PE28/PE38禁用原因全态 |
 | P11.requirement.V/.A/.S | `/requirement/:id`；五段、PE37、候选应用确认、记录分页/callId与seq已接 | E02/E08/E19：规划/编辑/505条分页 | E01：真实规划→应用确认准备 | E19：505条/缺口/工具原位；早期模型画布图属历史 | PE/PW全状态；超限/预算/资料撤权/停止迟到/跨组/重启unknown；不可把规划主流程扩成全矩阵 |
-| P12.tasks.V/.A/.S | `/tasks`；归档恢复/结束前置、项目ID过滤分组及规划活动已接 | E10/E11：归档/同名/HTTP | — | E11：同名项目精确ID空结果 | 加载更多失败/归档与恢复/菜单禁用、planning计数与Inbox一致、步骤进度历史/空/unknown |
+| P12.tasks.V/.A/.S | `/tasks`；归档恢复/结束前置、项目ID过滤分组及规划活动已接 | E10/E11/E39：归档/同名/服务搜索分页HTTP | — | E11同名项目ID；E39旧任务搜索1/1与50至226分页 | 加载更多失败/归档与恢复/菜单禁用、planning计数与Inbox一致、步骤进度历史/空/unknown |
 | P13.task.V/.A/.S | `/tasks/:id`；真实执行控制/停止确认/调整绑定/冻结、snapshot mode/depth/units/report已接 | E02/E08/E12/E13：停止19、计划7、作用域retry33、报告权限 | E01/E32：真实节点修改及full/light专用快照评审 | E14/E15节点局部；E32报告加载/正文/下载/完整性失败恢复 | running两并行/auto-off/waiting/stalled/claim-race/stop未知；snapshot取消报告GUI及全主题全尺寸仍未齐 |
 | P14.inbox.V/.A/.S | `/inbox`；规划选项及原生节点permission/question、once/session/reject/hard、持久草稿/原key已接 | E17/E20：问题/权限26定向，HTTP/SQLite | E26：真实模型原生question→多选/其他答复→同session结果1/1 | E20：Chrome离线unknown/hard；E26：IAB实际模型问题答复、角标同步 | 真实模型permission事件及授权后继续；跨attempt/撤权/重启/全页筛选状态；后台无上下文来源仍限制 |
-| P15.insights.V/.A/.S | `/insights`；四阶段任务计量/未知、分币、完整全集、项目/状态/质量/归档同范围已接 | E16：10项定向；205任务/混币/零 | — | E16：同名ID/归档/质量实际驳回/服务失败保留 | 全部未知/加载与错误详细对照、四主题三尺寸；E25已修正历史问题污染当前质量；未新增全状态GUI |
-| P16.templates.V/.A/.S | `/templates`；必要范围/branch/date/source/doc冻结、B06历史档案已接；旧合同不回填 | E10/E12：模板范围/历史/原key | E26：v8单文件5步真实模型、3项JUnit与独立复核1/1 | E11：必要参数；E25：真实归档succeeded/key/auditId | source/doc/date所有参数失败、启动unknown、created/pending-start、历史run核对失败/导出；UNKNOWN原key恢复的完整GUI故障态仍待补 |
+| P15.insights.V/.A/.S | `/insights`；四阶段任务计量/未知、分币、完整全集、项目/状态/质量/归档同范围已接 | E16：10项定向；205任务/混币/零 | — | E16同名/归档/失败；E38测试/人工独立；E41真实需求与风险报告 | 全部未知/加载与错误详细对照、四主题三尺寸；E25已修正历史问题污染当前质量；未新增全状态GUI |
+| P16.templates.V/.A/.S | `/templates`；必要范围/branch/date/source/doc冻结、B06历史档案已接；旧合同不回填 | E10/E12：模板范围/历史/原key | E26：v8单文件5步真实模型、3项JUnit与独立复核1/1 | E11必要参数；E25真实归档；E39创建截断/刷新/原key成功 | source/doc/date所有参数失败、启动unknown、created/pending-start、历史run核对失败/导出；全参数与全部故障组合GUI仍未齐 |
 | P17.run.V/.A/.S | `/runs/:taskId`；专用文档/源码/单测布局、冻结输入/报告/逐文件独立复核、真实JUnit结果已接 | E12/E13：50定向，actual子进程JUnit；结果权限 | E26：新逐文件单测合同真实5步/3测试/独立复核通过 | E14原生artifact保存；E26 Run覆盖、产物hash、实际JUnit，四主题1280×720 | 批次失败/限批retry/停止/unknown、通过失败跳过文件定位、报告re-read/download撤权、输入迟到切换/宽阅读返回 |
 | P18.runtime.V/.A/.S | `/runtime`；autoStart真实生效、手动启动/重启、维护锁/活动保护、历史与侧栏同步 | E11/E16/E31：12项回执/权限/启动定向 | E31：实际受管进程启动/重启两轮；不是模型调用 | E31：发送中→启动中→ready、不同PID/代次与两条成功原key | 外部/失败/unknown/read-error全态GUI、restart未知跨刷新；活动拒绝由服务回归证明 |
 | P19.tools.V/.A/.S | `/tools`；来源/单工具/项目三态、冻结会话策略、Skill目录/Markdown/原文已接 | E21：4项HTTP权限，旧/新会话分离 | — | E21：停用→回读、Skill空/原文/四主题；E36丢回执/Skill返回/刷新原key | 外部MCP真实授权/清单partial、来源整体确认/项目继承、Skill读取错误/搜索命中与返回 |
@@ -85,6 +85,13 @@
 | E34 | docs/review/recovery-gui-2026-10-20.md | Git与目录三模式差异预览/确认、丢回执刷新原key、派生真实模型2/2与父数据不变；readonly画布补验见E35 |
 | E35 | docs/review/final-gap-2026-10-20.md | 21回归、实际74模型目录、网络保存重载、人工验收推进、知识原生question及后续问答真实中间态；不代表外部发布 |
 | E36 | docs/review/tools-policy-receipts-2026-10-20.md | 策略真实保存后丢响应、Skill返回/刷新锁定原key、GET原回执解锁；不重复写 |
+| E37 | docs/verification/2026-10-20-project-accounts-roots.md | 独立账号实际本地Git HTTP验证/fetch/push、允许目录realpath边界、API origin及迟到回执隔离；无外部账号/MR验收 |
+| E38 | docs/verification/2026-10-20-insights-quality-evidence.md | 四项质量来源分开、受控JUnit实际报告与人工认定独立；独立AI需求/风险producer已由E41补齐 |
+| E39 | docs/review/entry-receipts-pagination-2026-10-20.md | >200旧任务服务搜索、真实分页与首页ongoing；模板创建/流程保存丢响应刷新原key，未重复写 |
+| E40 | docs/review/catalog-entry-receipts-2026-10-20.md | 流程、项目登记与模板编辑入口保留原请求身份；流程真实截断回包刷新核对，无重复创建 |
+| E41 | docs/verification/2026-10-20-independent-quality-reviews.md | 显式需求/风险合同、真实独立会话与文件引用、结论分歧；修复result-submit过早撤销scope竞态 |
+| E42 | docs/verification/2026-10-20-delivery-goals-selected-index.md | 按所选目标完成交付；真实Git仅提交确认文件、保留未选暂存；本地提交完成GUI |
+| E43 | docs/verification/2026-10-20-final-integration.md | 最终整合回归、实际macOS桌面包启动及原生GUI；具体结果与边界见记录 |
 
 ## 全状态逐项登记
 
@@ -690,14 +697,13 @@
 
 ## 本轮证据与剩余工作
 
-本轮只核对文档与静态当前实现，未运行产品/模型/远端写。保留来源登记数：planning50、delivery70、git49、node60、v4补充32、v5补充6及主稿296条显式状态；这些不是去重产品状态数，更不是PASS数。注册表外的条件交互仍需由对应HTML逐项展开。
+整合基线为 fde4fb2，最终补丁与全仓结果见 E43。项目技术栈与当前分支事实（E28）、知识对话原生问题与历史管理（E29）、普通源码/单测单文件真实模型写作→JUnit测试→独立复核→Run阅读（E26）已有独立证据，不再列为未实现。独立需求/风险AI评审见E41；交付目标完成点与确认文件范围见E42。静态收尾未确证新的可复现P0/P1或新增明确未接通的设计要求，但不是全页全态通过结论。
 
-- 当前实际功能优先：后台knowledge/charter/review/fix原生交互范围(E20，A继续知识)；归档与当前质量修复已由E25证明，不再列未实现；项目技术栈真实事实投影缺口（projects.html:148/193）。已向Lead报告，只改本两份文档。
-- 当前高优先证据：新sourceEvidence普通源码/单测真实模型写作→独立review→测试→Run阅读；实际模型原生question/permission→人工答复→继续。Lead在做的live不预填结果。
-- GUI按P表具体状态补证；已有单页主流程/四主题截图不替代所有加载/失败/未知/撤权/冲突/取消返回及三尺寸键盘。完整状态矩阵之前，不恢复“全部功能完成/唯一外部阻塞/视觉可选”。
-- 历史Wave全仓数字和2026-10-19模型/远端写仍可追溯，但只证明原基线。当前整理没有全仓新测试，未用文档编辑制造新PASS。
-
-文档一致性检查：与54b9c4c原登记逐项对比，563条状态ID/来源/设计意图均保留；仅13条有明确记录的状态追加局部GUI证据（不是13条完整PASS）。两份当前页表均恰为25行，git diff --check通过；本批没有重新运行产品测试。
+- 真实模型soft permission→人工授权→继续尚缺完整实证；当前外部GitLab认证、hook、远端移动及MR/UNKNOWN写入证据不足。历史远端证据只证明原基线。
+- 多文件与全部异常GUI、四主题三尺寸及完整键盘矩阵未穷尽。UNKNOWN原key刷新恢复已有多个入口真实截断回包验收，不外推全部写入口。
+- charter/review/fix没有任务上下文的后台原生人工问题链未覆盖；现有受限权限及无处理器问题拒答不能写成全后台交互通过。本轮未找到设计要求所有这类操作新增人工待答入口，故不据此新增P1。
+- PE28子隔离汇合与PE38跨范围替换按设计继续禁用。能力未安装、历史未保留合同或环境不可用均显示真实原因，不冒充成功，也不自动等同实现缺失。
+- planning50、delivery70、git49、node60、v4补充32、v5补充6及主稿296条共563条是来源登记数，不是去重产品状态数或PASS数。既有状态ID/来源/设计意图保留；表中历史“未验证”表示该具体组合仍缺完整验收，不否定后续E编号局部证据。旧次“13条追加GUI”仅为当次盘点，不作为当前累计通过数。
 
 ### 补充 P02/P22 项目账号与登记目录边界
 
