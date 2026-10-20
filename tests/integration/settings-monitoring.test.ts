@@ -17,6 +17,7 @@ test('monitoring poll interval is persisted, validated and merged into bootstrap
     assert.equal(new AppError(ErrorCode.OPENCODE_SESSION_LIMIT, 'limit').httpStatus, 429);
     const bootstrap = await app.app.inject({ method: 'GET', url: '/api/bootstrap' });
     assert.equal(bootstrap.statusCode, 200, bootstrap.body);
+    assert.equal(bootstrap.json().data.app.listenAddress, undefined, 'a non-listening service must not report the configured port as a live socket');
     assert.equal(bootstrap.json().data.settings.monitoring.pollIntervalMs, 1500);
     assert.equal(bootstrap.json().data.settings.monitoring.sessionAlertThreshold, 8);
 
@@ -112,4 +113,19 @@ test('monitoring poll interval is persisted, validated and merged into bootstrap
   } finally {
     await app.close();
   }
+});
+
+test('bootstrap reports the actual assigned listening port independently from persisted server settings', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'aw-listen-address-'));
+  const application = await createApplication({ dataDir, disableOpenCode: true, host: '127.0.0.1', port: 0 });
+  try {
+    const response = await fetch(`${application.url}/api/bootstrap`);
+    assert.equal(response.status, 200);
+    const body = await response.json() as { data: { app: { listenAddress?: string }; settings: { server: { port: number } } } };
+    const socket = application.app.server.address();
+    assert.ok(socket && typeof socket === 'object');
+    assert.ok(socket.port > 0);
+    assert.equal(body.data.app.listenAddress, `127.0.0.1:${socket.port}`);
+    assert.equal(body.data.settings.server.port, application.engine.settings.server.port, 'reading live metadata must not rewrite stored configuration');
+  } finally { await application.close(); }
 });

@@ -97,6 +97,11 @@ test('project GitLab endpoint/path override is consumed and disabled project mak
     const override = { inheritGlobal: false, enabled: true, baseUrl: `http://127.0.0.1:${address.port}`, projectPath: 'group/actual' };
     store.projects.update(project.id, { settings: { ...project.settings, gitlab: override } });
     const remote = new RemoteService(store);
+    // A project endpoint override cannot forward a gitlab.com credential to another origin.
+    await remote.listMergeRequests(project.id);
+    assert.equal(calls, 0, 'unrelated global credentials stay within their configured origin');
+    const settings = remote.settings();
+    store.settings.saveSettings({ ...settings, git: { ...settings.git, gitlab: { baseUrl: override.baseUrl, apiBaseUrl: `${override.baseUrl}/unused-global-api` } } });
     await remote.listMergeRequests(project.id);
     assert.equal(calls, 1); assert.match(lastUrl, /\/api\/v4\/projects\/group%2Factual\/merge_requests/);
     store.projects.update(project.id, { settings: { ...project.settings, gitlab: { ...override, enabled: false } } });

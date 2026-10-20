@@ -383,6 +383,10 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
   }));
 
   app.get('/api/bootstrap', async (request) => {
+    const socketAddress = app.server.address();
+    const listenAddress = socketAddress && typeof socketAddress === 'object'
+      ? `${socketAddress.address.includes(':') ? `[${socketAddress.address}]` : socketAddress.address}:${socketAddress.port}`
+      : undefined;
     const settings = engine.publicSettings();
     const projects = engine.projects.list();
     const tasks = engine.tasks.list({ limit: 100 });
@@ -410,7 +414,7 @@ export function registerRoutes(app: FastifyInstance, deps: HttpDependencies): vo
     };
     return envelope(
       {
-        app: { name: 'Agent Workflow', version: deps.appVersion, nodeVersion: process.version, platform: process.platform, startedAt: deps.startedAt },
+        app: { name: 'Agent Workflow', version: deps.appVersion, nodeVersion: process.version, platform: process.platform, startedAt: deps.startedAt, listenAddress },
         settings,
         themes: THEME_ORDER.map((id) => THEMES[id]),
         catalog: engine.catalog,

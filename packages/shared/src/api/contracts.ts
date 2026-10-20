@@ -125,6 +125,8 @@ export interface BootstrapResponse {
     readonly nodeVersion: string;
     readonly platform: string;
     readonly startedAt: IsoDateTime;
+    /** Actual listening socket, absent when the service is not listening. */
+    readonly listenAddress?: string;
   };
   readonly settings: PublicSettings;
   readonly themes: readonly ThemeMeta[];

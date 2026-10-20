@@ -35,9 +35,9 @@ export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
               <span className="hint">已运行 {formatSince(data.app.startedAt)}</span>
             </span>
           </SettingsRow>
-          <SettingsRow label="服务地址" hint="服务端监听地址；Web 通过 Vite 代理访问 /api">
+          <SettingsRow label="服务地址" hint="当前进程实际监听地址；包含启动参数或环境变量覆盖后的端口。">
             <span className="mono-wrap">
-              {settings.server.host}:{String(settings.server.port)}
+              {data.app.listenAddress ?? '未知（服务尚未报告实际监听地址）'}
             </span>
           </SettingsRow>
           <SettingsRow label="数据目录" hint="可用 AGENT_WORKFLOW_DATA_DIR 覆盖">
