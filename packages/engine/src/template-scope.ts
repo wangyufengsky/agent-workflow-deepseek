@@ -75,7 +75,12 @@ export async function freezeTemplateScope(project: Project | undefined, input: N
         if (range) {
             const since = range.preset === 'full' ? undefined : new Date(`${range.from}T00:00:00`).toISOString();
             const until = range.preset === 'full' ? undefined : new Date(`${range.to}T23:59:59.999`).toISOString();
-            const result = await git.listCommits({ rootPath: project.rootPath, ref: targetSha, limit: 200, since, until });
+            // Git's approxidate stores dates in a 32-bit epoch on some versions:
+            // a bound beyond 2038 (e.g. a custom range ending 2100-01-01) silently
+            // matches nothing. Such a bound cannot exclude any commit that exists,
+            // so keep it out of the git argument and enforce it in JS below.
+            const gitSafeBound = (value: string | undefined): string | undefined => value !== undefined && Date.parse(value) > 2_147_000_000_000 ? undefined : value;
+            const result = await git.listCommits({ rootPath: project.rootPath, ref: targetSha, limit: 200, ...(gitSafeBound(since) === undefined ? {} : { since: gitSafeBound(since) }), ...(gitSafeBound(until) === undefined ? {} : { until: gitSafeBound(until) }) });
             if (result.nextCursor)
                 invalid('所选时间内提交超过200条，请缩小日期范围；不会静默遗漏历史');
             const selectedCommits = result.commits;
