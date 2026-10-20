@@ -47,7 +47,10 @@
 3. `tests/integration/gitlab-mr.test.ts`：列出 MR 的 fixture 源分支改为非交付分支，避免「已有同源 MR」被正确复用而干扰“创建”断言。
 4. `tests/integration/remote-unknown-settlement.test.ts`：原 UNKNOWN 后重试期待远端 `MR_ALREADY_EXISTS` → 改为断言 UNKNOWN 期间**不重复 POST**（返回 `RECEIPT_UNKNOWN`、原请求号保持可核对）；确定失败场景改为重置原未知步后单独验证。
 
-另修复 1 个真实回归：`packages/server/src/http.ts` 的 `taskDetailEnvelope` / workspace 路由用 PW prepare 投影覆盖了只读验证草稿的 `RECOVERY_READ_ONLY` 拒绝原因（被 `tests/integration/recovery-readonly.test.ts` 捕获）→ 只读任务保持原 capabilities，不再被 `PLAN_NOT_CONFIRMED` 覆盖。
+另修复 2 个真实回归：
+
+1. `packages/server/src/http.ts` 的 `taskDetailEnvelope` / workspace 路由用 PW prepare 投影覆盖了只读验证草稿的 `RECOVERY_READ_ONLY` 拒绝原因（被 `tests/integration/recovery-readonly.test.ts` 捕获）→ 只读任务保持原 capabilities，不再被 `PLAN_NOT_CONFIRMED` 覆盖。
+2. `packages/engine/src/template-scope.ts`：自定义时间范围上界超过 2038（如 2100-01-01）时，git 的 approxidate 32 位 epoch 溢出会让 `--until` 静默匹配不到任何提交（本机 git 2.45 正常、CI git 2.55 复现；该测试在 `main` 上的上一次 CI 也已失败，属既有问题）→ 超范围边界不再传给 git，仍由 JS 日期过滤执行；`tests/integration/task-catalog-parity.test.ts` 覆盖。
 
 ## 4. 需 GUI / 真实服务复验（不作为“已通过”）
 
