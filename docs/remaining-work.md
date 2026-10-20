@@ -18,14 +18,14 @@
 ## 2. 发布 / 分发类
 
 4. **W4-4 打包签名与跨平台**：2026-10-19 21:20 已用当前代码 `npm run dist:dir` 重建 **346MB 未签名 `.app`**（arm64；无 dmg/zip/安装包；默认 Electron 图标；asar 关闭）。默认 GUI 在本沙箱被 Chromium sandbox/GPU 拦截，兼容 flags 离屏捕获 PASS。**签名/公证、桌面默认参数验收、Windows/Linux、自动更新、CI 打包未做**，见 `docs/packaging.md` §5/§8/§9。
-5. **W4-6 推送 main（pending）**：功能全部完成后由 Lead 推送 `https://github.com/wangyufengsky/agent-workflow-deepseek` 的 `main` 并 `git ls-remote` 核对；当前 `origin` 已配置、本地分支为 `master`，推送在文档收口后执行。
+5. **W4-6 推送 main（pending）**：功能全部完成后由 Lead 推送 `https://github.com/wangyufengsky/agent-workflow-deepseek` 的 `main` 并 `git ls-remote` 核对；当前 `origin` 已配置、本地分支为 `main`（2026-10-20 更正：仓库早已是 main），推送在文档收口后执行。
 
 ## 3. 可选视觉/深度项（非功能阻塞，设计覆盖已标注降级）
 
 6. **像素级视觉回归**：W4-3b/3c 已让 `ui:smoke` 兼容 flags 通过（13 截图 + 2 交互，`docs/evidence/` 30 张：8 当前 + 22 历史，`evidence/` 13 张），但仍是文案/主题/关键交互断言，**没有像素级 diff**；四主题 × 全状态未自动覆盖。可作为后续可选增强。
 7. **设计级诚实降级（详见 `docs/design-coverage.md`，非阻塞）**：
    - B-07 快照评审阶段报告 `partialReport.available:false`，mode/depth 为 unknown（未接评审报告服务）；
-   - 知识问答为**非流式**（真实 steps/toolActivity 一次性返回；无 SSE `knowledge.progress`；旧历史无时间线字段时隐藏）；
+   - 知识问答**无 SSE、但有真实增量轮询流式**（2026-10-20 审计更正；旧历史无时间线字段时隐藏）；
    - 项目公约 `generate` 返回真实 501（模型生成未接线，手动编辑/确认写入可用）；GitLab 项目级覆盖只保存非敏感配置，运行时仍用全局配置；
    - 角色 B-02/B-03 发布回执核对/权限预估、形象目录、步骤级使用统计无接口；数据库授权/多 schema/会话只读，工具项目级/单工具策略，模板分支/时间/文档/B-06 等后端字段仍缺；
    - 工作流编辑器无并行/任意连线（服务为有序步骤）、无拖拽平移缩放/步骤模板抽屉/视觉 diff；

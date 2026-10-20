@@ -84,6 +84,12 @@ export interface DiffHunksRequest {
   readonly maxLines?: number;
   readonly maxBytes?: number;
   readonly cursor?: string;
+  /**
+   * Unified context lines around each hunk. 3 is `git diff` default; the diff
+   * viewer asks for a larger value to expand unchanged context. Never below 1
+   * and hard-capped by GIT_LIMITS.maxDiffContextLines.
+   */
+  readonly contextLines?: number;
 }
 
 export interface FileAtRevisionResult {
@@ -598,6 +604,9 @@ export class GitRepository {
     const headSha = request.headSha === undefined ? undefined : assertFullSha(request.headSha, 'headSha');
     const maxLines = request.maxLines === undefined ? GIT_LIMITS.defaultDiffMaxLines : assertIntInRange(request.maxLines, 'maxLines', 1, GIT_LIMITS.maxDiffLines);
     const maxBytes = request.maxBytes === undefined ? GIT_LIMITS.maxDiffBytes : assertIntInRange(request.maxBytes, 'maxBytes', 1, GIT_LIMITS.maxDiffBytes);
+    const contextLines = request.contextLines === undefined
+      ? GIT_LIMITS.defaultDiffContextLines
+      : assertIntInRange(request.contextLines, 'contextLines', 1, GIT_LIMITS.maxDiffContextLines);
     const ignoreWhitespace = request.ignoreWhitespace === true;
     const paths = oldPath !== undefined && oldPath !== path ? [oldPath, path] : [path];
 
@@ -624,7 +633,7 @@ export class GitRepository {
       'diff',
       '--no-color',
       '--no-ext-diff',
-      '--unified=3',
+      `--unified=${String(contextLines)}`,
       ...(ignoreWhitespace ? ['--ignore-all-space'] : []),
       baseSha,
       ...(headSha !== undefined ? [headSha] : []),

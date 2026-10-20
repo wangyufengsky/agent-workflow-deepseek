@@ -34,8 +34,10 @@ import {
   findMethod,
   groupLeafNodes,
   isPlaceholderNode,
+  isPlanningQuestionAnswered,
   mergeScopedCandidate,
   nowIso,
+  planGraphToCandidatePayload,
   planningStageMachine,
   unresolvedPlanScopes,
   validatePlanningCandidate,
@@ -195,6 +197,16 @@ export class PlanningService {
     if (!rootAvailable) {
       blockers.push({ code: 'SOURCE_UNAVAILABLE', message: '项目路径不可用', goTo: '/settings' });
     }
+    // REQ-01: a new round is only reachable after every required question of the
+    // previous round was answered (the answer becomes a new input revision).
+    const pendingRequired = rounds[0]?.questions.filter((question) => question.required && !isPlanningQuestionAnswered(question)) ?? [];
+    if (pendingRequired.length > 0) {
+      blockers.push({
+        code: 'ANSWER_REQUIRED',
+        message: `上一轮还有 ${String(pendingRequired.length)} 个必须答复的问题；先在“草稿与问题”保存答复，再预览新一轮`,
+        goTo: '/requirement',
+      });
+    }
     const previewId = `preview_${taskId}_${ordinal}_${task.requirement.revision}_${createId('p').split('_').at(-1)}`;
     const expiresAt = new Date(Date.now() + settings.planning.previewTtlMinutes * 60_000).toISOString();
     const model = this.#plannerModel();
@@ -244,6 +256,14 @@ export class PlanningService {
     const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'planning.start', body: { taskId, previewId: input.previewId, sourceInputRevision: input.sourceInputRevision, confirmModelDispatch: true, ...(input.scope === undefined ? {} : { scope: { groupRef: input.scope.groupRef } }) } }, () => this.planningResponse(taskId));
     if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '开始规划');
+    // REQ-01: never bypass the must-answer gate by starting a new round.
+    const previousRound = this.#store.planning.list(taskId)[0];
+    const pendingRequired = previousRound?.questions.filter((question) => question.required && !isPlanningQuestionAnswered(question)) ?? [];
+    if (pendingRequired.length > 0) {
+      throw new AppError(ErrorCode.ANSWER_REQUIRED, `上一轮还有 ${String(pendingRequired.length)} 个必须答复的问题；先保存答复再预览新一轮`, {
+        details: { roundId: previousRound?.id, questions: pendingRequired.map((question) => question.question) },
+      });
+    }
     const previewRecord = this.#previews.get(input.previewId);
     const refineRecord = this.#refinePreviews.get(input.previewId);
     if (previewRecord === undefined && refineRecord === undefined) {
@@ -581,28 +601,42 @@ export class PlanningService {
       const validation = latest.candidate?.validation;
       const requiredQuestions = (latest.questions ?? []).filter((question) => question.required && question.answer === undefined);
       const stage = requiredQuestions.length > 0 ? 'needs_answer' : 'awaiting_review';
+      const hardProblems = (validation?.structural.problems ?? []).filter((problem) => problem.severity === 'hard');
       const hasHard = validation?.structural.state === 'failed';
+      // REQ-02: a candidate that fails deterministic checks is a reviewable
+      // *blocked candidate*, not a failed round. The round settles, the
+      // candidate stays for review (reject or 补充输入后新一轮), and apply is
+      // denied by the action projection with the exact problem count.
       record({
         fragmentId: `${roundId}-candidate`,
         category: 'service_event',
         at: nowIso(),
-        text: hasHard ? '服务事实：候选已提交，但存在必须处理的问题' : requiredQuestions.length > 0 ? '服务事实：候选已提交，有必须答复的问题' : '服务事实：候选已提交，等待审阅',
+        text: hasHard
+          ? `服务事实：候选已提交，但有 ${String(hardProblems.length)} 个必须处理的问题（可补充输入后新一轮，或不采用候选）`
+          : requiredQuestions.length > 0
+            ? '服务事实：候选已提交，有必须答复的问题'
+            : '服务事实：候选已提交，等待审阅',
       });
       this.#store.planning.update(roundId, {
-        status: hasHard ? 'failed' : 'completed',
-        stage: hasHard ? 'failed' : stage,
+        status: 'completed',
+        stage,
         endedAt: nowIso(),
         usage,
-        lastActivity: hasHard ? '候选校验未通过' : requiredQuestions.length > 0 ? '需要你答复' : '等待审阅',
-        failure: hasHard ? { code: 'VALIDATION_FAILED', message: '候选计划未通过结构检查' } : undefined,
+        lastActivity: hasHard ? `候选硬阻塞：${String(hardProblems.length)} 个必须处理的问题` : requiredQuestions.length > 0 ? '需要你答复' : '等待审阅',
+        failure: undefined,
         stageRuns: latest.stageRuns.map((stageRun) => ({ ...stageRun, state: 'completed', endedAt: stageRun.endedAt ?? nowIso() })),
       });
       const startKey = this.#startKeys.get(roundId);
       if (startKey !== undefined) {
-        if (hasHard) this.#commands.fail(startKey, new AppError(ErrorCode.VALIDATION_FAILED, '候选计划未通过结构检查'));
-        else this.#commands.settle(startKey, { roundId, planRevisionId: latest.candidate?.planRevisionId, stage });
+        this.#commands.settle(startKey, {
+          roundId,
+          planRevisionId: latest.candidate?.planRevisionId,
+          stage,
+          candidateBlocked: hasHard,
+          hardProblemCount: hardProblems.length,
+        });
       }
-      this.#publishRound(taskId, roundId, hasHard ? 'failed' : 'completed');
+      this.#publishRound(taskId, roundId, 'completed');
       this.#refreshTask(taskId);
       return;
     }
@@ -1249,6 +1283,17 @@ export class PlanningService {
       if (question === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '答复的问题不在本轮规划中');
       return { questionId: question.id, ...normalizeQuestionAnswer(question, answer) };
     });
+    // REQ-01: required questions are a gate, not a hint. Saving is refused while
+    // any required question of this round is still unanswered (existing answers
+    // count, so an incremental save is allowed).
+    const answeredIds = new Set(round.questions.filter((question) => isPlanningQuestionAnswered(question)).map((question) => question.id));
+    for (const answer of normalized) answeredIds.add(answer.questionId);
+    const unansweredRequired = round.questions.filter((question) => question.required && !answeredIds.has(question.id));
+    if (unansweredRequired.length > 0) {
+      throw new AppError(ErrorCode.ANSWER_REQUIRED, `还有 ${String(unansweredRequired.length)} 个必须回答的问题未答复`, {
+        details: { unansweredQuestionIds: unansweredRequired.map((question) => question.id) },
+      });
+    }
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'requirement.answer.save',
@@ -1276,10 +1321,84 @@ export class PlanningService {
       updatedAt: nowIso(),
     };
     this.#store.tasks.update(taskId, { requirement });
-    this.#store.planning.update(round.id, { questions, lastActivity: '答复已保存，可预览新一轮' });
+    // REQ-01/QA02/QA03: once answers form the new input revision, the existing
+    // candidate is re-checked against it (deterministic rules only, no model
+    // call). Consistent → reviewable/applicable; inconsistent → stale candidate.
+    const revalidation = round.candidate === undefined ? undefined : this.#revalidateCandidate(task, round, requirement.revision);
+    this.#store.planning.update(round.id, {
+      questions,
+      ...(revalidation === undefined
+        ? { lastActivity: '答复已保存，可预览新一轮' }
+        : {
+            stage: revalidation.state === 'ok' ? 'awaiting_review' : round.stage === 'needs_answer' ? 'awaiting_review' : round.stage,
+            lastActivity: revalidation.detail,
+          }),
+    });
     this.#publishRound(taskId, round.id, round.status);
-    this.#commands.settle(input.requestKey, { requirementRevision: requirement.revision });
+    this.#commands.settle(input.requestKey, {
+      requirementRevision: requirement.revision,
+      ...(revalidation === undefined ? {} : { candidateRevalidation: revalidation.state, hardProblemCount: revalidation.hardProblemCount }),
+    });
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.planningResponse(taskId) };
+  }
+
+  /**
+   * REQ-01/QA02/QA03: re-check an existing candidate against the new input
+   * revision without calling the model. The deterministic rules decide whether
+   * the candidate is still consistent; the candidate revision's validation
+   * basis records the verdict so the action projection and the UI can tell an
+   * applicable candidate (QA02) from a stale one (QA03).
+   */
+  #revalidateCandidate(task: Task, round: PlanningRound, inputRevision: number): { state: 'ok' | 'stale'; detail: string; hardProblemCount: number } {
+    const candidate = round.candidate;
+    const plan = candidate === undefined ? undefined : this.#store.plans.get(candidate.planRevisionId);
+    if (candidate === undefined || plan === undefined) {
+      return { state: 'stale', detail: '候选计划修订读取失败；按当前输入预览新一轮', hardProblemCount: 1 };
+    }
+    const method = this.#method(task);
+    const settings = this.#context.settings();
+    const result = validatePlanningCandidate({
+      candidate: planGraphToCandidatePayload(plan.graph),
+      requiredSteps: method.requiredSteps,
+      refinableGroups: method.refinableGroups,
+      limits: {
+        maxNodes: settings.planning.maxNodes,
+        maxEdges: settings.planning.maxEdges,
+        maxGroups: settings.planning.maxGroups,
+        maxDepth: settings.planning.maxDepth,
+      },
+    });
+    const hardProblems = result.problems.filter((problem) => problem.severity === 'hard');
+    const ok = result.structural === 'passed';
+    const priorItems = candidate.validation.humanReview.items;
+    const validation: PlanValidation = {
+      structural: { state: result.structural, problems: result.problems.map((problem) => ({ ...problem })) },
+      humanReview: { required: priorItems.length, accepted: priorItems.filter((item) => item.accepted).length, items: priorItems },
+      basis: {
+        state: ok ? 'complete' : 'stale',
+        detail: ok
+          ? `答复已保存为需求输入修订 ${String(inputRevision)}；候选按确定性规则重新校验通过（未调用模型）`
+          : `答复与候选不一致：候选基于输入修订 ${String(round.inputRevision)}，当前修订 ${String(inputRevision)}；按当前输入预览新一轮`,
+      },
+      readiness: { state: ok ? 'needs_preparation' : 'blocked', detail: ok ? '确认计划后准备工作区' : '候选已过期，不能应用' },
+      checks: result.checks.map((check) => ({ ...check })),
+      requirementCoverage: result.coverage.map((coverage) => ({
+        requirementId: coverage.requirementId,
+        label: coverage.label,
+        covered: coverage.covered,
+        nodeIds: plan.graph.nodes.filter((node) => coverage.nodeKeys.includes(node.key)).map((node) => node.id),
+      })),
+    };
+    this.#store.plans.setValidation(plan.id, validation);
+    this.#store.planning.update(round.id, { candidate: { ...candidate, validation } });
+    this.#store.events.publish('planning.changed', { taskId: task.id, roundId: round.id, status: round.status, stage: ok ? 'awaiting_review' : round.stage, revision: round.recordSeq.last });
+    return {
+      state: ok ? 'ok' : 'stale',
+      detail: ok
+        ? `答复已保存；候选按需求输入修订 ${String(inputRevision)} 重新校验通过，可继续审阅（未调用模型）`
+        : `答复与候选不一致：候选基于输入修订 ${String(round.inputRevision)}，当前修订 ${String(inputRevision)}，候选已过期；请按当前输入预览新一轮`,
+      hardProblemCount: hardProblems.length,
+    };
   }
 
   /**

@@ -1,5 +1,5 @@
-import { rmSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import type { CommandResponse, PrepareWorkspaceRequest, TaskChanges, TaskWorkspace, WorkspaceCleanupPreview } from '@agent-workflow/shared';
 import { AppError, ErrorCode, nowIso } from '@agent-workflow/shared';
 import type { Store } from '@agent-workflow/storage';
@@ -106,7 +106,7 @@ export class WorkspaceService {
   }
 
   async prepare(taskId: string, input: PrepareWorkspaceRequest): Promise<CommandResponse<{ workspace: TaskWorkspace }>> {
-    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.workspace.prepare', body: { taskId, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber, expectedBaseRef: input.expectedBaseRef, expectedBaseTip: input.expectedBaseTip, baselineSelectionRef: input.baselineSelectionRef, confirmPrepare: true }, legacyBodies: [{ taskId, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber, expectedBaseRef: input.expectedBaseRef, expectedBaseTip: input.expectedBaseTip, confirmPrepare: true }] }, () => { const workspace = this.get(taskId); return workspace === undefined ? undefined : { workspace }; });
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'task.workspace.prepare', body: { taskId, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber, expectedBaseRef: input.expectedBaseRef, expectedBaseTip: input.expectedBaseTip, baselineSelectionRef: input.baselineSelectionRef, branchName: input.branchName, directoryName: input.directoryName, confirmPrepare: true }, legacyBodies: [{ taskId, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber, expectedBaseRef: input.expectedBaseRef, expectedBaseTip: input.expectedBaseTip, confirmPrepare: true }] }, () => { const workspace = this.get(taskId); return workspace === undefined ? undefined : { workspace }; });
     if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#requireTask(taskId);
     const project = this.#requireProject(task.projectId);
@@ -129,6 +129,8 @@ export class WorkspaceService {
         expectedBaseRef: input.expectedBaseRef,
         expectedBaseTip: input.expectedBaseTip,
         baselineSelectionRef: input.baselineSelectionRef,
+        branchName: input.branchName,
+        directoryName: input.directoryName,
         confirmPrepare: true,
       },
       target: { taskId },
@@ -136,11 +138,16 @@ export class WorkspaceService {
     if (replayed) {
       return { receipt: this.#commands.toReceipt(record), resource: { workspace: this.get(taskId)! } };
     }
+    // 准备阶段名与目标对象在进入命令前确定；失败时用于说明“已发生/被占用”的步骤，
+    // 不让异常退化成一句“受阻”。
+    const settings = this.#context.settings();
+    const worktreesRoot = settings.git.worktreeRoot.startsWith('/')
+      ? settings.git.worktreeRoot
+      : new URL(settings.git.worktreeRoot, `file://${this.#context.store.dataDir}/`).pathname;
+    const branch = input.branchName?.trim() || `${settings.git.branchPrefix}${taskId.replace(/^task_/, '').slice(0, 12)}`;
+    const directoryName = input.directoryName?.trim().replace(/[^a-zA-Z0-9_-]/g, '-') || taskId.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const targetPath = join(worktreesRoot, directoryName);
     try {
-      const settings = this.#context.settings();
-      const worktreesRoot = settings.git.worktreeRoot.startsWith('/')
-        ? settings.git.worktreeRoot
-        : new URL(settings.git.worktreeRoot, `file://${this.#context.store.dataDir}/`).pathname;
       this.#store.workspaces.update(workspace.id, { state: 'preparing', steps: [
         { step: 'resolve_baseline', state: 'running' },
         { step: 'create_branch', state: 'not_started' },
@@ -167,6 +174,7 @@ export class WorkspaceService {
           state: 'ready',
           displayRoot: target,
           baseRef: 'baseline',
+          lastCheckedAt: nowIso(),
           steps: [
             { step: 'resolve_baseline', state: 'completed' },
             { step: 'create_branch', state: 'completed', detail: '非 Git：独立副本' },
@@ -192,7 +200,19 @@ export class WorkspaceService {
       if (input.expectedBaseTip !== undefined && input.expectedBaseTip !== baseSha) {
         throw new AppError(ErrorCode.STALE_TARGET, '基线已前移，请重新确认', { details: { expected: input.expectedBaseTip, actual: baseSha } });
       }
-      const branch = `${settings.git.branchPrefix}${taskId.replace(/^task_/, '').slice(0, 12)}`;
+      // 同名对象检查放在创建之前：逐个列出被占用对象，不覆盖、不静默复用。
+      const occupied: { kind: 'branch' | 'directory'; label: string; ref?: string; sha?: string }[] = [];
+      const existingBranches = await this.#git.branches(project.rootPath).catch(() => []);
+      const occupiedBranch = existingBranches.find((candidate) => candidate.name === branch);
+      if (occupiedBranch !== undefined) {
+        occupied.push({ kind: 'branch', label: `分支 ${occupiedBranch.fullRef}`, ref: occupiedBranch.fullRef, sha: occupiedBranch.tipSha });
+      }
+      if (existsSync(targetPath)) occupied.push({ kind: 'directory', label: `工作目录 ${targetPath}`, ref: targetPath });
+      if (occupied.length > 0) {
+        throw new AppError(ErrorCode.WORKSPACE_NAME_CONFLICT, `同名对象已存在：${occupied.map((item) => item.label).join('、')}；不会覆盖或静默复用，可用新名称重新预览`, {
+          details: { kind: 'name_conflict', occupied },
+        });
+      }
       const handle = await this.#git.createWorktree({
         repoRoot: project.rootPath,
         worktreesRoot,
@@ -206,6 +226,7 @@ export class WorkspaceService {
         branch: handle.branch,
         baseRef,
         baseSha: handle.headSha,
+        lastCheckedAt: nowIso(),
         displayRoot: handle.path,
         worktreeHandle: handle.handle,
         steps: [
@@ -221,9 +242,37 @@ export class WorkspaceService {
       this.#commands.settle(input.requestKey, { workspaceId: workspace.id, branch: handle.branch, baseSha: handle.headSha });
       return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: { workspace: updated! } };
     } catch (error) {
-      this.#store.workspaces.update(workspace.id, { state: error instanceof AppError && error.code === ErrorCode.STALE_TARGET ? 'blocked' : 'blocked' });
-      this.#store.events.publish('task.workspace.updated', { taskId, workspaceId: workspace.id, revision: workspace.revision, state: 'blocked' });
-      this.#commands.fail(input.requestKey, error as Error);
+      const code = error instanceof AppError ? error.code : undefined;
+      const unknownReceipt = code === ErrorCode.RECEIPT_UNKNOWN || code === ErrorCode.NETWORK_UNREACHABLE;
+      // 失败后重读已发生对象：分支已建 / 目录已建 = 部分创建（TD01 td01-partial），
+      // 回执未知 = 结果未明（TD01 td01-prepare-unknown）。两者都保留已创建对象，不自动清理。
+      let branchPresent: string | undefined;
+      try {
+        const current = await this.#git.branches(project.rootPath);
+        branchPresent = current.find((candidate) => candidate.name === branch)?.name;
+      } catch {
+        branchPresent = undefined;
+      }
+      const directoryPresent = existsSync(targetPath);
+      const partial = !unknownReceipt && (branchPresent !== undefined || directoryPresent);
+      const steps: TaskWorkspace['steps'] | undefined = partial
+        ? [
+            { step: 'resolve_baseline', state: 'completed' },
+            { step: 'create_branch', state: 'completed', detail: branchPresent },
+            { step: 'create_worktree', state: directoryPresent ? 'completed' : 'failed', detail: directoryPresent ? targetPath : '工作目录未创建' },
+            { step: 'verify_worktree', state: 'not_started' },
+            { step: 'bind_task', state: 'not_started' },
+          ]
+        : undefined;
+      const updated = this.#store.workspaces.update(workspace.id, {
+        state: unknownReceipt ? 'unknown' : partial ? 'partial' : 'blocked',
+        lastCheckedAt: nowIso(),
+        ...(unknownReceipt ? { pendingOperationRef: input.requestKey } : {}),
+        ...(partial && branchPresent !== undefined ? { branch: branchPresent } : {}),
+        ...(steps === undefined ? {} : { steps }),
+      });
+      this.#store.events.publish('task.workspace.updated', { taskId, workspaceId: workspace.id, revision: updated!.revision, state: updated!.state });
+      this.#commands.fail(input.requestKey, error as Error, unknownReceipt);
       throw error;
     }
   }

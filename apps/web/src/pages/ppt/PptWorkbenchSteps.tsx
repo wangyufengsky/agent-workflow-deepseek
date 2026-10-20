@@ -1,10 +1,11 @@
-import { PptBriefEditor, PptDirections, PptPageChecks } from './PptProductionPanels.tsx';
+import { PptDirections, PptPageChecks } from './PptProductionPanels.tsx';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { THEME_IDS, THEMES, createRequestKey, type PptWork, type ThemeIdValue } from '@agent-workflow/shared';
+import { THEME_IDS, THEMES, createRequestKey, type PptBrief, type PptSlide, type PptWork, type PptWorkUpdateRequest, type ThemeIdValue } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatCount, formatRelativeTime } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { defaultPptPlan } from './ppt-plan-defaults.ts';
 import {
   formatFileSize,
   pptPageCount,
@@ -32,298 +33,323 @@ export interface PptStepDiscussionProps extends PptStepCommonProps {
   readonly onNext: () => void;
 }
 
-/** ① 五项需求简报与标题/主题/大纲编辑。 */
-export function PptStepDiscussion({ work, busyKind, blocked, blockedReason, projectName, onCommand, onNext }: PptStepDiscussionProps) {
-  const [title, setTitle] = useState(work.title);
+const EMPTY_BRIEF: PptBrief = { audience: '', objective: '', length: '', style: '', sources: '' };
+const BRIEF_FIELDS = [['audience', '给谁看'], ['objective', '想达到'], ['length', '篇幅'], ['style', '风格'], ['sources', '依据资料']] as const;
+
+/** 正文页（不含封面）：优先服务已保存 slides；未生成时用大纲补齐标题。 */
+export function pptBodyPages(work: PptWork): readonly PptSlide[] {
+  if (work.slides.length >= work.outline.length) return work.slides;
+  return work.outline.map((title, index) => work.slides[index] ?? { title, bullets: [] });
+}
+
+export interface PptStepDiscussionProps extends PptStepCommonProps {
+  readonly projectName?: string;
+  readonly onNext: () => void;
+  /** 生成制作方案：有已保存简报时触发大纲生成（真实模型调用，走回执）。 */
+  readonly onGeneratePlan: () => void;
+}
+
+/**
+ * ① 讨论需求（P07-01）：设计 ppt-studio.html:174-176 的五项简报逐项补全 ——
+ * 未补项“等待讨论”、刚补项高亮、底部“还差 N 项 / 信息已经足够”+「生成制作方案」。
+ */
+export function PptStepDiscussion({ work, busyKind, blocked, blockedReason, onCommand, onNext, onGeneratePlan }: PptStepDiscussionProps) {
+  const [brief, setBrief] = useState<PptBrief>(work.brief ?? EMPTY_BRIEF);
   const [baselineRevision, setBaselineRevision] = useState(work.revision ?? 1);
-  const [topic, setTopic] = useState(work.topic);
-  const [outlineText, setOutlineText] = useState(work.outline.join('\n'));
-  const previousText=useRef({title:work.title,topic:work.topic,outlineText:work.outline.join('\n')});
-  const [error, setError] = useState<string | undefined>(undefined);
-  useEffect(()=>{const next={title:work.title,topic:work.topic,outlineText:work.outline.join('\n')};const current={title,topic,outlineText};if(JSON.stringify(current)===JSON.stringify(previousText.current)||JSON.stringify(current)===JSON.stringify(next)){setTitle(next.title);setTopic(next.topic);setOutlineText(next.outlineText);setBaselineRevision(work.revision??1);}previousText.current=next;},[work.revision]);
-
-  const submit = (): void => {
-    const trimmedTitle = title.trim();
-    if (trimmedTitle === '') {
-      setError('标题不能为空（服务要求 1–120 字）。');
-      return;
+  const [freshField, setFreshField] = useState<string | null>(null);
+  const priorBrief = useRef(work.brief ?? EMPTY_BRIEF);
+  useEffect(() => {
+    const next = work.brief ?? EMPTY_BRIEF;
+    if (JSON.stringify(brief) === JSON.stringify(priorBrief.current) || JSON.stringify(brief) === JSON.stringify(next)) {
+      setBrief(next);
+      setBaselineRevision(work.revision ?? 1);
     }
-    if (trimmedTitle.length > 120) {
-      setError('标题最长 120 字。');
-      return;
-    }
-    const trimmedTopic = topic.trim();
-    if (trimmedTopic.length > 2_000) {
-      setError('主题最长 2000 字。');
-      return;
-    }
-    const outline = outlineText
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    if (outline.length > MAX_OUTLINE_ITEMS) {
-      setError(`大纲最多 ${String(MAX_OUTLINE_ITEMS)} 条，请先精简。`);
-      return;
-    }
-    onCommand({
-      kind: 'update',
-      workId: work.id,
-      body: { expectedRevision: baselineRevision, requestKey: createRequestKey(), title: trimmedTitle, topic: trimmedTopic, outline, confirmUpdate: true },
-    });
+    priorBrief.current = next;
+  }, [work.revision]);
+  const dirty = JSON.stringify(brief) !== JSON.stringify(work.brief ?? EMPTY_BRIEF);
+  const filled = BRIEF_FIELDS.filter(([field]) => brief[field].trim() !== '').length;
+  const missing = BRIEF_FIELDS.length - filled;
+  const complete = missing === 0;
+  const saving = busyKind === 'update';
+  const save = (): void => {
+    if (blocked || saving) return;
+    onCommand({ kind: 'update', workId: work.id, body: { requestKey: createRequestKey(), confirmUpdate: true, expectedRevision: baselineRevision, brief } });
   };
-
   return (
     <div className="col" style={{ gap: 16 }}>
-      <PptBriefEditor key={`${work.id}:brief`} {...{ work, blocked, onCommand }} />
-
-      <div className="ppt-facts">
-        <div className="ppt-fact">
-          <span className="ppt-fact-k">项目</span>
-          <span className="ppt-fact-v">{projectName ?? '未归属项目'}</span>
-        </div>
-        <div className="ppt-fact">
-          <span className="ppt-fact-k">创建于</span>
-          <span className="ppt-fact-v">{formatAbsoluteTime(work.createdAt)}</span>
-        </div>
-        <div className="ppt-fact">
-          <span className="ppt-fact-k">最近更新</span>
-          <span className="ppt-fact-v">{formatAbsoluteTime(work.updatedAt)}（{formatRelativeTime(work.updatedAt)}）</span>
-        </div>
-        <div className="ppt-fact">
-          <span className="ppt-fact-k">当前阶段</span>
-          <span className="ppt-fact-v">{pptPageSummary(work)}</span>
-        </div>
-      </div>
-
-      <div className="field" style={{ margin: 0 }}>
-        <label className="label" htmlFor={`ppt-wb-title-${work.id}`}>
-          标题<span className="req">*</span>
-        </label>
-        <input
-          id={`ppt-wb-title-${work.id}`}
-          className="input"
-          value={title}
-          disabled={busyKind === 'update' || blocked}
-          onChange={(event) => {
-            setTitle(event.target.value);
-            setError(undefined);
-          }}
-        />
-        <span className="hint num">{String(title.length)} / 120 字</span>
-      </div>
-
-      <div className="field" style={{ margin: 0 }}>
-        <label className="label" htmlFor={`ppt-wb-topic-${work.id}`}>
-          主题（给谁看、想达到什么、篇幅）
-        </label>
-        <textarea
-          id={`ppt-wb-topic-${work.id}`}
-          className="textarea"
-          value={topic}
-          disabled={busyKind === 'update' || blocked}
-          placeholder="例如：给新同事讲项目架构与任务流程，约 6 页，20 分钟。"
-          onChange={(event) => {
-            setTopic(event.target.value);
-            setError(undefined);
-          }}
-        />
-        <span className="hint num">{String(topic.length)} / 2000 字</span>
-      </div>
-
-      <div className="field" style={{ margin: 0 }}>
-        <label className="label" htmlFor={`ppt-wb-outline-${work.id}`}>
-          大纲（每行一页标题）
-        </label>
-        <textarea
-          id={`ppt-wb-outline-${work.id}`}
-          className="textarea"
-          style={{ minHeight: 150 }}
-          value={outlineText}
-          disabled={busyKind === 'update' || blocked}
-          placeholder={'例如：\n整体架构\n任务的一生\n错误恢复'}
-          onChange={(event) => {
-            setOutlineText(event.target.value);
-            setError(undefined);
-          }}
-        />
-        <span className="hint">
-          空行会被忽略；服务最多保存 {String(MAX_OUTLINE_ITEMS)} 条、单条截断到 200 字。保存不会调用模型，也不会重建已有逐页内容。
-        </span>
-      </div>
-
-      {error === undefined ? null : (
-        <div className="error-text">
-          <Icon name="alert" size="sm" />
-          {error}
-        </div>
-      )}
-
       <div className="row wrap" style={{ gap: 8 }}>
+        <span style={{ fontSize: 13.5 }}>需求简报</span>
+        <span className="hint">讨论中逐项补全 · 你也可以直接改</span>
+        <span className="grow" />
+        <span className="hint num">{filled}/{BRIEF_FIELDS.length} 项</span>
+      </div>
+      <div className="ppt-brief">
+        {BRIEF_FIELDS.map(([field, label]) => {
+          const done = brief[field].trim() !== '';
+          return (
+            <div className={`ppt-bf ${done ? '' : 'pending'} ${freshField === field && done ? 'fresh' : ''}`} key={field}>
+              <span className="k">{label}</span>
+              <span className="v">
+                <textarea
+                  className="textarea"
+                  aria-label={label}
+                  rows={field === 'objective' || field === 'sources' ? 2 : 1}
+                  value={brief[field]}
+                  placeholder="等待讨论"
+                  maxLength={2000}
+                  disabled={blocked || saving}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setFreshField(value.trim() !== '' && brief[field].trim() === '' ? field : null);
+                    setBrief({ ...brief, [field]: value });
+                  }}
+                />
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="ppt-foot-cta">
+        <span className="grow">
+          <div style={{ fontSize: 13.5 }}>{complete ? '信息已经足够' : `还差 ${String(missing)} 项`}</div>
+          <div className="hint">
+            {complete ? '可以让助手出制作方案' : '回答右侧助手的问题即可；也可以直接补在这里'}
+            {dirty && complete ? ' · 先保存简报' : ''}
+          </div>
+        </span>
+        {dirty || saving ? (
+          <Button
+            variant="secondary"
+            disabled={blocked || saving}
+            disabledReason={blockedReason}
+            onClick={save}
+          >
+            {saving ? '正在保存…' : '保存需求简报'}
+          </Button>
+        ) : null}
         <Button
           variant="primary"
-          icon="check"
-          disabled={blocked || busyKind === 'update'}
-          disabledReason={blockedReason ?? (busyKind === 'update' ? '保存请求已发出，正在等待服务回执。' : undefined)}
-          onClick={submit}
+          iconAfter="arrowRight"
+          disabled={blocked || !complete || saving}
+          disabledReason={
+            blockedReason ??
+            (saving
+              ? '保存请求已发出，正在等待服务回执。'
+              : !complete
+                ? `还差 ${String(missing)} 项需求简报，补齐后才能生成制作方案。`
+                : undefined)
+          }
+          onClick={() => {
+            if (dirty) save();
+            else onGeneratePlan();
+            onNext();
+          }}
         >
-          {busyKind === 'update' ? '正在保存…' : '保存修改'}
+          生成制作方案
         </Button>
-        <Button variant="secondary" iconAfter="arrowRight" disabled={blocked || work.actions?.design.allowed===false} disabledReason={blockedReason ?? work.actions?.design.reason} onClick={onNext}>
-          下一步：设计方案
-        </Button>
-        <span className="hint">保存与生成都会返回真实回执；回执显示在页面顶部。</span>
       </div>
+      <p className="hint">生成制作方案会调用受管模型生成大纲（可能较慢，回执显示在页面顶部）；也可进入设计方案后手动编写大纲。</p>
     </div>
   );
 }
 
-/** ② 设计方案：版式主题（真实 PATCH）+ 大纲/逐页生成与展示；三种视觉方向。 */
-export function PptStepDesign({ work, busyKind, blocked, blockedReason, onCommand }: PptStepCommonProps) {
+export interface PptStepDesignProps extends PptStepCommonProps {
+  readonly onBackToDiscuss: () => void;
+}
+
+/**
+ * ② 设计方案（P07-02）：设计 ppt-studio.html:177-183 ——
+ * “制作方案 / 确认后才开始逐页制作 · 之后仍可调整”、可增删排序的大纲 + 视觉方向，
+ * 底部确认条「回到讨论 / 确认并开始制作（页数 · 时长说明）」。
+ * P07-12：方向选择改为本地草稿，随确认条/保存一次提交，不再点选即写服务。
+ */
+export function PptStepDesign({ work, busyKind, blocked, blockedReason, onCommand, onBackToDiscuss }: PptStepDesignProps) {
+  const initialPages = pptBodyPages(work);
+  const [title, setTitle] = useState(work.title);
+  const [topic, setTopic] = useState(work.topic);
+  const [pages, setPages] = useState<readonly PptSlide[]>(initialPages);
+  const [direction, setDirection] = useState(work.direction ?? 'restrained');
   const [theme, setTheme] = useState<ThemeIdValue>(work.theme);
-  const themeChanged = theme !== work.theme;
+  /** 待“确认并开始制作”：保存回执带来新修订后再发起逐页制作。 */
+  const [pendingStart, setPendingStart] = useState<number | null>(null);
+  const priorDraft = useRef({ title: work.title, topic: work.topic, pages: initialPages, direction: work.direction ?? 'restrained', theme: work.theme });
+  useEffect(() => {
+    const next = { title: work.title, topic: work.topic, pages: pptBodyPages(work), direction: work.direction ?? 'restrained', theme: work.theme };
+    const current = { title, topic, pages, direction, theme };
+    if (JSON.stringify(current) === JSON.stringify(priorDraft.current) || JSON.stringify(current) === JSON.stringify(next)) {
+      setTitle(next.title);
+      setTopic(next.topic);
+      setPages(next.pages);
+      setDirection(next.direction);
+      setTheme(next.theme);
+    }
+    priorDraft.current = next;
+  }, [work.revision]);
+  useEffect(() => {
+    if (pendingStart === null) return;
+    const revision = work.revision ?? 1;
+    if (revision <= pendingStart || work.plan?.confirmed !== true) return;
+    setPendingStart(null);
+    onCommand({
+      kind: 'generateSlides',
+      workId: work.id,
+      body: { requestKey: createRequestKey(), confirmGenerate: true, expectedRevision: revision },
+    });
+  }, [pendingStart, work.revision, work.plan?.confirmed]);
+  useEffect(() => {
+    if (pendingStart === null) return;
+    const timer = window.setTimeout(() => setPendingStart(null), 20_000);
+    return () => window.clearTimeout(timer);
+  }, [pendingStart]);
 
-  const saveTheme = (): void => {
-    onCommand({ kind: 'update', workId: work.id, body: { expectedRevision: work.revision ?? 1, requestKey: createRequestKey(), theme, confirmUpdate: true } });
+  const dirty =
+    title !== work.title ||
+    topic !== work.topic ||
+    JSON.stringify(pages) !== JSON.stringify(initialPages) ||
+    direction !== (work.direction ?? 'restrained') ||
+    theme !== work.theme;
+  const slidesChanged = JSON.stringify(pages) !== JSON.stringify(work.slides);
+  const saving = busyKind === 'update' || busyKind === 'generate';
+  const saveBody = (confirmed: boolean): PptWorkUpdateRequest => {
+    const plain = defaultPptPlan(work);
+    const plan = confirmed ? { ...(work.plan ?? plain), confirmed: true } : undefined;
+    return {
+      requestKey: createRequestKey(),
+      confirmUpdate: true,
+      expectedRevision: work.revision ?? 1,
+      title: title.trim() === '' ? work.title : title.trim(),
+      topic,
+      outline: pages.map((page) => page.title),
+      direction,
+      theme,
+      ...(plan === undefined ? {} : { plan }),
+      ...(slidesChanged ? { slides: pages } : {}),
+    };
   };
-
+  const saveDraft = (): void => {
+    if (blocked || saving || !dirty) return;
+    onCommand({ kind: 'update', workId: work.id, body: saveBody(false) });
+  };
+  const confirmAndStart = (): void => {
+    if (blocked || saving) return;
+    setPendingStart(work.revision ?? 1);
+    onCommand({ kind: 'update', workId: work.id, body: saveBody(true) });
+  };
+  const move = (index: number, step: number): void => {
+    const destination = index + step;
+    if (destination < 0 || destination >= pages.length) return;
+    const next = [...pages];
+    [next[index], next[destination]] = [next[destination]!, next[index]!];
+    setPages(next);
+  };
   return (
     <div className="col" style={{ gap: 18 }}>
-      <PptDirections {...{ work, blocked, onCommand }} />
+      <div className="row wrap" style={{ gap: 8 }}>
+        <span style={{ fontSize: 13.5 }}>制作方案</span>
+        <span className="hint">确认后才开始逐页制作 · 之后仍可调整</span>
+        <span className="grow" />
+        {work.plan?.confirmed === true ? <Badge tone="done" icon="check">方案已确认</Badge> : null}
+      </div>
 
       <div className="ppt-field-row">
-        <div className="field" style={{ flex: '0 0 260px' }}>
-          <label className="label" htmlFor={`ppt-wb-theme-${work.id}`}>
-            版式主题
-          </label>
-          <select
-            id={`ppt-wb-theme-${work.id}`}
-            className="select"
-            value={theme}
-            disabled={blocked || busyKind === 'update'}
-            onChange={(event) => {
-              setTheme(event.target.value as ThemeIdValue);
-            }}
-          >
-            {THEME_IDS.map((id) => (
-              <option key={id} value={id}>
-                {THEMES[id].label}（{id}）
-              </option>
-            ))}
-          </select>
-          <span className="hint">当前服务值：{themeLabel(work.theme)}</span>
+        <div className="field" style={{ flex: '1 1 220px' }}>
+          <label className="label" htmlFor={`ppt-wb-title-${work.id}`}>标题</label>
+          <input id={`ppt-wb-title-${work.id}`} className="input" value={title} maxLength={120} disabled={blocked || saving} onChange={(event) => setTitle(event.target.value)} />
         </div>
-        <div className="field" style={{ flex: '1 1 220px', margin: 0 }}>
-          <span className="label">保存主题</span>
-          <div className="row wrap" style={{ gap: 8 }}>
-            <Button
-              variant="secondary"
-              icon="check"
-              disabled={blocked || busyKind === 'update' || !themeChanged}
-              disabledReason={
-                blockedReason ??
-                (busyKind === 'update'
-                  ? '主题保存请求已发出，正在等待服务回执。'
-                  : !themeChanged
-                    ? '主题与当前保存值一致，不需要保存。'
-                    : undefined)
-              }
-              onClick={saveTheme}
-            >
-              {busyKind === 'update' ? '正在保存…' : '保存主题'}
-            </Button>
-            <span className="hint">主题保存也走 PATCH 与回执。</span>
-          </div>
+        <div className="field" style={{ flex: '1 1 220px' }}>
+          <label className="label" htmlFor={`ppt-wb-topic-${work.id}`}>主题</label>
+          <input id={`ppt-wb-topic-${work.id}`} className="input" value={topic} maxLength={2000} disabled={blocked || saving} onChange={(event) => setTopic(event.target.value)} />
+        </div>
+        <div className="field" style={{ flex: '0 0 200px', margin: 0 }}>
+          <label className="label" htmlFor={`ppt-wb-theme-${work.id}`}>版式主题</label>
+          <select id={`ppt-wb-theme-${work.id}`} className="select" value={theme} disabled={blocked || saving} onChange={(event) => setTheme(event.target.value as ThemeIdValue)}>
+            {THEME_IDS.map((id) => <option key={id} value={id}>{THEMES[id].label}</option>)}
+          </select>
         </div>
       </div>
 
       <div>
-        <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+        <div className="row wrap" style={{ gap: 8, marginBottom: 8 }}>
           <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>大纲</h4>
-          <span className="hint num">{String(work.outline.length)} 条</span>
+          <span className="hint num">{pages.length} 页</span>
           <span className="grow" />
           <Button
-            variant="primary"
+            variant="secondary"
+            size="sm"
             icon="wand"
-            disabled={blocked || work.actions?.generate.allowed===false}
-            disabledReason={blockedReason ?? work.actions?.generate.reason}
+            disabled={blocked || saving || work.actions?.generate.allowed === false}
+            disabledReason={blockedReason ?? work.actions?.generate.reason ?? (saving ? '保存请求进行中…' : undefined)}
             onClick={() => {
               onCommand({ kind: 'generate', workId: work.id, body: { expectedRevision: work.revision ?? 1, requestKey: createRequestKey(), confirmGenerate: true } });
             }}
           >
             {busyKind === 'generate' ? '正在生成大纲…可能较慢' : '生成大纲'}
           </Button>
-        </div>
-        {work.outline.length === 0 ? (
-          <p className="hint">还没有大纲。可以生成大纲，或回到「讨论需求」手动写每页标题。</p>
-        ) : (
-          <ol className="ppt-outline">
-            {work.outline.map((line, index) => (
-              <li key={`${String(index)}-${line}`}>
-                <span className="ppt-num">{String(index + 1).padStart(2, '0')}</span>
-                <span className="grow">{line}</span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </div>
-
-      <div>
-        <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-          <h4 style={{ fontSize: 13.5, fontWeight: 500 }}>逐页内容</h4>
-          <span className="hint num">{String(work.slides.length)} 页</span>
-          <span className="grow" />
           <Button
-            variant="secondary"
-            icon="layers"
-            disabled={blocked || work.outline.length === 0 || work.actions?.generateSlides.allowed===false}
-            disabledReason={
-              blockedReason ?? work.actions?.generateSlides.reason ??
-              (work.outline.length === 0 ? '先生成或编辑大纲；服务要求至少 1 条大纲才能生成逐页内容。' : undefined)
-            }
-            onClick={() => {
-              onCommand({
-                kind: 'generateSlides',
-                workId: work.id,
-                body: { expectedRevision: work.revision ?? 1, requestKey: createRequestKey(), confirmGenerate: true },
-              });
-            }}
+            variant="ghost"
+            size="sm"
+            icon="plus"
+            disabled={blocked || saving || pages.length >= 100}
+            disabledReason={blockedReason ?? '最多 100 页；到上限后先删除页面。'}
+            onClick={() => setPages([...pages, { title: '新页面', bullets: [] }])}
           >
-            {busyKind === 'generateSlides' ? '正在生成逐页…可能较慢' : '生成逐页内容'}
+            加一页
           </Button>
         </div>
-        {work.slides.length === 0 ? (
-          <p className="hint">还没有逐页要点。生成大纲后可以按大纲生成逐页内容；导出 PPTX 会使用逐页要点。</p>
+        {pages.length === 0 ? (
+          <p className="hint">还没有大纲。可以生成大纲，或点「加一页」手动写每页标题；确认后才开始逐页制作。</p>
         ) : (
-          <div className="ppt-slides">
-            {work.slides.map((slide, index) => (
-              <div className="ppt-slide" key={`${String(index)}-${slide.title}`}>
-                <div className="row" style={{ gap: 8 }}>
-                  <span className="ppt-num">第 {String(index + 1)} 页</span>
-                  <b className="grow" style={{ fontSize: 13.5, fontWeight: 500 }}>
-                    {slide.title}
-                  </b>
-                </div>
-                {slide.bullets.length === 0 ? (
-                  <div className="hint" style={{ marginTop: 4 }}>
-                    这一页尚未填入要点
-                  </div>
-                ) : (
-                  <ul>
-                    {slide.bullets.map((bullet, bulletIndex) => (
-                      <li key={`${String(bulletIndex)}-${bullet}`}>{bullet}</li>
-                    ))}
-                  </ul>
-                )}
+          <div className="ppt-outline-edit">
+            {pages.map((page, index) => (
+              <div className="ppt-outline-row" key={index}>
+                <span className="n">{String(index + 1).padStart(2, '0')}</span>
+                <input
+                  className="input"
+                  value={page.title}
+                  aria-label={`第 ${index + 1} 页标题`}
+                  maxLength={200}
+                  disabled={blocked || saving}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setPages(pages.map((item, at) => (at === index ? { ...item, title: value } : item)));
+                  }}
+                />
+                <span className="acts">
+                  <Button variant="ghost" size="sm" disabled={blocked || saving || index === 0} disabledReason={index === 0 ? '已经是第一页。' : undefined} onClick={() => move(index, -1)}>上移</Button>
+                  <Button variant="ghost" size="sm" disabled={blocked || saving || index === pages.length - 1} disabledReason={index === pages.length - 1 ? '已经是最后一页。' : undefined} onClick={() => move(index, 1)}>下移</Button>
+                  <Button variant="ghost" size="sm" disabled={blocked || saving} disabledReason={blockedReason} onClick={() => setPages(pages.filter((_, at) => at !== index))}>删除</Button>
+                </span>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <p className="hint">
-        生成大纲与逐页内容会调用受管 OpenCode 模型，通常需要 30–120 秒，<b>可能较慢</b>
-        ；服务返回回执前请不要重复点击，回执状态显示在页面顶部。
-      </p>
+      <PptDirections work={work} value={direction} onChange={setDirection} blocked={blocked || saving} />
+
+      <div className="ppt-foot-cta">
+        <span className="grow">
+          <div style={{ fontSize: 13.5 }}>确认方案</div>
+          <div className="hint">将制作 {pages.length} 页 · 逐页制作会调用模型，实际耗时以模型为准 · 制作中可以继续和助手讨论</div>
+        </span>
+        <Button variant="secondary" disabled={blocked || saving} disabledReason={blockedReason} onClick={onBackToDiscuss}>回到讨论</Button>
+        {dirty ? (
+          <Button variant="ghost" disabled={blocked || saving} disabledReason={blockedReason} onClick={saveDraft}>{saving ? '正在保存…' : '仅保存修改'}</Button>
+        ) : null}
+        <Button
+          variant="primary"
+          disabled={blocked || saving || pages.length === 0 || work.actions?.generateSlides.allowed === false}
+          disabledReason={
+            blockedReason ??
+            (pages.length === 0
+              ? '至少需要一页大纲才能开始逐页制作。'
+              : work.actions?.generateSlides.reason)
+          }
+          onClick={confirmAndStart}
+        >
+          确认并开始制作
+        </Button>
+      </div>
     </div>
   );
 }

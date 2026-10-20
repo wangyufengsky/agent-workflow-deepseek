@@ -475,6 +475,63 @@
   padding: 0 5px;
   font-size: 10px;
 }
+.apply-item select.select {
+  max-width: 100%;
+}
+.apply-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.apply-sources .src {
+  font-size: 10.5px;
+  color: var(--muted);
+  padding: 3px 7px;
+  border-radius: var(--r-xs);
+  background: var(--fill-2);
+  border: 1px solid var(--line);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.apply-item.has-conflict {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+}
+.apply-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.apply-item-head .path {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.apply-item-head .effect {
+  margin-left: auto;
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.apply-item-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.apply-take-confirm {
+  margin-top: 4px;
+}
+.danger-text {
+  color: var(--danger);
+}
 .delivery-success {
   display: flex;
   flex-direction: column;
@@ -572,4 +629,386 @@
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--fill-1);
+}
+
+/* ==========================================================================
+   TD03 任务变更上下文（全宽视图）
+   只使用主题 CSS 变量；diff 由服务只读读口提供，不做本地改写。
+   ========================================================================== */
+.td03-view {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+}
+.td03-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 24px;
+  box-shadow: inset 0 -1px 0 var(--line);
+  background: var(--panel);
+}
+.td03-head .crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.td03-head .crumbs strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+.td03-head-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+.td03-context {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 20px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--fill-1);
+}
+.td03-context .row {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.td03-context .k {
+  color: var(--muted);
+  flex: none;
+}
+.td03-context .v {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+.td03-tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.td03-tab {
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.td03-tab.active {
+  color: var(--ink);
+  background: var(--fill-1);
+  border-color: var(--line);
+}
+.td03-tabs .spacer {
+  flex: 1;
+}
+.td03-leave {
+  margin: 8px 24px;
+}
+.td03-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+.td03-body.single {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 24px;
+  overflow-y: auto;
+}
+.td03-filetree {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.td03-filetree-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 2px 4px 8px;
+}
+.td03-filetree-head .spacer {
+  flex: 1;
+}
+.td03-filetree .linkish {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.td03-file {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+}
+.td03-file.active {
+  background: var(--fill-1);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.td03-file input[type='checkbox'] {
+  margin-top: 3px;
+  flex: none;
+}
+.td03-file-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  min-width: 0;
+  flex: 1;
+}
+.td03-file-open .path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+.td03-file-open .badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.td03-file-open .delta {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.td03-excluded {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.td03-excluded .path {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+.td03-diff {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.td03-diff-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  flex-wrap: wrap;
+}
+.td03-diff-bar .file-title {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.td03-diff-bar .spacer {
+  flex: 1;
+}
+.td03-diff-bar .seg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.td03-diff-bar .seg button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.td03-diff-bar .seg button.on {
+  background: var(--fill-1);
+  color: var(--ink);
+}
+.td03-diff-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.td03-diff-hunk + .td03-diff-hunk {
+  margin-top: 4px;
+}
+.td03-diff-hunk-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--fill-2);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 41px;
+}
+.td03-diff-line {
+  display: grid;
+  grid-template-columns: 48px 48px 18px minmax(0, 1fr);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  min-width: 0;
+}
+.td03-diff-line .num {
+  padding: 0 8px;
+  text-align: right;
+  color: var(--faint);
+  user-select: none;
+  border-right: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.td03-diff-line .sig {
+  text-align: center;
+  color: var(--muted);
+  user-select: none;
+}
+.td03-diff-line .text {
+  padding: 0 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+.td03-diff-line.add {
+  background: var(--ok-fill);
+}
+.td03-diff-line.add .num,
+.td03-diff-line.add .sig {
+  color: var(--ok);
+}
+.td03-diff-line.del {
+  background: var(--danger-fill);
+}
+.td03-diff-line.del .num,
+.td03-diff-line.del .sig {
+  color: var(--danger);
+}
+.td03-diff-line.no_newline .text {
+  color: var(--muted);
+  font-style: italic;
+}
+.td03-diff-lines.split .td03-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 0;
+}
+.td03-diff-lines.split .cell {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+.td03-diff-lines.split .cell .num {
+  padding: 0 6px;
+  text-align: right;
+  color: var(--faint);
+  border-right: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.td03-diff-lines.split .cell .text {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+.td03-diff-lines.split .cell.add {
+  background: var(--ok-fill);
+}
+.td03-diff-lines.split .cell.add .num {
+  color: var(--ok);
+}
+.td03-diff-lines.split .cell.del {
+  background: var(--danger-fill);
+}
+.td03-diff-lines.split .cell.del .num {
+  color: var(--danger);
+}
+.td03-diff-lines.split .cell.empty {
+  background: var(--fill-2);
+}
+.td03-diff-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.td03-evidence {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.td03-evidence-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--fill-1);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.td03-evidence-card h3 {
+  font-size: 14px;
+  font-weight: 500;
+}
+@media (max-width: 900px) {
+  .td03-body {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
 }

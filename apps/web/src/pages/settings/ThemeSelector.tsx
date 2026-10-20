@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { THEME_CONFIGS, THEME_ORDER, THEMES, type ThemeIdValue } from '@agent-workflow/shared';
 import { Icon } from '../../components/Icon.tsx';
 import { useTheme } from '../../theme/ThemeProvider.tsx';
+import { designThemeLabel } from '../../theme/themeLabels.ts';
 
 /** Preview colours come from the same shared theme tokens that drive the app. */
 function previewVariables(theme: ThemeIdValue): CSSProperties {
@@ -49,7 +50,7 @@ export function ThemeSelector() {
               </span>
               <span className="nm">
                 <span>
-                  {meta.label}
+                  {designThemeLabel(id)}
                   <span className="desc" style={{ marginLeft: 6 }}>
                     {meta.description}
                   </span>
@@ -66,7 +67,7 @@ export function ThemeSelector() {
       </div>
       <span className="theme-current">
         <span className="status-dot-accent dot" aria-hidden="true" />
-        当前主题：{THEMES[theme].label} · 切换立即生效，并写入 URL（?theme=）与本地存储
+        当前主题：{designThemeLabel(theme)} · 切换立即生效，并写入 URL（?theme=）与本地存储
       </span>
     </div>
   );

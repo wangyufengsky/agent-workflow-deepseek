@@ -3,13 +3,17 @@ import { useEffect, useState } from 'react';
 import type { ActionAvailability, PlanningRound, SaveAnswerRequest } from '@agent-workflow/shared';
 import { Badge } from '../../components/Badge.tsx';
 import { Icon } from '../../components/Icon.tsx';
-import { ActionReasonLine, ServiceActionButton } from '../../flow/workflow-ui.tsx';
+import { Button } from '../../components/Button.tsx';
+import { ActionReasonLine } from '../../flow/workflow-ui.tsx';
 import { PanelEmpty, Section } from './requirement-ui.tsx';
 
 export interface DraftPanelProps {
   readonly round?: PlanningRound;
+  readonly requirementRevision?: number;
   readonly saveAnswerAction?: ActionAvailability;
   readonly busy: boolean;
+  readonly lockedReason?: string;
+  readonly onLocateNode?: (nodeId: string) => void;
   readonly onSaveAnswers: (answers: SaveAnswerRequest['answers']) => void;
 }
 
@@ -17,7 +21,7 @@ export interface DraftPanelProps {
  * “草稿与问题” tab: checkpoint coverage, model questions/assumptions and the
  * answer saving path. Assumptions stay labelled as model claims, never as facts.
  */
-export function DraftPanel({ round, saveAnswerAction, busy, onSaveAnswers }: DraftPanelProps) {
+export function DraftPanel({ round, requirementRevision, saveAnswerAction, busy, lockedReason, onLocateNode, onSaveAnswers }: DraftPanelProps) {
   const [answers, setAnswers] = useState<Record<string, QuestionDraft>>({});
 
   useEffect(() => {
@@ -31,7 +35,20 @@ export function DraftPanel({ round, saveAnswerAction, busy, onSaveAnswers }: Dra
   const questions = round.questions;
   const assumptions = round.assumptions;
   const answered = questions.filter((question) => answers[question.id] !== undefined && hasQuestionAnswer(answers[question.id]!));
-  const allAnswered = questions.every((question) => !question.required || (answers[question.id] !== undefined && hasQuestionAnswer(answers[question.id]!)) || question.answer !== undefined);
+  const answeredNow = questions.filter(
+    (question) =>
+      question.answer !== undefined ||
+      (answers[question.id] !== undefined && hasQuestionAnswer(answers[question.id]!)),
+  );
+  const missingRequired = questions.filter(
+    (question) =>
+      question.required &&
+      question.answer === undefined &&
+      (answers[question.id] === undefined || !hasQuestionAnswer(answers[question.id]!)),
+  );
+  const allAnswered = missingRequired.length === 0;
+  const nodes = round.candidate === undefined ? [] : [];
+  void nodes;
 
   return (
     <div>
@@ -83,30 +100,55 @@ export function DraftPanel({ round, saveAnswerAction, busy, onSaveAnswers }: Dra
                   {question.answeredAt === undefined ? '' : ` · ${question.answeredAt}`}
                 </div>
               )}
-              {question.affectedNodeIds.length === 0 ? null : <div className="hint">影响步骤：{question.affectedNodeIds.length} 个</div>}
+              {question.affectedNodeIds.length === 0 ? (
+                <div className="hint">影响步骤：服务未返回具体步骤（来源见本轮记录）</div>
+              ) : (
+                <div className="hint">
+                  影响步骤：{question.affectedNodeIds.length} 个
+                  {onLocateNode === undefined ? null : (
+                    <>
+                      {' · '}
+                      <button type="button" className="linkish" onClick={() => { const first = question.affectedNodeIds[0]; if (first !== undefined) onLocateNode(first); }}>
+                        定位到第 1 个
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           ))
         )}
         {questions.length === 0 ? null : (
           <div className="draft-actions">
-            <ServiceActionButton
+            <Button
               size="sm"
               variant="primary"
               icon="send"
-              action={saveAnswerAction}
-              busy={busy}
-              fallbackReason="当前没有必须答复的问题"
-              onRun={() => {
+              disabled={busy || lockedReason !== undefined || saveAnswerAction?.allowed !== true || missingRequired.length > 0}
+              disabledReason={
+                lockedReason
+                ?? (saveAnswerAction?.allowed === true ? undefined : saveAnswerAction?.reason)
+                ?? (missingRequired.length > 0 ? `还有 ${String(missingRequired.length)} 个必须回答的问题未答复；全部回答后才能保存` : undefined)
+              }
+              onClick={() => {
                 const payload = questions
                   .filter((question) => answers[question.id] !== undefined && hasQuestionAnswer(answers[question.id]!))
                   .map((question) => ({ questionId: question.id, answer: answers[question.id]!.other, values: answers[question.id]!.values, other: answers[question.id]!.other }));
                 onSaveAnswers(payload);
               }}
             >
-              保存答复（{answered.length}）
-            </ServiceActionButton>
+              {busy ? '正在保存…' : `保存答复（${String(answeredNow.length)}/${String(questions.length)}）`}
+            </Button>
             <ActionReasonLine action={saveAnswerAction} />
-            {allAnswered ? null : <span className="hint">仍有问题未答复；保存后形成新的输入修订，再预览新一轮。</span>}
+            {missingRequired.length > 0 ? (
+              <span className="hint" role="note">
+                必须回答的问题还有 {missingRequired.length} 个未答复：{missingRequired.map((question) => question.question).join('；')}。全部回答后才能保存并形成新的输入修订。
+              </span>
+            ) : (
+              <span className="hint">
+                保存会形成需求输入修订 {(requirementRevision ?? round.inputRevision) + 1}（旧轮次输入不变）；答复不会改旧轮次。服务会按新修订重新校验已有候选（不调用模型）。
+              </span>
+            )}
           </div>
         )}
       </Section>

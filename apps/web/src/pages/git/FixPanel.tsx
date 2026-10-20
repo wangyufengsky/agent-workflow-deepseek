@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { isApiClientError } from '../../api/client.ts';
 import {
+  ErrorCode,
   type DeliveryStepState,
   type FileChange,
   type FixRun,
@@ -12,8 +15,8 @@ import {
 import {
   classifyGitFailure,
   commitFix,
-  mergeFix,
   createFixMergeRequest,
+  fetchRemote,
   discardFix,
   fetchFix,
   fetchOperationByKey,
@@ -49,7 +52,7 @@ import {
   shortSha,
 } from './git-shared.tsx';
 
-type FixDialog = 'start' | 'commit' | 'push' | 'mr' | 'merge' | 'discard' | null;
+type FixDialog = 'start' | 'commit' | 'push' | 'mr' | 'discard' | null;
 
 function shouldRetry(failureCount: number, error: unknown): boolean {
   return classifyGitFailure(error) === 'failed' && failureCount < 2;
@@ -85,6 +88,169 @@ function verificationText(fix: FixRun): string {
   }
 }
 
+/** 修复四阶段（g41）：准备修复分支 → 修改代码 → 校验 → 完成；阶段只来自 FixRun.state。 */
+const FIX_STAGES = [
+  { id: 'preparing', label: '准备修复分支' },
+  { id: 'editing', label: '修改代码' },
+  { id: 'verifying', label: '校验' },
+  { id: 'ready', label: '完成' },
+] as const;
+
+function fixStageIndex(state: FixRun['state']): number {
+  switch (state) {
+    case 'preparing':
+      return 0;
+    case 'editing':
+      return 1;
+    case 'verifying':
+      return 2;
+    case 'ready':
+    case 'no_changes':
+      return 3;
+    default:
+      return -1;
+  }
+}
+
+interface FixFailureInfo {
+  readonly code: string | null;
+  readonly message: string;
+  readonly output?: string;
+  readonly details: Record<string, unknown> | null;
+}
+
+function readFixFailure(error: unknown): FixFailureInfo | undefined {
+  if (error === null || error === undefined) return undefined;
+  if (isApiClientError(error)) {
+    const output = typeof error.details?.output === 'string' ? error.details.output : undefined;
+    return {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      ...(output === undefined ? {} : { output }),
+    };
+  }
+  if (error instanceof Error) return { code: null, message: error.message, details: null };
+  return { code: null, message: '操作失败', details: null };
+}
+
+/**
+ * 写操作失败态的结构化出路（g52/g56/g59/g60/g61）。
+ * 按服务返回的 ErrorCode 给出下一步入口；不提供强制推送、不跳过 hook、
+ * 不伪造远端提交列表——服务没有给出的上下文如实说明（C1）。
+ */
+function FixFailureCard({
+  error,
+  gitlabReady,
+  remoteWebUrl,
+  fetchPending,
+  onFetch,
+  onRetryCommit,
+  onRefresh,
+  onDismiss,
+}: {
+  readonly error: unknown;
+  readonly gitlabReady: boolean;
+  readonly remoteWebUrl: string | undefined;
+  readonly fetchPending: boolean;
+  readonly onFetch: () => void;
+  readonly onRetryCommit: () => void;
+  readonly onRefresh: () => void;
+  readonly onDismiss: () => void;
+}) {
+  const info = readFixFailure(error);
+  if (info === undefined) return null;
+  const code = info.code;
+  const title =
+    code === ErrorCode.PUSH_REJECTED_NON_FF ? '推送被拒（non-fast-forward）'
+      : code === ErrorCode.REMOTE_BRANCH_EXISTS ? '远端已有同名分支'
+        : code === ErrorCode.GITLAB_AUTH_FAILED ? '远端认证失败'
+          : code === ErrorCode.MR_ALREADY_EXISTS ? '合并请求已存在'
+            : code === ErrorCode.HOOK_REJECTED ? '提交被 Git hook 拒绝'
+              : code === ErrorCode.MERGE_CONFLICT ? '合并冲突'
+                : code === ErrorCode.STALE_TARGET ? '远端事实已变化'
+                  : code === ErrorCode.OPERATION_IN_PROGRESS ? '仓库正在执行其他写操作'
+                    : code === ErrorCode.RECEIPT_UNKNOWN ? '结果待核对'
+                      : '操作失败';
+  const tone = code === ErrorCode.RECEIPT_UNKNOWN ? 'unknown' : code === ErrorCode.GITLAB_AUTH_FAILED || code === ErrorCode.HOOK_REJECTED ? 'danger' : 'warn';
+  const existingIid = typeof info.details?.iid === 'number' ? info.details.iid : undefined;
+  const existingWebUrl = typeof info.details?.webUrl === 'string' ? info.details.webUrl : undefined;
+  return (
+    <div className={['banner', tone, 'fix-failure-card'].join(' ')} role="alert">
+      <Icon name={code === ErrorCode.RECEIPT_UNKNOWN ? 'help' : 'alert'} />
+      <div className="grow">
+        <b>{title}</b>
+        <span className="failure-detail">
+          {info.message}
+          {code === null ? '' : ` · ${code}`}
+        </span>
+        {info.output === undefined ? null : <code className="receipt-output">{info.output}</code>}
+        {code === ErrorCode.PUSH_REJECTED_NON_FF || code === ErrorCode.REMOTE_BRANCH_EXISTS ? (
+          <span className="receipt-note">
+            不提供强制推送。先获取远端更新，再看真实 ahead / behind 决定换分支名推送或稍后处理；远端多出的提交列表服务暂未提供（C1），界面不伪造该列表。
+          </span>
+        ) : null}
+        {code === ErrorCode.GITLAB_AUTH_FAILED ? (
+          <span className="receipt-note">凭据只在服务端。到「设置 → GitLab」验证连接后，回到这里用原按钮重试（新 requestKey）。</span>
+        ) : null}
+        {code === ErrorCode.MR_ALREADY_EXISTS ? (
+          <span className="receipt-note">同一源 → 目标已有打开的合并请求，不重复创建；推送已经更新了它。</span>
+        ) : null}
+        {code === ErrorCode.HOOK_REJECTED ? (
+          <span className="receipt-note">修复分支内容没有变化；修改后可重试提交（新 requestKey）。不提供跳过 hook。</span>
+        ) : null}
+        {code === ErrorCode.MERGE_CONFLICT ? (
+          <span className="receipt-note">目标分支未被改动；产品内不提供直接合并，建议改用创建合并请求。</span>
+        ) : null}
+      </div>
+      <div className="actions">
+        {code === ErrorCode.PUSH_REJECTED_NON_FF || code === ErrorCode.REMOTE_BRANCH_EXISTS ? (
+          <Button variant="secondary" size="sm" icon="refresh" disabled={fetchPending} disabledReason={fetchPending ? '正在获取远端更新，等待服务回执…' : undefined} onClick={onFetch}>
+            {fetchPending ? '获取中…' : '获取远端更新'}
+          </Button>
+        ) : null}
+        {code === ErrorCode.GITLAB_AUTH_FAILED || code === ErrorCode.PUSH_REJECTED_NON_FF ? (
+          <Link className="btn ghost sm" to="/settings">
+            <Icon name="settings" size="sm" />
+            去设置验证连接
+          </Link>
+        ) : null}
+        {code === ErrorCode.MR_ALREADY_EXISTS && (existingWebUrl !== undefined || existingIid !== undefined) ? (
+          existingWebUrl === undefined ? (
+            <span className="muted-note">已有合并请求 !{String(existingIid ?? '')}</span>
+          ) : (
+            <a className="btn ghost sm" href={existingWebUrl} target="_blank" rel="noreferrer noopener">
+              <Icon name="external" size="sm" />
+              打开已有合并请求{existingIid === undefined ? '' : ` !${String(existingIid)}`}
+            </a>
+          )
+        ) : null}
+        {code === ErrorCode.HOOK_REJECTED ? (
+          <Button variant="secondary" size="sm" icon="edit" onClick={onRetryCommit}>
+            修改后重试提交
+          </Button>
+        ) : null}
+        {code === ErrorCode.PUSH_REJECTED_NON_FF || code === ErrorCode.REMOTE_BRANCH_EXISTS ? (
+          remoteWebUrl === undefined || !gitlabReady ? null : (
+            <a className="btn ghost sm" href={remoteWebUrl} target="_blank" rel="noreferrer noopener">
+              <Icon name="external" size="sm" />
+              在 GitLab 打开
+            </a>
+          )
+        ) : null}
+        {code === ErrorCode.STALE_TARGET || code === ErrorCode.OPERATION_IN_PROGRESS ? (
+          <Button variant="secondary" size="sm" icon="refresh" onClick={onRefresh}>
+            重新读取
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="sm" onClick={onDismiss}>
+          收起
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export interface FixPanelProps {
   readonly projectId: string;
   readonly repo: GitRepo;
@@ -113,7 +279,6 @@ export function FixPanel({
   const queryClient = useQueryClient();
   const bootstrap = useBootstrap();
   const [dialog, setDialog] = useState<FixDialog>(null);
-  const [mergeMessage, setMergeMessage] = useState('');
   const [receipt, setReceipt] = useState<ReceiptView | null>(null);
   const [lookupKey, setLookupKey] = useState<string | null>(null);
   const [fixRunId, setFixRunId] = useState<string | undefined>(undefined);
@@ -125,6 +290,7 @@ export function FixPanel({
   const [mrTitle, setMrTitle] = useState('');
   const [mrDescription, setMrDescription] = useState('');
   const [mrTarget, setMrTarget] = useState('');
+  const [createdMrTarget, setCreatedMrTarget] = useState<string | undefined>(undefined);
   const [professionId, setProfessionId] = useState('');
   const [professionRevision, setProfessionRevision] = useState('');
 
@@ -287,6 +453,7 @@ export function FixPanel({
     onSuccess: (data) => {
       setReceipt(toReceiptView(data.receipt));
       setDialog(null);
+      setCreatedMrTarget(mrTarget);
       void invalidateFix();
     },
   });
@@ -314,6 +481,28 @@ export function FixPanel({
     },
   });
 
+  // 推送被拒 / 远端同名分支 / 认证失败时的出路：先获取远端更新（只读 fetch，不重发推送）。
+  const fetchMutation = useMutation({
+    mutationFn: () => fetchRemote(projectId),
+    retry: false,
+    onSuccess: (data) => {
+      setReceipt(toReceiptView(data.receipt));
+      void queryClient.invalidateQueries({ queryKey: gitKeys.repo(projectId) });
+      void queryClient.invalidateQueries({ queryKey: gitKeys.branches(projectId) });
+    },
+  });
+
+  const clearFailures = () => {
+    startMutation.reset();
+    commitMutation.reset();
+    pushMutation.reset();
+    mrMutation.reset();
+    revertMutation.reset();
+    discardMutation.reset();
+    stopMutation.reset();
+    fetchMutation.reset();
+  };
+
   const openCommitDialog = () => {
     if (fix === undefined) return;
     const files = fix.changes?.files ?? [];
@@ -327,23 +516,6 @@ export function FixPanel({
   const openPushDialog = () => {
     setDialog('push');
   };
-
-  const mergeMutation = useMutation({
-    mutationFn: async () => {
-      if (fix === undefined || mergeBaseTip === undefined) throw new Error('没有读取到基线分支 tip');
-      return mergeFix({
-        projectId: repo.projectId,
-        fixRunId: fix.fixRunId,
-        expectedBaseTip: mergeBaseTip,
-        ...(mergeMessage.trim() === '' ? {} : { message: mergeMessage.trim() }),
-      });
-    },
-    onSuccess: async (result) => {
-      setReceipt(result.receipt ?? null);
-      setDialog(null);
-      await invalidateFix();
-    },
-  });
 
   const openMrDialog = () => {
     const target = repo.defaultBranch ?? branches[0]?.name ?? '';
@@ -359,8 +531,6 @@ export function FixPanel({
   const commitStep = fix === undefined ? undefined : stepOf(fix, 'commit');
   const pushStep = fix === undefined ? undefined : stepOf(fix, 'push');
   const mrStep = fix === undefined ? undefined : stepOf(fix, 'mergeRequest');
-  const mergeStep = fix === undefined ? undefined : stepOf(fix, 'merge');
-  const mergeBaseTip = fix === undefined ? undefined : branches.find((branch) => branch.name === fix.base.branch && branch.kind === 'local')?.tipSha ?? branches.find((branch) => branch.name === fix.base.branch)?.tipSha;
   const gitlabReady = repo.gitlab === 'connected' && repo.remote !== undefined;
 
   const startBlockedReason =
@@ -377,6 +547,10 @@ export function FixPanel({
               : professionId.length === 0
                 ? '没有可用的修复职业。'
                 : null;
+
+  const failure =
+    startMutation.error ?? commitMutation.error ?? pushMutation.error ?? mrMutation.error ??
+    revertMutation.error ?? discardMutation.error ?? stopMutation.error ?? fetchMutation.error ?? undefined;
 
   const verification = fix?.verification;
   const verifyFailed = verification?.state === 'failed';
@@ -489,6 +663,37 @@ export function FixPanel({
             <Button variant="ghost" size="sm" icon="refresh" onClick={() => { void fixQuery.refetch(); }}>
               重新读取
             </Button>
+          </div>
+
+          <div className="review-stages" role="list" aria-label="修复阶段">
+            {FIX_STAGES.map((stage, index) => {
+              const current = fixStageIndex(fix.state);
+              const state =
+                fix.state === 'failed'
+                  ? 'failed'
+                  : fix.state === 'ready' || fix.state === 'no_changes'
+                    ? 'done'
+                    : current === -1
+                      ? 'pending'
+                      : index < current
+                        ? 'done'
+                        : index === current
+                          ? fix.state === 'stopping' ? 'stopping' : 'running'
+                          : 'pending';
+              return (
+                <span key={stage.id} className="review-stage" data-state={state} role="listitem">
+                  <span className="review-stage-dot" aria-hidden="true">
+                    <Icon name={state === 'done' ? 'check' : state === 'failed' ? 'alert' : state === 'running' || state === 'stopping' ? 'clock' : 'minus'} size="sm" />
+                  </span>
+                  <span>{stage.label}</span>
+                </span>
+              );
+            })}
+            <span className="muted-note">
+              {fix.state === 'failed'
+                ? '修复失败：服务没有返回失败前阶段，界面不推测；可重新修复（新开一次）或放弃。'
+                : '阶段来自服务返回的 FixRun.state；不显示假百分比。'}
+            </span>
           </div>
 
           {fix.state === 'unknown' ? (
@@ -638,13 +843,36 @@ export function FixPanel({
             <div className={`fix-step ${pushStep?.state === 'succeeded' ? '' : 'locked'}`}>
               <div className="fix-step-head">
                 <Badge tone={mrStep?.state === 'succeeded' ? 'ok' : pushStep?.state === 'succeeded' ? 'accent' : 'neutral'}>
-                  {mrStep?.state === 'succeeded' ? '已创建' : pushStep?.state === 'succeeded' ? '可确认' : '未开始'}
+                  {mrStep?.state === 'succeeded' ? '已创建' : pushStep?.state === 'succeeded' ? '可选择' : '未开始'}
                 </Badge>
-                <span className="fix-step-title">③ 创建合并请求</span>
-                {mrStep?.mrIid === undefined ? null : <span className="mono-sm">!{String(mrStep.mrIid)}</span>}
+                <span className="fix-step-title">③ 选择合并方式（创建合并请求 / 直接合并）</span>
               </div>
               <div className="fix-step-desc">
-                在 GitLab 创建 MR；创建成功只代表所选交付完成，不等待合并。也可以在下方直接合并本地修复分支（独立确认，no-ff + CAS）。
+                推荐创建合并请求：合并本身在 GitLab 完成，产品内不提供可执行合并按钮。创建成功即表示这次修复的合并方式已确定，不等待合并。
+              </div>
+              <div className="radio-card-list" role="radiogroup" aria-label="合并方式">
+                <label className="radio-card" data-checked={true}>
+                  <input type="radio" name="fix-merge-way" checked readOnly />
+                  <span>
+                    <span className="radio-title">
+                      创建合并请求
+                      <Badge tone="ok" icon="check">推荐</Badge>
+                    </span>
+                    <span className="radio-desc">
+                      AI 草拟标题与说明（附所选审查问题），可指定目标分支。合并、关闭与流水线都在 GitLab 完成。
+                    </span>
+                  </span>
+                </label>
+                <label className="radio-card" data-checked={false} aria-disabled="true">
+                  <input type="radio" name="fix-merge-way" checked={false} disabled readOnly />
+                  <span>
+                    <span className="radio-title">
+                      直接合并
+                      <Badge tone="idle" icon="lock">未提供</Badge>
+                    </span>
+                    <span className="radio-desc">合并在 GitLab 中进行，产品内合并未提供。</span>
+                  </span>
+                </label>
               </div>
               <div className="fix-step-actions">
                 <Button
@@ -661,7 +889,7 @@ export function FixPanel({
                   }
                   onClick={openMrDialog}
                 >
-                  {mrStep?.state === 'succeeded' ? '已创建' : '创建合并请求'}
+                  {mrStep?.state === 'succeeded' ? '已创建合并请求' : '创建合并请求'}
                 </Button>
                 {mrStep?.mrWebUrl === undefined ? null : (
                   <a className="btn ghost sm" href={mrStep.mrWebUrl} target="_blank" rel="noreferrer noopener">
@@ -669,57 +897,51 @@ export function FixPanel({
                     在 GitLab 打开
                   </a>
                 )}
+                {mrStep?.mrIid === undefined ? null : <Badge tone="ok" icon="gitRepo">!{String(mrStep.mrIid)}</Badge>}
               </div>
-            </div>
-
-            <div className={`fix-step ${commitStep?.state === 'succeeded' ? '' : 'locked'}`}>
-              <div className="fix-step-head">
-                <Badge tone={mergeStep?.state === 'succeeded' ? 'ok' : commitStep?.state === 'succeeded' ? 'accent' : 'neutral'}>
-                  {mergeStep?.state === 'succeeded' ? '已合并' : commitStep?.state === 'succeeded' ? '可确认' : '未开始'}
-                </Badge>
-                <span className="fix-step-title">④ 合并回基线分支</span>
-                {mergeStep?.commitSha === undefined ? null : <span className="mono-sm">{shortSha(mergeStep.commitSha)}</span>}
-              </div>
-              <div className="fix-step-desc">
-                在本地仓库把修复分支合并回 <span className="mono">{fix.base.branch}</span>（no-ff + 目标分支 CAS）；不代替推送/MR，可独立选择。
-              </div>
-              <div className="fix-step-actions">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon="branch"
-                  disabled={commitStep?.state !== 'succeeded' || mergeStep?.state === 'succeeded' || mergeBaseTip === undefined || mergeMutation.isPending}
-                  disabledReason={
-                    mergeMutation.isPending ? '正在合并，等待服务回执…'
-                      : commitStep?.state !== 'succeeded' ? '提交成功后才能合并。'
-                        : mergeStep?.state === 'succeeded' ? '修复分支已合并。'
-                          : mergeBaseTip === undefined ? '没有读取到目标分支当前 tip；刷新分支后再确认。'
-                            : undefined
-                  }
-                  onClick={() => { setDialog('merge'); }}
-                >
-                  {mergeStep?.state === 'succeeded' ? '已合并' : '合并修复分支'}
-                </Button>
-                {mergeStep?.state === 'succeeded' ? null : <span className="muted-note">合并前会再次读取目标分支 tip；漂移即停止。</span>}
-              </div>
+              {mrStep?.state === 'succeeded' ? (
+                <div className="dialog-facts">
+                  <div className="row-line"><span className="k">源</span><span className="v mono">{fix.fixBranch}</span></div>
+                  <div className="row-line"><span className="k">目标</span><span className="v mono">{createdMrTarget ?? fix.base.branch}</span></div>
+                  <div className="row-line"><span className="k">流水线</span><span className="v">未读取（需要 GitLab 只读查询；不推定成功）</span></div>
+                  <div className="row-line"><span className="k">评审人</span><span className="v">暂未接通（非必填）</span></div>
+                  <div className="row-line"><span className="k">合并</span><span className="v">在 GitLab 中进行；产品内不提供合并按钮</span></div>
+                </div>
+              ) : null}
             </div>
           </div>
 
           <div className="row-wrap">
             <span className="grow" />
-            <Button variant="danger" size="sm" icon="trash" disabled={discardMutation.isPending || fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying'} disabledReason={discardMutation.isPending ? '正在提交放弃请求，等待服务回执…' : fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying' ? '修复进行中不能放弃；先停止并等停稳。' : undefined} onClick={() => { setDialog('discard'); }}>
-              放弃修复
-            </Button>
+            {fix.state === 'no_changes' ? (
+              <Button
+                variant="danger"
+                size="sm"
+                icon="trash"
+                disabled={discardMutation.isPending}
+                disabledReason={discardMutation.isPending ? '正在提交清理请求，等待服务回执…' : undefined}
+                onClick={() => { discardMutation.mutate(); }}
+              >
+                清理修复分支（无需二次确认）
+              </Button>
+            ) : (
+              <Button variant="danger" size="sm" icon="trash" disabled={discardMutation.isPending || fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying'} disabledReason={discardMutation.isPending ? '正在提交放弃请求，等待服务回执…' : fix.state === 'preparing' || fix.state === 'editing' || fix.state === 'verifying' ? '修复进行中不能放弃；先停止并等停稳。' : undefined} onClick={() => { setDialog('discard'); }}>
+                放弃修复
+              </Button>
+            )}
           </div>
-          {startMutation.isError || commitMutation.isError || pushMutation.isError || mrMutation.isError || mergeMutation.isError || revertMutation.isError || discardMutation.isError || stopMutation.isError ? (
-            <FailureNotice
-              error={
-                startMutation.error ?? commitMutation.error ?? pushMutation.error ?? mrMutation.error ?? mergeMutation.error ??
-                revertMutation.error ?? discardMutation.error ?? stopMutation.error
-              }
-              compact
+          {failure === undefined ? null : (
+            <FixFailureCard
+              error={failure}
+              gitlabReady={gitlabReady}
+              remoteWebUrl={repo.remote?.webUrl}
+              fetchPending={fetchMutation.isPending}
+              onFetch={() => { fetchMutation.mutate(); }}
+              onRetryCommit={() => { clearFailures(); openCommitDialog(); }}
+              onRefresh={() => { clearFailures(); void fixQuery.refetch(); }}
+              onDismiss={clearFailures}
             />
-          ) : null}
+          )}
         </>
       )}
 
@@ -788,11 +1010,11 @@ export function FixPanel({
           <>
             <Button variant="ghost" onClick={() => { setDialog(null); }}>取消</Button>
             <span className="spacer" />
-            <Button variant="secondary" icon="upload" disabled={commitBlockedReason !== null || commitMutation.isPending} disabledReason={commitBlockedReason ?? undefined} onClick={() => { setContinueToPush(false); commitMutation.mutate(); }}>
-              只提交
+            <Button variant="primary" icon="check" disabled={commitBlockedReason !== null || commitMutation.isPending} disabledReason={commitBlockedReason ?? undefined} onClick={() => { setContinueToPush(false); commitMutation.mutate(); }}>
+              提交到 {fix?.fixBranch ?? '修复分支'}
             </Button>
-            <Button variant="primary" icon="check" disabled={commitBlockedReason !== null || commitMutation.isPending} disabledReason={commitBlockedReason ?? undefined} onClick={() => { setContinueToPush(true); commitMutation.mutate(); }}>
-              提交（完成后确认推送）
+            <Button variant="secondary" icon="upload" disabled={commitBlockedReason !== null || commitMutation.isPending} disabledReason={commitBlockedReason ?? undefined} onClick={() => { setContinueToPush(true); commitMutation.mutate(); }}>
+              提交并推送
             </Button>
           </>
         }
@@ -927,50 +1149,12 @@ export function FixPanel({
           </label>
           <div className="dialog-warning">
             <Icon name="info" />
-            <span>创建成功只代表所选交付完成，不等待合并；你可以到 GitLab 完成合并，或在下方用「合并修复分支」本地合并（独立确认，no-ff + CAS）。已有同源 → 目标的打开 MR 时服务不会重复创建。</span>
+            <span>创建成功只代表这次修复的合并方式已确定，不等待合并。合并在 GitLab 中进行，产品内合并未提供；已有同源 → 目标的打开合并请求时服务会先核对并链接到原 MR，不重复创建。</span>
           </div>
           {mrMutation.isError ? <FailureNotice error={mrMutation.error} compact /> : null}
         </div>
       </Modal>
 
-      {/* 合并修复确认 */}
-      <Modal
-        open={dialog === 'merge'}
-        title="合并修复分支？"
-        onClose={() => { setDialog(null); }}
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => { setDialog(null); }}>取消</Button>
-            <span className="spacer" />
-            <Button
-              variant="primary"
-              icon="branch"
-              disabled={mergeBaseTip === undefined || mergeMutation.isPending}
-              disabledReason={mergeMutation.isPending ? '正在合并，等待服务回执…' : mergeBaseTip === undefined ? '没有读取到目标分支 tip。' : undefined}
-              onClick={() => { mergeMutation.mutate(); }}
-            >
-              {mergeMutation.isPending ? '合并中…' : '确认合并'}
-            </Button>
-          </>
-        }
-      >
-        <div className="stack-loose">
-          <div className="dialog-facts">
-            <div className="row-line"><span className="k">源提交</span><span className="v mono">{commitStep?.commitSha ?? '—'}</span></div>
-            <div className="row-line"><span className="k">修复分支</span><span className="v mono">{fix?.fixBranch ?? '—'}</span></div>
-            <div className="row-line"><span className="k">目标分支</span><span className="v mono">{fix?.base.branch ?? '—'} @ {mergeBaseTip === undefined ? '未知' : shortSha(mergeBaseTip)}</span></div>
-          </div>
-          <label className="form-label">
-            合并提交信息
-            <input className="input" value={mergeMessage} placeholder="可选：默认使用修复分支与摘要" maxLength={400} onChange={(event) => { setMergeMessage(event.target.value); }} />
-          </label>
-          <div className="dialog-warning">
-            <Icon name="shield" />
-            <span>合并只更新本地目标分支（no-ff + CAS）；不会推送、不会创建 MR。目标分支在确认后前移时停止并返回 STALE_TARGET。</span>
-          </div>
-          {mergeMutation.isError ? <FailureNotice error={mergeMutation.error} compact /> : null}
-        </div>
-      </Modal>
 
       {/* 放弃修复确认 */}
       <Modal

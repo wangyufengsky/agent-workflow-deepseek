@@ -82,6 +82,11 @@ export function ExecutionPanel(props: ExecutionPanelProps) {
     );
   }
 
+  // P13-01: a finished execution that has not been delivered is shown as a wait
+  // fact here too — the panel must not introduce a green "已完成" for the task.
+  const executionDelivered = props.detail.task.lifecycle === 'completed' || props.detail.delivery?.projection === 'delivered';
+  const completedAwaitingDelivery = status === 'completed' && !executionDelivered;
+  const executionStateLabel = execution === undefined ? '尚未创建' : completedAwaitingDelivery ? '执行已结束 · 等待交付' : EXECUTION_STATUS_LABEL[execution.status];
   const autoAdvance = execution?.autoAdvance === true;
   const autoToggleStatusAllowed = execution !== undefined && AUTO_ADVANCE_STATUSES.includes(execution.status);
   const autoToggleReason = busy
@@ -104,7 +109,7 @@ export function ExecutionPanel(props: ExecutionPanelProps) {
     <div>
       <div className="exec-facts">
         <FactsBar>
-          <FactPill label="执行状态" value={execution === undefined ? '尚未创建' : EXECUTION_STATUS_LABEL[execution.status]} tone={status === undefined ? 'neutral' : STATUS_TONE[status]} />
+          <FactPill label="执行状态" value={executionStateLabel} tone={completedAwaitingDelivery ? 'wait' : status === undefined ? 'neutral' : STATUS_TONE[status]} />
           <FactPill label="计划" value={`修订 ${String(plan.revisionNumber)} · ${PLAN_REVISION_STATUS_LABEL[plan.status]}`} />
           <FactPill label="工作区" value={workspace === undefined ? '未创建' : WORKSPACE_STATE_LABEL[workspace.state]} tone={workspace?.state === 'ready' ? 'ok' : 'neutral'} />
           <FactPill label="自动推进" value={execution === undefined ? '—' : execution.autoAdvance ? '开启' : '关闭'} />

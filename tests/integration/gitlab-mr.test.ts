@@ -47,7 +47,8 @@ async function startStub(token: string): Promise<{ server: Server; url: string; 
           state: 'opened',
           draft: false,
           author: { username: 'gitlab-user', name: 'GitLab User' },
-          source_branch: 'task/gitlab',
+          // different source branch: not the delivery's task branch (DEL-14 pre-check must not reuse it)
+          source_branch: 'feature/other',
           target_branch: 'main',
           web_url: 'https://gitlab.example.com/group/demo/-/merge_requests/3',
           updated_at: new Date().toISOString(),

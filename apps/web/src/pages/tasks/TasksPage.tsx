@@ -89,9 +89,25 @@ export function TasksPage() {
   const project = params.get('projectId') ?? 'all';
   const setProject = (id: string) => { const next = new URLSearchParams(params); if (id === 'all') next.delete('projectId'); else next.set('projectId', id); setParams(next); };
   const projectsQuery = useProjects();
-  const [filter, setFilter] = useState<TaskFilter>('all');
-  const [keyword, setKeyword] = useState('');
-  const [grouped, setGrouped] = useState(false);
+  // P12-04: keep the list context (filter / search / grouping) in the URL so a
+  // row → canvas → back round trip restores what the user was looking at.
+  const rawFilter = params.get('group');
+  const filter: TaskFilter = rawFilter === 'attention' || rawFilter === 'active' || rawFilter === 'closed' ? rawFilter : 'all';
+  const keyword = params.get('q') ?? '';
+  const grouped = params.get('grouped') === '1';
+  const updateParams = (patch: Readonly<Record<string, string | undefined>>) => {
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === undefined || value.length === 0) next.delete(key);
+        else next.set(key, value);
+      }
+      return next;
+    });
+  };
+  const setFilter = (next: TaskFilter) => { updateParams({ group: next === 'all' ? undefined : next }); };
+  const setKeyword = (next: string) => { updateParams({ q: next.trim().length === 0 ? undefined : next }); };
+  const setGrouped = (next: boolean) => { updateParams({ grouped: next ? '1' : undefined }); };
 
   const listQuery={archived,...(project==='all'?{}:{projectId:project}),...(filter==='all'?{}:{group:filter}),...(keyword.trim()?{q:keyword.trim()}:{}),limit:50};
   const tasksQuery=useInfiniteQuery({queryKey:['tasks','paged',listQuery],initialPageParam:undefined as string|undefined,queryFn:({pageParam})=>fetchTaskPage({...listQuery,...(pageParam?{cursor:pageParam}:{})}),getNextPageParam:page=>page.nextCursor,retry:false});
@@ -148,12 +164,13 @@ export function TasksPage() {
       <div style={{ padding: 16 }}>
         <ServiceNotice
           error={tasksQuery.error}
+          title="任务列表读取失败"
           onRetry={() => {
             void tasksQuery.refetch();
           }}
         />
         <p className="hint" style={{ marginTop: 10 }}>
-          任务列表、筛选条件与计数全部来自 /api/tasks；服务未连接时不显示示例任务。
+          本地服务没有响应。筛选条件已保留；任务列表、筛选条件与计数全部来自 /api/tasks，服务未连接时不显示示例任务。
         </p>
       </div>
     );
@@ -207,7 +224,7 @@ export function TasksPage() {
   return (
     <div className="page tasks">
       <PageHeader
-        title="任务列表"
+        title="任务"
         lede="每个任务都在执行画布里：哪一步在跑、哪一步卡住、下一步做什么。"
         actions={
           <>
@@ -264,7 +281,7 @@ export function TasksPage() {
         <div className="task-thead">
           <span>任务</span>
           <span className="c-need">需要处理</span>
-          <span className="c-stage">阶段 / 聚合进度</span>
+          <span className="c-steps">步骤</span>
           <span className="task-status">状态</span>
           <span />
         </div>
@@ -275,18 +292,6 @@ export function TasksPage() {
               已加载 {String(filtered.length)} / {total??'未知'} 个 · 最近更新优先
               {tasksQuery.isFetching ? ' · 正在刷新' : ''}
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon="refresh"
-              disabled={tasksQuery.isFetching}
-              disabledReason={tasksQuery.isFetching ? '正在刷新任务列表…' : undefined}
-              onClick={() => {
-                void tasksQuery.refetch();
-              }}
-            >
-              刷新
-            </Button>
             <Button
               variant="secondary"
               size="sm"
@@ -299,13 +304,6 @@ export function TasksPage() {
             >
               加载更多
             </Button>
-            <Button variant="ghost" size="sm" icon="archive" onClick={() => setArchived(!archived)}>
-              {archived ? '返回当前任务' : '查看已归档'}
-            </Button>
-            <Link className="btn ghost sm" to="/inbox">
-              <Icon name="inbox" size="sm" />
-              待处理中心
-            </Link>
           </div>
         ) : null}
       </section>

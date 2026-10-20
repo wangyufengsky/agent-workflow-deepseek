@@ -11,7 +11,7 @@ import type {
   PptWorkManageRequest,
   ReceiptStatusValue,
 } from '@agent-workflow/shared';
-import { THEMES } from '@agent-workflow/shared';
+import { THEMES, checkPpt } from '@agent-workflow/shared';
 import { formatAbsoluteTime } from '../../app/format.ts';
 import type { BadgeTone } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
@@ -35,8 +35,17 @@ export const PPT_STATUS_META: Record<PptWorkStatusValue, PptStatusMeta> = {
   failed: { label: '生成失败', tone: 'fail', icon: 'alert' },
 };
 
+/**
+ * 逐页制作状态：`productionPages` 是服务持久化的逐页生产事实（含停止/失败/待核对原因）；
+ * `generation.pages` 只是最近一次生成记录的旧数据回退，不能盖过更新的逐页状态（P07-23）。
+ */
+export function pptProductionPages(work: PptWork | undefined): PptWork['productionPages'] | undefined {
+  if (work === undefined) return undefined;
+  return work.productionPages ?? work.generation?.pages;
+}
+
 export function pptStatusMeta(status: PptWorkStatusValue, work?: PptWork): PptStatusMeta {
-  if(status==='ready' && (work?.generation?.pages??work?.productionPages)?.some(page=>page.status!=='completed'))return {label:'部分完成',tone:'idle',icon:'pause'};
+  if(status==='ready' && pptProductionPages(work)?.some(page=>page.status!=='completed'))return {label:'部分完成',tone:'idle',icon:'pause'};
   return PPT_STATUS_META[status] ?? PPT_STATUS_META.draft;
 }
 
@@ -50,16 +59,41 @@ export interface PptPageCount {
 }
 
 export function pptPageCount(work: PptWork): PptPageCount {
-  return { outline: work.outline.length, slides: (work.generation?.pages??work.productionPages) ? (work.generation?.pages??work.productionPages)!.filter(page=>page.status==='completed').length : work.slides.length };
+  const states = pptProductionPages(work);
+  return { outline: work.outline.length, slides: states ? states.filter(page=>page.status==='completed').length : work.slides.length };
 }
 
 /** 作品列表里的页数口径：已生成逐页就报页数，否则报大纲条数。 */
 export function pptPageSummary(work: PptWork): string {
   const count = pptPageCount(work);
-  if(work.generation?.pages??work.productionPages)return `已有 ${count.slides}/${(work.generation?.pages??work.productionPages)!.length} 正文页完成制作`;
+  const states = pptProductionPages(work);
+  if(states)return `已有 ${count.slides}/${states.length} 正文页完成制作`;
   if (count.slides > 0) return `已生成 ${String(count.slides)} 页`;
   if (count.outline > 0) return `大纲 ${String(count.outline)} 条 · 未生成逐页`;
   return '尚无大纲';
+}
+
+/** P06-03：作品卡的“下一步提示”按真实现场态给出等待/警告语义（文字+图标，不只靠颜色）。 */
+export interface PptNextAction {
+  readonly text: string;
+  readonly tone: 'idle' | 'wait' | 'warn' | 'run';
+  readonly icon: IconName;
+}
+
+export function pptNextAction(work: PptWork): PptNextAction {
+  const states = pptProductionPages(work);
+  const generating = states?.find((page) => page.status === 'generating');
+  if (work.status === 'generating') {
+    return generating === undefined ? { text: '服务正在生成内容', tone: 'run', icon: 'clock' } : { text: `第 ${String(generating.index + 2)} 页制作中`, tone: 'run', icon: 'clock' };
+  }
+  if (work.status === 'failed') return { text: '最近一次生成失败，到工作台按回执重试', tone: 'warn', icon: 'alert' };
+  const unfinished = states?.filter((page) => page.status !== 'completed').length ?? 0;
+  if (states !== undefined && unfinished > 0) return { text: `${String(unfinished)} 页未完成制作`, tone: 'warn', icon: 'alert' };
+  if (work.plan !== undefined && work.plan.confirmed !== true) return { text: '方案待你确认', tone: 'wait', icon: 'help' };
+  if (work.plan === undefined && work.outline.length > 0) return { text: '还没有制作方案', tone: 'wait', icon: 'layers' };
+  const issuePages = checkPpt(work).pages.filter((page) => page.issues.some((issue) => issue.code !== 'MISSING_NOTES')).length;
+  if (issuePages > 0) return { text: `${String(issuePages)} 页检查未通过`, tone: 'warn', icon: 'shield' };
+  return { text: derivePptProgress(work).nextHint, tone: 'idle', icon: 'arrowRight' };
 }
 
 export function formatFileSize(size: number): string {
@@ -108,8 +142,10 @@ export interface PptProgress {
  */
 export function derivePptProgress(work: PptWork): PptProgress {
   const hasOutline = work.outline.length > 0;
-  const pageStates=work.generation?.pages??work.productionPages;
+  const pageStates=pptProductionPages(work);
   const made=pageStates?.filter(page=>page.status==='completed').length;
+  // 没有逐页生产状态时，`pending/failed/stopped` 不能按“已完成 0 页”算成设计阶段；
+  // 逐页状态存在就以“制作检查”阶段为准（P07-23 修复后 productionPages 保留未完成页）。
   const hasSlides = pageStates ? (made??0)>0 : work.slides.length > 0;
   const completed = (hasOutline ? 1 : 0) + ((pageStates ? made===pageStates.length : hasSlides) ? 1 : 0);
   const current: PptProgress['current'] = pageStates ? 'check' : !hasOutline ? 'discuss' : !hasSlides ? 'design' : 'check';

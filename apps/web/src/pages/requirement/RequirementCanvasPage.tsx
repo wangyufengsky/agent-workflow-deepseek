@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   PLANNING_STAGE_LABEL,
+  PLANNING_STATUS_LABEL,
   TASK_ATTENTION_LABEL,
   TASK_STAGE_LABEL,
   TaskStage,
@@ -16,17 +17,16 @@ import { useBootstrap } from '../../api/hooks.ts';
 import { isApiClientError } from '../../api/client.ts';
 import {
   applyPlanSkeleton,
+  editPlanDraft,
   findTemplate,
-  prepareWorkspace,
   reconcilePlanning,
   savePlanningAnswers,
-  startExecution,
   usePlanRevision,
   usePlanningRecord,
   useRequirementView,
   useTaskDetail,
   useTaskLiveUpdates,
-  useWorkflowCommand,
+  useWorkspacePreparePreview,
   useWorkflowRefresh,
 } from '../../api/workflow.ts';
 import { Badge } from '../../components/Badge.tsx';
@@ -53,6 +53,7 @@ import { TrackingPanel } from './TrackingPanel.tsx';
 import { WorkspacePanel } from './WorkspacePanel.tsx';
 import { ApplyCandidateDialog, ConfirmPlanDialog, PlanningPreviewDialog, RejectCandidateDialog, StopPlanningDialog } from './dialogs.tsx';
 import { planStatusText, roundIsActive, roundIsUnknown, selectRound } from './requirement-utils.ts';
+import { UnknownLockBanner, unknownLockReason, useReceiptCommand } from './requirement-command.tsx';
 import './requirement.css';
 
 type PanelTab = 'input' | 'plan' | 'check' | 'records' | 'draft' | 'workspace' | 'tracking';
@@ -122,7 +123,9 @@ function formatStoppedFacts(round: PlanningRound): string {
   if (stop === undefined) return '服务未返回停止状态';
   const process = stop.processState === 'stopped' ? '已停稳' : stop.processState === 'stopping' ? '正在停稳' : stop.processState === 'running' ? '仍在运行' : '未知';
   const accounting = stop.accountingState === 'closed' ? '已结账' : stop.accountingState === 'open' ? '未结账' : '未知';
-  return `停止请求：${stop.requestKey === undefined ? '无回执号' : '已受理'} · 原进程：${process} · 用量：${accounting}`;
+  const receipt = stop.requestKey === undefined ? '停止请求：无回执号' : `停止请求：已受理（回执 ${stop.requestKey}${stop.requestedAt === undefined ? '' : ` · ${stop.requestedAt}`}）`;
+  const settled = stop.settledAt === undefined ? '' : ` · 停稳时间 ${stop.settledAt}`;
+  return `${receipt} · 原进程：${process}${settled} · 用量：${accounting}`;
 }
 
 /** 需求画布：需求草稿 → 规划 → 候选审阅/应用 → 确认计划 → 准备工作区 → 开始执行。 */
@@ -136,7 +139,17 @@ export function RequirementCanvasPage() {
   const detailQuery = useTaskDetail(taskId, live.refetchInterval);
   const requirementQuery = useRequirementView(taskId);
   const refresh = useWorkflowRefresh(taskId ?? '');
-  const command = useWorkflowCommand(taskId ?? '');
+  const command = useReceiptCommand();
+  const lockedReason = unknownLockReason(command.state.pendingUnknown);
+  /** P11-02: all page commands run through the receipt runner so UNKNOWN keeps the request key. */
+  const runCommand = useCallback(
+    async <T,>(operation: string, execute: (requestKey: string) => Promise<import('@agent-workflow/shared').CommandResponse<T>>) => {
+      const response = await command.run(operation, execute);
+      await refresh();
+      return response;
+    },
+    [command, refresh],
+  );
 
   const detail = detailQuery.data;
   const rounds = detail?.planning?.rounds ?? [];
@@ -209,6 +222,9 @@ export function RequirementCanvasPage() {
     requestedTab !== null && (tabs as readonly string[]).includes(requestedTab) ? (requestedTab as PanelTab) : detail === undefined ? 'input' : defaultTab(detail, round);
 
   const selectedNodeId = searchParams.get('sel') ?? undefined;
+  const workspacePrepareQuery = useWorkspacePreparePreview(taskId, tab === 'workspace' && detail?.plan?.status === 'confirmed');
+  const preparePreview = workspacePrepareQuery.data?.preview;
+  const roles = bootstrap.data?.catalog.roles ?? [];
   const viewport = parseViewport(searchParams.get('view'));
 
   const layerOptions = useMemo<FlowLayerOption[]>(() => {
@@ -321,32 +337,62 @@ export function RequirementCanvasPage() {
   const saveAnswerAction = capabilities.saveAnswer;
   const acceptedIds = (candidate?.validation.humanReview.items ?? []).filter((item) => item.accepted || acceptedDecisions[item.id] === true).map((item) => item.id);
   const candidateUnsettled = candidate !== undefined && round !== undefined && round.status !== 'completed';
-  const staleInput = candidate !== undefined && round !== undefined && detail !== undefined && round.inputRevision !== detail.task.requirement.revision;
+  const candidateBlocked = candidate !== undefined && candidate.validation.structural.state === 'failed';
+  const candidateStale = candidate !== undefined && candidate.validation.basis.state === 'stale';
+  const candidateRevalidated = candidate !== undefined && round !== undefined && detail !== undefined
+    && round.inputRevision !== detail.task.requirement.revision
+    && candidate.validation.basis.state === 'complete';
+  const staleInput = candidate !== undefined && round !== undefined && detail !== undefined
+    && round.inputRevision !== detail.task.requirement.revision
+    && candidate.validation.basis.state !== 'complete';
+  const hardProblemCount = candidate === undefined ? 0 : candidate.validation.structural.problems.filter((problem) => problem.severity === 'hard').length;
   const roundUnknown = roundIsUnknown(round);
   const roundActive = roundIsActive(round);
 
   const runSkeleton = () => {
     if (taskId === undefined) return;
-    void command.run(() => applyPlanSkeleton(taskId));
-  };
-
-  const runPrepare = () => {
-    if (taskId === undefined || plan === undefined) return;
-    void command.run(() => prepareWorkspace(taskId, { expectedPlanRevisionNumber: plan.revisionNumber }));
-  };
-
-  const runStartExecution = () => {
-    if (taskId === undefined) return;
-    void command
-      .run(() => startExecution(taskId, detail?.execution?.status))
-      .then((response) => {
-        if (response?.receipt.status === 'succeeded') navigate(`/tasks/${encodeURIComponent(taskId)}`);
-      });
+    void runCommand('使用骨架生成计划', (requestKey) => applyPlanSkeleton(taskId, requestKey));
   };
 
   const runSaveAnswers = (answers: import('@agent-workflow/shared').SaveAnswerRequest['answers']) => {
     if (taskId === undefined || round === undefined) return;
-    void command.run(() => savePlanningAnswers(taskId, { roundId: round.id, answers }));
+    void runCommand('保存答复', (requestKey) => savePlanningAnswers(taskId, { roundId: round.id, answers, requestKey }));
+  };
+
+  const runNodeEdit = (change: {
+    readonly nodeId: string;
+    readonly title?: string;
+    readonly summary?: string;
+    readonly acceptance?: readonly string[];
+    readonly roleId?: string | null;
+    readonly prerequisites?: readonly string[];
+  }) => {
+    if (taskId === undefined || plan === undefined) return;
+    void runCommand('手改计划步骤', (requestKey) =>
+      editPlanDraft(taskId, {
+        planRevisionId: plan.id,
+        expectedRevisionNumber: plan.revisionNumber,
+        changes: [change],
+        requestKey,
+      }),
+    ).then((response) => {
+      if (response?.receipt.status === 'succeeded') patchParams({ tab: 'plan', layer: 'current', sel: undefined });
+    });
+  };
+
+  const runSerializeSteps = (fromNodeId: string, toNodeId: string) => {
+    if (taskId === undefined || plan === undefined) return;
+    void runCommand('改为先后执行', (requestKey) =>
+      editPlanDraft(taskId, {
+        planRevisionId: plan.id,
+        expectedRevisionNumber: plan.revisionNumber,
+        changes: [],
+        serialize: [{ fromNodeId, toNodeId }],
+        requestKey,
+      }),
+    ).then((response) => {
+      if (response?.receipt.status === 'succeeded') patchParams({ tab: 'check', layer: 'current' });
+    });
   };
 
   const runReconcile = () => {
@@ -434,6 +480,7 @@ export function RequirementCanvasPage() {
   const executing = task.stage === TaskStage.EXECUTING;
   const preparing = task.stage === TaskStage.PREPARING;
   const planConfirmed = plan?.status === 'confirmed';
+  const unboundNodes = plan === undefined ? [] : plan.graph.nodes.filter((node) => node.roleId === undefined);
 
   const method = requirementQuery.data?.method;
   const methodBlockReason =
@@ -465,6 +512,8 @@ export function RequirementCanvasPage() {
   const statusSubline = (() => {
     if (executing) return '执行已开始 · 规划面板只读';
     if (preparing) return '计划已确认 · 待准备工作区';
+    if (candidateStale) return '候选已过期 · 按当前输入预览新一轮';
+    if (candidateBlocked) return `候选硬阻塞 · ${String(hardProblemCount)} 个必须处理的问题`;
     if (candidate !== undefined) return candidateUnsettled ? '候选已到 · 正在核对本轮结束' : '候选待审阅';
     if (roundUnknown) return '结果待核对';
     if (round?.stage === 'needs_answer') return '需要你答复';
@@ -519,8 +568,8 @@ export function RequirementCanvasPage() {
                 variant={roundActive ? 'danger' : 'primary'}
                 size="sm"
                 icon={contextAction.icon}
-                disabled={contextAction.disabledReason !== undefined || command.state.busy}
-                disabledReason={contextAction.disabledReason}
+                disabled={contextAction.disabledReason !== undefined || command.state.busy || lockedReason !== undefined}
+                disabledReason={lockedReason ?? contextAction.disabledReason}
                 onClick={contextAction.onClick}
               >
                 {contextAction.label}
@@ -530,8 +579,8 @@ export function RequirementCanvasPage() {
                   variant="secondary"
                   size="sm"
                   icon="sparkle"
-                  disabled={generateAction?.allowed !== true || command.state.busy || pe37WholePlanBlocked}
-                  disabledReason={pe37WholePlanReason ?? generateAction?.reason}
+                  disabled={generateAction?.allowed !== true || command.state.busy || pe37WholePlanBlocked || lockedReason !== undefined}
+                  disabledReason={lockedReason ?? pe37WholePlanReason ?? generateAction?.reason}
                   onClick={() => setDialog('preview')}
                 >
                   {plan === undefined ? '生成计划' : 'AI 细化计划'}
@@ -542,8 +591,8 @@ export function RequirementCanvasPage() {
                   variant="secondary"
                   size="sm"
                   icon="layers"
-                  disabled={skeletonAction?.allowed !== true || command.state.busy}
-                  disabledReason={skeletonAction?.reason}
+                  disabled={skeletonAction?.allowed !== true || command.state.busy || lockedReason !== undefined}
+                  disabledReason={lockedReason ?? skeletonAction?.reason}
                   onClick={runSkeleton}
                 >
                   使用方法骨架
@@ -588,6 +637,14 @@ export function RequirementCanvasPage() {
         {scopeIssue === undefined ? null : <Pe37ScopeNotice issue={scopeIssue} labels={scopeGroupLabels} />}
         <CommandErrorNotice error={reconcileError} title="核对未完成" />
         {reconcileScopeIssue === undefined ? null : <Pe37ScopeNotice issue={reconcileScopeIssue} labels={scopeGroupLabels} />}
+        <UnknownLockBanner
+          pending={command.state.pendingUnknown}
+          checking={command.checking}
+          lookupResult={command.lookupResult}
+          onLookup={() => {
+            void command.lookup().then(() => refresh());
+          }}
+        />
         <ReceiptNotice receipt={command.state.receipt} />
         <ReceiptNotice receipt={pageReceipt} />
         {reconcileMessage === undefined ? null : (
@@ -617,11 +674,41 @@ export function RequirementCanvasPage() {
             </div>
           </div>
         ) : null}
+        {candidateBlocked ? (
+          <div className={`banner ${candidateStale ? 'warn' : 'danger'}`} role="alert">
+            <Icon name="alert" />
+            <div className="grow">
+              <b>{candidateStale ? '候选已过期（答复与候选不一致）' : `候选硬阻塞：${String(hardProblemCount)} 个必须处理的问题`}</b>
+              <br />
+              {candidate.validation.basis.state === 'stale'
+                ? `${candidate.validation.basis.detail}。按当前输入预览新一轮，或不采用候选；修订 ${String((round?.inputRevision ?? 0))} 与本轮记录不回写。`
+                : `应用被服务禁用（这些规则不能忽略，也不会给出“忽略继续”）：${candidate.validation.structural.problems.filter((problem) => problem.severity === 'hard').slice(0, 4).map((problem) => problem.title).join('、')}。可以补充输入后新一轮，或不采用候选。`}
+            </div>
+            <div className="actions">
+              <Button variant="secondary" size="sm" icon="eye" onClick={() => patchParams({ tab: 'check' })}>
+                查看检查问题
+              </Button>
+              <Button variant="secondary" size="sm" icon="edit" onClick={() => patchParams({ tab: 'plan', layer: 'compare' })}>
+                编辑输入后新一轮
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {candidateRevalidated ? (
+          <div className="banner ok" role="status">
+            <Icon name="check" />
+            <div className="grow">
+              <b>答复已保存；候选已按新输入修订重新校验（未调用模型）。</b>
+              <br />
+              {candidate.validation.basis.detail}。候选仍可审阅、应用；应用不会执行。
+            </div>
+          </div>
+        ) : null}
         {staleInput ? (
           <div className="banner warn">
             <Icon name="alert" />
             <div className="grow">
-              <b>候选已过期：</b>它基于需求输入修订 {round?.inputRevision}；当前输入修订 {task.requirement.revision}。旧候选保留可比较，不能覆盖当前草稿。
+              <b>候选已过期：</b>它基于需求输入修订 {round?.inputRevision}；当前输入修订 {task.requirement.revision}。旧候选保留可比较，不能覆盖当前草稿。服务重新校验未通过，请按当前输入预览新一轮。
             </div>
           </div>
         ) : null}
@@ -665,11 +752,37 @@ export function RequirementCanvasPage() {
           <div className="banner warn">
             <Icon name="help" />
             <div className="grow">
-              <b>模型提出了必须由你回答的问题。</b>保存答复会形成新的输入修订；旧轮次输入不变，预览新一轮是新调用。
+              <b>模型提出了必须由你回答的问题。</b>必答问题全部回答并保存前，不能预览新一轮（服务会用 ANSWER_REQUIRED 拒绝）。保存答复会形成新的输入修订；旧轮次输入不变，预览新一轮是新调用。
             </div>
             <div className="actions">
               <Button variant="secondary" size="sm" icon="file" onClick={() => patchParams({ tab: 'draft' })}>
                 去答复
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {plan?.source === 'edit' && plan.status === 'unconfirmed' ? (
+          <div className="banner warn" role="status">
+            <Icon name="edit" />
+            <div className="grow">
+              <b>计划已手改（计划修订 {plan.revisionNumber}，未确认）。</b>手改形成了新差异并重新检查，未调用模型、不会执行；确认后才能准备工作区。
+            </div>
+            <div className="actions">
+              <Button variant="secondary" size="sm" icon="check" onClick={() => patchParams({ tab: 'plan' })}>
+                确认计划
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {plan !== undefined && plan.status !== 'confirmed' && !isFixed && unboundNodes.length > 0 ? (
+          <div className="banner warn" role="status">
+            <Icon name="help" />
+            <div className="grow">
+              <b>有 {unboundNodes.length} 个步骤未指定职业（unbound）。</b>在「计划」页签选中步骤并指定职业后保存；这不会调用模型，也不会执行。
+            </div>
+            <div className="actions">
+              <Button variant="secondary" size="sm" icon="edit" onClick={() => patchParams({ tab: 'plan', sel: unboundNodes[0]?.id })}>
+                去指定职业
               </Button>
             </div>
           </div>
@@ -861,7 +974,7 @@ export function RequirementCanvasPage() {
                   >
                     {rounds.map((item) => (
                       <option key={item.id} value={item.id}>
-                        第 {item.ordinal} 轮 · {PLANNING_STAGE_LABEL[item.stage]} · {item.status}
+                        第 {item.ordinal} 轮 · {PLANNING_STAGE_LABEL[item.stage]} · {PLANNING_STATUS_LABEL[item.status]}
                         {item.id === currentRoundId ? '（当前）' : '（历史）'}
                       </option>
                     ))}
@@ -927,13 +1040,27 @@ export function RequirementCanvasPage() {
                   historical={historical}
                 />
               ) : null}
-              {tab === 'draft' ? <DraftPanel round={round} saveAnswerAction={saveAnswerAction} busy={command.state.busy} onSaveAnswers={runSaveAnswers} /> : null}
+              {tab === 'draft' ? (
+                <DraftPanel
+                  round={round}
+                  requirementRevision={requirementQuery.data?.requirement.revision}
+                  saveAnswerAction={saveAnswerAction}
+                  busy={command.state.busy}
+                  lockedReason={lockedReason}
+                  onLocateNode={(nodeId) => patchParams({ layer: 'compare', sel: nodeId, tab: 'check' })}
+                  onSaveAnswers={runSaveAnswers}
+                />
+              ) : null}
               {tab === 'check' ? (
                 <ChecksPanel
                   revision={candidateRevision ?? plan}
                   round={round}
                   onLocateNode={(nodeId) => patchParams({ layer: 'compare', sel: nodeId, tab: 'check' })}
                   onOpenPlan={() => patchParams({ tab: 'plan' })}
+                  serializeAction={capabilities.editPlan}
+                  onSerialize={runSerializeSteps}
+                  busy={command.state.busy}
+                  lockedReason={lockedReason}
                 />
               ) : null}
               {tab === 'plan' ? (
@@ -977,6 +1104,11 @@ export function RequirementCanvasPage() {
                     historical={historical}
                     candidateUnsettled={candidateUnsettled}
                     staleInput={staleInput}
+                    roles={roles}
+                    fixedTemplate={task.fixedTemplate === undefined ? undefined : { name: template?.name ?? task.fixedTemplate.templateId, version: task.fixedTemplate.templateVersion, parameters: task.fixedTemplate.parameters }}
+                    lockedReason={lockedReason}
+                    onSelectNode={(nodeId) => patchParams({ sel: nodeId, tab: 'plan' })}
+                    onSaveNodeEdit={runNodeEdit}
                   />
                 </>
               ) : null}
@@ -985,10 +1117,18 @@ export function RequirementCanvasPage() {
                   detail={detail}
                   plan={plan}
                   workspace={workspace}
+                  projection={detail.workspacePrepare}
+                  preparePreview={preparePreview}
+                  previewLoading={workspacePrepareQuery.isLoading}
+                  previewError={workspacePrepareQuery.error}
+                  onPreviewRefresh={() => { void workspacePrepareQuery.refetch(); }}
+                  onNewTaskFromEmpty={() => navigate(`/start?projectId=${encodeURIComponent(project.id)}`)}
                   actions={capabilities}
                   busy={command.state.busy}
-                  onPrepare={runPrepare}
-                  onStartExecution={runStartExecution}
+                  lockedReason={lockedReason}
+                  runCommand={runCommand}
+                  onPrepared={() => { void refresh(); patchParams({ tab: 'workspace' }); }}
+                  onStartedExecution={() => { if (taskId !== undefined) navigate(`/tasks/${encodeURIComponent(taskId)}`); }}
                   onOpenTask={() => openTaskCanvas()}
                 />
               ) : null}
@@ -1010,6 +1150,7 @@ export function RequirementCanvasPage() {
       <PlanningPreviewDialog
         open={dialog === 'preview'}
         taskId={taskId}
+        command={command}
         nextOrdinal={rounds.length + 1}
         onClose={() => setDialog(null)}
         onPreviewLoaded={(preview) => setLastPreview(preview)}
@@ -1023,6 +1164,7 @@ export function RequirementCanvasPage() {
       <ApplyCandidateDialog
         open={dialog === 'apply'}
         taskId={taskId}
+        command={command}
         round={round}
         candidateRevision={candidateRevision}
         acceptedDecisionIds={acceptedIds}
@@ -1038,6 +1180,7 @@ export function RequirementCanvasPage() {
       <RejectCandidateDialog
         open={dialog === 'reject'}
         taskId={taskId}
+        command={command}
         round={round}
         onClose={() => setDialog(null)}
         onRejected={(receipt) => {
@@ -1049,6 +1192,7 @@ export function RequirementCanvasPage() {
       <StopPlanningDialog
         open={dialog === 'stop'}
         taskId={taskId}
+        command={command}
         round={round}
         onClose={() => setDialog(null)}
         onStopped={(receipt) => {
@@ -1060,9 +1204,11 @@ export function RequirementCanvasPage() {
       <ConfirmPlanDialog
         open={dialog === 'confirm'}
         taskId={taskId}
+        command={command}
         detail={detail}
         plan={plan}
         unresolvedScopes={proposal?.unresolvedScopes}
+        fixedTemplate={task.fixedTemplate === undefined ? undefined : { name: template?.name ?? task.fixedTemplate.templateId, version: task.fixedTemplate.templateVersion, parameters: task.fixedTemplate.parameters }}
         onClose={() => setDialog(null)}
         onConfirmed={(receipt) => {
           setPageReceipt(receipt);

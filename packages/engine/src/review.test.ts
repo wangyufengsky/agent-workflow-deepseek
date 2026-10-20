@@ -277,7 +277,7 @@ test('review start completes with validated findings and drops illegal ones', as
       JSON.stringify({
         summary: '发现 1 个问题',
         findings: [
-          { severity: 'major', dimension: 'correctness', path: 'src/a.ts', startLine: 11, endLine: 12, side: 'new', title: '空输入未处理', detail: '传 null 会继续执行。' },
+          { severity: 'major', dimension: 'correctness', path: 'src/a.ts', startLine: 11, endLine: 12, side: 'new', title: '空输入未处理', detail: '传 null 会继续执行。', suggestion: '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -11,1 +11,1 @@\n-  return input.length;\n+  return input === null ? 0 : input.length;' },
           { severity: 'major', dimension: 'correctness', path: 'src/other.ts', startLine: 1, endLine: 2, side: 'new', title: '越界文件', detail: '不在 diff 内。' },
           { severity: 'nonsense', dimension: 'correctness', path: 'src/a.ts', startLine: 11, endLine: 11, side: 'new', title: '非法严重度', detail: '应丢弃。' },
           { severity: 'suggestion', dimension: 'quality', title: '补充注释', detail: '可补充说明。' },
@@ -306,6 +306,10 @@ test('review start completes with validated findings and drops illegal ones', as
     });
     assert.equal(done.findings[0]?.status, 'open');
     assert.equal(done.findings[1]?.location, undefined);
+    const suggestion = (done.findings[0] as unknown as { suggestion?: { format: string; patch: string; appliesTo: string } }).suggestion;
+    assert.equal(suggestion?.format, 'unified_patch');
+    assert.match(suggestion?.patch ?? '', /\+  return input === null/);
+    assert.equal(suggestion?.appliesTo, COMMIT_SHA);
     assert.equal(done.summary?.countsBySeverity.major, 1);
     assert.equal(done.summary?.countsBySeverity.suggestion, 1);
     assert.equal(done.summary?.countsByDimension.correctness, 1);
@@ -420,6 +424,8 @@ test('review without model JSON fails explicitly instead of inventing findings',
     assert.equal(review.findings.length, 0);
     assert.equal(review.receipt.status, 'failed');
     assert.equal(review.receipt.error?.code, 'VALIDATION_FAILED');
+    // 失败保留失败前最后一个真实阶段（此处已进入汇总），供界面显示「停在哪个阶段」。
+    assert.equal(review.stage, 'summarizing');
   } finally {
     h.store.close();
   }

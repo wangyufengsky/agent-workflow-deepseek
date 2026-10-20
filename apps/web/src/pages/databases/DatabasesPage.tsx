@@ -184,7 +184,7 @@ function ProbeFeedbackView({ feedback }: { readonly feedback: ProbeFeedback }) {
           </div>
         )}
         <div className="hint" style={{ marginTop: 4 }}>
-          会话只读：{probe.sessionReadOnly === true ? '已确认' : probe.sessionReadOnly === false ? '未通过' : '未知'} · 只读强制：{probe.readOnlyEnforced === true ? '已强制' : '待核实，不能视为已强制'}<br />
+          会话只读（运行时测量）：{probe.sessionReadOnly === true ? '已确认' : probe.sessionReadOnly === false ? '未通过' : '未知'} · 只读已强制由连接设置保证（见检查三格，不能用本探针结论代替）<br />
           能力：查询 {probe.capabilities.query ? '可用' : '不可用'} · EXPLAIN {probe.capabilities.explain ? '可用' : '不可用'} · 表结构{' '}
           {probe.capabilities.schemaRead ? '可读' : '不可读'}
         </div>
@@ -208,6 +208,8 @@ export function DatabasesPage() {
   const projectsQuery = useProjects();
   const [saveKey, setSaveKey] = useState<string | null>(null);
   const [saveUnknown, setSaveUnknown] = useState(false);
+  /** 切换类型时清空了地址：给出可读提示（P20-11）。 */
+  const [typeSwitched, setTypeSwitched] = useState<string | null>(null);
   const [writeLabel, setWriteLabel] = useState('保存');
   const limits = settingsQuery.data?.settings.database;
 
@@ -498,6 +500,8 @@ export function DatabasesPage() {
                 </div>
               </div>
 
+              {/* P20-04：三格是三个独立事实——连接状态（服务）、会话只读（最近探针测量）、
+                  只读已强制（由连接设置保证，不拿测量值冒充）。 */}
               <div className="db-probe-cells" aria-label="最近检查结果">
                 <div className="db-probe-cell">
                   <span className="db-probe-k">已连接</span>
@@ -512,13 +516,19 @@ export function DatabasesPage() {
                 </div>
                 <div className="db-probe-cell">
                   <span className="db-probe-k">会话只读</span>
-                  <span className="db-probe-v"><Icon name={connection.sessionReadOnly === 'enforced' ? 'check' : feedback?.probe?.sessionReadOnly === false ? 'alert' : 'help'} size="sm" />{connection.sessionReadOnly === 'enforced' ? '已确认' : feedback?.probe?.sessionReadOnly === false ? '未通过' : '待核实'}</span>
-                  <span className="hint">{connection.sessionReadOnly === 'enforced' ? '最近检查确认只读事务。' : '未确认时不能视为会话只读。'}</span>
+                  <span className="db-probe-v">
+                    <Icon name={feedback?.probe?.sessionReadOnly === true ? 'check' : feedback?.probe?.sessionReadOnly === false ? 'alert' : 'help'} size="sm" />
+                    {feedback?.probe === undefined ? '未检查' : feedback.probe.sessionReadOnly === true ? '已确认' : feedback.probe.sessionReadOnly === false ? '未通过' : '待核实'}
+                  </span>
+                  <span className="hint">运行时测量：来自最近一次探针的会话事务只读；未检查/未识别时不能视为已确认。</span>
                 </div>
                 <div className="db-probe-cell">
                   <span className="db-probe-k">只读已强制</span>
-                  <span className="db-probe-v"><Icon name={feedback?.probe?.readOnlyEnforced === true ? 'shield' : feedback?.probe?.readOnlyEnforced === false ? 'alert' : 'help'} size="sm" />{feedback?.probe?.readOnlyEnforced === true ? '已强制' : feedback?.probe?.readOnlyEnforced === false ? '未通过' : '待核实'}</span>
-                  <span className="hint">只读 SQL 守卫独立生效；会话结论以最近探针为准。</span>
+                  <span className="db-probe-v">
+                    <Icon name={connection.readOnly ? 'shield' : 'help'} size="sm" />
+                    {connection.readOnly ? '已强制' : '待核实'}
+                  </span>
+                  <span className="hint">{connection.readOnly ? '由连接设置保证（服务只读守卫）；与会话测量是独立事实。' : '未由连接设置保证时不能视为已强制只读。'}</span>
                 </div>
               </div>
               <p className="hint">检查结果代表最近一次探针；修改连接后旧结果作废。</p>
@@ -735,8 +745,34 @@ export function DatabasesPage() {
             ) : null}
 
             {draftFeedback === undefined ? null : <ProbeFeedbackView feedback={draftFeedback} />}
+            <div className="db-probe-cells" aria-label="草稿连接检查">
+              <div className="db-probe-cell">
+                <span className="db-probe-k">已连接</span>
+                <span className="db-probe-v">{draftFeedback === undefined ? <><Icon name="help" size="sm" />未检查</> : draftFeedback.probe === undefined ? <><Icon name="alert" size="sm" />未通过</> : <><Icon name="check" size="sm" />已连接</>}</span>
+                <span className="hint">草稿探针只读、不保存；失败原因见上方。</span>
+              </div>
+              <div className="db-probe-cell">
+                <span className="db-probe-k">会话只读</span>
+                <span className="db-probe-v">{draftFeedback?.probe === undefined ? <><Icon name="help" size="sm" />未检查</> : draftFeedback.probe.sessionReadOnly === true ? <><Icon name="check" size="sm" />已确认</> : draftFeedback.probe.sessionReadOnly === false ? <><Icon name="alert" size="sm" />未通过</> : <><Icon name="help" size="sm" />待核实</>}</span>
+                <span className="hint">运行时测量；未确认不能视为会话只读。</span>
+              </div>
+              <div className="db-probe-cell">
+                <span className="db-probe-k">只读已强制</span>
+                <span className="db-probe-v">{form.readOnly ? <><Icon name="shield" size="sm" />已强制</> : <><Icon name="help" size="sm" />待核实</>}</span>
+                <span className="hint">由连接设置保证（保存后生效），与会话测量相互独立。</span>
+              </div>
+            </div>
             {typeQuery.isError ? <ServiceNotice error={typeQuery.error} compact onRetry={() => { void typeQuery.refetch(); }} /> : null}
-            {!supportedTypes.includes(form.type) ? <div className="banner warn"><Icon name="lock" />此类型不在服务提供的驱动清单中；历史连接只能查看。</div> : null}
+            {!supportedTypes.includes(form.type) ? <div className="banner warn"><Icon name="lock" />此类型不在服务提供的驱动清单中（历史类型 / 未提供驱动）；可以查看配置，不能保存或检查。</div> : null}
+            {typeSwitched === null ? null : (
+              <div className="banner info" role="status">
+                <Icon name="info" />
+                <div className="grow">已清空连接地址，请重新填写。测试和保存将使用「{DATABASE_TYPE_META[form.type]?.label ?? form.type}」对应的服务驱动；保存后供新会话使用，历史任务保留原驱动。</div>
+              </div>
+            )}
+            {form.type === 'goldendb' ? (
+              <p className="hint">GoldenDB 按 MySQL 协议填写地址（主机 / 端口 / 库名），服务使用 mysql2 驱动。</p>
+            ) : null}
             <fieldset disabled={saveUnknown || !supportedTypes.includes(form.type)} className="col" style={{ gap: 16, border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div className="field" style={{ margin: 0 }}>
               <label className="label" htmlFor="db-jdbc">
@@ -781,7 +817,9 @@ export function DatabasesPage() {
                 value={form.type}
                 onChange={(event) => {
                   const type = event.target.value as DatabaseTypeValue;
+                  const hadAddress = form.host.trim() !== '' || form.database.trim() !== '';
                   updateForm({ type, port: defaultPort(type), host: '', database: '' });
+                  setTypeSwitched(hadAddress ? type : null);
                 }}
               >
                 {(typeQuery.data ?? []).map(({ id: type, available, disabledReason }) => (

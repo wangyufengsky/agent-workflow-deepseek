@@ -7,6 +7,8 @@ import {
   InboxKind,
   InteractionKind,
   InteractionState,
+  ROUTES,
+  createRequestKey,
   type InboxItem,
   type InteractionDetail,
   type InteractionKindValue,
@@ -15,7 +17,9 @@ import {
   type InteractionSummary,
   type OperationReceipt,
 } from '@agent-workflow/shared';
-import { errorMessage } from '../../api/client.ts';
+import { errorMessage, isApiClientError } from '../../api/client.ts';
+import { isUncertainCommandFailure, usePendingCommands, usePendingIdentity } from '../../api/pending-identity.ts';
+import { fetchOperationByKey } from '../../api/workflow.ts';
 import { useBootstrap } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
 import { Badge, type BadgeTone } from '../../components/Badge.tsx';
@@ -77,11 +81,16 @@ interface ResolveState {
   readonly interactionId: string;
   readonly receipt?: OperationReceipt;
   readonly error?: unknown;
+  /** Original request key when the write outcome is not settled (UNKNOWN). */
+  readonly requestKey?: string;
+  readonly unknown?: boolean;
+  readonly reconcile?: { readonly status: string; readonly stillUnknown: boolean; readonly error?: string };
 }
 
 interface ResolveInput {
   readonly interactionId: string;
   readonly answers: InteractionResolveRequest['answers'];
+  readonly requestKey: string;
 }
 
 type DraftMap = Record<string, Record<string, QuestionDraft>>;
@@ -105,11 +114,13 @@ function InteractionRow({
   item,
   selected,
   draft,
+  unknown,
   onSelect,
 }: {
   readonly item: InteractionSummary;
   readonly selected: boolean;
   readonly draft: boolean;
+  readonly unknown?: boolean;
   readonly onSelect: () => void;
 }) {
   const meta = KIND_META[item.kind];
@@ -125,6 +136,7 @@ function InteractionRow({
         </span>
         <span className="inbox-row-meta">{item.taskTitle} · {item.projectName}</span>
         <span className="inbox-row-badges">
+          {unknown === true ? <Badge tone="unknown" icon="help">结果未明</Badge> : null}
           {item.state === InteractionState.UNKNOWN ? <Badge tone="unknown" icon="help">结果待核对</Badge> : null}
           {draft ? <Badge tone="accent" icon="edit">有草稿</Badge> : null}
         </span>
@@ -196,9 +208,15 @@ function InteractionDetailPanel({
   drafts,
   resolveState,
   resolvePending,
+  pendingKey,
+  unknown,
+  reconcile,
+  reconcileBusy,
+  readback,
   onRetry,
   onUpdateDraft,
   onResolve,
+  onReconcile,
 }: {
   readonly detail?: InteractionDetail;
   readonly loading: boolean;
@@ -206,9 +224,16 @@ function InteractionDetailPanel({
   readonly drafts: DraftMap;
   readonly resolveState?: ResolveState;
   readonly resolvePending: boolean;
+  readonly pendingKey?: string;
+  readonly unknown?: boolean;
+  readonly reconcile?: { readonly status: string; readonly stillUnknown: boolean; readonly error?: string };
+  readonly reconcileBusy: boolean;
+  /** P14-05: the answer was accepted but re-reading the list failed. */
+  readonly readback?: boolean;
   readonly onRetry: () => void;
   readonly onUpdateDraft: (questionId: string, value: QuestionDraft) => void;
   readonly onResolve: (answers: InteractionResolveRequest['answers']) => void;
+  readonly onReconcile: () => void;
 }) {
   if (loading) return <InteractionSkeleton />;
 
@@ -236,7 +261,8 @@ function InteractionDetailPanel({
   const meta = KIND_META[detail.kind];
   const receipt = resolveState?.receipt;
   const receiptStatus = receipt?.status;
-  const locked = receiptStatus === 'accepted' || receiptStatus === 'unknown' || receiptStatus === 'succeeded';
+  const uncertain = unknown === true;
+  const locked = receiptStatus === 'accepted' || receiptStatus === 'unknown' || receiptStatus === 'succeeded' || uncertain || resolvePending;
   const resolved = detail.state === InteractionState.RESOLVED || detail.resolvedAt !== undefined;
   const isQuestion = detail.kind === InteractionKind.PLANNING_QUESTION;
   const values = detail.questions.map((question) => ({
@@ -255,9 +281,7 @@ function InteractionDetailPanel({
       ? '已提交，等待回执或核对；内容已锁定，不会重复提交。'
       : resolved
         ? '该事项已经处理。'
-        : resolvePending
-          ? '正在提交，等待服务回执…'
-          : detail.questions.length === 0
+        : detail.questions.length === 0
             ? '服务没有返回可回答的问题。'
             : answers.length === 0
               ? '至少填写一项回答。'
@@ -310,6 +334,45 @@ function InteractionDetailPanel({
             </div>
           </div>
         )}
+
+        {uncertain ? (
+          <div className="banner unknown" role="alert" style={{ marginTop: 14 }}>
+            <Icon name="help" />
+            <div className="grow">
+              <b>回答已发出，但没有收到确认</b>
+              <br />
+              内容已锁定。这里只会重新读取事项状态，不会再次提交；事项从列表消失也不代表回答成功。
+              {pendingKey === undefined ? null : <span className="mono receipt-key">请求号 {pendingKey}</span>}
+              {reconcile === undefined ? null : (
+                <span style={{ display: 'block', marginTop: 4 }}>
+                  核对结果：{reconcile.status}
+                  {reconcile.stillUnknown ? ' · 仍为未知，保持待核对' : ''}
+                  {reconcile.error === undefined ? null : ` · ${reconcile.error}`}
+                </span>
+              )}
+            </div>
+            <div className="actions">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon="refresh"
+                disabled={reconcileBusy}
+                disabledReason={reconcileBusy ? '正在按原请求号核对…' : undefined}
+                onClick={onReconcile}
+              >
+                {reconcileBusy ? '正在核对…' : '按原请求号核对'}
+              </Button>
+            </div>
+          </div>
+        ) : reconcile !== undefined && !reconcile.stillUnknown ? (
+          <div className={`banner ${reconcile.status === 'succeeded' ? 'ok' : 'danger'}`} role="status" style={{ marginTop: 14 }}>
+            <Icon name={reconcile.status === 'succeeded' ? 'check' : 'alert'} />
+            <div className="grow">
+              {reconcile.status === 'succeeded' ? '按原请求号核对：回答已提交并结算（没有重新提交）。' : `按原请求号核对：操作${reconcile.status === 'failed' ? '失败' : `状态为 ${reconcile.status}`}。`}
+              {reconcile.error === undefined ? null : <span style={{ display: 'block', marginTop: 4 }}>{reconcile.error}</span>}
+            </div>
+          </div>
+        ) : null}
 
         {detail.resolve.allowed ? null : (
           <div className="banner warn" style={{ marginTop: 14 }}>
@@ -384,9 +447,24 @@ function InteractionDetailPanel({
           </>
         )}
 
+        {readback === true ? (
+          <div className="banner warn" role="alert" style={{ marginTop: 14 }}>
+            <Icon name="alert" />
+            <div className="grow">
+              <b>回答已被接受，但列表刷新失败</b>
+              <br />
+              不需要重新提交。稍后重新读取即可看到最新列表。
+            </div>
+            <div className="actions">
+              <Button variant="secondary" size="sm" icon="refresh" onClick={onRetry}>
+                重新读取
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {receipt === undefined ? null : (
           <div style={{ marginTop: 14 }}>
-            <ReceiptNotice receipt={receipt} successMessage="回答已提交，需求修订已更新。" />
+            <ReceiptNotice receipt={receipt} successMessage={receipt.status === 'succeeded' ? '已提交，任务会继续执行。' : undefined} />
           </div>
         )}
         {resolveState?.error === undefined ? null : (
@@ -427,7 +505,7 @@ function InteractionDetailPanel({
               disabledReason={submitReason}
               onClick={() => { onResolve(answers); }}
             >
-              {resolvePending ? '提交中…' : '提交回答'}
+              {resolvePending ? '提交中…' : uncertain ? '结果待核对' : '提交回答'}
             </Button>
             {detail.resolve.allowed && detail.resolve.reason !== undefined ? (
               <span className="action-reason" style={{ flexBasis: '100%' }} role="note">
@@ -461,6 +539,18 @@ export function InboxPage() {
   const [pendingSelect, setPendingSelect] = useState<string | null>(null);
   const [switchOpen, setSwitchOpen] = useState(false);
   const [resolveState, setResolveState] = useState<ResolveState | null>(null);
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const durableCommands = usePendingCommands();
+  const pendingResolveKeysById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const command of durableCommands) {
+      if (!command.path.startsWith('/api/interactions/') || !command.path.endsWith('/resolve')) continue;
+      const parts = command.path.split('/');
+      const id = decodeURIComponent(parts[3] ?? '');
+      if (id.length > 0) map.set(id, command.requestKey);
+    }
+    return map;
+  }, [durableCommands]);
 
   const listQuery = useQuery({
     queryKey: ['interactions'],
@@ -484,6 +574,8 @@ export function InboxPage() {
     ? undefined
     : filtered.find((item) => item.id === selectedId) ?? filtered[0];
 
+  const selectedResolvePath = selectedSummary === undefined ? '' : ROUTES.interactionResolve(selectedSummary.id);
+  const pendingResolve = usePendingIdentity(selectedResolvePath);
   const detailQuery = useQuery({
     queryKey: ['interaction', selectedSummary?.id ?? ''],
     queryFn: () => fetchInteraction(selectedSummary!.id),
@@ -503,7 +595,7 @@ export function InboxPage() {
   }, [selectedId, selectedSummary]);
 
   const resolveMutation = useMutation({
-    mutationFn: async (input: ResolveInput) => resolveInteraction(input.interactionId, input.answers),
+    mutationFn: async (input: ResolveInput) => resolveInteraction(input.interactionId, input.answers, input.requestKey),
     onSuccess: async (data, input) => {
       setResolveState({ interactionId: input.interactionId, receipt: data.receipt });
       if (data.receipt.status === 'succeeded') {
@@ -520,7 +612,13 @@ export function InboxPage() {
       ]);
     },
     onError: (error, input) => {
-      setResolveState({ interactionId: input.interactionId, error });
+      // A lost/unreadable response is UNKNOWN, not proof that the answer was not submitted.
+      if (isUncertainCommandFailure(error)) {
+        const originalKey = isApiClientError(error) && typeof error.details?.requestKey === 'string' ? error.details.requestKey : input.requestKey;
+        setResolveState({ interactionId: input.interactionId, requestKey: originalKey, unknown: true });
+      } else {
+        setResolveState({ interactionId: input.interactionId, error });
+      }
       void queryClient.invalidateQueries({ queryKey: ['interactions'] });
       void queryClient.invalidateQueries({ queryKey: ['interaction', input.interactionId] });
     },
@@ -529,6 +627,8 @@ export function InboxPage() {
   const activeResolve = resolveState !== null && selectedSummary !== undefined && resolveState.interactionId === selectedSummary.id
     ? resolveState
     : undefined;
+  const resolveUnknown = activeResolve?.unknown === true || (pendingResolve !== undefined && pendingResolve.phase !== 'sending');
+  const resolvePendingKey = pendingResolve?.requestKey ?? activeResolve?.requestKey;
   const offscreenReceipt = resolveState?.receipt !== undefined && resolveState.interactionId !== selectedSummary?.id
     ? resolveState.receipt
     : undefined;
@@ -579,8 +679,39 @@ export function InboxPage() {
   const submitAnswers = (answers: InteractionResolveRequest['answers']) => {
     if (selectedSummary === undefined) return;
     if (answers.length === 0) return;
+    // A durable unresolved write already exists: only reconcile its original key.
+    if (pendingResolve !== undefined) return;
     setResolveState((current) => current?.interactionId === selectedSummary.id ? null : current);
-    resolveMutation.mutate({ interactionId: selectedSummary.id, answers });
+    resolveMutation.mutate({ interactionId: selectedSummary.id, answers, requestKey: createRequestKey() });
+  };
+
+  const reconcileResolve = async () => {
+    if (selectedSummary === undefined) return;
+    const key = resolvePendingKey;
+    if (key === undefined) return;
+    setReconcileBusy(true);
+    try {
+      const result = await fetchOperationByKey(key);
+      const next = {
+        status: result.operation.status,
+        stillUnknown: result.stillUnknown,
+        ...(result.operation.error?.message === undefined ? {} : { error: result.operation.error.message }),
+      };
+      if (result.operation.status === 'succeeded' || result.operation.status === 'failed') {
+        setResolveState({ interactionId: selectedSummary.id, requestKey: key, unknown: false, reconcile: next });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['interactions'] }),
+          queryClient.invalidateQueries({ queryKey: ['interaction', selectedSummary.id] }),
+          queryClient.invalidateQueries({ queryKey: ['bootstrap'] }),
+        ]);
+      } else {
+        setResolveState({ interactionId: selectedSummary.id, requestKey: key, unknown: true, reconcile: next });
+      }
+    } catch (caught) {
+      setResolveState({ interactionId: selectedSummary.id, requestKey: key, unknown: true, reconcile: { status: 'lookup-failed', stillUnknown: true, error: errorMessage(caught) } });
+    } finally {
+      setReconcileBusy(false);
+    }
   };
 
   const otherItems = (bootstrap.data?.inbox ?? []).filter((item) =>
@@ -634,7 +765,7 @@ export function InboxPage() {
     leftBody = (
       <div className="inbox-empty-hint">
         <p className="hint" style={{ margin: 0 }}>
-          {filter === 'all' ? '队列已空。' : '这一类暂时没有事项。'}
+          {filter === 'all' ? '都处理完了。任务需要你回答问题或授权时，会出现在这里。' : '这一类暂时没有事项。'}
         </p>
       </div>
     );
@@ -647,6 +778,7 @@ export function InboxPage() {
             item={item}
             selected={item.id === selectedSummary?.id}
             draft={drafts[item.id] !== undefined && Object.keys(drafts[item.id] ?? {}).length > 0}
+            unknown={pendingResolveKeysById.has(item.id)}
             onSelect={() => { setSelectedRuntimeId(null); requestSelect(item.id); }}
           />
         ))}
@@ -711,9 +843,15 @@ export function InboxPage() {
         drafts={drafts}
         resolveState={activeResolve}
         resolvePending={resolveMutation.isPending}
+        pendingKey={resolvePendingKey}
+        unknown={resolveUnknown}
+        reconcile={activeResolve?.reconcile}
+        reconcileBusy={reconcileBusy}
+        readback={activeResolve?.receipt?.status === 'succeeded' && listQuery.isError}
         onRetry={() => { void detailQuery.refetch(); }}
         onUpdateDraft={updateDraft}
         onResolve={submitAnswers}
+        onReconcile={() => { void reconcileResolve(); }}
       />
     );
   }
@@ -722,7 +860,7 @@ export function InboxPage() {
     <div className="page wide">
       <PageHeader
         title="待处理中心"
-        lede="任务需要你回答、审阅或核对时会停在这里。问题可直接回答；权限请求按冻结的只读范围处理，策略禁止只能知晓。"
+        lede="执行中的任务需要你回答问题或授权时，会停下来在这里等你。"
         actions={
           <Button
             variant="ghost"
@@ -744,12 +882,27 @@ export function InboxPage() {
 
       {offscreenReceipt === undefined ? null : (
         <div style={{ marginBottom: 14 }}>
-          <ReceiptNotice receipt={offscreenReceipt} successMessage="上一次回答已提交，需求修订已更新。" />
+          <ReceiptNotice receipt={offscreenReceipt} successMessage={offscreenReceipt.status === 'succeeded' ? '上一次回答已提交，任务会继续执行。' : undefined} />
         </div>
       )}
 
       <RuntimeReceipt />
-      <div className="inbox-split">
+      {listQuery.isError ? (
+        <div className="banner danger" role="alert" style={{ marginBottom: 16 }}>
+          <Icon name="alert" />
+          <div className="grow">
+            <b>待处理事项读取失败</b>
+            <br />
+            待处理数量暂时未知，不代表没有事项。
+          </div>
+          <div className="actions">
+            <Button variant="secondary" size="sm" icon="refresh" disabled={listQuery.isFetching} onClick={() => { void listQuery.refetch(); }}>
+              重试
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      <div className="inbox-split" style={listQuery.isError && runtimeFiltered.length === 0 ? { display: 'none' } : undefined}>
         <div className="col" style={{ gap: 16 }}>
           <section className="card inbox-list-card" aria-label="待处理事项列表">
             <div className="inbox-filter">
@@ -775,7 +928,9 @@ export function InboxPage() {
                   ? '数量未知'
                   : `打开 ${String(listQuery.data.counts.open + runtimeItems.filter((item) => item.state === 'open').length)} · 待核对 ${String(listQuery.data.counts.unknown + runtimeItems.filter((item) => item.state === 'unknown').length)}`}
               </span>
-              <span className="hint">规划与原运行时事件</span>
+              <span className="hint" style={{ flexBasis: '100%' }}>
+                本页计数口径：规划交互（回答/审阅/核对）+ 运行时事件；任务列表“需要处理”还包含执行失败/受阻/交付未知与工作区待办，数字可能更大。
+              </span>
             </div>
             {capabilities !== undefined && (!capabilities.permissions || !capabilities.policy) ? (
               <div className="inbox-unavailable">

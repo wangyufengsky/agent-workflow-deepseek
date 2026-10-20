@@ -10,63 +10,36 @@ import {
 import { Button } from '../../components/Button.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { Modal } from '../../components/Modal.tsx';
-import {
-  applyPlanning,
-  confirmPlan,
-  previewPlanning,
-  rejectPlanning,
-  startPlanning,
-  stopPlanning,
-} from '../../api/workflow.ts';
-import { CommandErrorNotice, ReceiptNotice } from '../../flow/workflow-ui.tsx';
 import { Pe37ScopeNotice } from './Pe37Overview.tsx';
 import { pe37ScopeFromError } from './pe37.ts';
 import { formatDateTime } from '../../app/format.ts';
+import { applyPlanning, confirmPlan, previewPlanning, rejectPlanning, startPlanning, stopPlanning } from '../../api/workflow.ts';
+import { CommandErrorNotice, ReceiptNotice } from '../../flow/workflow-ui.tsx';
+import { UnknownLockBanner, unknownLockReason, type ReceiptCommandRunner } from './requirement-command.tsx';
 
-interface DialogCommandState {
-  readonly busy: boolean;
-  readonly error: unknown;
-  readonly receipt: OperationReceipt | undefined;
+/**
+ * P11-02: every mutating dialog routes its command through the page-level
+ * receipt command runner, so an UNKNOWN outcome locks the original operation
+ * (by original request key) instead of leaving the button free to mint a new
+ * request key and re-send.
+ */
+export interface DialogCommandProps {
+  readonly command: ReceiptCommandRunner;
 }
 
-function useDialogCommand(): DialogCommandState & {
-  readonly setReceipt: (receipt: OperationReceipt | undefined) => void;
-  readonly run: (operation: () => Promise<{ receipt: OperationReceipt }>, onSucceeded: (receipt: OperationReceipt) => void) => Promise<void>;
-  readonly reset: () => void;
-} {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const [receipt, setReceipt] = useState<OperationReceipt | undefined>(undefined);
+function dialogLocked(command: ReceiptCommandRunner): boolean {
+  return command.state.busy || command.state.pendingUnknown !== undefined;
+}
 
-  const run = async (operation: () => Promise<{ receipt: OperationReceipt }>, onSucceeded: (receipt: OperationReceipt) => void) => {
-    setBusy(true);
-    setError(null);
-    setReceipt(undefined);
-    try {
-      const response = await operation();
-      setReceipt(response.receipt);
-      if (response.receipt.status === 'succeeded') onSucceeded(response.receipt);
-    } catch (caught) {
-      setError(caught);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const reset = () => {
-    setBusy(false);
-    setError(null);
-    setReceipt(undefined);
-  };
-
-  return { busy, error, receipt, setReceipt, run, reset };
+function dialogLockReason(command: ReceiptCommandRunner, fallback?: string): string | undefined {
+  return unknownLockReason(command.state.pendingUnknown) ?? (command.state.busy ? '正在提交，等待服务回执…' : fallback);
 }
 
 /* ------------------------------------------------------------------ */
 /* Planning preview                                                    */
 /* ------------------------------------------------------------------ */
 
-export interface PlanningPreviewDialogProps {
+export interface PlanningPreviewDialogProps extends DialogCommandProps {
   readonly open: boolean;
   readonly taskId: string;
   readonly nextOrdinal: number;
@@ -76,17 +49,15 @@ export interface PlanningPreviewDialogProps {
 }
 
 /** The only place that confirms a model dispatch (design PE03/PE04). */
-export function PlanningPreviewDialog({ open, taskId, nextOrdinal, onClose, onPreviewLoaded, onStarted }: PlanningPreviewDialogProps) {
+export function PlanningPreviewDialog({ open, taskId, nextOrdinal, command, onClose, onPreviewLoaded, onStarted }: PlanningPreviewDialogProps) {
   const [preview, setPreview] = useState<PlanningPreviewResponse | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<unknown>(null);
-  const command = useDialogCommand();
 
   useEffect(() => {
     if (!open) {
       setPreview(undefined);
       setLoadError(null);
-      command.reset();
       return;
     }
     let cancelled = false;
@@ -116,6 +87,7 @@ export function PlanningPreviewDialog({ open, taskId, nextOrdinal, onClose, onPr
   const blockers = preview?.blockers ?? data?.blockers ?? [];
   const blocked = blockers.length > 0;
   const reason = blocked ? `${blockers[0]?.code ?? 'BLOCKED'} · ${blockers[0]?.message ?? '预览发现阻塞项'}` : undefined;
+  const notes = data?.notes ?? [];
 
   return (
     <Modal
@@ -125,41 +97,48 @@ export function PlanningPreviewDialog({ open, taskId, nextOrdinal, onClose, onPr
       className="wide-dialog"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.busy}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.state.busy}>
             取消
           </Button>
           <Button
             variant="primary"
             size="sm"
             icon="sparkle"
-            disabled={command.busy || data === undefined || blocked}
-            disabledReason={reason ?? '规划预览尚未加载完成'}
-            title={reason}
+            disabled={dialogLocked(command) || data === undefined || blocked}
+            disabledReason={dialogLockReason(command, reason ?? '规划预览尚未加载完成')}
+            title={dialogLockReason(command, reason)}
             onClick={() => {
               if (data === undefined) return;
-              void command.run(
-                () =>
-                  startPlanning(taskId, {
-                    previewId: data.previewId,
-                    sourceInputRevision: data.sourceInputRevision,
-                  }),
-                (receipt) => {
-                  onStarted(receipt);
-                  onClose();
-                },
-              );
+              void command
+                .run('确认开始规划', (requestKey) =>
+                  startPlanning(taskId, { previewId: data.previewId, sourceInputRevision: data.sourceInputRevision }, requestKey),
+                )
+                .then((response) => {
+                  if (response?.receipt.status === 'succeeded') {
+                    onStarted(response.receipt);
+                    onClose();
+                  }
+                });
             }}
           >
-            {command.busy ? '正在确认…' : '确认开始规划'}
+            {command.state.busy ? '正在确认…' : '确认开始规划'}
           </Button>
         </>
       }
     >
       {loading ? <p className="hint">正在向服务读取规划预览（只读，不调用模型）…</p> : null}
       <CommandErrorNotice error={loadError} title="规划预览读取失败" />
-      <CommandErrorNotice error={command.error} />
-      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
-      <ReceiptNotice receipt={command.receipt} />
+      <CommandErrorNotice error={command.state.error} />
+      {pe37ScopeFromError(command.state.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.state.error)!} />}
+      <ReceiptNotice receipt={command.state.receipt} />
+      <UnknownLockBanner
+        pending={command.state.pendingUnknown}
+        checking={command.checking}
+        lookupResult={command.lookupResult}
+        onLookup={() => {
+          void command.lookup();
+        }}
+      />
       {data === undefined ? null : (
         <>
           <p className="lede" style={{ marginTop: 4 }}>
@@ -169,7 +148,7 @@ export function PlanningPreviewDialog({ open, taskId, nextOrdinal, onClose, onPr
             <dt>模型</dt>
             <dd>{data.model.label}</dd>
             <dt>来源输入</dt>
-            <dd>需求输入修订 {data.sourceInputRevision}</dd>
+            <dd>需求输入修订 {data.sourceInputRevision}（原文/补充与资料修订以服务返回为准）</dd>
             <dt>资料</dt>
             <dd>
               {data.sources.map((source) => `${source.label}（${source.readable ? '可读' : '不可读'}）`).join('、') || '服务未返回资料'}
@@ -193,6 +172,7 @@ export function PlanningPreviewDialog({ open, taskId, nextOrdinal, onClose, onPr
             <dt>预览有效期</dt>
             <dd>{formatDateTime(data.expiresAt)}</dd>
           </dl>
+          {notsNotes(notes)}
           {blockers.length === 0 ? null : (
             <div className="banner warn" style={{ marginTop: 12 }}>
               <Icon name="alert" />
@@ -200,7 +180,7 @@ export function PlanningPreviewDialog({ open, taskId, nextOrdinal, onClose, onPr
                 <b>预览发现 {blockers.length} 项阻塞，不能开始规划</b>
                 <ul className="list-plain" style={{ marginTop: 6 }}>
                   {blockers.map((blocker) => (
-                    <li key={blocker.code}>
+                    <li key={`${blocker.code}-${blocker.message}`}>
                       {blocker.code} · {blocker.message}
                       {blocker.goTo === undefined ? '' : `（去 ${blocker.goTo}）`}
                     </li>
@@ -222,11 +202,25 @@ export function PlanningPreviewDialog({ open, taskId, nextOrdinal, onClose, onPr
   );
 }
 
+function notsNotes(notes: readonly string[]) {
+  if (notes.length === 0) return null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div className="eyebrow">服务说明</div>
+      <ul className="list-plain">
+        {notes.map((note) => (
+          <li key={note}>{note}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Apply candidate                                                     */
 /* ------------------------------------------------------------------ */
 
-export interface ApplyCandidateDialogProps {
+export interface ApplyCandidateDialogProps extends DialogCommandProps {
   readonly open: boolean;
   readonly taskId: string;
   readonly round: PlanningRound | undefined;
@@ -236,12 +230,7 @@ export interface ApplyCandidateDialogProps {
   readonly onApplied: (receipt: OperationReceipt) => void;
 }
 
-export function ApplyCandidateDialog({ open, taskId, round, candidateRevision, acceptedDecisionIds, onClose, onApplied }: ApplyCandidateDialogProps) {
-  const command = useDialogCommand();
-
-  useEffect(() => {
-    if (open) command.reset();
-  }, [open]);
+export function ApplyCandidateDialog({ open, taskId, round, candidateRevision, acceptedDecisionIds, command, onClose, onApplied }: ApplyCandidateDialogProps) {
   const decisions = round?.candidate?.validation.humanReview.items ?? [];
   const canRun = round !== undefined && candidateRevision !== undefined;
 
@@ -253,45 +242,60 @@ export function ApplyCandidateDialog({ open, taskId, round, candidateRevision, a
       className="wide-dialog"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.busy}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.state.busy}>
             取消
           </Button>
           <Button
             variant="primary"
             size="sm"
             icon="check"
-            disabled={command.busy || !canRun}
-            disabledReason={canRun ? undefined : '缺少候选轮次或候选计划修订'}
+            disabled={dialogLocked(command) || !canRun}
+            disabledReason={dialogLockReason(command, canRun ? undefined : '缺少候选轮次或候选计划修订')}
             onClick={() => {
               if (round === undefined || candidateRevision === undefined) return;
-              void command.run(
-                () =>
+              void command
+                .run('应用候选到草稿', (requestKey) =>
                   applyPlanning(taskId, {
                     roundId: round.id,
                     candidatePlanRevisionId: candidateRevision.id,
                     acceptedDecisionIds: [...acceptedDecisionIds],
+                    requestKey,
                   }),
-                (receipt) => {
-                  onApplied(receipt);
-                  onClose();
-                },
-              );
+                )
+                .then((response) => {
+                  if (response?.receipt.status === 'succeeded') {
+                    onApplied(response.receipt);
+                    onClose();
+                  }
+                });
             }}
           >
-            {command.busy ? '正在应用…' : '确认应用'}
+            {command.state.busy ? '正在应用…' : '确认应用'}
           </Button>
         </>
       }
     >
-      <CommandErrorNotice error={command.error} />
-      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
-      <ReceiptNotice receipt={command.receipt} />
+      <CommandErrorNotice error={command.state.error} />
+      {pe37ScopeFromError(command.state.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.state.error)!} />}
+      <ReceiptNotice receipt={command.state.receipt} />
+      <UnknownLockBanner
+        pending={command.state.pendingUnknown}
+        checking={command.checking}
+        lookupResult={command.lookupResult}
+        onLookup={() => {
+          void command.lookup();
+        }}
+      />
       <p>
         应用会把第 {round?.ordinal ?? '—'} 轮候选写入<b>未确认草稿</b>（计划修订 {candidateRevision?.revisionNumber ?? '—'}），
         <b>不会执行</b>；应用后仍需确认计划。
       </p>
       <div className="sec-t" style={{ marginTop: 14 }}>
-        将记录的人工判断（{acceptedDecisionIds.length} 项已核对）
+        业务决定（需求输入修订 {round?.inputRevision ?? '—'}）
+      </div>
+      <p className="hint">本次应用将把已审阅的人工判断作为业务决定写入计划修订；应用不会执行任何步骤。</p>
+      <div className="sec-t" style={{ marginTop: 14 }}>
+        将随应用记录的风险核对（{acceptedDecisionIds.length} 项已核对）
       </div>
       {decisions.length === 0 ? (
         <p className="hint">本轮没有需人工判断项。</p>
@@ -316,7 +320,7 @@ export function ApplyCandidateDialog({ open, taskId, round, candidateRevision, a
 /* Reject candidate                                                    */
 /* ------------------------------------------------------------------ */
 
-export interface RejectCandidateDialogProps {
+export interface RejectCandidateDialogProps extends DialogCommandProps {
   readonly open: boolean;
   readonly taskId: string;
   readonly round: PlanningRound | undefined;
@@ -324,12 +328,8 @@ export interface RejectCandidateDialogProps {
   readonly onRejected: (receipt: OperationReceipt) => void;
 }
 
-export function RejectCandidateDialog({ open, taskId, round, onClose, onRejected }: RejectCandidateDialogProps) {
-  const command = useDialogCommand();
-
-  useEffect(() => {
-    if (open) command.reset();
-  }, [open]);
+/** Design: 不采用 only confirms “保留记录”，the reason is optional (REQ-11 P3). */
+export function RejectCandidateDialog({ open, taskId, round, command, onClose, onRejected }: RejectCandidateDialogProps) {
   const [reason, setReason] = useState('');
 
   useEffect(() => {
@@ -343,37 +343,48 @@ export function RejectCandidateDialog({ open, taskId, round, onClose, onRejected
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.busy}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.state.busy}>
             取消
           </Button>
           <Button
             variant="danger"
             size="sm"
             icon="x"
-            disabled={command.busy || round === undefined || reason.trim().length === 0}
-            disabledReason={reason.trim().length === 0 ? '请填写不采用原因（会写入记录）' : undefined}
+            disabled={dialogLocked(command) || round === undefined}
+            disabledReason={dialogLockReason(command, round === undefined ? '当前没有候选轮次' : undefined)}
             onClick={() => {
               if (round === undefined) return;
-              void command.run(
-                () => rejectPlanning(taskId, { roundId: round.id, reason: reason.trim() }),
-                (receipt) => {
-                  onRejected(receipt);
-                  onClose();
-                },
-              );
+              void command
+                .run('不采用候选', (requestKey) =>
+                  rejectPlanning(taskId, { roundId: round.id, reason: reason.trim() === '' ? '用户选择不采用候选（未填写原因）' : reason.trim(), requestKey }),
+                )
+                .then((response) => {
+                  if (response?.receipt.status === 'succeeded') {
+                    onRejected(response.receipt);
+                    onClose();
+                  }
+                });
             }}
           >
-            {command.busy ? '正在提交…' : '确认不采用'}
+            {command.state.busy ? '正在提交…' : '确认不采用'}
           </Button>
         </>
       }
     >
-      <CommandErrorNotice error={command.error} />
-      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
-      <ReceiptNotice receipt={command.receipt} />
-      <p>不采用只保留记录，不是删除；已应用的草稿不受影响。当前草稿不变。</p>
+      <CommandErrorNotice error={command.state.error} />
+      {pe37ScopeFromError(command.state.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.state.error)!} />}
+      <ReceiptNotice receipt={command.state.receipt} />
+      <UnknownLockBanner
+        pending={command.state.pendingUnknown}
+        checking={command.checking}
+        lookupResult={command.lookupResult}
+        onLookup={() => {
+          void command.lookup();
+        }}
+      />
+      <p>不采用只保留记录，不是删除；已应用的草稿不受影响。当前草稿不变。候选硬阻塞时也可以“不采用”，不要求先修好。</p>
       <label className="label" htmlFor="reject-reason" style={{ marginTop: 12 }}>
-        原因<span className="req">*</span>
+        原因（可选）
       </label>
       <textarea
         id="reject-reason"
@@ -392,7 +403,7 @@ export function RejectCandidateDialog({ open, taskId, round, onClose, onRejected
 /* Stop planning                                                       */
 /* ------------------------------------------------------------------ */
 
-export interface StopPlanningDialogProps {
+export interface StopPlanningDialogProps extends DialogCommandProps {
   readonly open: boolean;
   readonly taskId: string;
   readonly round: PlanningRound | undefined;
@@ -400,12 +411,7 @@ export interface StopPlanningDialogProps {
   readonly onStopped: (receipt: OperationReceipt) => void;
 }
 
-export function StopPlanningDialog({ open, taskId, round, onClose, onStopped }: StopPlanningDialogProps) {
-  const command = useDialogCommand();
-
-  useEffect(() => {
-    if (open) command.reset();
-  }, [open]);
+export function StopPlanningDialog({ open, taskId, round, command, onClose, onStopped }: StopPlanningDialogProps) {
   return (
     <Modal
       open={open}
@@ -413,33 +419,43 @@ export function StopPlanningDialog({ open, taskId, round, onClose, onStopped }: 
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.busy}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.state.busy}>
             取消
           </Button>
           <Button
             variant="danger"
             size="sm"
             icon="stop"
-            disabled={command.busy || round === undefined}
+            disabled={dialogLocked(command) || round === undefined}
+            disabledReason={dialogLockReason(command, round === undefined ? '当前没有进行中的轮次' : undefined)}
             onClick={() => {
               if (round === undefined) return;
-              void command.run(
-                () => stopPlanning(taskId, round.id),
-                (receipt) => {
-                  onStopped(receipt);
-                  onClose();
-                },
-              );
+              void command
+                .run('请求停止规划', (requestKey) => stopPlanning(taskId, round.id, requestKey))
+                .then((response) => {
+                  if (response?.receipt.status === 'succeeded') {
+                    onStopped(response.receipt);
+                    onClose();
+                  }
+                });
             }}
           >
-            {command.busy ? '正在请求停止…' : '确认停止本轮'}
+            {command.state.busy ? '正在请求停止…' : '确认停止本轮'}
           </Button>
         </>
       }
     >
-      <CommandErrorNotice error={command.error} />
-      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
-      <ReceiptNotice receipt={command.receipt} />
+      <CommandErrorNotice error={command.state.error} />
+      {pe37ScopeFromError(command.state.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.state.error)!} />}
+      <ReceiptNotice receipt={command.state.receipt} />
+      <UnknownLockBanner
+        pending={command.state.pendingUnknown}
+        checking={command.checking}
+        lookupResult={command.lookupResult}
+        onLookup={() => {
+          void command.lookup();
+        }}
+      />
       <p>只停止这一轮规划，不影响任何执行中的业务步骤；已有记录、草稿与用量都保留；停止完成前不能开始新一轮。</p>
       <p className="hint" style={{ marginTop: 8 }}>
         停止请求已受理 ≠ 原进程已停稳 ≠ 用量已结账；状态条与横幅会分开显示服务事实。
@@ -452,22 +468,18 @@ export function StopPlanningDialog({ open, taskId, round, onClose, onStopped }: 
 /* Confirm plan                                                        */
 /* ------------------------------------------------------------------ */
 
-export interface ConfirmPlanDialogProps {
+export interface ConfirmPlanDialogProps extends DialogCommandProps {
   readonly open: boolean;
   readonly taskId: string;
   readonly detail: TaskDetailResponse | undefined;
   readonly plan: PlanRevision | undefined;
   readonly unresolvedScopes?: readonly { readonly groupRef: string; readonly title: string }[];
+  readonly fixedTemplate?: { readonly name: string; readonly version: number; readonly parameters: Readonly<Record<string, string>> };
   readonly onClose: () => void;
   readonly onConfirmed: (receipt: OperationReceipt) => void;
 }
 
-export function ConfirmPlanDialog({ open, taskId, detail, plan, unresolvedScopes, onClose, onConfirmed }: ConfirmPlanDialogProps) {
-  const command = useDialogCommand();
-
-  useEffect(() => {
-    if (open) command.reset();
-  }, [open]);
+export function ConfirmPlanDialog({ open, taskId, detail, plan, unresolvedScopes, fixedTemplate, command, onClose, onConfirmed }: ConfirmPlanDialogProps) {
   const nodes = plan?.graph.nodes ?? [];
   const edges = plan?.graph.edges ?? [];
   const coverage = plan?.validation?.requirementCoverage ?? [];
@@ -487,34 +499,46 @@ export function ConfirmPlanDialog({ open, taskId, detail, plan, unresolvedScopes
       className="wide-dialog"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.busy}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={command.state.busy}>
             取消
           </Button>
           <Button
             variant="primary"
             size="sm"
             icon="check"
-            disabled={command.busy || plan === undefined || plan.status !== 'unconfirmed' || unresolvedReason !== undefined}
-            disabledReason={unresolvedReason ?? (plan === undefined ? '当前没有未确认的计划' : plan.status !== 'unconfirmed' ? `计划当前状态：${PLAN_REVISION_STATUS_LABEL[plan.status]}` : undefined)}
+            disabled={dialogLocked(command) || plan === undefined || plan.status !== 'unconfirmed' || unresolvedReason !== undefined}
+            disabledReason={dialogLockReason(
+              command,
+              unresolvedReason ?? (plan === undefined ? '当前没有未确认的计划' : plan.status !== 'unconfirmed' ? `计划当前状态：${PLAN_REVISION_STATUS_LABEL[plan.status]}` : undefined),
+            )}
             onClick={() => {
               if (plan === undefined || detail === undefined) return;
-              void command.run(
-                () => confirmPlan(taskId, plan.id, plan.revisionNumber),
-                (receipt) => {
-                  onConfirmed(receipt);
-                  onClose();
-                },
-              );
+              void command
+                .run('确认计划', (requestKey) => confirmPlan(taskId, plan.id, plan.revisionNumber, requestKey))
+                .then((response) => {
+                  if (response?.receipt.status === 'succeeded') {
+                    onConfirmed(response.receipt);
+                    onClose();
+                  }
+                });
             }}
           >
-            {command.busy ? '正在确认…' : '确认计划'}
+            {command.state.busy ? '正在确认…' : '确认计划'}
           </Button>
         </>
       }
     >
-      <CommandErrorNotice error={command.error} />
-      {pe37ScopeFromError(command.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.error)!} />}
-      <ReceiptNotice receipt={command.receipt} />
+      <CommandErrorNotice error={command.state.error} />
+      {pe37ScopeFromError(command.state.error) === undefined ? null : <Pe37ScopeNotice issue={pe37ScopeFromError(command.state.error)!} />}
+      <ReceiptNotice receipt={command.state.receipt} />
+      <UnknownLockBanner
+        pending={command.state.pendingUnknown}
+        checking={command.checking}
+        lookupResult={command.lookupResult}
+        onLookup={() => {
+          void command.lookup();
+        }}
+      />
       <p>
         确认<b>不调用模型，也不会立即执行</b>；确认后下一步才准备工作区，准备成功后单独开始执行。
       </p>
@@ -528,11 +552,18 @@ export function ConfirmPlanDialog({ open, taskId, detail, plan, unresolvedScopes
           </div>
         </div>
       )}
-      <dl className="kv-list" style={{ marginTop: 12 }}>
+      <div className="sec-t" style={{ marginTop: 12 }}>
+        确认范围 · 计划依据
+      </div>
+      <dl className="kv-list">
         <dt>计划修订</dt>
         <dd>
-          #{plan?.revisionNumber ?? '—'} · {plan === undefined ? '—' : PLAN_REVISION_STATUS_LABEL[plan.status]}
+          #{plan?.revisionNumber ?? '—'} · {plan === undefined ? '—' : PLAN_REVISION_STATUS_LABEL[plan.status]} · 来源 {plan?.source ?? '—'}
         </dd>
+        <dt>需求输入修订</dt>
+        <dd>{detail?.task.requirement.revision ?? '—'}</dd>
+        <dt>检查依据</dt>
+        <dd>{plan?.validation?.basis.detail ?? '服务未返回依据说明'}</dd>
         <dt>步骤 / 依赖</dt>
         <dd>
           {nodes.length} 步 · {edges.length} 条依赖
@@ -547,6 +578,14 @@ export function ConfirmPlanDialog({ open, taskId, detail, plan, unresolvedScopes
         <dd>
           读 {readResources} 处资源引用 · 写 {writeResources} 处资源引用
         </dd>
+        <dt>规划依据哈希</dt>
+        <dd>服务未提供 planningBindingHash（能力缺口 C1）；确认时服务仍会再次校验计划修订与输入。</dd>
+        {fixedTemplate === undefined ? null : (
+          <>
+            <dt>固定模板</dt>
+            <dd>{fixedTemplate.name} · 版本 {fixedTemplate.version}；入口参数 {Object.keys(fixedTemplate.parameters).length === 0 ? '无' : Object.entries(fixedTemplate.parameters).map(([key, value]) => `${key}=${value}`).join('、')}；验收不能弱化</dd>
+          </>
+        )}
       </dl>
       <div className="dialog-note">
         <Icon name="info" size="sm" />

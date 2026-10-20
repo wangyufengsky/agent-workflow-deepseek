@@ -4,7 +4,12 @@ import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
+import { CommitGraphCell, CommitGraphPass, layoutCommitGraph, type CommitGraphRow, type GraphLane } from './commit-graph.tsx';
 import { FailureNotice, dateGroupLabel, dateKey, formatTime, reviewLabel, reviewStateTone, shortSha } from './git-shared.tsx';
+
+/** 提交行高度（与 git.css 的 .commit-row min-height 一致，图谱按此高度绘制）。 */
+const COMMIT_ROW_HEIGHT = 58;
+const GROUP_HEAD_HEIGHT = 30;
 
 export interface CommitListProps {
   readonly commits: readonly GitCommitSummary[];
@@ -35,7 +40,17 @@ function CommitSkeleton() {
   );
 }
 
-/** 中栏提交列表：按作者日期分组，带简化时间线与审查徽标；不做伪造的泳道图谱。 */
+interface CommitGroup {
+  readonly key: string;
+  readonly rows: readonly { readonly commit: GitCommitSummary; readonly graph: CommitGraphRow | undefined }[];
+  /** 上一组最后一行留下的泳道：日期分组头处续接，图谱不会在分组之间断开。 */
+  readonly passIn: readonly GraphLane[];
+}
+
+/**
+ * 中栏提交列表：按作者日期分组，带简化泳道图谱（按真实父提交关系布局）与审查徽标。
+ * 筛选关键词时按设计隐藏图谱、提交平铺；图谱不伪造历史，也不改变提交顺序。
+ */
 export function CommitList({
   commits,
   selectedSha,
@@ -51,7 +66,10 @@ export function CommitList({
   filtered,
   loadedCount,
 }: CommitListProps) {
-  const groups = useMemo(() => {
+  const layout = useMemo(() => layoutCommitGraph(commits), [commits]);
+  const graphBySha = useMemo(() => new Map(layout.rows.map((row) => [row.sha, row])), [layout]);
+
+  const groups = useMemo<readonly CommitGroup[]>(() => {
     const buckets = new Map<string, GitCommitSummary[]>();
     for (const commit of commits) {
       const key = dateKey(commit.authoredAt);
@@ -59,8 +77,20 @@ export function CommitList({
       if (bucket === undefined) buckets.set(key, [commit]);
       else bucket.push(commit);
     }
-    return [...buckets.entries()];
-  }, [commits]);
+    let passIn: readonly GraphLane[] = [];
+    const result: CommitGroup[] = [];
+    for (const [key, rows] of buckets.entries()) {
+      const last = rows[rows.length - 1];
+      const lastGraph = last === undefined ? undefined : graphBySha.get(last.sha);
+      result.push({
+        key,
+        rows: rows.map((commit) => ({ commit, graph: graphBySha.get(commit.sha) })),
+        passIn,
+      });
+      if (lastGraph !== undefined) passIn = lastGraph.bottom.filter((lane): lane is GraphLane => lane !== null);
+    }
+    return result;
+  }, [commits, graphBySha]);
 
   if (loading) return <CommitSkeleton />;
 
@@ -91,17 +121,23 @@ export function CommitList({
 
   return (
     <>
-      {groups.map(([key, rows]) => (
-        <section key={key} aria-label={dateGroupLabel(key)}>
+      {groups.map((group) => (
+        <section key={group.key} aria-label={dateGroupLabel(group.key)}>
           <div className="commit-group-head">
+            <span className="commit-graph-pass" aria-hidden="true">
+              {filtered || group.passIn.length === 0 ? null : (
+                <CommitGraphPass lanes={group.passIn} laneCount={layout.laneCount} height={GROUP_HEAD_HEIGHT} />
+              )}
+            </span>
             <Icon name="calendar" size="sm" />
-            {dateGroupLabel(key)}
+            {dateGroupLabel(group.key)}
             <span className="grow" />
-            <span>{String(rows.length)} 个提交</span>
+            <span>{String(group.rows.length)} 个提交</span>
           </div>
-          {rows.map((commit) => {
+          {group.rows.map(({ commit, graph }) => {
             const selected = commit.sha === selectedSha;
             const review = commit.review;
+            const head = commit.refs.some((ref) => ref.kind === 'head');
             return (
               <button
                 key={commit.sha}
@@ -110,10 +146,11 @@ export function CommitList({
                 aria-selected={selected}
                 onClick={() => { onSelect(commit.sha); }}
               >
-                <span className="commit-graph" aria-hidden="true">
-                  {rows[rows.length - 1]?.sha === commit.sha ? null : <span className="line" />}
-                  <span className={['dot', commit.parents.length > 1 ? 'merge' : ''].filter(Boolean).join(' ')} />
-                </span>
+                {filtered || graph === undefined ? null : (
+                  <span className="commit-graph" aria-hidden="true">
+                    <CommitGraphCell row={graph} rowHeight={COMMIT_ROW_HEIGHT} head={head} />
+                  </span>
+                )}
                 <span className="commit-main">
                   <span className="commit-subject">{commit.subject}</span>
                   <span className="commit-meta">
@@ -146,6 +183,12 @@ export function CommitList({
         </section>
       ))}
 
+      {filtered ? null : (
+        <div className="commit-graph-tail" aria-hidden="true">
+          <CommitGraphPass lanes={trailingLanes(layout.rows)} laneCount={layout.laneCount} height={18} />
+        </div>
+      )}
+
       <div className="mid-more">
         {loadMoreError !== null && loadMoreError !== undefined ? (
           <FailureNotice error={loadMoreError} onRetry={onLoadMore} compact />
@@ -158,7 +201,13 @@ export function CommitList({
             {loadingMore ? '加载中…' : '加载更早的提交'}
           </Button>
         )}
+        {filtered ? null : <p className="mid-note">泳道按已加载提交的真实父提交关系计算；不伪造分支历史。</p>}
       </div>
     </>
   );
+}
+
+function trailingLanes(rows: readonly CommitGraphRow[]): readonly GraphLane[] {
+  const last = rows[rows.length - 1];
+  return last === undefined ? [] : last.bottom.filter((lane): lane is GraphLane => lane !== null);
 }

@@ -7,6 +7,7 @@ import type {
   InteractionKindValue,
   InteractionStateValue,
   NodeManualAcceptanceStateValue,
+  ReviewRunStateValue,
   RoleCapabilityGroupValue,
   RoleResourceFileKindValue,
   RoleResourceToolKindValue,
@@ -433,6 +434,19 @@ export interface KnowledgeAskRequest extends CommandRequest {
 }
 
 export interface KnowledgeStopRequest extends CommandRequest { readonly projectId: string }
+
+/**
+ * One source the current run actually read (or truncated) so far. Emitted
+ * incrementally on `KnowledgeRunProgress`; `readAt` is the observed read
+ * timestamp — the UI never invents arrival order or relevance scores.
+ */
+export interface KnowledgeProgressSource {
+  readonly path: string;
+  readonly kind: 'code' | 'document' | 'database' | 'web';
+  readonly state: 'read' | 'truncated';
+  readonly readAt: IsoDateTime;
+}
+
 export interface KnowledgeRunProgress {
   readonly pendingInteractionIds?: readonly string[];
   readonly requestKey: string;
@@ -445,6 +459,12 @@ export interface KnowledgeRunProgress {
   readonly updatedAt: IsoDateTime;
   readonly answer: string;
   readonly sources: NonNullable<KnowledgeAskResponse['sources']>;
+  /** Real steps observed so far; absent for runs without step data. */
+  readonly steps?: readonly KnowledgeStep[];
+  /** Real tool activity, only when the runtime really emitted tool parts. */
+  readonly toolActivity?: readonly KnowledgeToolActivity[];
+  /** Real source reads observed so far (filled incrementally during retrieval). */
+  readonly sourceCards?: readonly KnowledgeProgressSource[];
   readonly sessionId?: string;
   readonly stopRequestKey?: string;
   readonly roleEvidence?: KnowledgeRoleEvidence;
@@ -455,6 +475,8 @@ export interface KnowledgeCitation {
   readonly path: string;
   readonly line: number;
   readonly snippet?: string;
+  /** 1-based position in the citations array; also the `[n]` answer marker number. */
+  readonly index?: number;
 }
 
 export interface KnowledgeRoleEvidence {
@@ -469,6 +491,12 @@ export interface KnowledgeRoleEvidence {
 export interface KnowledgeAskResponse {
   readonly projectId: string;
   readonly question: string;
+  /**
+   * Answer text. New answers contain inline citation markers `[1]`, `[2]`, …
+   * whose numbers refer to `KnowledgeCitation.index`; clients render them as
+   * clickable superscripts. Legacy answers have no markers and clients must say
+   * so instead of faking a sentence-level anchor.
+   */
   readonly answer: string;
   readonly status?: 'completed' | 'stopped';
   readonly continueAvailability?: ActionAvailability;
@@ -499,6 +527,10 @@ export interface KnowledgeHistoryEntry extends KnowledgeAskResponse {
   readonly unavailableReason?: string;
   readonly id: string;
   readonly runStatus?: import('../domain/enums.ts').KnowledgeRunStatusValue;
+  /** Pending native question text (only when the run really waits for the user). */
+  readonly pendingQuestion?: string;
+  /** Real current step/progress text for running entries (absent means unknown). */
+  readonly progressSummary?: string;
 }
 
 export interface KnowledgeConversation {
@@ -930,6 +962,8 @@ export interface PptAssistantDecideRequest extends CommandRequest { readonly pro
 export interface PptWorkUpdateRequest extends CommandRequest {
   /** -1 is the cover; other indexes refer to body pages. Changes only one page. */
   readonly pageEdit?: { readonly index: number; readonly page: import('../domain/models.ts').PptSlide };
+  /** Explicit "add one page" (P07-23): appends a page and leaves every other page's production state untouched. */
+  readonly appendPage?: import('../domain/models.ts').PptSlide;
   readonly cover?: import('../domain/models.ts').PptSlide;
   readonly plan?: import('../domain/models.ts').PptProductionPlan;
   readonly expectedRevision?: number;
@@ -999,7 +1033,20 @@ export interface TaskDetailResponse {
   readonly execution?: ExecutionView;
   readonly workspace?: TaskWorkspace;
   readonly delivery?: TaskDelivery;
+  /** Service-projected prepare result (never inferred by the client: P11-04). */
+  readonly workspacePrepare?: WorkspacePrepareProjection;
+  /** P13-04: service-projected execution facts that need the user (approval / acceptance). Stalled is not modelled by the service yet. */
+  readonly attentionItems?: readonly TaskAttentionItem[];
   readonly capabilities: Record<string, ActionAvailability>;
+}
+
+/** One execution fact that needs the user, projected by the service (P13-04). */
+export interface TaskAttentionItem {
+  readonly kind: 'runtime_approval' | 'runtime_question' | 'runtime_policy' | 'pending_acceptance';
+  readonly title: string;
+  readonly detail: string;
+  readonly nodeId?: string;
+  readonly interactionId?: string;
 }
 
 export const RECOVERY_MODES = ['from_failed_stage', 'all_stages', 'verify_only'] as const;
@@ -1177,6 +1224,12 @@ export interface RoleSaveRequest extends CommandRequest {
   readonly allowedSlots?: readonly string[];
   readonly roleId?: string;
   readonly baseId?: string;
+  /**
+   * Draft version last read from the server (`RoleCatalogEntry.draftVersion`,
+   * 0 when the role has no draft yet). A mismatch is a real concurrent edit and
+   * the service answers 409 STALE_TARGET instead of last-write-wins.
+   */
+  readonly expectedDraftVersion?: number;
   readonly name: string;
   readonly purpose: string;
   readonly responsibilities: readonly string[];
@@ -1205,6 +1258,8 @@ export interface RolePackageValidation {
 export interface RolePackagePublishRequest extends CommandRequest { readonly source: string; readonly sourceHash: string; readonly baselineHash: string; readonly confirmReviewed: true }
 
 export interface RolePublishRequest extends CommandRequest {
+  /** Draft version the publish review was based on; mismatch returns 409. */
+  readonly expectedDraftVersion?: number;
   readonly confirmPublish: true;
 }
 
@@ -1218,6 +1273,10 @@ export interface RoleCatalogEntry extends RoleDefinition {
   readonly baseId?: string;
   readonly hasDraft: boolean;
   readonly updatedAt?: IsoDateTime;
+  /** Monotonic draft version; 0/absent means no saved draft. Used for conflict checks. */
+  readonly draftVersion?: number;
+  /** Revision number the current draft would publish as (e.g. r4 for a draft of revision 3). */
+  readonly draftRevision?: string;
   /**
    * Full editable draft (all four tabs) when `hasDraft` is true. Top-level
    * fields stay the published/effective content so callers can diff draft vs
@@ -1242,6 +1301,8 @@ export interface RoleRevisionSnapshot {
   readonly capabilityGroups?: readonly RoleCapabilityGroupView[];
   readonly resourcePermissions?: RoleResourcePermissions;
   readonly image?: RoleImageBinding;
+  /** Deterministic sha256 of the frozen revision content (computed on read). */
+  readonly contentSha256?: string;
 }
 
 export interface RoleValidateResponse {
@@ -1262,6 +1323,33 @@ export interface RoleRestoreRequest extends CommandRequest {
 export interface RoleHistoryResponse {
   readonly roleId: string;
   readonly history: readonly RoleRevisionSnapshot[];
+}
+
+/**
+ * B-02「已发布版本核对」read-only receipt: the exact published revision and its
+ * frozen content. Reading it never publishes, changes the draft or touches
+ * frozen tasks; `contentSha256` lets the UI verify the publish reference.
+ */
+export interface RolePublishedReceipt {
+  readonly roleId: string;
+  readonly roleName: string;
+  readonly revision: string;
+  readonly publishedAt?: IsoDateTime;
+  readonly instructions: string;
+  readonly responsibilities: readonly string[];
+  readonly capabilities: readonly { readonly id: string; readonly label: string }[];
+  readonly allowedSlots: readonly string[];
+  readonly resourceCount: number;
+  readonly contentSha256: string;
+  /** When the service answered this read (fixed reference check). */
+  readonly readAt: IsoDateTime;
+}
+
+export interface RolePublishedReceiptResponse {
+  readonly roleId: string;
+  /** Absent when the role has never been published; `dependency` explains it. */
+  readonly published?: RolePublishedReceipt;
+  readonly dependency?: string;
 }
 
 export interface RoleCatalogResponse {
@@ -1440,7 +1528,23 @@ export interface EditSaveRequest extends CommandRequest {
     readonly prerequisites?: readonly string[];
     readonly acceptance?: readonly string[];
   }[];
+  /** P13-06: pending-plan nodes the edit session adds (client-generated ids). */
+  readonly addedNodes?: readonly EditAddedNode[];
+  /** P13-06: pending-plan nodes the edit session removes from the plan. */
+  readonly removedNodeIds?: readonly string[];
   readonly expectedPlanRevisionNumber: number;
+}
+
+/** One step added to the pending plan while adjusting an execution (P13-06). */
+export interface EditAddedNode {
+  /** Client-generated node id; the service rejects collisions and creates the start/end edges. */
+  readonly nodeId: string;
+  readonly title: string;
+  readonly kind: import('../domain/enums.ts').NodeKindValue;
+  readonly summary?: string;
+  /** Existing pending-plan nodes this new step depends on (insert = also add it as a prerequisite of the successor). */
+  readonly prerequisites: readonly string[];
+  readonly acceptance?: readonly string[];
 }
 
 export interface EditFinishRequest extends CommandRequest {
@@ -1461,6 +1565,37 @@ export interface PlanEditAbandonRequest extends CommandRequest {
 }
 
 export type PlanEditAbandonResponse = CommandResponse<PlanResponse>;
+
+/**
+ * One hand edit of the unconfirmed plan revision shown in the requirement
+ * canvas (P11-01). Only fields the design exposes for manual editing are
+ * accepted; the service validates roles/prerequisites and re-runs checks.
+ */
+export interface PlanDraftEditChange {
+  readonly nodeId: string;
+  readonly title?: string;
+  readonly summary?: string;
+  readonly acceptance?: readonly string[];
+  /** `null` clears the occupation binding. */
+  readonly roleId?: string | null;
+  readonly prerequisites?: readonly string[];
+}
+
+/** PE28: adopt “改为先后执行” (adds an order edge, forms a new diff and re-checks). */
+export interface PlanDraftSerializePair {
+  readonly fromNodeId: string;
+  readonly toNodeId: string;
+}
+
+export interface PlanDraftEditRequest extends CommandRequest {
+  readonly planRevisionId: string;
+  readonly expectedRevisionNumber: number;
+  readonly changes: readonly PlanDraftEditChange[];
+  readonly serialize?: readonly PlanDraftSerializePair[];
+  readonly confirmSave: true;
+}
+
+export type PlanDraftEditResponse = CommandResponse<PlanResponse>;
 
 export interface PlanResponse {
   readonly taskId: string;
@@ -1485,8 +1620,66 @@ export interface NodeEditRequest extends CommandRequest {
 export interface WorkspaceResponse {
   readonly taskId: string;
   readonly workspace?: TaskWorkspace;
+  /** Service-projected prepare result; the six abnormal PW states are derived from it (P11-04). */
+  readonly prepare?: WorkspacePrepareProjection;
   readonly changesRevision?: string;
   readonly actions: Record<string, ActionAvailability>;
+}
+
+/**
+ * The one service projection behind P11-04. `outcome` is computed by the
+ * service from the persisted prepare receipt/error plus the workspace state,
+ * never from client-side guesses.
+ */
+export type WorkspacePrepareOutcome =
+  | 'none'
+  | 'ready'
+  | 'preparing'
+  | 'unknown'
+  | 'partial'
+  | 'conflict'
+  | 'drift'
+  | 'denied'
+  | 'empty'
+  | 'failed'
+  | 'unavailable';
+
+export interface WorkspacePrepareProjection {
+  readonly outcome: WorkspacePrepareOutcome;
+  readonly requestKey?: string;
+  readonly operationStatus?: string;
+  readonly errorCode?: string;
+  readonly errorMessage?: string;
+  readonly detail?: string;
+  readonly failedStep?: string;
+  readonly checkedAt?: IsoDateTime;
+}
+
+/**
+ * Read-only prepare preview (P11-03/P11-04): the facts the confirmation dialog
+ * and the PW-DRIFT/PW-CONFLICT/PW-EMPTY/PW-DENIED states need. It never creates
+ * anything; prepare remains the only mutating command.
+ */
+export interface WorkspacePreparePreview {
+  readonly taskId: string;
+  readonly projectId: string;
+  readonly projectName: string;
+  readonly gitState: 'git' | 'non_git';
+  readonly baseRef: string;
+  readonly defaultBranch?: string;
+  readonly currentBaseSha?: string;
+  readonly workspaceBaseSha?: string;
+  readonly workspaceBaseRef?: string;
+  readonly expectedPlanRevisionNumber?: number;
+  readonly steps: readonly { readonly step: string; readonly state: string; readonly detail?: string }[];
+  readonly sameNameObjects: readonly { readonly kind: 'branch' | 'worktree'; readonly name: string; readonly detail?: string }[];
+  readonly emptyRepo: boolean;
+  readonly suggestedBranchName?: string;
+  /** New worktree directory name paired with suggestedBranchName (name-conflict re-preview). */
+  readonly suggestedDirectoryName?: string;
+  readonly blockers: readonly { readonly code: string; readonly message: string; readonly goTo?: string }[];
+  readonly readAt: IsoDateTime;
+  readonly readError?: { readonly code: string; readonly message: string };
 }
 
 export interface PrepareWorkspaceRequest extends CommandRequest {
@@ -1494,6 +1687,10 @@ export interface PrepareWorkspaceRequest extends CommandRequest {
   readonly expectedBaseRef?: string;
   readonly expectedBaseTip?: string;
   readonly baselineSelectionRef?: string;
+  /** 同名冲突后「使用新名称重新预览→再次确认」传入的新分支名（服务生成 -2 后缀之外也允许显式覆盖）。 */
+  readonly branchName?: string;
+  /** 同名冲突后的新工作目录名（默认任务 id 的目录名）。 */
+  readonly directoryName?: string;
   readonly confirmPrepare: true;
 }
 
@@ -1616,13 +1813,44 @@ export interface DeliveryMergeRequestRequest extends CommandRequest {
   readonly confirmMergeRequest: true;
 }
 
-export interface DeliveryMergeRequest extends CommandRequest {
-  readonly targetBranch: string;
-  readonly expectedTargetSha: string;
-  readonly sourceSha: string;
-  readonly message: string;
-  readonly strategy: 'no_ff' | 'ff_only';
-  readonly confirmMerge: true;
+export interface DeliveryPushVerifyRequest extends CommandRequest {
+  /** Original push request key whose receipt is unknown. */
+  readonly targetRequestKey?: string;
+  readonly confirmVerify: true;
+}
+
+export interface DeliveryPushVerifyResponse {
+  readonly found: boolean;
+  readonly delivery: TaskDelivery;
+  readonly remoteRef?: string;
+  readonly note: string;
+}
+
+/** Read-only GitLab MR fact for a delivered task (DEL-12); never changes delivery state. */
+export interface DeliveryMergeRequestFactResponse {
+  readonly available: boolean;
+  readonly reason?: string;
+  readonly mergeRequest?: {
+    readonly iid: number;
+    readonly webUrl: string;
+    readonly state: 'opened' | 'merged' | 'closed' | 'locked';
+    readonly sourceBranch: string;
+    readonly targetBranch: string;
+    readonly updatedAt: IsoDateTime;
+  };
+}
+
+export interface DeliveryMergeRequestVerifyRequest extends CommandRequest {
+  /** Original request key of the create attempt whose receipt is unknown. */
+  readonly targetRequestKey?: string;
+  readonly confirmVerify: true;
+}
+
+export interface DeliveryMergeRequestVerifyResponse {
+  readonly found: boolean;
+  readonly delivery: TaskDelivery;
+  readonly mergeRequest?: { readonly iid: number; readonly webUrl: string; readonly state?: string };
+  readonly note: string;
 }
 
 export interface DeliveryApplyRequest extends CommandRequest {
@@ -1745,6 +1973,40 @@ export interface ReviewCompareResponse {
   readonly resolved: readonly ReviewFindingSummary[];
   readonly introduced: readonly ReviewFindingSummary[];
   readonly persisting: readonly ReviewFindingSummary[];
+}
+
+/**
+ * 一次审查的摘要（历史下拉）。服务端已保留同一提交的多次审查：
+ * 第 N 次、时间、状态与问题数，供只读回看（审计 GIT-04）。
+ */
+export interface GitReviewHistoryEntry {
+  readonly reviewRunId: string;
+  readonly ordinal: number;
+  readonly state: ReviewRunStateValue;
+  readonly startedAt?: IsoDateTime;
+  readonly endedAt?: IsoDateTime;
+  readonly findings: number;
+  readonly dimensions: readonly DimensionValue[];
+  readonly compareLabel?: string;
+}
+
+export interface GitReviewHistoryResponse {
+  readonly reviews: readonly GitReviewHistoryEntry[];
+}
+
+/**
+ * 「建议修改」：模型给出、服务校验过的 unified patch 文本。
+ * 只读展示与复制；产品不自动应用 patch（应用 diff 仍需用户显式操作）。
+ */
+export interface ReviewFindingSuggestion {
+  readonly findingId: string;
+  readonly format: 'unified_patch';
+  readonly patch: string;
+  readonly appliesTo: string;
+}
+
+export interface ReviewSuggestionsResponse {
+  readonly suggestions: readonly ReviewFindingSuggestion[];
 }
 
 export interface ReviewResponse {
@@ -2053,10 +2315,12 @@ export const ROUTES = {
   planEditSave: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/edit/save`,
   planEditFinish: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/edit/finish`,
   planEditAbandon: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/edit/abandon`,
+  planEditDraft: (id: string) => `/api/tasks/${encodeURIComponent(id)}/plan/edit-draft`,
   planNode: (id: string, nodeId: string) => `/api/tasks/${encodeURIComponent(id)}/plan/nodes/${encodeURIComponent(nodeId)}`,
   planRevision: (id: string, revisionId: string) => `/api/tasks/${encodeURIComponent(id)}/plan/revisions/${encodeURIComponent(revisionId)}`,
   workspace: (id: string) => `/api/tasks/${encodeURIComponent(id)}/workspace`,
   workspacePrepare: (id: string) => `/api/tasks/${encodeURIComponent(id)}/workspace/prepare`,
+  workspacePreparePreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/workspace/prepare-preview`,
   workspaceCleanupPreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/workspace/cleanup/preview`,
   workspaceCleanupConfirm: (id: string) => `/api/tasks/${encodeURIComponent(id)}/workspace/cleanup/confirm`,
   changes: (id: string) => `/api/tasks/${encodeURIComponent(id)}/changes`,
@@ -2082,7 +2346,9 @@ export const ROUTES = {
   deliveryCommit: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/commit`,
   deliveryPush: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/push`,
   deliveryMergeRequest: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/merge-request`,
-  deliveryMerge: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/merge`,
+  deliveryMergeRequestVerify: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/merge-request/verify`,
+  deliveryPushVerify: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/push/verify`,
+  deliveryMergeRequestFact: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/merge-request-fact`,
   deliveryApplyPreview: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/apply/preview`,
   deliveryApply: (id: string) => `/api/tasks/${encodeURIComponent(id)}/delivery/apply`,
   gitOverview: '/api/git/repos',
@@ -2101,6 +2367,7 @@ export const ROUTES = {
   review: (projectId: string, reviewRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewRunId)}`,
   reviewStart: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews/start`,
   reviewStop: (projectId: string, reviewRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewRunId)}/stop`,
+  reviewSuggestions: (projectId: string, reviewRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewRunId)}/suggestions`,
   reviewFinding: (projectId: string, findingId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/findings/${encodeURIComponent(findingId)}`,
   fixes: (projectId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes`,
   fix: (projectId: string, fixRunId: string) => `/api/git/repos/${encodeURIComponent(projectId)}/fixes/${encodeURIComponent(fixRunId)}`,
@@ -2140,6 +2407,7 @@ export const ROUTES = {
   catalogTemplateArchive: (id: string) => `/api/catalog/templates/${encodeURIComponent(id)}`,
   catalogRoleRestore: (id: string, revision: string) => `/api/catalog/roles/${encodeURIComponent(id)}/restore/${encodeURIComponent(revision)}`,
   catalogRoleHistory: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/history`,
+  catalogRolePublished: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/published`,
   catalogRoleArchive: (id: string) => `/api/catalog/roles/${encodeURIComponent(id)}/archive`,
   settings: '/api/settings',
   settingsGit: '/api/settings/git',

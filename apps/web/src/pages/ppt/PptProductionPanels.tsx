@@ -26,12 +26,18 @@ const DIRECTIONS: readonly {
     title: string;
     description: string;
 }[] = [
-    { id: 'restrained', title: '深色克制', description: '深色底、少量强调色，清晰呈现关键内容。' },
+    { id: 'restrained', title: '深色克制', description: '深色底、少量强调色，和产品界面保持一致。' },
     { id: 'editorial', title: '浅色编辑', description: '浅底大字，适合投影和打印。' },
     { id: 'contrast', title: '高对比', description: '黑底高亮，适合大会场远距离观看。' },
 ];
-export function PptDirections({ work, blocked, onCommand }: Props) {
-    return <section className="card pad"><h3>视觉方向</h3><div className="grid-3">{DIRECTIONS.map((direction) => <button type="button" className="card pad" key={direction.id} aria-pressed={work.direction === direction.id} disabled={blocked} onClick={() => onCommand({ kind: 'update', workId: work.id, body: { requestKey: createRequestKey(), direction: direction.id, expectedRevision: work.revision ?? 1, confirmUpdate: true } })}><img alt={`${direction.title}当前内容预览`} style={{ width: '100%', aspectRatio: '16/9' }} src={`${ROUTES.pptWorkThumbnail(work.id)}?direction=${direction.id}&revision=${work.revision ?? 1}`}/><b>{direction.title}{work.direction === direction.id ? ' · 已选' : ''}</b><p className="hint">{direction.description}</p></button>)}</div><p className="hint">已保存的方向用于内容生成、页面渲染和 PPTX 导出，界面主题独立设置。</p></section>;
+/** P07-12：方向只是本地草稿；由②设计方案的确认条/保存统一提交，点选不再即时写服务。 */
+export function PptDirections({ work, value, onChange, blocked }: {
+    readonly work: PptWork;
+    readonly value: PptVisualDirectionValue;
+    readonly onChange: (value: PptVisualDirectionValue) => void;
+    readonly blocked: boolean;
+}) {
+    return <section className="card pad"><h3>视觉方向</h3><div className="grid-3">{DIRECTIONS.map((direction) => <button type="button" className="card pad" key={direction.id} aria-pressed={value === direction.id} disabled={blocked} onClick={() => onChange(direction.id)}><img alt={`${direction.title}当前内容预览`} style={{ width: '100%', aspectRatio: '16/9' }} src={`${ROUTES.pptWorkThumbnail(work.id)}?direction=${direction.id}&revision=${work.revision ?? 1}`}/><b>{direction.title}{value === direction.id ? ' · 已选' : ''}</b><p className="hint">{direction.description}</p></button>)}</div><p className="hint">方向随「确认并开始制作」保存；用于内容生成、页面渲染和 PPTX 导出，界面主题独立设置。</p></section>;
 }
 export function PptPageChecks({ work, blocked, onCommand }: Props) {
     const report = useQuery({ queryKey: ['ppt', work.id, 'check', work.revision], queryFn: async () => (await apiGet<PptCheckReport>(ROUTES.pptWorkCheck(work.id))).data, retry: false });

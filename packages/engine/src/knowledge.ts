@@ -13,6 +13,7 @@ import {
   type KnowledgeStopRequest,
   type KnowledgeHistoryEntry,
   type KnowledgeHistoryResponse,
+  type KnowledgeProgressSource,
   type KnowledgeStep,
   type KnowledgeToolActivity,
   type ModelProfile,
@@ -141,11 +142,28 @@ export class KnowledgeService {
       const roleEvidence: KnowledgeRoleEvidence = { executionRole: { id: 'knowledge.researcher', label: '知识研究员（只读）' },
         ...(role === undefined ? {} : { profession: { id: role.id, name: role.name, revision: role.revision }, ...(role.image === undefined ? {} : { appearance: structuredClone(role.image) }) }),
         conversationVersion, messageVersion: 1, requestKey: input.requestKey };
-      this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId, model: `${model.provider}/${model.model}`, status: 'researching', startedAt: nowIso(), updatedAt: nowIso(), answer: '', sources: { selectedPaths, readPaths: [], truncatedPaths: [], networkSearch }, roleEvidence });
+      const retrieveStep: KnowledgeStep = {
+        id: 'step_retrieve', kind: 'retrieve', label: `读取 0/${String(selectedPaths.length)} 份资料`,
+        status: 'running', startedAt: retrieveStartedAt,
+      };
+      this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId, model: `${model.provider}/${model.model}`, status: 'researching', startedAt: nowIso(), updatedAt: nowIso(), answer: '', sources: { selectedPaths, readPaths: [], truncatedPaths: [], networkSearch }, steps: [retrieveStep], sourceCards: [], roleEvidence });
       const runKeys = this.#store.settings.getJson<string[]>(`knowledge.runs.${input.projectId}`) ?? [];
       this.#store.settings.putJson(`knowledge.runs.${input.projectId}`, [input.requestKey, ...runKeys].slice(0, 200));
       this.#active.add(input.requestKey);
-      const collected = frozenInput ?? await this.inputs.collect(input.projectId, selectedPaths, networkSearch, question);
+      // Real incremental source reads: every callback persists the actual read
+      // order/timestamps so polling clients can show hit cards as they appear.
+      const sourceCards: KnowledgeProgressSource[] = [];
+      const collected = frozenInput ?? await this.inputs.collect(input.projectId, selectedPaths, networkSearch, question, (document) => {
+        const readAt = nowIso();
+        sourceCards.push({ path: document.path, kind: document.kind ?? 'document', state: 'read', readAt });
+        const latest = this.#progressRecord(input.requestKey) ?? undefined;
+        if (latest === undefined || latest.status !== 'researching') return;
+        const readPaths = sourceCards.map((card) => card.path);
+        this.#saveProgress({ ...latest,
+          sources: { ...latest.sources, readPaths },
+          steps: [{ ...retrieveStep, label: `读取 ${String(readPaths.length)}/${String(selectedPaths.length)} 份资料` }],
+          sourceCards: [...sourceCards] });
+      });
       const retrievalProgress = this.progress(input.requestKey, input.projectId);
       if (retrievalProgress.status === 'stopped') return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.result(input.requestKey, input.projectId) };
       const { documents, truncatedPaths } = collected;
@@ -166,9 +184,19 @@ export class KnowledgeService {
           detail: documents.map((document) => document.path).join('、').slice(0, 500),
         },
       ];
+      // Keep only real read observations: truncated is a fact from the collector,
+      // not an invented intermediate state.
+      const finalCards: KnowledgeProgressSource[] = sourceCards.length > 0
+        ? sourceCards.map((card) => ({ ...card, state: truncatedPaths.includes(card.path) ? 'truncated' : 'read' }))
+        : documents.map((document) => ({ path: document.path, kind: document.kind ?? 'document', state: truncatedPaths.includes(document.path) ? 'truncated' : 'read', readAt: snapshot.frozenAt }));
       const sourceSnapshot = { frozenAt: snapshot.frozenAt, contentHashes: Object.fromEntries(documents.map((document) => [document.path, document.sha256])), networkSearch, selectedPaths, readPaths: documents.map((document) => document.path), truncatedPaths };
       this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId,
-        model: `${model.provider}/${model.model}`, status: 'researching', startedAt: retrieveStartedAt, updatedAt: nowIso(), answer: '', sources: sourceSnapshot, roleEvidence });
+        model: `${model.provider}/${model.model}`, status: 'researching', startedAt: retrieveStartedAt, updatedAt: nowIso(), answer: '', sources: sourceSnapshot, steps, sourceCards: finalCards, roleEvidence });
+      // Observed start of the model call (this process really dispatched it now);
+      // replaced by the assistant message timing once the runtime reports it.
+      const modelStartedAt = nowIso();
+      this.#saveProgress({ requestKey: input.requestKey, projectId: input.projectId, question, conversationId,
+        model: `${model.provider}/${model.model}`, status: 'researching', startedAt: retrieveStartedAt, updatedAt: nowIso(), answer: '', sources: sourceSnapshot, steps: [...steps, { id: 'step_model_running', kind: 'model', label: '模型回答', status: 'running', startedAt: modelStartedAt }], sourceCards: finalCards, roleEvidence });
       let streamText = '';
       const recent = (this.#store.settings.getJson<KnowledgeHistoryEntry[]>(historyKey(input.projectId)) ?? [])
         .filter((entry) => { if (entry.conversationId !== conversationId) return false; const old = entry.requestKey === undefined ? undefined : this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${entry.requestKey}`); try { if (old !== undefined) this.inputs.assertCurrent(input.projectId, old); return old !== undefined; } catch { return false; } })
@@ -233,7 +261,10 @@ export class KnowledgeService {
       if (parsed === undefined || typeof parsed.answer !== 'string') {
         throw new AppError(ErrorCode.VALIDATION_FAILED, '模型输出不是约定的 JSON（缺少 answer），未生成问答结果');
       }
-      const citations = validateCitations(parsed.citations, documents);
+      const citations = withCitationIndexes(validateCitations(parsed.citations, documents));
+      // Inline `[n]` markers are the sentence-level anchors; markers pointing at
+      // rejected citations are removed instead of leaving a dangling superscript.
+      const answer = stripInvalidCitationMarkers(parsed.answer.trim().slice(0, 8_000), citations.length);
       const validateEndedAt = nowIso();
       steps.push({
         id: 'step_validate',
@@ -252,7 +283,7 @@ export class KnowledgeService {
         roleEvidence,
         projectId: input.projectId,
         question,
-        answer: parsed.answer.trim().slice(0, 8_000),
+        answer,
         citations,
         model: `${model.provider}/${model.model}`,
         generatedAt: nowIso(),
@@ -286,8 +317,13 @@ export class KnowledgeService {
     }
     const input = this.#store.settings.getJson<KnowledgeInputSnapshot>(`knowledge.input.${requestKey}`);
     if (input !== undefined) { try { this.inputs.assertCurrent(projectId, input); } catch { return { ...progress, answer: '', error: '资料许可已撤销，内容已清空' }; } }
-    const pending = (this.#store.settings.getJson<readonly import('@agent-workflow/shared').RuntimeInteraction[]>('runtime.interactions') ?? []).filter((item) => item.binding.knowledgeRequestKey === requestKey && item.binding.projectId === projectId && item.kind === 'question' && item.state !== 'resolved');
+    const pending = this.#pendingInteractions(requestKey, projectId);
     return ['researching','answering'].includes(progress.status) && pending.length > 0 ? { ...progress, status: pending.some((item) => item.state === 'unknown') ? 'unknown' : 'needs_answer', pendingInteractionIds: pending.map((item) => item.id) } : progress;
+  }
+
+  #pendingInteractions(requestKey: string, projectId: string): readonly import('@agent-workflow/shared').RuntimeInteraction[] {
+    return (this.#store.settings.getJson<readonly import('@agent-workflow/shared').RuntimeInteraction[]>('runtime.interactions') ?? [])
+      .filter((item) => item.binding.knowledgeRequestKey === requestKey && item.binding.projectId === projectId && item.kind === 'question' && item.state !== 'resolved');
   }
 
   async stop(askKey: string, input: KnowledgeStopRequest): Promise<CommandResponse> {
@@ -349,8 +385,9 @@ export class KnowledgeService {
       const parsed = extractJson(text);
       if (parsed === undefined || typeof parsed.answer !== 'string') return;
       this.inputs.assertCurrent(progress.projectId, input);
+      const citations = withCitationIndexes(validateCitations(parsed.citations, input.documents));
       this.#complete(askKey, { requestKey: askKey, projectId: progress.projectId, question: progress.question,
-        answer: parsed.answer.trim().slice(0, 8000), citations: validateCitations(parsed.citations, input.documents),
+        answer: stripInvalidCitationMarkers(parsed.answer.trim().slice(0, 8000), citations.length), citations,
         status: 'completed', model: progress.model, conversationId: progress.conversationId, generatedAt: nowIso(), sources: progress.sources,
         roleEvidence: progress.roleEvidence, usage: usageFromMessages(messages), steps: [...(modelStepFrom(messages) === undefined ? [] : [modelStepFrom(messages)!]), ...toolStepsFrom(messages)], toolActivity: toolActivityFrom(messages) });
     } catch { /* Missing remote proof or revoked sources cannot settle the original operation. */ }
@@ -377,10 +414,15 @@ export class KnowledgeService {
     if (progress.stopRequestKey !== undefined) this.#store.settings.putJson(`knowledge.stop-target.${progress.stopRequestKey}`, progress.requestKey);
   }
 
+  /** Raw persisted progress (no interruption/pending-interaction projection). */
+  #progressRecord(requestKey: string): KnowledgeRunProgress | undefined {
+    return this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(requestKey));
+  }
+
   #finishStopped(progress: KnowledgeRunProgress): void {
     if (['completed', 'failed'].includes(progress.status)) return;
     this.#complete(progress.requestKey, { requestKey: progress.requestKey, status: 'stopped', projectId: progress.projectId,
-      question: progress.question, answer: progress.answer, citations: [], model: progress.model,
+      question: progress.question, answer: stripInvalidCitationMarkers(progress.answer, 0), citations: [], model: progress.model,
       generatedAt: nowIso(), conversationId: progress.conversationId, sources: progress.sources, roleEvidence: progress.roleEvidence, continueAvailability: this.#store.settings.getJson(`knowledge.input.${progress.requestKey}`) === undefined ? { allowed: false, reasonCode: ErrorCode.NOT_RETAINED, reason: '来源读取尚未完成，没有可继续的冻结输入；请新建问答' } : { allowed: true } });
     if (progress.stopRequestKey !== undefined && this.#commands.get(progress.stopRequestKey)?.status !== 'succeeded') {
       this.#commands.settle(progress.stopRequestKey, { askKey: progress.requestKey, confirmedStopped: true });
@@ -394,7 +436,12 @@ export class KnowledgeService {
     this.#store.settings.putJson(historyKey(response.projectId), [entry, ...history].slice(0, 30));
     this.#store.settings.putJson(resultKey(requestKey), response);
     const progress = this.#store.settings.getJson<KnowledgeRunProgress>(progressKey(requestKey));
-    if (progress !== undefined) { this.#saveProgress({ ...progress, answer: response.answer, status: response.status === 'stopped' ? 'stopped' : 'completed' }); if (progress.sessionId !== undefined) this.#onSessionClosed?.(progress.sessionId); }
+    if (progress !== undefined) {
+      // Final persisted progress keeps only observed steps/tools (never the
+      // running placeholder step used while waiting for the runtime).
+      this.#saveProgress({ ...progress, answer: response.answer, status: response.status === 'stopped' ? 'stopped' : 'completed', steps: response.steps, toolActivity: response.toolActivity });
+      if (progress.sessionId !== undefined) this.#onSessionClosed?.(progress.sessionId);
+    }
     this.#commands.settle(requestKey, { historyId: entry.id, conversationId: response.conversationId });
   }
 
@@ -436,7 +483,21 @@ export class KnowledgeService {
       if (['completed','stopped'].includes(progress.status)) {
         const result = this.#store.settings.getJson<KnowledgeAskResponse>(resultKey(key));
         if (result !== undefined && result.projectId === projectId) byRequest.set(key, { id: byRequest.get(key)?.id ?? key, ...result, runStatus: progress.status });
-      } else byRequest.set(key, { id: key, requestKey: key, projectId, conversationId: progress.conversationId, question: progress.question, answer: progress.answer, model: progress.model, generatedAt: progress.startedAt, sources: progress.sources, roleEvidence: progress.roleEvidence, runStatus: progress.status, citations: [] });
+      } else {
+        // P04-01: running/needs_answer rows carry real current-step text and the
+        // real pending question instead of an empty answer summary.
+        const pending = this.#pendingInteractions(key, projectId);
+        const latestStep = progress.steps === undefined || progress.steps.length === 0 ? undefined : progress.steps[progress.steps.length - 1];
+        const progressSummary = progress.status === 'needs_answer'
+          ? '等待你的答复'
+          : latestStep === undefined
+            ? undefined
+            : latestStep.status === 'running'
+              ? `正在${latestStep.kind === 'retrieve' ? '读取资料' : latestStep.kind === 'model' ? '组织回答' : '执行'} · ${latestStep.label}`
+              : latestStep.label;
+        const pendingQuestion = pending.length === 0 ? undefined : pending[0]?.questions[0]?.title ?? pending[0]?.reason;
+        byRequest.set(key, { id: key, requestKey: key, projectId, conversationId: progress.conversationId, question: progress.question, answer: progress.answer, model: progress.model, generatedAt: progress.startedAt, sources: progress.sources, roleEvidence: progress.roleEvidence, runStatus: progress.status, citations: [], ...(pendingQuestion === undefined ? {} : { pendingQuestion }), ...(progressSummary === undefined ? {} : { progressSummary }) });
+      }
     }
     return [...byRequest.values()].map((entry) => {
       try { if (entry.requestKey !== undefined) this.assertRunReadable(projectId, entry.requestKey); else this.inputs.requireOriginal(projectId); return { ...entry, readability: 'ok' as const }; }
@@ -539,7 +600,8 @@ function toolStepsFrom(messages: readonly OpenCodeMessage[]): KnowledgeStep[] {
 const SYSTEM_PROMPT = `你是项目知识库的研究员。只依据本轮提供的代码、文档、获准数据库样本与公共检索摘要回答，不要编造这些输入之外的事实。公共检索摘要不等于已打开网页全文；不能用自由工具补读。若缺少用户必须澄清的信息，可使用原生 question 通信工具询问；它不会提供新的文件、命令或 MCP 权限，收到答复或拒答后再决定如何继续。
 只输出一个 JSON 对象，不要 Markdown：
 {"answer":"回答（可多句）","citations":[{"path":"文档相对路径","line":行号,"snippet":"该行原文"}]}
-line 必须来自文档真实行号；answer 中引用的每个关键结论都要有 citation。文档不足时明确说“文档中没有足够依据”。`;
+引用编号规则：每个关键结论后用 [1]、[2] 这样的编号标注它依据的是 citations 数组中的第几条（从 1 开始，顺序与 citations 数组一致；一句话可以标多个编号）。answer 中出现的引用编号必须都能在 citations 找到对应项；citations 只放 answer 中实际标注过的真实行。
+line 必须来自文档真实行号；文档不足时明确说“文档中没有足够依据”。`;
 
 function buildPrompt(question: string, documents: readonly { path: string; content: string }[], recent: readonly KnowledgeHistoryEntry[]): string {
   const blocks = documents.map((document, index) => `--- 文档 ${index + 1}：${document.path}\n${document.content}`).join('\n\n');
@@ -576,6 +638,26 @@ function validateCitations(raw: unknown, documents: readonly { path: string; con
     citations.push({ path, line, ...(snippet === '' ? {} : { snippet }) });
   }
   return citations;
+}
+
+/** Adds the 1-based marker number used by `[n]` answer anchors. */
+function withCitationIndexes(citations: KnowledgeAskResponse['citations']): KnowledgeAskResponse['citations'] {
+  return citations.map((citation, position) => ({ ...citation, index: position + 1 }));
+}
+
+const CITATION_MARKER_PATTERN = /\[(\d{1,2})\]/g;
+
+/**
+ * Keeps only citation markers that point at a validated citation. A partial
+ * marker cut by the 8000-char answer limit is removed, and markers for rejected
+ * citations are removed so the UI never offers an anchor to a dropped source.
+ */
+function stripInvalidCitationMarkers(answer: string, validCount: number): string {
+  const withoutPartialTail = answer.replace(/\[\d{1,2}$/, '');
+  return withoutPartialTail.replace(CITATION_MARKER_PATTERN, (_match, digits: string) => {
+    const index = Number(digits);
+    return index >= 1 && index <= validCount ? `[${String(index)}]` : '';
+  });
 }
 
 

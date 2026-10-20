@@ -1,11 +1,12 @@
-import type { ReactNode } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useBootstrap } from '../../api/hooks.ts';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { Skeleton } from '../../components/EmptyState.tsx';
 import { Icon, type IconName } from '../../components/Icon.tsx';
 import { IconButton } from '../../components/IconButton.tsx';
+import { Modal } from '../../components/Modal.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { AppearanceSection } from './AppearanceSection.tsx';
 import { DatabaseSection } from './DatabaseSection.tsx';
@@ -96,8 +97,10 @@ export function SettingsPage() {
 
 function SettingsSaveMessage() {
   const draft = useSettingsDraft();
-  if (draft.saveMessage === undefined) return null;
-  const tone = draft.saveMessage.tone;
+  const message = draft.saveMessage;
+  const pending = draft.pending;
+  if (message === undefined && pending === undefined) return null;
+  const tone = message?.tone ?? 'unknown';
   return (
     <div
       className={`banner ${tone === 'ok' ? 'ok' : tone === 'unknown' ? 'unknown' : 'danger'}`}
@@ -105,37 +108,62 @@ function SettingsSaveMessage() {
       style={{ marginBottom: 14 }}
     >
       <Icon name={tone === 'ok' ? 'check' : tone === 'unknown' ? 'help' : 'alert'} />
-      <div className="grow">{draft.saveMessage.message}</div>
+      <div className="grow">
+        {message?.message ?? '没有收到保存结果：上次保存在本页刷新前没有确认。普通设置保持只读；Git 账号仍可单独查看。'}
+        {pending === undefined ? null : (
+          <span className="mono" style={{ display: 'block', marginTop: 4, fontSize: 11.5, color: 'var(--muted)' }}>
+            请求号 {pending.requestKey}
+          </span>
+        )}
+      </div>
+      {pending === undefined ? null : (
+        <div className="actions">
+          <Button variant="secondary" size="sm" icon="refresh" disabled={draft.reconciling} onClick={draft.reconcile}>
+            {draft.reconciling ? '正在核对…' : '重新读取'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
 
 function SettingsSaveBar() {
   const draft = useSettingsDraft();
-  if (draft.dirtyCount === 0) return null;
+  const pending = draft.pending !== undefined;
+  if (draft.dirtyCount === 0 && !pending) return null;
+  const firstIssue = Object.values(draft.fields).find((field) => field.issue !== undefined);
+  const issueText = draft.issueCount === 0 ? undefined : `有 ${String(draft.issueCount)} 处需要修正 · ${firstIssue?.label ?? '设置字段'}超出范围`;
   return (
-    <div className={draft.issueCount > 0 ? 'settings-savebar has-issue' : 'settings-savebar'} role="region" aria-label="未保存的设置">
-      <Icon name={draft.issueCount > 0 ? 'alert' : 'info'} />
+    <div className={draft.issueCount > 0 ? 'settings-savebar has-issue' : 'settings-savebar'} role="region" aria-label={pending ? '正在核对上一次保存' : '未保存的设置'}>
+      <Icon name={pending ? 'help' : draft.issueCount > 0 ? 'alert' : 'info'} />
       <div className="grow">
         <div style={{ fontSize: 13.5 }}>
-          有 {String(draft.dirtyCount)} 处未保存的修改 · {String(draft.restartCount)} 处需要重启后生效
+          {pending ? '正在核对上一次保存' : `有 ${String(draft.dirtyCount)} 处未保存的修改 · 其中 ${String(draft.restartCount)} 处需要重启后生效`}
         </div>
         <div className="hint" style={{ marginTop: 3 }}>
-          {draft.issueCount > 0
-            ? `有 ${String(draft.issueCount)} 处需要修正后才能保存。`
-            : '修改过的字段以琥珀描边标记；保存后写回服务端。Git 账号与模型服务中的路径/运行时/模型档案仍按各自按钮保存。'}
+          {pending
+            ? '核对完成前普通设置保持只读，不会重新保存；可点击上方“重新读取”按原请求核对。'
+            : issueText ?? '修改过的字段以琥珀描边标记；保存后写回服务端。Git 账号与模型服务中的路径/运行时/模型档案仍按各自按钮保存。'}
         </div>
       </div>
-      <Button variant="ghost" size="sm" disabled={draft.saving} onClick={draft.discard}>放弃</Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={draft.saving || pending}
+        disabledReason={pending ? '先核对上一次保存。' : undefined}
+        onClick={draft.discard}
+      >
+        放弃
+      </Button>
       <Button
         variant="primary"
         size="sm"
         icon="check"
-        disabled={draft.issueCount > 0 || draft.saving}
-        disabledReason={draft.issueCount > 0 ? '先修正标红的字段' : draft.saving ? '正在保存…' : undefined}
+        disabled={draft.issueCount > 0 || draft.saving || pending}
+        disabledReason={pending ? '正在核对上一次保存，确认前不能再次保存。' : draft.issueCount > 0 ? '先修正标红的字段' : draft.saving ? '正在保存…' : undefined}
         onClick={draft.save}
       >
-        {draft.saving ? '保存中…' : '保存设置'}
+        {pending ? <><span className="spin" aria-hidden="true" />核对中</> : draft.saving ? '保存中…' : '保存设置'}
       </Button>
     </div>
   );
@@ -146,6 +174,29 @@ function SettingsPageContent() {
   const section = parseSection(params.get('section'));
   const bootstrap = useBootstrap();
   const draft = useSettingsDraft();
+  const navigate = useNavigate();
+  const [leaveTarget, setLeaveTarget] = useState<string | null>(null);
+  const dirtyCount = draft.dirtyCount;
+
+  // P22-05: protect unsaved ordinary settings on reload/close and in-app links.
+  useEffect(() => {
+    if (dirtyCount === 0) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    const intercept = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element | null)?.closest?.('a[href]');
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.target === '_blank' || anchor.origin !== location.origin) return;
+      const url = new URL(anchor.href);
+      if (url.pathname === location.pathname) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setLeaveTarget(`${url.pathname}${url.search}${url.hash}`);
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    document.addEventListener('click', intercept, true);
+    return () => { window.removeEventListener('beforeunload', beforeUnload); document.removeEventListener('click', intercept, true); };
+  }, [dirtyCount]);
 
   const selectSection = (key: SectionKey) => {
     const next = new URLSearchParams(params);
@@ -248,6 +299,31 @@ function SettingsPageContent() {
       </div>
 
       <SettingsSaveBar />
+
+      <Modal
+        open={leaveTarget !== null}
+        title="离开前要放弃哪些修改？"
+        onClose={() => { setLeaveTarget(null); }}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setLeaveTarget(null); }}>留在本页</Button>
+            <span className="spacer" />
+            <Button
+              variant="danger"
+              onClick={() => {
+                const target = leaveTarget;
+                setLeaveTarget(null);
+                if (target !== null) navigate(target);
+              }}
+            >
+              全部放弃并离开
+            </Button>
+          </>
+        }
+      >
+        <p>普通设置有 {String(dirtyCount)} 处未保存的修改；离开本页会丢弃这些修改。</p>
+        <p className="hint">Git 账号与模型服务按各自按钮单独保存，与底部的“保存设置”互不影响。</p>
+      </Modal>
     </div>
   );
 }

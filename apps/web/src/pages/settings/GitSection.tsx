@@ -5,6 +5,7 @@ import { apiGet, apiPost, errorMessage, isServiceUnavailable, request } from '..
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
 import { SettingsHeading, SettingsRow } from './shared.tsx';
+import { useSettingsDraft } from './draft.tsx';
 
 interface GitConnectionState {
   readonly provider: 'github' | 'gitlab';
@@ -39,6 +40,7 @@ function stateTone(state: GitConnectionStatus['state']): 'ok' | 'warn' | 'fail' 
 
 export function GitSection({ settings }: { readonly settings: PublicSettings }) {
   const queryClient = useQueryClient();
+  const draft = useSettingsDraft();
   const git = settings.git;
   const [authorName, setAuthorName] = useState(git.author.name);
   const [authorEmail, setAuthorEmail] = useState(git.author.email);
@@ -173,7 +175,7 @@ export function GitSection({ settings }: { readonly settings: PublicSettings }) 
       </div>
 
       <div className="row wrap" style={{ marginTop: 16, gap: 8 }}>
-        <Button variant="primary" icon="check" disabled={saveAccount.isPending} onClick={() => saveAccount.mutate()}>
+        <Button variant="primary" icon="check" disabled={draft.readOnly || saveAccount.isPending} disabledReason={draft.readOnly ? '正在核对上一次保存；Git 账号可查看，确认前不能写入。' : undefined} onClick={() => saveAccount.mutate()}>
           {saveAccount.isPending ? '保存中…' : '保存 Git 账号'}
         </Button>
       </div>
@@ -203,7 +205,7 @@ export function GitSection({ settings }: { readonly settings: PublicSettings }) 
       </div>
 
       <div className="row wrap" style={{ marginTop: 16, gap: 8 }}>
-        <Button variant="secondary" icon="link" disabled={token.trim() === '' || saveToken.isPending} onClick={() => saveToken.mutate()}>
+        <Button variant="secondary" icon="link" disabled={draft.readOnly || token.trim() === '' || saveToken.isPending} disabledReason={draft.readOnly ? '正在核对上一次保存；确认前不能写入。' : undefined} onClick={() => saveToken.mutate()}>
           {saveToken.isPending ? '保存并验证…' : '保存令牌并验证'}
         </Button>
         <Button variant="secondary" icon="check" disabled={testConnection.isPending} onClick={() => testConnection.mutate()}>

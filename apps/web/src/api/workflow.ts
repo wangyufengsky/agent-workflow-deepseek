@@ -12,6 +12,13 @@ import {
   type CleanupPreviewResponse,
   type ConfirmPlanRequest,
   type CreateTaskRequest,
+  type DeliveryMergeRequestVerifyRequest,
+  type DiffPage,
+  type DeliveryMergeRequestVerifyResponse,
+  type DeliveryMergeRequestFactResponse,
+  type DeliveryPushVerifyRequest,
+  type DeliveryPushVerifyResponse,
+  type EditAddedNode,
   type EditBeginRequest,
   type EditFinishRequest,
   type EditSaveRequest,
@@ -24,6 +31,7 @@ import {
   type OperationsByKeyResponse,
   type OperationReceipt,
   type NodeOutputResponse,
+  type PlanDraftEditRequest,
   type PlanEditAbandonRequest,
   type PlanResponse,
   type PlanRevision,
@@ -44,6 +52,7 @@ import {
   type TaskTemplate,
   type UseSkeletonRequest,
   type WorkflowMethod,
+  type WorkspacePreparePreview,
   type WorkspaceResponse,
 } from '@agent-workflow/shared';
 import { ApiClientError, apiGet, apiPost, openEventStream, type EventStreamHandle } from './client.ts';
@@ -177,9 +186,9 @@ export async function previewPlanning(taskId: string, input: PlanningPreviewRequ
   return response.data;
 }
 
-export async function startPlanning(taskId: string, input: { previewId: string; sourceInputRevision: number }): Promise<CommandResponse<PlanningResponse>> {
+export async function startPlanning(taskId: string, input: { previewId: string; sourceInputRevision: number }, requestKey?: string): Promise<CommandResponse<PlanningResponse>> {
   const body: PlanningStartRequest = {
-    requestKey: createRequestKey(),
+    requestKey: requestKey ?? createRequestKey(),
     previewId: input.previewId,
     confirmModelDispatch: true,
     sourceInputRevision: input.sourceInputRevision,
@@ -188,8 +197,8 @@ export async function startPlanning(taskId: string, input: { previewId: string; 
   return response.data;
 }
 
-export async function stopPlanning(taskId: string, roundId: string): Promise<CommandResponse<PlanningResponse>> {
-  const body: PlanningStopRequest = { requestKey: createRequestKey(), roundId, confirmStop: true };
+export async function stopPlanning(taskId: string, roundId: string, requestKey?: string): Promise<CommandResponse<PlanningResponse>> {
+  const body: PlanningStopRequest = { requestKey: requestKey ?? createRequestKey(), roundId, confirmStop: true };
   const response = await apiPost<CommandResponse<PlanningResponse>>(ROUTES.planningStop(taskId), body);
   return response.data;
 }
@@ -201,10 +210,10 @@ export async function reconcilePlanning(taskId: string, roundId: string): Promis
 
 export async function applyPlanning(
   taskId: string,
-  input: { roundId: string; candidatePlanRevisionId: string; acceptedDecisionIds: readonly string[]; expectedPlanRevisionNumber?: number },
+  input: { roundId: string; candidatePlanRevisionId: string; acceptedDecisionIds: readonly string[]; expectedPlanRevisionNumber?: number; requestKey?: string },
 ): Promise<CommandResponse<PlanningResponse>> {
   const body: PlanningApplyRequest = {
-    requestKey: createRequestKey(),
+    requestKey: input.requestKey ?? createRequestKey(),
     roundId: input.roundId,
     candidatePlanRevisionId: input.candidatePlanRevisionId,
     acceptedDecisionIds: [...input.acceptedDecisionIds],
@@ -215,9 +224,9 @@ export async function applyPlanning(
   return response.data;
 }
 
-export async function rejectPlanning(taskId: string, input: { roundId: string; reason: string }): Promise<CommandResponse<PlanningResponse>> {
+export async function rejectPlanning(taskId: string, input: { roundId: string; reason: string; requestKey?: string }): Promise<CommandResponse<PlanningResponse>> {
   const body: PlanningRejectRequest = {
-    requestKey: createRequestKey(),
+    requestKey: input.requestKey ?? createRequestKey(),
     roundId: input.roundId,
     reason: input.reason,
     confirmReject: true,
@@ -228,10 +237,10 @@ export async function rejectPlanning(taskId: string, input: { roundId: string; r
 
 export async function savePlanningAnswers(
   taskId: string,
-  input: { roundId: string; answers: readonly { questionId: string; answer: string }[] },
+  input: { roundId: string; answers: readonly { questionId: string; answer: string }[]; requestKey?: string },
 ): Promise<CommandResponse<PlanningResponse>> {
   const body: SaveAnswerRequest = {
-    requestKey: createRequestKey(),
+    requestKey: input.requestKey ?? createRequestKey(),
     roundId: input.roundId,
     answers: [...input.answers],
   };
@@ -239,15 +248,15 @@ export async function savePlanningAnswers(
   return response.data;
 }
 
-export async function applyPlanSkeleton(taskId: string): Promise<CommandResponse<PlanResponse>> {
-  const body: UseSkeletonRequest = { requestKey: createRequestKey(), confirmUseSkeleton: true };
+export async function applyPlanSkeleton(taskId: string, requestKey?: string): Promise<CommandResponse<PlanResponse>> {
+  const body: UseSkeletonRequest = { requestKey: requestKey ?? createRequestKey(), confirmUseSkeleton: true };
   const response = await apiPost<CommandResponse<PlanResponse>>(ROUTES.planSkeleton(taskId), body);
   return response.data;
 }
 
-export async function confirmPlan(taskId: string, planRevisionId: string, revisionNumber: number): Promise<CommandResponse<TaskDetailResponse>> {
+export async function confirmPlan(taskId: string, planRevisionId: string, revisionNumber: number, requestKey?: string): Promise<CommandResponse<TaskDetailResponse>> {
   const body: ConfirmPlanRequest = {
-    requestKey: createRequestKey(),
+    requestKey: requestKey ?? createRequestKey(),
     planRevisionId,
     expectedRevisionNumber: revisionNumber,
     confirmPlan: true,
@@ -267,6 +276,10 @@ export async function savePlanEdit(
   input: {
     editSessionId: string;
     changes: readonly { nodeId: string; title?: string; prerequisites?: readonly string[]; acceptance?: readonly string[] }[];
+    /** P13-06: steps added to the pending plan (client-generated ids). */
+    addedNodes?: readonly EditAddedNode[];
+    /** P13-06: pending-plan steps removed from the plan. */
+    removedNodeIds?: readonly string[];
     expectedPlanRevisionNumber: number;
   },
 ): Promise<CommandResponse<PlanResponse>> {
@@ -274,6 +287,8 @@ export async function savePlanEdit(
     requestKey: createRequestKey(),
     editSessionId: input.editSessionId,
     changes: input.changes.map((change) => ({ ...change })),
+    ...(input.addedNodes === undefined ? {} : { addedNodes: input.addedNodes.map((node) => ({ ...node, prerequisites: [...node.prerequisites] })) }),
+    ...(input.removedNodeIds === undefined ? {} : { removedNodeIds: [...input.removedNodeIds] }),
     expectedPlanRevisionNumber: input.expectedPlanRevisionNumber,
   };
   const response = await apiPost<CommandResponse<PlanResponse>>(ROUTES.planEditSave(taskId), body);
@@ -289,22 +304,69 @@ export async function finishPlanEdit(
   return response.data;
 }
 
+/**
+ * P11-03/P11-04 read-only prepare preview: baseline, same-name objects, empty
+ * repository and read/权限 facts. It creates nothing; prepare is a separate
+ * confirmed command.
+ */
+export async function fetchWorkspacePreparePreview(taskId: string): Promise<{ readonly preview: WorkspacePreparePreview }> {
+  const response = await apiPost<{ readonly preview: WorkspacePreparePreview }>(ROUTES.workspacePreparePreview(taskId), {});
+  return response.data;
+}
+
 export async function prepareWorkspace(
   taskId: string,
-  input: { expectedPlanRevisionNumber: number; expectedBaseRef?: string },
+  input: { expectedPlanRevisionNumber: number; expectedBaseRef?: string; expectedBaseTip?: string; branchName?: string; directoryName?: string; requestKey?: string },
 ): Promise<CommandResponse<{ workspace?: WorkspaceResponse['workspace'] }>> {
   const body: PrepareWorkspaceRequest = {
-    requestKey: createRequestKey(),
+    requestKey: input.requestKey ?? createRequestKey(),
     expectedPlanRevisionNumber: input.expectedPlanRevisionNumber,
     expectedBaseRef: input.expectedBaseRef,
+    expectedBaseTip: input.expectedBaseTip,
+    ...(input.branchName === undefined ? {} : { branchName: input.branchName }),
+    ...(input.directoryName === undefined ? {} : { directoryName: input.directoryName }),
     confirmPrepare: true,
   };
   const response = await apiPost<CommandResponse<{ workspace?: WorkspaceResponse['workspace'] }>>(ROUTES.workspacePrepare(taskId), body);
   return response.data;
 }
 
-export async function startExecution(taskId: string, expectedStatus?: string): Promise<CommandResponse<ExecutionResponse>> {
-  const body: ExecutionCommandRequest = { requestKey: createRequestKey(), expectedStatus, confirm: true };
+/**
+ * P11-01: save a hand-edited plan draft as a new unconfirmed revision. PE28
+ * “改为先后执行” is expressed by `serialize` order edges; it forms a new diff
+ * and re-runs checks without calling the model.
+ */
+export async function editPlanDraft(
+  taskId: string,
+  input: {
+    planRevisionId: string;
+    expectedRevisionNumber: number;
+    changes: readonly {
+      nodeId: string;
+      title?: string;
+      summary?: string;
+      acceptance?: readonly string[];
+      roleId?: string | null;
+      prerequisites?: readonly string[];
+    }[];
+    serialize?: readonly { fromNodeId: string; toNodeId: string }[];
+    requestKey?: string;
+  },
+): Promise<CommandResponse<PlanResponse>> {
+  const body: PlanDraftEditRequest = {
+    requestKey: input.requestKey ?? createRequestKey(),
+    planRevisionId: input.planRevisionId,
+    expectedRevisionNumber: input.expectedRevisionNumber,
+    changes: input.changes.map((change) => ({ ...change })),
+    ...(input.serialize === undefined ? {} : { serialize: input.serialize.map((pair) => ({ ...pair })) }),
+    confirmSave: true,
+  };
+  const response = await apiPost<CommandResponse<PlanResponse>>(ROUTES.planEditDraft(taskId), body);
+  return response.data;
+}
+
+export async function startExecution(taskId: string, expectedStatus?: string, requestKey?: string): Promise<CommandResponse<ExecutionResponse>> {
+  const body: ExecutionCommandRequest = { requestKey: requestKey ?? createRequestKey(), expectedStatus, confirm: true };
   const response = await apiPost<CommandResponse<ExecutionResponse>>(ROUTES.executionStart(taskId), body);
   return response.data;
 }
@@ -511,6 +573,19 @@ export function useWorkspaceView(taskId: string | undefined, refetchInterval: Po
     enabled: taskId !== undefined && taskId.length > 0,
     refetchInterval,
     staleTime: 2_000,
+  });
+}
+
+/**
+ * P11-04 prepare preview query. Enabled only for the workspace tab/dialog so it
+ * never runs in the background; it is a read-only projection.
+ */
+export function useWorkspacePreparePreview(taskId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: [...workflowKeys.workspace(taskId ?? ''), 'prepare-preview'],
+    queryFn: () => fetchWorkspacePreparePreview(taskId!),
+    enabled: taskId !== undefined && taskId.length > 0 && enabled,
+    staleTime: 5_000,
   });
 }
 
@@ -745,6 +820,66 @@ export function useWorkflowCommand(taskId: string): WorkflowCommandRunner {
 export function useWorkflowRefresh(taskId: string): () => Promise<void> {
   const client = useQueryClient();
   return () => refreshWorkflow(client, taskId);
+}
+
+export interface DeliveryMergeVerifyInput {
+  readonly taskId: string;
+  /** 创建合并请求回执未知的那次原请求号（只核对该原操作）。 */
+  readonly targetRequestKey?: string;
+}
+
+/**
+ * 「核对原操作」：合并请求创建回执未知时，按远端事实只读核对是否已有原 MR；
+ * 不重复 POST，也不会把未知直接当成失败。
+ */
+export async function verifyDeliveryMergeRequest(
+  input: DeliveryMergeVerifyInput,
+): Promise<CommandResponse<DeliveryMergeRequestVerifyResponse>> {
+  const body: DeliveryMergeRequestVerifyRequest = {
+    requestKey: createRequestKey(),
+    ...(input.targetRequestKey === undefined ? {} : { targetRequestKey: input.targetRequestKey }),
+    confirmVerify: true,
+  };
+  const response = await apiPost<CommandResponse<DeliveryMergeRequestVerifyResponse>>(ROUTES.deliveryMergeRequestVerify(input.taskId), body);
+  return response.data;
+}
+
+export interface TaskChangesDiffOptions {
+  readonly ignoreWhitespace?: boolean;
+}
+
+/**
+ * TD03「任务变更」视图的只读 diff 读取（服务端已有
+ * `GET /api/tasks/:id/changes/files/:fileId/diff`，此前前端未接）。
+ * 读失败是读取问题，不是“没有变更”；调用方保留草稿并只提供「重新读取」。
+ */
+export async function fetchTaskChangesDiff(
+  taskId: string,
+  fileId: string,
+  options: TaskChangesDiffOptions = {},
+): Promise<DiffPage> {
+  const query = options.ignoreWhitespace === true ? '?ignoreWhitespace=true' : '';
+  const response = await apiGet<{ diff: DiffPage }>(`${ROUTES.changesDiff(taskId, fileId)}${query}`);
+  return response.data.diff;
+}
+
+/** 「核对原推送」：读取远端分支与已提交 SHA 比对，不重新 push（DEL-17）。 */
+export async function verifyDeliveryPush(
+  input: DeliveryMergeVerifyInput,
+): Promise<CommandResponse<DeliveryPushVerifyResponse>> {
+  const body: DeliveryPushVerifyRequest = {
+    requestKey: createRequestKey(),
+    ...(input.targetRequestKey === undefined ? {} : { targetRequestKey: input.targetRequestKey }),
+    confirmVerify: true,
+  };
+  const response = await apiPost<CommandResponse<DeliveryPushVerifyResponse>>(ROUTES.deliveryPushVerify(input.taskId), body);
+  return response.data;
+}
+
+/** 已交付任务的 MR 状态（GitLab 只读独立事实，DEL-12）。 */
+export async function fetchDeliveryMergeRequestFact(taskId: string): Promise<DeliveryMergeRequestFactResponse> {
+  const response = await apiGet<DeliveryMergeRequestFactResponse>(ROUTES.deliveryMergeRequestFact(taskId));
+  return response.data;
 }
 
 export type { RequirementInput };

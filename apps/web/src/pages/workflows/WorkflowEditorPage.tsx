@@ -521,15 +521,23 @@ export function WorkflowEditorPage() {
         <Badge outline>{detail.revision} · 版本 {String(detail.version)}</Badge>
         <span className="grow" />
         <span className="wfe-save-state" aria-live="polite">
-          {saveState.phase === 'saving'
-            ? '正在保存…'
-            : originalKey!==undefined
-              ? (durableCommand?.phase==='accepted'?'保存已受理':'保存结果未明')
-              : saveState.phase === 'conflict'
-                ? '版本已变化'
-                : dirty > 0
-                  ? `${String(dirty)} 处未保存修改`
-                  : '已保存'}
+          {(() => {
+            const visual = saveState.phase === 'saving'
+              ? { icon: 'refresh' as const, label: '正在保存…' }
+              : originalKey !== undefined
+                ? (durableCommand?.phase === 'accepted' ? { icon: 'clock' as const, label: '保存已受理' } : { icon: 'help' as const, label: '保存结果未明' })
+                : saveState.phase === 'conflict'
+                  ? { icon: 'alert' as const, label: '版本已变化' }
+                  : dirty > 0
+                    ? { icon: 'edit' as const, label: `${String(dirty)} 处未保存修改` }
+                    : { icon: 'check' as const, label: '已保存' };
+            return (
+              <>
+                <Icon name={visual.icon} size="sm" />
+                {visual.label}
+              </>
+            );
+          })()}
         </span>
         <Button
           variant="ghost"
@@ -562,7 +570,8 @@ export function WorkflowEditorPage() {
           添加步骤
         </Button>
         <Button variant="secondary" size="sm" icon="check" disabled={checking} disabledReason={checking ? '正在检查…' : undefined} onClick={() => { void runCheck(); }}>
-          检查{problems.length > 0 ? ` · ${String(problems.length)}` : ''}
+          检查
+          {problems.length > 0 ? <Badge tone="fail">{String(problems.length)}</Badge> : null}
         </Button>
         {readonlyBuiltin === true ? (
           <Button

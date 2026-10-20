@@ -8,17 +8,20 @@ import { Icon } from '../../components/Icon.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { ReceiptNotice } from '../../flow/workflow-ui.tsx';
 import { PptAssistantProposal } from './PptAssistantProposal.tsx';
-export function PptAssistantPanel({ work, blocked, selectedPage, embedded=false, discussionAllowed=false }: {
+export function PptAssistantPanel({ work, blocked, selectedPage, embedded=false, discussionAllowed=false, mode='make', draftMessage }: {
     readonly work: PptWork;
     readonly blocked: boolean;
     readonly selectedPage?: number;
     readonly embedded?: boolean;
     readonly discussionAllowed?:boolean;
+    readonly mode?: 'discuss' | 'make';
+    readonly draftMessage?: { readonly text: string; readonly at: number };
 }) {
     const client = useQueryClient();
     const [message, setMessage] = useState('');
     const [scope, setScope] = useState<'brief' | 'page' | 'all'>(work.slides.length ? 'page' : 'brief');
     const [pageIndex, setPage] = useState(selectedPage ?? (work.slides.length ? 0 : -1));
+    useEffect(()=>{if(draftMessage!==undefined)setMessage(draftMessage.text);},[draftMessage?.at]);
     useEffect(()=>{if(selectedPage!==undefined)setPage(selectedPage);},[selectedPage]);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
@@ -55,10 +58,10 @@ export function PptAssistantPanel({ work, blocked, selectedPage, embedded=false,
    {query.data?.activeRequestKey ? <div className="banner info"><Icon name="clock"/><span>助手请求仍在处理或待核对，离开页面不会重发。原请求号 {query.data.activeRequestKey}；可在上方对应的助手讨论中停止，未知结果按原请求号核对。</span></div> : null}
    <ReceiptNotice receipt={receipt}/>{error ? <p className="banner danger" role="alert"><Icon name="alert"/>{error}</p> : null}
    </div><div className="ppt-assistant-composer">
-   <label>修改范围<select className="select" value={scope} disabled={locked} onChange={event => setScope(event.target.value as typeof scope)}><option value="brief">需求讨论</option><option value="page">仅所选页面</option><option value="all">整份演示</option></select></label>
+   {mode === 'discuss' ? null : <label>修改范围<select className="select" value={scope} disabled={locked} onChange={event => setScope(event.target.value as typeof scope)}><option value="page">仅所选页面</option><option value="all">整份演示</option></select></label>}
    {scope === 'page' && !embedded ? <label>页面<select className="select" value={pageIndex} disabled={locked} onChange={event => setPage(Number(event.target.value))}><option value={-1}>封面</option>{work.slides.map((page, index) => <option key={index} value={index}>第 {index + 2} 页 · {page.title}</option>)}</select></label> : null}
    {scope==='page'&&embedded?<p className="hint">仅第 {pageIndex+2} 页{pageIndex===-1?' · 封面':''}</p>:null}
-   <textarea className="textarea" aria-label="给 PPT 助手的消息" placeholder="回答问题，或告诉助手要怎么改…" value={message} disabled={locked} onChange={event => setMessage(event.target.value)} maxLength={4000}/>
+   <textarea className="textarea" aria-label="给 PPT 助手的消息" placeholder={mode === 'discuss' ? '回答问题，或补充你的想法…' : '告诉助手要怎么改…'} value={message} disabled={locked} onChange={event => setMessage(event.target.value)} maxLength={4000}/>
    <button className="btn primary" disabled={locked || !message.trim()} title={locked ? '作品只读或原请求尚未结束' : !message.trim() ? '请填写消息' : undefined} onClick={() => { void run(async () => (await apiPost<CommandResponse<PptAssistantView>>(ROUTES.pptAssistant(work.id), { requestKey: createRequestKey(), expectedRevision: work.revision ?? 1, message, scope, ...(scope === 'page' ? { pageIndex } : {}), confirmSend: true,background:true })).data); }}><Icon name="arrowUp" size="sm"/>{busy ? '正在等待助手…' : '发送'}</button>
    </div>
   </div>

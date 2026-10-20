@@ -45,6 +45,7 @@
 }
 
 .kh-item {
+  position: relative;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--fill-1);
@@ -53,12 +54,28 @@
   transition: background var(--t-fast), border-color var(--t-fast);
 }
 
-.kh-item[data-cited="true"] {
-  box-shadow: inset 2px 0 0 var(--ok-line);
+/* P04-03: "needs answer" is a distinct warn state (design .conv.need), not a
+   citation-presence stripe. */
+.kh-item[data-need="true"] {
+  background: var(--warn-fill);
+  border-color: var(--warn-line);
+  box-shadow: inset 2px 0 0 var(--warn);
 }
 
-.kh-item[data-cited="false"] {
-  box-shadow: inset 2px 0 0 var(--idle-line);
+.kh-item[data-need="true"] .kh-ico {
+  background: var(--warn-fill);
+  color: var(--warn);
+}
+
+.kh-item[data-need="true"] .kh-row {
+  padding-right: 112px;
+}
+
+.kh-need-action {
+  position: absolute;
+  right: 16px;
+  top: 22px;
+  z-index: 1;
 }
 
 .kh-item:hover {
@@ -91,10 +108,6 @@
   color: var(--sub);
 }
 
-.kh-item[data-cited="true"] .kh-ico {
-  background: var(--ok-fill);
-  color: var(--ok);
-}
 
 .kh-main {
   min-width: 0;
@@ -136,6 +149,19 @@
   gap: 6px;
   flex: none;
   padding-top: 2px;
+}
+
+/* P04-04: secondary row actions surface on hover/focus (design .conv .acts). */
+.kh-actions {
+  padding: 0 16px 12px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+
+.kh-item:hover .kh-actions,
+.kh-item:focus-within .kh-actions,
+.kh-item[data-expanded="true"] .kh-actions {
+  opacity: 1;
 }
 
 .kh-detail {

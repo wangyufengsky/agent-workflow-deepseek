@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ROUTES, createRequestKey, type CommandResponse, type TaskSummary } from '@agent-workflow/shared';
+import { ROUTES, createRequestKey, taskStepBarState, taskStepCaption, type CommandResponse, type TaskSummary } from '@agent-workflow/shared';
 import { apiPost } from '../../api/client.ts';
 import { useWorkflowCommand } from '../../api/workflow.ts';
 import { Drawer } from '../../components/Drawer.tsx';
@@ -8,7 +8,6 @@ import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import { Badge } from '../../components/Badge.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { IconButton } from '../../components/IconButton.tsx';
-import { StageCapsule } from '../../components/StageCapsule.tsx';
 import { TaskStatusBadge } from '../../components/StageBadge.tsx';
 import { formatRelativeTime } from '../../app/format.ts';
 import { taskHref, taskNeedText } from '../../app/taskStatus.ts';
@@ -20,16 +19,12 @@ export function TaskRow({ task }: { readonly task: TaskSummary }) {
   const href = taskHref(task);
   const opensRequirement = href.startsWith('/requirement/');
   const need = taskNeedText(task);
-  const progress = task.progress;
-  const progressPercent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
-  const progressParts = progress.total > 0
-    ? [
-        `第 ${String(progress.done)}/${String(progress.total)} 步`,
-        ...(progress.running > 0 ? [`${String(progress.running)} 执行中`] : []),
-        ...(progress.failed > 0 ? [`${String(progress.failed)} 失败`] : []),
-        '聚合进度',
-      ]
-    : ['尚无计划步骤'];
+  const stepStates = task.stepStates ?? [];
+  const stepBars = stepStates.map((step) => taskStepBarState(step));
+  const stepCaption = taskStepCaption(stepStates);
+  const stepSummary = stepStates.length === 0
+    ? '尚无计划步骤'
+    : stepStates.map((step) => `${step.title}：${step.pendingAcceptance === true ? '待人工验收' : step.status}`).join('，');
   const archiveAvailable = task.archiveAction?.allowed === true;
   const command = useWorkflowCommand(task.id);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -102,12 +97,15 @@ export function TaskRow({ task }: { readonly task: TaskSummary }) {
         <div className="task-need">{need === '—' ? <span className="hint">—</span> : need}</div>
       </div>
 
-      <div className="c-stage task-progress" aria-label={`阶段与聚合进度：${progressParts.join('，')}`}>
-        <StageCapsule current={task.stage} lifecycle={task.lifecycle} attention={task.attention} compact />
-        <div className="task-progress-bar" aria-hidden="true">
-          <span style={{ width: `${String(progressPercent)}%` }} />
-        </div>
-        <span className="task-progress-caption">{progressParts.join(' · ')}</span>
+      <div className="c-steps task-steps" aria-label={`步骤：${stepSummary}`}>
+        {stepBars.length === 0 ? null : (
+          <div className="step-bars" aria-hidden="true">
+            {stepBars.map((state, index) => (
+              <i key={index} className={state === 'unk' ? 'unk' : state} />
+            ))}
+          </div>
+        )}
+        <span className="step-caption">{stepCaption}</span>
       </div>
 
       <div className="task-status">

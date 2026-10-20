@@ -152,9 +152,26 @@ function RepoCard({ repo }: { readonly repo: GitRepo }) {
             <Icon name="arrowRight" size="sm" />
           </span>
         ) : (
-          <LinkButton variant="ghost" size="sm" icon="folder" to="/projects">
-            查看项目
-          </LinkButton>
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon="lock"
+              disabled
+              disabledReason={
+                repo.gitState === 'not_git'
+                  ? '项目不受 Git 管理，不能进入 Git 工作台。'
+                  : repo.gitState === 'path_unavailable'
+                    ? '本机路径不可用，进入工作台也读不到任何 Git 事实。'
+                    : 'Git 能力尚未接入，工作台不可用。'
+              }
+            >
+              进入
+            </Button>
+            <LinkButton variant="ghost" size="sm" icon="folder" to="/projects">
+              查看项目
+            </LinkButton>
+          </>
         )}
       </div>
     </>

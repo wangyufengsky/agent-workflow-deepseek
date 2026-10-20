@@ -1155,3 +1155,9 @@
 - 根提交（opencode-workflow-java-test@86cf281）：compareOptions 返回 `empty_tree`，stats 31 files/1095+；review.start 接受并进入 analyzing（模型随后因 flash 输出非严格 JSON 失败，属模型输出格式问题，已在 UI 回执显示）。
 - 普通提交（订单服务@a79f703，1 文件 +2/-2）：review.start → **completed**，产出 2 条 findings + summary（真实模型），证明按钮与审查链路已恢复。
 - 建议：根提交 31 文件的大 diff 用 flash 审查易失败；可重试或换较小提交/减少维度（后续可选：模型输出修复重试）。
+
+
+## 2026-10-20 审计更正（C10）
+
+- 本文件中 W3-7b 段落“创建改为对话框（原入口保留）”与当前实现不符：原 PPT 制作创作页并不存在，创建一直是作品库内对话框（审计 `P05-01`）。以 `docs/review/design-audit-2026-10-20/03-ppt-main.md` 为准。
+- 其余工程执行记录保留为历史证据；当前缺口/已实现口径以 `docs/review/design-audit-2026-10-20.md` §3.8 为更正清单。

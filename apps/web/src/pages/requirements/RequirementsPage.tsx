@@ -15,7 +15,7 @@ import { taskHref } from '../../app/taskStatus.ts';
 import { useProjects, useTasks } from '../../api/hooks.ts';
 import { formatRelativeTime } from '../../app/format.ts';
 import { sortByUpdatedDesc, taskStageIcon } from '../../app/taskStatus.ts';
-import { LinkButton } from '../../components/Button.tsx';
+import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
 import { Icon } from '../../components/Icon.tsx';
@@ -33,11 +33,12 @@ function planningText(task: TaskSummary): string {
   return `${PLANNING_STATUS_LABEL[task.planning.status]} · ${PLANNING_STAGE_LABEL[task.planning.stage]}`;
 }
 
-function RequirementRow({ task, showProject, onSelect }: { readonly task: TaskSummary; readonly showProject: boolean; readonly onSelect: () => void }) {
+function RequirementRow({ task, showProject, selected, onSelect }: { readonly task: TaskSummary; readonly showProject: boolean; readonly selected: boolean; readonly onSelect: () => void }) {
   return (
     <button type="button" onClick={onSelect}
       className="list-row"
-      style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 164px 136px 118px 18px', gap: 16, alignItems: 'center', borderRadius: 0, width: '100%', textAlign: 'left' }}
+      aria-selected={selected}
+      style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 164px 136px 118px 18px', gap: 16, alignItems: 'center', borderRadius: 0, width: '100%', textAlign: 'left', background: selected ? 'var(--fill-2)' : undefined }}
     >
       <span style={{ minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 14, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={task.title}>
@@ -214,7 +215,7 @@ export function RequirementsPage() {
         </div>
         <div style={{ padding: '4px 6px 6px' }}>
           {shown.map((task) => (
-            <RequirementRow key={task.id} task={task} showProject={projectId === 'all'} onSelect={() => setSelected(task)} />
+            <RequirementRow key={task.id} task={task} showProject={projectId === 'all'} selected={selected?.id === task.id} onSelect={() => setSelected(task)} />
           ))}
         </div>
         <div className="row" style={{ padding: '10px 16px 14px', boxShadow: 'inset 0 1px 0 var(--line)', flexWrap: 'wrap', gap: 8 }}>
@@ -299,10 +300,13 @@ export function RequirementsPage() {
             <br />
             暂时不能按项目筛选，下面仍显示全部需求。
           </div>
+          <Button variant="secondary" size="sm" icon="refresh" disabled={projectsQuery.isFetching} onClick={() => { void projectsQuery.refetch(); }}>
+            {projectsQuery.isFetching ? '重试中…' : '重试'}
+          </Button>
         </div>
       ) : null}
 
-      <Drawer open={selected !== null} title={selected?.title ?? '需求'} onClose={() => setSelected(null)} footer={selected ? <LinkButton to={taskHref(selected)} variant="primary" iconAfter="arrowRight">打开画布</LinkButton> : null}>
+      <Drawer open={selected !== null} title={selected?.title ?? '需求'} onClose={() => setSelected(null)} footer={selected ? (() => { const href = taskHref(selected); const requirementCanvas = href.startsWith('/requirement'); return (<div className="col" style={{ gap: 8, width: '100%' }}><span className="hint">{requirementCanvas ? '打开的是需求画布：继续规划与确认计划。' : '打开的是执行画布：查看进度、结果与交付物。'}</span><LinkButton to={href} variant="primary" iconAfter="arrowRight">打开{requirementCanvas ? '需求' : '执行'}画布</LinkButton></div>); })() : null}>
         {detail.isLoading ? <Skeleton height={100} /> : detail.isError ? <ServiceNotice error={detail.error} onRetry={() => { void detail.refetch(); }} /> : detail.data ? <>
           {selected ? <TaskStatusBadge task={{ ...selected, ...detail.data.task }} /> : null}
           <dl className="kv"><dt>计划修订</dt><dd>{detail.data.plan ? `修订 ${detail.data.plan.revisionNumber}` : '尚无计划修订'}</dd><dt>更新时间</dt><dd>{detail.data.task.updatedAt}</dd></dl>

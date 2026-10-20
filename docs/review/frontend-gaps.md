@@ -1,5 +1,7 @@
 # 前端未完成项审查（apps/web）
 
+> **历史快照（2026-10-20 全站审计核对）**：本文件 F-03/F-19/F-20/F-21 已过时（PPT 已接线、知识历史/节点/运行内容/应用页已有路由或内联承载、terminal 状态与设置分区已实现）；仅 **F-12** 仍成立（= `P02-03`）。当前口径以 `docs/review/design-audit-2026-10-20.md` §3.8 的 C10 更正清单为准。
+
 > 范围：`apps/web/src` 全部页面/组件/API 客户端；对照 `packages/server/src` 已注册路由、`packages/shared` 的 `ROUTES` 与设计稿 `opencode-workflow-design-showcase/`（只读权威）。
 > 方法：只读 `grep`/`read` + 路由抽取脚本 + import 图脚本；未运行 `npm install/build/dev`，未修改产品代码或设计稿。
 > 结论标签：**确认** = 静态代码可直接核对；**需运行验证** = 代码证据明确、但最终表现依赖运行时/服务配置。

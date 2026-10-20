@@ -7,6 +7,7 @@ import type {
   ActionAvailability,
   CommandResponse,
   ConfirmPlanRequest,
+  EditAddedNode,
   EditBeginRequest,
   EditFinishRequest,
   EditSaveRequest,
@@ -17,16 +18,20 @@ import type {
   NodeStatusValue,
   ErrorCodeValue,
   NodeResponse,
+  PlanDraftEditChange,
+  PlanDraftEditRequest,
+  PlanDraftSerializePair,
   PlanEditAbandonRequest,
   PlanResponse,
   PlanRevision,
+  PlanValidation,
   TaskDetailResponse,
   UseSkeletonRequest,
   CatalogSnapshot,
   TaskTemplate,
   UseTemplateRequest,
 } from '@agent-workflow/shared';
-import { AppError, ErrorCode, NodeManualAcceptanceState, NodeStatus, Rationale, SCOPE_UNREFINED, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso, unresolvedPlanScopes } from '@agent-workflow/shared';
+import { AppError, ErrorCode, NodeKind, NodeManualAcceptanceState, NodeStatus, Rationale, SCOPE_UNREFINED, TaskAttention, TaskStage, assertTransition, createId, executionMachine, nowIso, planGraphToCandidatePayload, unresolvedPlanScopes, validatePlanningCandidate } from '@agent-workflow/shared';
 import {
   nodeAcceptanceKey,
   readNodeAcceptance,
@@ -39,7 +44,7 @@ import type { CommandService } from './operations.ts';
 import type { GitPort } from './ports.ts';
 import type { Store } from '@agent-workflow/storage';
 import { freezeGraphRoles } from './role-runtime.ts';
-import { methodToGraph } from './graph.ts';
+import { diffGraphs, methodToGraph } from './graph.ts';
 import type { TaskService } from './project-task.ts';
 
 export class PlanService {
@@ -232,6 +237,157 @@ export class PlanService {
     return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.#tasks().detail(taskId) };
   }
 
+  /**
+   * P11-01 / PE31 / PE28: hand-edit the unconfirmed (or draft) plan revision in
+   * the requirement canvas, before execution exists. The result is a new
+   * `source: 'edit'` plan revision with a fresh diff and re-run deterministic
+   * checks — no model call, no execution, and the previous revision is kept as
+   * superseded history. `serialize` adopts “改为先后执行” for resource
+   * conflicts: the added order edge is what lets the re-check accept it.
+   */
+  editDraft(taskId: string, input: PlanDraftEditRequest): CommandResponse<PlanResponse> {
+    const changes: readonly PlanDraftEditChange[] = Array.isArray(input.changes) ? (input.changes as readonly PlanDraftEditChange[]) : [];
+    const serialize: readonly PlanDraftSerializePair[] = Array.isArray(input.serialize) ? (input.serialize as readonly PlanDraftSerializePair[]) : [];
+    const originalReceipt = this.#commands.replay(
+      { requestKey: input.requestKey, operation: 'plan.edit.draft', body: { taskId, planRevisionId: input.planRevisionId, expectedRevisionNumber: input.expectedRevisionNumber, changes, serialize, confirmSave: true } },
+      () => this.view(taskId),
+    );
+    if (originalReceipt !== undefined) return originalReceipt;
+    const task = this.#assertWritable(taskId, '手改计划');
+    if (input.confirmSave !== true) throw new AppError(ErrorCode.VALIDATION_FAILED, '保存手改计划需要显式确认');
+    if (task.fixedTemplate !== undefined) throw new AppError(ErrorCode.FIXED_TEMPLATE_LOCKED, '该任务使用固定模板，创建后不能修改步骤；要改要求，请新建模板任务。');
+    if (task.stage !== TaskStage.CONFIRMING && task.stage !== TaskStage.DRAFT) {
+      throw new AppError(ErrorCode.OPERATION_IN_PROGRESS, '当前阶段不能手改计划；只有确认计划前的草稿可以手改');
+    }
+    const plan = this.#store.plans.get(input.planRevisionId);
+    if (plan === undefined || plan.taskId !== taskId) throw new AppError(ErrorCode.NOT_FOUND, '计划不存在');
+    if (task.currentPlanRevisionId !== plan.id) throw new AppError(ErrorCode.STALE_TARGET, '计划已变化，请重新读取后再修改');
+    if (plan.revisionNumber !== input.expectedRevisionNumber) throw new AppError(ErrorCode.STALE_TARGET, '计划修订已变化，请重新读取并比对');
+    if (plan.status !== 'unconfirmed' && plan.status !== 'draft') {
+      throw new AppError(ErrorCode.PLAN_REVISION_CONFLICT, '只有未确认的计划可以手改');
+    }
+    if (changes.length === 0 && serialize.length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '没有要保存的修改');
+
+    const byId = new Map(plan.graph.nodes.map((node) => [node.id, node]));
+    const roleIds = new Set(this.#catalog.roles.map((role) => role.id));
+    for (const change of changes) {
+      if (change === null || typeof change !== 'object' || typeof change.nodeId !== 'string') throw new AppError(ErrorCode.VALIDATION_FAILED, '修改项格式不合法');
+      const node = byId.get(change.nodeId);
+      if (node === undefined) throw new AppError(ErrorCode.STALE_TARGET, '修改引用的步骤不存在', { details: { nodeId: change.nodeId } });
+      if (change.title !== undefined && change.title.trim() === '') throw new AppError(ErrorCode.VALIDATION_FAILED, '步骤名称不能为空', { details: { nodeId: change.nodeId } });
+      if (change.roleId !== undefined && change.roleId !== null && !roleIds.has(change.roleId)) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '指定的职业不在当前角色目录中', { details: { nodeId: change.nodeId, roleId: change.roleId } });
+      }
+      if (change.acceptance !== undefined && change.acceptance.some((item) => typeof item !== 'string' || item.trim() === '')) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '验收条款不能为空', { details: { nodeId: change.nodeId } });
+      }
+    }
+    for (const pair of serialize) {
+      if (pair === null || typeof pair !== 'object' || !byId.has(pair.fromNodeId) || !byId.has(pair.toNodeId)) {
+        throw new AppError(ErrorCode.VALIDATION_FAILED, '“改为先后执行”引用的步骤不存在');
+      }
+    }
+
+    // Rebuild edges: explicit prerequisite edits replace the incoming order
+    // edges of that node; serialize pairs add an order edge (no silent edge is
+    // ever invented elsewhere).
+    const prerequisiteChanges = new Set(changes.filter((change) => change.prerequisites !== undefined).map((change) => change.nodeId));
+    const nextEdges = plan.graph.edges.filter((edge) => !prerequisiteChanges.has(edge.to)).map((edge) => ({ ...edge }));
+    for (const change of changes) {
+      if (change.prerequisites === undefined) continue;
+      const seen = new Set<string>();
+      for (const prerequisite of change.prerequisites) {
+        const from = byId.get(prerequisite);
+        if (from === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '前置步骤不存在', { details: { nodeId: change.nodeId, prerequisite } });
+        if (prerequisite === change.nodeId) throw new AppError(ErrorCode.VALIDATION_FAILED, '步骤不能依赖自身', { details: { nodeId: change.nodeId } });
+        if (seen.has(prerequisite)) continue;
+        seen.add(prerequisite);
+        nextEdges.push({ id: createId('edge'), from: prerequisite, to: change.nodeId, kind: 'order', label: '手改前置' });
+      }
+    }
+    for (const pair of serialize) {
+      const existing = nextEdges.find((edge) => edge.from === pair.fromNodeId && edge.to === pair.toNodeId);
+      if (existing !== undefined) continue;
+      nextEdges.push({ id: createId('edge'), from: pair.fromNodeId, to: pair.toNodeId, kind: 'order', label: '改为先后执行（用户采纳）' });
+    }
+    if (hasCycle(plan.graph.nodes.map((node) => node.id), nextEdges)) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, '依赖调整会形成环，未保存');
+    }
+
+    const changedById = new Map(changes.map((change) => [change.nodeId, change]));
+    const nextNodes = plan.graph.nodes.map((node) => {
+      const change = changedById.get(node.id);
+      if (change === undefined) return node;
+      return {
+        ...node,
+        title: change.title ?? node.title,
+        summary: change.summary ?? node.summary,
+        acceptance: change.acceptance ?? node.acceptance,
+        roleId: change.roleId === undefined ? node.roleId : change.roleId ?? undefined,
+      };
+    });
+    const nextGraph = { nodes: nextNodes, edges: nextEdges, groups: plan.graph.groups };
+
+    const method = this.#method(task);
+    const settings = this.#context.settings();
+    // Manual order changes are the user's own reviewed decisions (design
+    // PE28/PE31): carry them as human decisions instead of new hard problems.
+    const manualOrderKeys = new Set([
+      ...changes.filter((change) => change.prerequisites !== undefined).map((change) => byId.get(change.nodeId)!.key),
+      ...serialize.map((pair) => byId.get(pair.toNodeId)!.key),
+    ]);
+    const manualDecisions = [...manualOrderKeys].map((key) => ({
+      title: `手工调整顺序：${nextGraph.nodes.find((node) => node.key === key)?.title ?? key}`,
+      detail: '用户手改计划形成的新前置；已作为本次修改的依据',
+      nodeKeys: [key],
+    }));
+    const payload = { ...planGraphToCandidatePayload(nextGraph), humanDecisions: manualDecisions };
+    const validationResult = validatePlanningCandidate({
+      candidate: payload,
+      requiredSteps: method.requiredSteps,
+      refinableGroups: method.refinableGroups,
+      limits: { maxNodes: settings.planning.maxNodes, maxEdges: settings.planning.maxEdges, maxGroups: settings.planning.maxGroups, maxDepth: settings.planning.maxDepth },
+      resourceOrderAware: true,
+    });
+    const priorItems = plan.validation?.humanReview.items ?? [];
+    const carriedAccepted = new Map(priorItems.filter((item) => item.accepted).map((item) => [item.title, item]));
+    const humanItems = validationResult.humanDecisions.map((decision) => {
+      const carried = carriedAccepted.get(decision.title);
+      return carried === undefined
+        ? { ...decision, accepted: manualOrderKeys.size > 0 && decision.title.startsWith('手工调整顺序'), ...(manualOrderKeys.size > 0 && decision.title.startsWith('手工调整顺序') ? { acceptedBy: 'user', acceptedAt: nowIso() } : {}) }
+        : { ...decision, accepted: true, acceptedBy: carried.acceptedBy ?? 'user', acceptedAt: carried.acceptedAt ?? nowIso() };
+    });
+    const validation: PlanValidation = {
+      structural: { state: validationResult.structural, problems: validationResult.problems.map((problem) => ({ ...problem })) },
+      humanReview: { required: humanItems.length, accepted: humanItems.filter((item) => item.accepted).length, items: humanItems },
+      basis: { state: 'complete', detail: `手工编辑基于需求修订 ${String(task.requirement.revision)}；未调用模型` },
+      readiness: { state: validationResult.structural === 'failed' ? 'blocked' : 'needs_preparation', detail: validationResult.structural === 'failed' ? '手改后有必须处理的问题，不能确认' : '确认计划后准备工作区' },
+      checks: validationResult.checks.map((check) => ({ ...check })),
+      requirementCoverage: validationResult.coverage.map((coverage) => ({
+        requirementId: coverage.requirementId,
+        label: coverage.label,
+        covered: coverage.covered,
+        nodeIds: nextGraph.nodes.filter((node) => coverage.nodeKeys.includes(node.key)).map((node) => node.id),
+      })),
+    };
+    const diff = diffGraphs(plan.graph, nextGraph);
+    const { record, replayed } = this.#commands.begin({
+      requestKey: input.requestKey,
+      operation: 'plan.edit.draft',
+      body: { taskId, planRevisionId: plan.id, expectedRevisionNumber: input.expectedRevisionNumber, changes, serialize, confirmSave: true },
+      target: { taskId },
+    });
+    if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
+    const next = this.#store.plans.create({ taskId, source: 'edit', graph: nextGraph, status: 'unconfirmed', validation, diff, baseRevisionId: plan.id });
+    this.#store.plans.setStatus(plan.id, 'superseded');
+    this.#store.tasks.update(taskId, { currentPlanRevisionId: next.id, attention: TaskAttention.NONE });
+    this.#store.events.publish('plan.changed', { taskId, planRevisionId: next.id, revisionNumber: next.revisionNumber, status: 'unconfirmed' });
+    this.#store.events.publish('task.changed', { taskId, projectId: task.projectId, stage: task.stage, revision: 1 });
+    this.#commands.settle(input.requestKey, { planRevisionId: next.id, planRevisionNumber: next.revisionNumber });
+    this.#tasks().recomputeAttention(taskId);
+    return { receipt: this.#commands.toReceipt(this.#commands.get(input.requestKey)!), resource: this.view(taskId) };
+  }
+
   editBegin(taskId: string, input: EditBeginRequest): CommandResponse<PlanResponse> {
     const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.edit.begin', body: { taskId, planRevisionId: input.planRevisionId, confirmPause: true } }, () => this.view(taskId));
     if (originalReceipt !== undefined) return originalReceipt;
@@ -276,7 +432,16 @@ export class PlanService {
   }
 
   editSave(taskId: string, input: EditSaveRequest): CommandResponse<PlanResponse> {
-    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.edit.save', body: { taskId, editSessionId: input.editSessionId, changes: input.changes, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber } }, () => this.view(taskId));
+    // P13-06: node add/remove rides the same edit-save command and request identity.
+    const editBody = {
+      taskId,
+      editSessionId: input.editSessionId,
+      changes: input.changes,
+      expectedPlanRevisionNumber: input.expectedPlanRevisionNumber,
+      ...(input.addedNodes === undefined ? {} : { addedNodes: input.addedNodes }),
+      ...(input.removedNodeIds === undefined ? {} : { removedNodeIds: input.removedNodeIds }),
+    };
+    const originalReceipt = this.#commands.replay({ requestKey: input.requestKey, operation: 'plan.edit.save', body: editBody }, () => this.view(taskId));
     if (originalReceipt !== undefined) return originalReceipt;
     const task = this.#assertWritable(taskId, '保存计划调整');
     const execution = task.executionId === undefined ? undefined : this.#store.executions.get(task.executionId);
@@ -284,7 +449,7 @@ export class PlanService {
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'plan.edit.save',
-      body: { taskId, editSessionId: input.editSessionId, changes: input.changes, expectedPlanRevisionNumber: input.expectedPlanRevisionNumber },
+      body: editBody,
       target: { taskId },
     });
     if (replayed) return { receipt: this.#commands.toReceipt(record), resource: this.view(taskId) };
@@ -293,52 +458,118 @@ export class PlanService {
     if (input.editSessionId !== execution.editSession.id || !['editing', 'conflict'].includes(execution.editSession.state)) throw new AppError(ErrorCode.STALE_TARGET, '调整会话已变化或不在编辑状态');
     if (plan.revisionNumber !== input.expectedPlanRevisionNumber) throw new AppError(ErrorCode.STALE_TARGET, '计划修订已变化，请重新读取并比对');
     const locked = new Set([...execution.editSession.lockedNodeIds, ...execution.nodes.filter((node) => node.attemptCount > 0 || !['pending', 'ready'].includes(node.status)).map((node) => node.nodeId)]);
-
-    const changes = input.changes.filter((change) => !locked.has(change.nodeId));
-    if (changes.length !== input.changes.length) {
+    if (input.addedNodes !== undefined && !Array.isArray(input.addedNodes)) throw new AppError(ErrorCode.VALIDATION_FAILED, '新增步骤必须是步骤集合');
+    if (input.removedNodeIds !== undefined && !Array.isArray(input.removedNodeIds)) throw new AppError(ErrorCode.VALIDATION_FAILED, '移出步骤必须是步骤集合');
+    const removedNodeIds = [...new Set(input.removedNodeIds ?? [])];
+    const addedNodes: readonly EditAddedNode[] = [...(input.addedNodes ?? [])];
+    if (removedNodeIds.length !== (input.removedNodeIds ?? []).length) throw new AppError(ErrorCode.VALIDATION_FAILED, '移出步骤不能重复');
+    const removedSet = new Set(removedNodeIds);
+    const lockedTouched = [...removedNodeIds, ...input.changes.map((change) => change.nodeId)].filter((nodeId) => locked.has(nodeId));
+    if (lockedTouched.length > 0) {
       this.#store.executions.update(execution.id, {
-        editSession: { ...execution.editSession, state: 'conflict', localChanges: input.changes },
+        editSession: {
+          ...execution.editSession,
+          state: 'conflict',
+          localChanges: [
+            ...input.changes,
+            ...removedNodeIds.map((nodeId) => ({ nodeId, removed: true })),
+            ...addedNodes.map((node) => ({ nodeId: node.nodeId, title: node.title, prerequisites: node.prerequisites, added: true })),
+          ],
+        },
         notice: { kind: 'race', message: '有步骤在暂停生效前已被领取；本地修改保留，请重新读取并比对' },
       });
       throw new AppError(ErrorCode.STALE_TARGET, '有步骤已被领取，修改被移出；本地草稿保留', { details: { lockedNodeIds: [...locked] } });
     }
+    const changes = input.changes.filter((change) => !locked.has(change.nodeId));
     for (const change of changes) if (change.qualityReview != null && !validQualityReviewContract(change.qualityReview, plan.graph.nodes.find(node => node.id === change.nodeId)?.kind ?? '')) throw new AppError(ErrorCode.VALIDATION_FAILED, '独立评审配置需要verify步骤与非空条款');
-    const nodeIds = new Set(plan.graph.nodes.map((node) => node.id));
-    if (changes.some((change) => !nodeIds.has(change.nodeId))) throw new AppError(ErrorCode.STALE_TARGET, '修改引用的步骤不存在');
+    const existingNodeIds = new Set(plan.graph.nodes.map((node) => node.id));
+    if (removedNodeIds.some((nodeId) => !existingNodeIds.has(nodeId))) throw new AppError(ErrorCode.STALE_TARGET, '要移出的步骤不存在');
+    if (removedNodeIds.some((nodeId) => plan.graph.edges.some((edge) => edge.from === nodeId && locked.has(edge.to)))) throw new AppError(ErrorCode.VALIDATION_FAILED, '有已锁定步骤依赖该步骤，不能移出');
+    if (changes.some((change) => !existingNodeIds.has(change.nodeId))) throw new AppError(ErrorCode.STALE_TARGET, '修改引用的步骤不存在');
+    const addedIds = new Set<string>();
+    for (const added of addedNodes) {
+      if (typeof added.nodeId !== 'string' || added.nodeId.trim().length === 0 || added.nodeId.length > 120) throw new AppError(ErrorCode.VALIDATION_FAILED, '新增步骤的标识不合法');
+      if (existingNodeIds.has(added.nodeId) || addedIds.has(added.nodeId)) throw new AppError(ErrorCode.VALIDATION_FAILED, '新增步骤的标识已存在', { details: { nodeId: added.nodeId } });
+      addedIds.add(added.nodeId);
+      if (typeof added.title !== 'string' || added.title.trim().length === 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '新增步骤需要名称');
+      if (!Object.values(NodeKind).includes(added.kind)) throw new AppError(ErrorCode.VALIDATION_FAILED, '新增步骤的类型不合法');
+      if (!Array.isArray(added.prerequisites)) throw new AppError(ErrorCode.VALIDATION_FAILED, '新增步骤需要前置步骤集合');
+    }
+    const nextNodeIds = new Set([...[...existingNodeIds].filter((nodeId) => !removedSet.has(nodeId)), ...addedIds]);
+    const prerequisiteProblems = (nodeId: string, prerequisites: readonly string[]): void => {
+      for (const prerequisite of prerequisites) {
+        if (!nextNodeIds.has(prerequisite)) throw new AppError(ErrorCode.VALIDATION_FAILED, '前置步骤不存在', { details: { nodeId, prerequisite } });
+        if (prerequisite === nodeId) throw new AppError(ErrorCode.VALIDATION_FAILED, '步骤不能依赖自身', { details: { nodeId } });
+      }
+    };
     const prerequisitesChanged = new Set(changes.filter((change) => change.prerequisites !== undefined).map((change) => change.nodeId));
-    const nextEdges = plan.graph.edges.filter((edge) => !prerequisitesChanged.has(edge.to));
+    const nextEdges = plan.graph.edges.filter((edge) => !prerequisitesChanged.has(edge.to) && !removedSet.has(edge.from) && !removedSet.has(edge.to));
     for (const change of changes) {
       if (change.prerequisites === undefined) continue;
+      prerequisiteProblems(change.nodeId, change.prerequisites);
       const seen = new Set<string>();
       for (const prerequisite of change.prerequisites) {
-        if (!nodeIds.has(prerequisite)) {
-          throw new AppError(ErrorCode.VALIDATION_FAILED, '前置步骤不存在', { details: { nodeId: change.nodeId, prerequisite } });
-        }
-        if (prerequisite === change.nodeId) {
-          throw new AppError(ErrorCode.VALIDATION_FAILED, '步骤不能依赖自身', { details: { nodeId: change.nodeId } });
-        }
         if (seen.has(prerequisite)) continue;
         seen.add(prerequisite);
         nextEdges.push({ id: createId('edge'), from: prerequisite, to: change.nodeId, kind: 'order' });
       }
     }
-    if (hasCycle(plan.graph.nodes.map((node) => node.id), nextEdges)) {
+    const groupFor = (added: NonNullable<EditSaveRequest['addedNodes']>[number]): string => {
+      const fromPrerequisite = added.prerequisites.map((nodeId) => plan.graph.nodes.find((node) => node.id === nodeId)).find((node) => node !== undefined);
+      return fromPrerequisite?.groupId ?? plan.graph.groups[0]?.id ?? 'edit';
+    };
+    const addedPlanNodes = addedNodes.map((added) => {
+      prerequisiteProblems(added.nodeId, added.prerequisites);
+      const seen = new Set<string>();
+      for (const prerequisite of added.prerequisites) {
+        if (seen.has(prerequisite)) continue;
+        seen.add(prerequisite);
+        nextEdges.push({ id: createId('edge'), from: prerequisite, to: added.nodeId, kind: 'order' });
+      }
+      return {
+        id: added.nodeId,
+        key: added.nodeId,
+        title: added.title.trim().slice(0, 200),
+        kind: added.kind,
+        groupId: groupFor(added),
+        summary: (added.summary ?? added.title).trim().slice(0, 2_000),
+        inputs: [],
+        outputs: [],
+        acceptance: (added.acceptance ?? []).map((item) => item.trim()).filter((item) => item.length > 0),
+        resources: { read: [], write: [] },
+      } satisfies import('@agent-workflow/shared').PlanNode;
+    });
+    if (hasCycle([...nextNodeIds], nextEdges)) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, '依赖调整会形成环，未保存');
     }
     const graph = {
       ...plan.graph,
       edges: nextEdges,
-      nodes: plan.graph.nodes.map((node) => {
-        const change = changes.find((item) => item.nodeId === node.id);
-        if (change === undefined) return node;
-        return {
-          ...node,
-          title: change.title ?? node.title,
-          acceptance: change.acceptance ?? node.acceptance,
-          qualityReview: change.qualityReview === undefined ? node.qualityReview : change.qualityReview ?? undefined,
-        };
-      }),
+      nodes: [
+        ...plan.graph.nodes.filter((node) => !removedSet.has(node.id)).map((node) => {
+          const change = changes.find((item) => item.nodeId === node.id);
+          if (change === undefined) return node;
+          return {
+            ...node,
+            title: change.title ?? node.title,
+            acceptance: change.acceptance ?? node.acceptance,
+            qualityReview: change.qualityReview === undefined ? node.qualityReview : change.qualityReview ?? undefined,
+          };
+        }),
+        ...addedPlanNodes,
+      ],
     };
+    const localChanges = [
+      ...changes.map((change) => ({
+        nodeId: change.nodeId,
+        ...(change.title === undefined ? {} : { title: change.title }),
+        ...(change.prerequisites === undefined ? {} : { prerequisites: change.prerequisites }),
+        ...(change.acceptance === undefined ? {} : { acceptance: change.acceptance }),
+        ...(change.qualityReview === undefined ? {} : { qualityReview: change.qualityReview }),
+      })),
+      ...addedNodes.map((added) => ({ nodeId: added.nodeId, title: added.title, prerequisites: added.prerequisites, added: true })),
+      ...removedNodeIds.map((nodeId) => ({ nodeId, removed: true })),
+    ];
     const base = this.#store.plans.get(plan.id);
     const next = this.#store.plans.create({
       taskId,
@@ -350,7 +581,7 @@ export class PlanService {
     this.#store.plans.setStatus(plan.id, 'superseded');
     this.#store.executions.update(execution.id, {
       status: 'waiting_confirmation',
-      editSession: { ...execution.editSession, state: 'saved', localChanges: changes },
+      editSession: { ...execution.editSession, state: 'saved', localChanges },
       notice: { kind: 'plan_changed', message: '计划已变更，后续步骤等待重新确认' },
     });
     this.#store.tasks.update(taskId, { currentPlanRevisionId: next.id });

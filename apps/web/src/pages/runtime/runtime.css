@@ -1,0 +1,14 @@
+/* 运行环境：read-error「上次结果」陈旧态（P18-01） */
+.stale {
+  opacity: 0.55;
+}
+.stale-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--unknown);
+  background: var(--unknown-fill);
+  border: 1px solid var(--unknown-line);
+}

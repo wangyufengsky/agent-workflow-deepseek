@@ -23,7 +23,7 @@ function createRepo(): string {
   return root;
 }
 
-test('delivery merge API merges a task worktree branch into main (CAS + delivered projection)', async () => {
+test('in-product delivery merge API is not provided (DEL-07): the task branch is not merged and the task is not completed', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'aw-merge-api-data-'));
   const repoRoot = createRepo();
   const app = await createApplication({ dataDir, disableOpenCode: true, disableListen: true });
@@ -77,13 +77,15 @@ test('delivery merge API merges a task worktree branch into main (CAS + delivere
         confirmMerge: true,
       },
     });
-    assert.equal(merge.statusCode, 200, merge.body);
-    assert.equal(merge.json().data.resource.delivery.projection, 'delivered');
+    // DEL-07: the design forbids an in-product merge button/path; merge happens in GitLab.
+    // The route is gone (404) and the main branch / task lifecycle are untouched.
+    assert.equal(merge.statusCode, 404, merge.body);
     const newTip = execFileSync('git', ['rev-parse', 'main'], { cwd: repoRoot }).toString().trim();
-    assert.notEqual(newTip, baseSha);
-    assert.equal(execFileSync('git', ['show', 'main:feature.txt'], { cwd: repoRoot }).toString(), 'feature from task\n');
+    assert.equal(newTip, baseSha, 'in-product delivery merge must not move the target branch');
     const taskAfter = await app.app.inject({ method: 'GET', url: `/api/tasks/${taskId}/detail` });
-    assert.equal(taskAfter.json().data.task.lifecycle, 'completed');
+    assert.notEqual(taskAfter.json().data.task.lifecycle, 'completed', 'removing the merge route must not complete the task');
+    const deliveryAfter = await app.app.inject({ method: 'GET', url: `/api/tasks/${taskId}/delivery` });
+    assert.notEqual(deliveryAfter.json().data.delivery.projection, 'delivered', 'no in-product delivery by merge');
   } finally {
     await app.close();
   }

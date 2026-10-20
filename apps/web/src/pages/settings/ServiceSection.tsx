@@ -1,6 +1,7 @@
 import type { BootstrapResponse } from '@agent-workflow/shared';
 import { formatAbsoluteTime, formatSince } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
+import { Icon } from '../../components/Icon.tsx';
 import { OpenCodeCard } from './OpenCodeCard.tsx';
 import { DraftNumberRow, useSettingsDraft } from './draft.tsx';
 import { SettingsHeading, SettingsRow } from './shared.tsx';
@@ -15,62 +16,81 @@ export function ServiceSection({ data }: { readonly data: BootstrapResponse }) {
       <div className="sect">
         <SettingsHeading title="服务" lede="本机服务、数据位置与受管运行时；带编辑控件的字段与「模型与执行」共用底部保存条。" />
         <div className="card card-sec">
-          <SettingsRow label="应用">
-            <span className="row wrap" style={{ gap: 8 }}>
-              <span>{data.app.name}</span>
-              <Badge tone="neutral" outline>
-                v{data.app.version}
-              </Badge>
-            </span>
-          </SettingsRow>
-          <SettingsRow label="运行时">
-            <span className="row wrap" style={{ gap: 8 }}>
-              <span className="mono">Node {data.app.nodeVersion}</span>
-              <span className="hint">{data.app.platform}</span>
-            </span>
-          </SettingsRow>
-          <SettingsRow label="启动时间">
-            <span className="row wrap" style={{ gap: 8 }}>
-              <span>{formatAbsoluteTime(data.app.startedAt)}</span>
-              <span className="hint">已运行 {formatSince(data.app.startedAt)}</span>
-            </span>
-          </SettingsRow>
-          <SettingsRow label="服务地址" hint="当前进程实际监听地址；包含启动参数或环境变量覆盖后的端口。">
-            <span className="mono-wrap">
-              {data.app.listenAddress ?? '未知（服务尚未报告实际监听地址）'}
-            </span>
-          </SettingsRow>
-          <SettingsRow label="数据目录" hint="可用 AGENT_WORKFLOW_DATA_DIR 覆盖">
-            <span className="mono-wrap">{data.data.dataDir}</span>
-          </SettingsRow>
-          <SettingsRow label="SQLite 数据库">
-            <span className="mono-wrap">{data.data.dbPath}</span>
-          </SettingsRow>
-          <SettingsRow label="事件日志（JSONL）">
-            <span className="mono-wrap">{data.data.jsonlPath}</span>
-          </SettingsRow>
-          <SettingsRow label="受管 OpenCode" hint="版本固定，由程序启动与停止">
-            <span className="row wrap" style={{ gap: 8 }}>
-              <span className="mono">{settings.opencode.expectedVersion}</span>
-              <Badge tone={settings.opencode.enabled ? 'ok' : 'idle'} icon={settings.opencode.enabled ? 'check' : 'stop'}>
-                {settings.opencode.enabled ? '已启用' : '已禁用'}
-              </Badge>
-              <span className="hint">
-                {settings.opencode.autoStart ? '随服务自动启动' : '手动启动受管进程'} · 工具权限按职业与项目策略限制
-              </span>
-            </span>
-          </SettingsRow>
-          <SettingsRow label="模型档案">
-            <span>{String(settings.models.length)} 个配置 · MCP 服务 {settings.opencode.mcpServerName}</span>
-          </SettingsRow>
+          <DraftNumberRow
+            path="server.port"
+            label="服务端口"
+            hint="浏览器访问本服务使用的端口；选择只改动草稿，保存并重启程序后生效。"
+            section="service"
+            baseline={settings.server.port}
+            min={1024}
+            max={65535}
+            unit=""
+            effect="restart"
+          />
           <SettingsRow label="允许的项目根目录" hint="每行一个绝对目录，最多16条；留空允许登记任意目录。只约束新登记，已有项目继续保留。按真实路径核对，符号链接不能绕过目录边界。" effect="live" dirty={draft.fields['server.allowedProjectRoots'] !== undefined}>
-            <textarea className="textarea mono" aria-label="允许的项目根目录" value={rootsValue} disabled={draft.saving} onChange={(event) => draft.setField({ path: 'server.allowedProjectRoots', label: '允许的项目根目录', section: 'service', value: event.target.value, baseline: rootsBaseline, effect: 'live' })} />
+            <textarea className="textarea mono" aria-label="允许的项目根目录" value={rootsValue} disabled={draft.saving || draft.readOnly} onChange={(event) => draft.setField({ path: 'server.allowedProjectRoots', label: '允许的项目根目录', section: 'service', value: event.target.value, baseline: rootsBaseline, effect: 'live' })} />
           </SettingsRow>
           <PollIntervalRow value={settings.monitoring.pollIntervalMs} />
           <SessionThresholdRow value={settings.monitoring.sessionAlertThreshold} />
+          <details className="adv" style={{ marginTop: 8 }}>
+            <summary>
+              <Icon name="chevRight" size="sm" />
+              <span className="grow">运行信息（只读）</span>
+            </summary>
+            <div style={{ paddingBottom: 8 }}>
+              <SettingsRow label="应用">
+                <span className="row wrap" style={{ gap: 8 }}>
+                  <span>{data.app.name}</span>
+                  <Badge tone="neutral" outline>
+                    v{data.app.version}
+                  </Badge>
+                </span>
+              </SettingsRow>
+              <SettingsRow label="运行时">
+                <span className="row wrap" style={{ gap: 8 }}>
+                  <span className="mono">Node {data.app.nodeVersion}</span>
+                  <span className="hint">{data.app.platform}</span>
+                </span>
+              </SettingsRow>
+              <SettingsRow label="启动时间">
+                <span className="row wrap" style={{ gap: 8 }}>
+                  <span>{formatAbsoluteTime(data.app.startedAt)}</span>
+                  <span className="hint">已运行 {formatSince(data.app.startedAt)}</span>
+                </span>
+              </SettingsRow>
+              <SettingsRow label="服务地址" hint="当前进程实际监听地址；包含启动参数或环境变量覆盖后的端口。">
+                <span className="mono-wrap">
+                  {data.app.listenAddress ?? '未知（服务尚未报告实际监听地址）'}
+                </span>
+              </SettingsRow>
+              <SettingsRow label="数据目录" hint="可用 AGENT_WORKFLOW_DATA_DIR 覆盖">
+                <span className="mono-wrap">{data.data.dataDir}</span>
+              </SettingsRow>
+              <SettingsRow label="SQLite 数据库">
+                <span className="mono-wrap">{data.data.dbPath}</span>
+              </SettingsRow>
+              <SettingsRow label="事件日志（JSONL）">
+                <span className="mono-wrap">{data.data.jsonlPath}</span>
+              </SettingsRow>
+              <SettingsRow label="受管 OpenCode" hint="版本固定，由程序启动与停止">
+                <span className="row wrap" style={{ gap: 8 }}>
+                  <span className="mono">{settings.opencode.expectedVersion}</span>
+                  <Badge tone={settings.opencode.enabled ? 'ok' : 'idle'} icon={settings.opencode.enabled ? 'check' : 'stop'}>
+                    {settings.opencode.enabled ? '已启用' : '已禁用'}
+                  </Badge>
+                  <span className="hint">
+                    {settings.opencode.autoStart ? '随服务自动启动' : '手动启动受管进程'} · 工具权限按职业与项目策略限制
+                  </span>
+                </span>
+              </SettingsRow>
+              <SettingsRow label="模型档案">
+                <span>{String(settings.models.length)} 个配置 · MCP 服务 {settings.opencode.mcpServerName}</span>
+              </SettingsRow>
+            </div>
+          </details>
         </div>
         <p className="hint" style={{ marginTop: 14 }}>
-          启动配置文件由服务端持有；本页不会读取凭据、令牌或密码。
+          启动配置文件由服务端持有；本页不会读取凭据、令牌或密码。B-11 补充稿中的「启动时打开浏览器」「任务状态检查间隔」「中止后清理尝试次数」当前服务契约没有对应字段，本页不提供可编辑控件（需服务侧先补契约）。
         </p>
       </div>
 

@@ -4,9 +4,9 @@ import type { Store } from '@agent-workflow/storage';
 import type { EngineContext } from './actions.ts';
 import type { CommandService } from './operations.ts';
 import type { DatabasePort, PublicSearchPort } from './ports.ts';
-import { listKnowledgeSources, readKnowledgeSource } from '../../server/src/knowledge.ts';
+import { listKnowledgeSources, readKnowledgeSource, classifyKnowledgeSourcePath } from '../../server/src/knowledge.ts';
 export interface KnowledgeInputSnapshot {
-  readonly documents: readonly { readonly path: string; readonly content: string; readonly sha256: string; readonly databaseGrant?: { readonly schemas: readonly string[]; readonly tables: readonly string[] } }[];
+  readonly documents: readonly { readonly path: string; readonly content: string; readonly sha256: string; readonly kind?: 'code' | 'document' | 'database' | 'web'; readonly databaseGrant?: { readonly schemas: readonly string[]; readonly tables: readonly string[] } }[];
   readonly selectedPaths: readonly string[];
   readonly truncatedPaths: readonly string[];
   readonly model: ModelProfile;
@@ -83,7 +83,11 @@ export class KnowledgeInputs {
     const content = blocks.join('\n\n').slice(0, 48000);
     return { path, content, bytes: Buffer.byteLength(content) };
   }
-  async collect(projectId: string, paths: readonly string[], networkSearch: boolean, question: string) {
+  /**
+   * Reads the selected inputs. `onDocument` is called after each real read so
+   * callers can persist honest incremental progress (no synthetic delays).
+   */
+  async collect(projectId: string, paths: readonly string[], networkSearch: boolean, question: string, onDocument?: (document: KnowledgeInputSnapshot['documents'][number], readCount: number, total: number) => void) {
     const documents: KnowledgeInputSnapshot['documents'][number][] = []; const truncatedPaths: string[] = [];
     const limit = Math.min(6000, Math.floor(96000 / Math.max(paths.length, 1)));
     for (const path of paths) {
@@ -93,16 +97,17 @@ export class KnowledgeInputs {
       if (source.content.length > limit) truncatedPaths.push(path);
       const content = source.content.slice(0, limit);
       if (content !== '') {
-        const document = { path, content, sha256: createHash('sha256').update(content).digest('hex'), ...(databaseGrant === undefined ? {} : { databaseGrant }) };
+        const document = { path, content, sha256: createHash('sha256').update(content).digest('hex'), kind: classifyKnowledgeSourcePath(path), ...(databaseGrant === undefined ? {} : { databaseGrant }) };
         this.assertCurrent(projectId, { documents: [document], networkSearch: false });
         documents.push(document);
+        onDocument?.(document, documents.length, paths.length);
       }
     }
     if (networkSearch) {
       const policy = this.permissions(projectId); if (!policy.publicSearch || this.publicSearch === undefined) throw new AppError(ErrorCode.FORBIDDEN, '网络公共检索未获独立许可');
       const results = await this.publicSearch.search(question);
       if (!this.permissions(projectId).publicSearch) throw new AppError(ErrorCode.REVOKED, '网络检索许可已撤销，迟到结果已丢弃');
-      for (const result of results.slice(0, 5)) { const content = `${result.title}\n${result.url}\n${result.excerpt}`.slice(0, 6000); documents.push({ path: `web:${result.url}`, content, sha256: createHash('sha256').update(content).digest('hex') }); }
+      for (const result of results.slice(0, 5)) { const content = `${result.title}\n${result.url}\n${result.excerpt}`.slice(0, 6000); const document = { path: `web:${result.url}`, content, sha256: createHash('sha256').update(content).digest('hex'), kind: 'web' as const }; documents.push(document); onDocument?.(document, documents.length, paths.length); }
     }
     return { documents, truncatedPaths };
   }

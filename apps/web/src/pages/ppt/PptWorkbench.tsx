@@ -5,7 +5,7 @@ import { PptPlanDrawer } from './PptPlanDrawer.tsx';
 import { PptGenerationControls } from './PptGenerationControls.tsx';
 import { PptVersions } from './PptProductionPanels.tsx';
 import { useEffect,useState } from 'react';
-import type { PptWork } from '@agent-workflow/shared';
+import { createRequestKey, type PptWork } from '@agent-workflow/shared';
 import { formatRelativeTime } from '../../app/format.ts';
 import { Badge } from '../../components/Badge.tsx';
 import { Button } from '../../components/Button.tsx';
@@ -30,16 +30,17 @@ export interface PptWorkbenchProps {
   readonly lastResult: PptCommandSignal | null;
   readonly onCommand: (command: PptCommand) => void;
   readonly onBack: () => void;
+  readonly onRefresh?: () => void;
 }
 
 const STEP_TITLES: Record<PptStageKey, { readonly title: string; readonly hint: string }> = {
-  discuss: { title: '① 讨论需求', hint: '补全五项需求简报、标题、主题与大纲；保存会 PATCH 到服务并返回回执。' },
-  design: { title: '② 设计方案', hint: '选择三个视觉方向和版式主题，生成或查看大纲与逐页内容；模型调用可能较慢。' },
+  discuss: { title: '① 讨论需求', hint: '与右侧助手逐项补全五项需求简报；信息足够后生成制作方案。保存会 PATCH 到服务并返回回执。' },
+  design: { title: '② 设计方案', hint: '确认后才开始逐页制作 · 之后仍可调整：维护大纲、选择视觉方向，底部确认条提交并开始制作。' },
   check: { title: '③ 制作检查', hint: '逐页查看真实页面、编辑正文和演讲备注；按当前修订检查页面内容与确定性版式边界。' },
   export: { title: '④ 导出', hint: '按当前修订导出 PPTX / PDF / Markdown；导出不会回写作品状态。' },
 };
 
-export function PptWorkbench({ work, projectName, busyKind, lastResult, onCommand, onBack }: PptWorkbenchProps) {
+export function PptWorkbench({ work, projectName, busyKind, lastResult, onCommand, onBack, onRefresh }: PptWorkbenchProps) {
   const progress = derivePptProgress(work);
   const [planOpen,setPlanOpen] = useState(false);
   const [sourcesOpen,setSourcesOpen] = useState(false);
@@ -60,13 +61,14 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
 
   return (
     <div className="ppt-workbench">
-      <PptPlanDrawer {...{work,blocked,onCommand}} open={planOpen} onClose={()=>setPlanOpen(false)} />
+      <PptPlanDrawer {...{work,blocked,onCommand}} blockedReason={blockedReason} busyKind={busyKind} {...(onRefresh === undefined ? {} : { onRefresh })} open={planOpen} onClose={()=>setPlanOpen(false)} />
       <PptGenerationControls work={work} /><PptGenerationControls work={work} assistant/>
       <section className="card pad ppt-wb-head" aria-label="工作台页头">
         <div className="row wrap" style={{ gap: 10, alignItems: 'flex-start' }}>
-          <Button variant="ghost" size="sm" icon="arrowLeft" onClick={onBack}>
-            作品库
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            PPT 制作
           </Button>
+          <span className="hint" aria-hidden="true">/</span>
           <div className="grow" style={{ minWidth: 0 }}>
             <div className="row wrap" style={{ gap: 8 }}>
               <h2 className="ellipsis" style={{ fontSize: 20, fontWeight: 500 }} title={work.title}>
@@ -75,6 +77,9 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
               <Badge tone={status.tone} icon={status.icon}>
                 {status.label}
               </Badge>
+              {work.archived === true ? (
+                <Badge tone="idle" icon="archive">已归档</Badge>
+              ) : null}
             </div>
             <div className="hint ellipsis" title={work.topic}>
               {work.topic}
@@ -106,7 +111,7 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
           </div>
         </div>
 
-        <Drawer open={versionsOpen} title="版本与修订" size="lg" onClose={()=>setVersionsOpen(false)}><PptVersions expanded {...{work,blocked,onCommand}}/></Drawer>
+        <Drawer open={versionsOpen} title="版本" size="md" onClose={()=>setVersionsOpen(false)}><p className="hint" style={{ marginTop: 0 }}>每次确认方案或批量修改都会生成一个修订</p><PptVersions expanded {...{work,blocked,onCommand}}/></Drawer>
 
         <div className="ppt-stepper" role="tablist" aria-label="制作步骤">
           {PPT_STAGES.map((stage, index) => {
@@ -146,15 +151,15 @@ export function PptWorkbench({ work, projectName, busyKind, lastResult, onComman
 
       </section>
 
-      <Drawer open={sourcesOpen} title="作品资料" size="lg" onClose={()=>setSourcesOpen(false)}><PptStepCheck attachmentsOnly {...{work,busyKind,blocked,blockedReason,lastResult,onCommand}} onGoDesign={()=>setActiveStep('design')}/></Drawer>
+      <Drawer open={sourcesOpen} title="资料" size="md" onClose={()=>setSourcesOpen(false)}><p className="hint" style={{ marginTop: 0 }}>助手制作时可以引用的内容</p><PptStepCheck attachmentsOnly {...{work,busyKind,blocked,blockedReason,lastResult,onCommand}} onGoDesign={()=>setActiveStep('design')}/></Drawer>
       <div className="ppt-studio-shell" hidden={activeStep!=='check'}><PptStudio commandBusy={anyBusy} key={work.id} {...{work,blocked,blockedReason,onCommand}}/></div>
       <div className="ppt-work-area" hidden={activeStep==='check'}>
        <section className="card ppt-wb-step" aria-label={stepMeta.title}>
         <div className="card-head"><span className="eyebrow">{stepMeta.title}</span></div><div className="card-body">
-         {activeStep==='discuss'?<PptStepDiscussion {...{work,projectName,busyKind,blocked,blockedReason,onCommand}} onNext={()=>setActiveStep('design')}/>:activeStep==='design'?<PptStepDesign {...{work,busyKind,blocked,blockedReason,onCommand}}/>:<PptStepExport {...{work,busyKind,blocked,blockedReason,lastResult,onCommand}}/>}
+         {activeStep==='discuss'?<PptStepDiscussion {...{work,projectName,busyKind,blocked,blockedReason,onCommand}} onNext={()=>setActiveStep('design')} onGeneratePlan={()=>{onCommand({kind:'generate',workId:work.id,body:{expectedRevision:work.revision??1,requestKey:createRequestKey(),confirmGenerate:true}});}}/>:activeStep==='design'?<PptStepDesign {...{work,busyKind,blocked,blockedReason,onCommand}} onBackToDiscuss={()=>setActiveStep('discuss')}/>:<PptStepExport {...{work,busyKind,blocked,blockedReason,lastResult,onCommand}}/>}
         </div>
        </section>
-       <PptAssistantPanel key={work.id} work={work} blocked={blocked}/>
+       <PptAssistantPanel key={work.id} work={work} blocked={blocked} mode={activeStep === 'discuss' ? 'discuss' : 'make'}/>
       </div>
     </div>
   );

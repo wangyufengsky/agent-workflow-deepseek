@@ -7,6 +7,7 @@ import './styles/app.css';
 import { App } from './app/App.tsx';
 import { createAppQueryClient } from './app/queryClient.ts';
 import { ThemeProvider } from './theme/ThemeProvider.tsx';
+import { applyMotionPreference, readStoredMotion } from './theme/motion.ts';
 import { applyTheme, resolveInitialTheme } from './theme/theme.ts';
 
 /**
@@ -56,6 +57,9 @@ class AppErrorBoundary extends Component<{ readonly children: ReactNode }, { rea
 // Apply the persisted theme before the first React render so the shell never
 // paints with the wrong tokens.
 applyTheme(resolveInitialTheme());
+// Apply the explicit local motion preference before first paint; the service
+// default takes over once bootstrap lands (Shell).
+applyMotionPreference(readStoredMotion() ?? 'system');
 
 const container = document.getElementById('root');
 if (container === null) throw new Error('Missing #root element');

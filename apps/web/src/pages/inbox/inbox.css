@@ -195,7 +195,22 @@
 
 .inbox-scope-card {
   padding: 14px;
-  opacity: 0.7;
+}
+
+.inbox-scope-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+/* P14-03: 请求的操作 code block（设计 .pat） */
+.inbox-pat {
+  font: 12.5px/1.8 var(--font-mono);
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
 }
 
 .inbox-other-grid {

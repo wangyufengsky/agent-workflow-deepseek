@@ -1,4 +1,4 @@
-import { isPlanningRoundUnknown, hasPendingPlanningQuestions, hasPendingPlanningReview } from '@agent-workflow/shared';
+import { isPlanningRoundUnknown, isPlanningQuestionAnswered, hasPendingPlanningQuestions, hasPendingPlanningReview } from '@agent-workflow/shared';
 import type {
   ActionAvailability,
   AppSettings,
@@ -13,6 +13,7 @@ import type {
   Task,
   TaskDelivery,
   TaskWorkspace,
+  WorkspacePrepareProjection,
 } from '@agent-workflow/shared';
 import {
   AppError,
@@ -173,6 +174,8 @@ export function computeTaskActions(input: {
   readonly retryRejectedNodeIds?: readonly string[];
   readonly taskAttemptCount?: number;
   readonly sessionErrorCount?: number;
+  /** Service-projected workspace prepare result (P11-04); http layer refines it. */
+  readonly workspacePrepare?: WorkspacePrepareProjection;
 }): Record<string, ActionAvailability> {
   const { task, plan, round, execution, workspace, delivery } = input;
   const fixed = task.fixedTemplate !== undefined;
@@ -181,8 +184,20 @@ export function computeTaskActions(input: {
 
   // Planning actions
   const planningRunning = round !== undefined && (round.status === 'running' || round.status === 'queued' || round.status === 'stopping');
-  const candidateReady = round?.stage === 'awaiting_review' && round.candidate !== undefined;
+  const candidate = round?.candidate;
+  const candidateReady = round?.stage === 'awaiting_review' && candidate !== undefined;
   const roundUnknown = round?.status === 'unknown' || round?.stage === 'unknown';
+  // REQ-01: required questions of the current round gate a new model dispatch.
+  const pendingRequiredQuestions = round?.questions.filter((question) => question.required && !isPlanningQuestionAnswered(question)) ?? [];
+  // REQ-02: a candidate that failed deterministic checks is a reviewable blocked
+  // candidate (not a failed round): 不采用/补充输入 stay usable, apply is denied
+  // with the exact hard-problem reason, and a new round is allowed.
+  const hardProblems = (candidate?.validation.structural.problems ?? []).filter((problem) => problem.severity === 'hard');
+  const candidateBlocked = candidate !== undefined && candidate.validation.structural.state === 'failed';
+  const candidateStale = candidate !== undefined && candidate.validation.basis.state === 'stale';
+  const candidateBlockedReason = candidateStale
+    ? `候选已过期：答复与候选不一致（${candidate.validation.basis.detail}）；按当前输入预览新一轮，或不采用候选`
+    : `有 ${String(hardProblems.length)} 个必须处理的问题：${hardProblems.slice(0, 3).map((problem) => problem.title).join('、')}${hardProblems.length > 3 ? ' 等' : ''}；这些规则不能忽略（补充输入或手改后再试，或不采用候选）`;
   if (!input.opencodeReady) {
     actions.generatePlan = denied(Rationale.OPENCODE_NOT_READY, '受管 OpenCode 服务未就绪，无法调用模型');
     actions.useSkeleton = fixed ? denied(Rationale.FIXED_TEMPLATE, fixedReason) : allowed();
@@ -192,6 +207,12 @@ export function computeTaskActions(input: {
   } else if (planningRunning) {
     actions.generatePlan = denied(Rationale.OPERATION_IN_PROGRESS, '本轮规划仍在进行');
     actions.useSkeleton = denied(Rationale.OPERATION_IN_PROGRESS, '本轮规划仍在进行');
+  } else if (pendingRequiredQuestions.length > 0 && !candidateBlocked) {
+    actions.generatePlan = denied(Rationale.ANSWER_REQUIRED, `上一轮还有 ${String(pendingRequiredQuestions.length)} 个必须答复的问题：先保存答复再预览新一轮`);
+    actions.useSkeleton = allowed();
+  } else if (candidateBlocked) {
+    actions.generatePlan = allowed();
+    actions.useSkeleton = allowed();
   } else if (candidateReady) {
     actions.generatePlan = denied(Rationale.CANDIDATE_PENDING, '已有候选待审阅，请先应用或不采用');
     actions.useSkeleton = allowed();
@@ -208,11 +229,21 @@ export function computeTaskActions(input: {
     actions.useSkeleton = allowed();
   }
 
-  actions.applyCandidate = candidateReady ? allowed() : denied(Rationale.CANDIDATE_PENDING, '当前没有可应用的候选');
-  actions.rejectCandidate = candidateReady ? allowed() : denied(Rationale.CANDIDATE_PENDING, '当前没有可审阅的候选');
+  actions.applyCandidate = candidateBlocked
+    ? denied(candidateStale ? Rationale.STALE_INPUT : Rationale.HARD_PROBLEMS, candidateBlockedReason)
+    : candidateReady
+      ? allowed()
+      : pendingRequiredQuestions.length > 0
+        ? denied(Rationale.ANSWER_REQUIRED, `还有 ${String(pendingRequiredQuestions.length)} 个必须答复的问题未回答，先保存答复`)
+        : denied(Rationale.CANDIDATE_PENDING, '当前没有可应用的候选');
+  actions.rejectCandidate = candidate !== undefined && !planningRunning
+    ? allowed()
+    : denied(Rationale.CANDIDATE_PENDING, '当前没有可审阅的候选');
   actions.stopPlanning = planningRunning ? allowed() : denied(Rationale.OPERATION_IN_PROGRESS, '当前没有进行中的规划');
   actions.reconcile = roundUnknown ? allowed() : denied(Rationale.ROUND_UNKNOWN, '原轮次结果已知，无需核对');
-  actions.saveAnswer = round?.stage === 'needs_answer' ? allowed() : denied(Rationale.ANSWER_REQUIRED, '当前没有必须答复的问题');
+  actions.saveAnswer = (round?.questions.length ?? 0) > 0 && !planningRunning
+    ? allowed()
+    : denied(Rationale.ANSWER_REQUIRED, '当前没有必须答复的问题');
 
   // Plan / confirmation
   const planStatus = plan?.status;
@@ -232,7 +263,9 @@ export function computeTaskActions(input: {
     actions.adjustExecutionPlan = denied(Rationale.FIXED_TEMPLATE, fixedReason);
   } else if (execution === undefined) {
     actions.adjustExecutionPlan = denied(Rationale.PLAN_NOT_CONFIRMED, '执行尚未开始');
-  } else if (execution.status === 'running') {
+  } else if (execution.status === 'running' || execution.status === 'paused') {
+    // P13-05: the design keeps "调整待执行计划" available while paused; the domain
+    // editBegin accepts both running and paused and keeps the paused state after finish.
     actions.adjustExecutionPlan = allowed();
   } else {
     actions.adjustExecutionPlan = denied(Rationale.OPERATION_IN_PROGRESS, '当前执行状态不能调整计划');
@@ -242,6 +275,11 @@ export function computeTaskActions(input: {
     : workspaceReady
       ? denied(Rationale.WORKSPACE_NOT_READY, '工作区已准备')
       : denied(Rationale.WORKSPACE_NOT_READY, '计划尚未确认');
+  // P11-04: the prepare result projection decides the single allowed action of
+  // every PW abnormal state; the plain prepare command is never left available
+  // for unknown/partial/conflict/drift/denied/empty.
+  const prepareActions = workspacePrepareActions(workspace, input.workspacePrepare, planConfirmed);
+  for (const [key, value] of Object.entries(prepareActions)) actions[key] = value;
   const executionStartable = execution === undefined || ['idle', 'ready', 'paused'].includes(execution.status);
   actions.startExecution = planConfirmed && workspaceReady && executionStartable
     ? allowed()
@@ -295,6 +333,71 @@ export function computeTaskActions(input: {
     actions.cleanupWorkspace = denied('RECOVERY_READ_ONLY', READ_ONLY_RECOVERY_REASON);
   }
 
+  return actions;
+}
+
+/**
+ * P11-04: one service projection → the single allowed recovery action per PW
+ * abnormal state. The plain `prepareWorkspace` command is only ever allowed when
+ * the service says nothing was prepared yet (or for the explicit retry after a
+ * conclusively failed prepare). Unknown/partial/conflict/drift/denied/empty each
+ * expose their designed unique action instead of "准备独立工作区".
+ */
+export function workspacePrepareActions(
+  workspace: TaskWorkspace | undefined,
+  projection: WorkspacePrepareProjection | undefined,
+  planConfirmed: boolean,
+): Record<string, ActionAvailability> {
+  const outcome: WorkspacePrepareProjection['outcome'] = projection?.outcome
+    ?? (workspace === undefined || workspace.state === 'not_started' || workspace.state === 'cleaned'
+      ? 'none'
+      : workspace.state === 'ready'
+        ? 'ready'
+        : workspace.state === 'preparing'
+          ? 'preparing'
+          : workspace.state === 'unknown'
+            ? 'unknown'
+            : workspace.state === 'partial'
+              ? 'partial'
+              : 'failed');
+  const requestKeyNote = projection?.requestKey === undefined ? '' : `（原请求号 ${projection.requestKey}）`;
+  const failureNote = projection?.errorCode === undefined ? '' : `（${projection.errorCode}${projection.errorMessage === undefined ? '' : ` · ${projection.errorMessage}`}）`;
+  const actions: Record<string, ActionAvailability> = {};
+  actions.prepareWorkspace = !planConfirmed
+    ? denied(Rationale.PLAN_NOT_CONFIRMED, '计划尚未确认，不能准备工作区')
+    : outcome === 'none'
+      ? allowed()
+      : outcome === 'ready'
+        ? denied(Rationale.WORKSPACE_NOT_READY, '工作区已准备')
+        : outcome === 'preparing'
+          ? denied(Rationale.OPERATION_IN_PROGRESS, '工作区准备中，等待服务回执')
+          : outcome === 'unknown'
+            ? denied(Rationale.ROUND_UNKNOWN, `工作区创建结果待核对${requestKeyNote}：只按原创建请求号核对，不能再准备新的工作区`)
+            : outcome === 'partial'
+              ? denied('WORKSPACE_PARTIAL', '工作区部分创建：先补建工作目录，不要重复准备完整工作区')
+              : outcome === 'conflict'
+                ? denied('WORKSPACE_CONFLICT', '存在同名分支或 worktree：先核对同名对象后再决定是否重新准备')
+                : outcome === 'drift'
+                  ? denied('STALE_TARGET', '基线已前移：先重读基线并按当前基线重新预览')
+                  : outcome === 'denied'
+                    ? denied('PERMISSION_DENIED', '没有项目读取权限：先按授权说明处理并重新读取工作区')
+                    : outcome === 'empty'
+                      ? denied('WORKSPACE_PREPARE_FAILED', 'Git 空仓库没有可固定基线：不能准备独立工作区，请从“开始任务”新建或先初始化仓库')
+                      : outcome === 'unavailable'
+                        ? denied('CAPABILITY_UNAVAILABLE', '工作区准备能力不可用（例如非 Git 目录适配未接通）：不是前端可修复项；等能力接通后再准备')
+                      : denied('WORKSPACE_PREPARE_FAILED', `上次准备明确失败${failureNote}：核对后按“重试准备”重新发起（新请求号）`);
+  actions.reconcilePrepare = outcome === 'unknown' ? allowed() : denied(Rationale.ROUND_UNKNOWN, '当前没有待核对的工作区创建请求');
+  actions.repairPrepare = outcome === 'partial' ? allowed() : denied('WORKSPACE_PARTIAL', '当前不是部分创建，无需补建工作目录');
+  // task-7 服务层已支持 name override：冲突态可用“使用新名称重新预览”生成 -2 名称后再次确认准备。
+  actions.renameWorkspace = outcome === 'conflict'
+    ? allowed()
+    : denied('WORKSPACE_CONFLICT', '当前没有同名冲突');
+  actions.rereadBaseline = outcome === 'drift' ? allowed() : denied('STALE_TARGET', '当前没有基线漂移，无需重读基线');
+  actions.rereadWorkspace = outcome === 'denied' || outcome === 'conflict' || outcome === 'failed'
+    ? allowed()
+    : denied(Rationale.WORKSPACE_NOT_READY, '当前没有需要重新读取的工作区异常');
+  actions.newTaskFromEmpty = outcome === 'empty' ? allowed() : denied('WORKSPACE_PREPARE_FAILED', '只有空仓库场景需要从“开始任务”新建');
+  actions.retryPrepare = outcome === 'failed' ? allowed() : denied('WORKSPACE_PREPARE_FAILED', '上次准备不是明确失败，不能直接重试');
   return actions;
 }
 

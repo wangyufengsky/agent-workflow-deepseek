@@ -73,6 +73,12 @@ export interface PlanningValidationInput {
   readonly requiredSteps: readonly { readonly key: string; readonly title?: string; readonly kind: NodeKindValue; readonly group: string; readonly optional?: boolean; readonly requires?: readonly string[]; readonly qualityReview?: import('./quality-review.ts').QualityReviewContract }[];
   readonly refinableGroups: readonly string[];
   readonly limits: { readonly maxNodes: number; readonly maxEdges: number; readonly maxGroups: number; readonly maxDepth: number };
+  /**
+   * P11-01/PE28: when true, two steps writing the same resource are only a
+   * collision if no declared ordering exists between them (a “改为先后执行”
+   * adoption serializes the writers). AI candidates keep the strict default.
+   */
+  readonly resourceOrderAware?: boolean;
 }
 
 export interface PlanningValidationOutput {
@@ -204,8 +210,23 @@ export function validatePlanningCandidate(input: PlanningValidationInput): Plann
       writeOwners.set(key, owners);
     }
   }
+  const orderSuccessors = new Map<string, string[]>();
+  for (const edge of candidate.edges) orderSuccessors.set(edge.fromKey, [...(orderSuccessors.get(edge.fromKey) ?? []), edge.toKey]);
+  const orderedBefore = (from: string, to: string, seen = new Set<string>()): boolean => {
+    if (from === to) return false;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    return (orderSuccessors.get(from) ?? []).some((next) => next === to || orderedBefore(next, to, seen));
+  };
   for (const [resource, owners] of writeOwners) {
-    if (owners.length > 1) {
+    if (owners.length <= 1) continue;
+    // P11-01: after “改为先后执行” the writers are ordered, so the resource is
+    // serialized rather than concurrently written. Strict validation (AI
+    // candidates) keeps flagging every shared writer.
+    const unordered = input.resourceOrderAware === true
+      ? owners.some((left, leftIndex) => owners.slice(leftIndex + 1).some((right) => !orderedBefore(left, right) && !orderedBefore(right, left)))
+      : true;
+    if (unordered) {
       push('WRITE_COLLISION', '多个步骤写同一资源', `${owners.join('、')} 同时写 ${resource}；需改为先后执行或申请子隔离（后续分期）`, owners[0]);
     }
   }
@@ -314,6 +335,51 @@ export function isPlanningCandidatePayload(value: unknown): value is PlanningCan
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Partial<PlanningCandidatePayload>;
   return typeof candidate.summary === 'string' && Array.isArray(candidate.groups) && Array.isArray(candidate.nodes) && Array.isArray(candidate.edges);
+}
+
+/**
+ * Convert a stored plan graph back into the candidate payload the deterministic
+ * checks accept. Used by the requirement-canvas hand-edit path (P11-01) and by
+ * the post-answer candidate revalidation (REQ-01/QA02); it never invents nodes,
+ * inputs or edges.
+ */
+export function planGraphToCandidatePayload(graph: PlanGraph): PlanningCandidatePayload {
+  const keyById = new Map(graph.nodes.map((node) => [node.id, node.key]));
+  const groupKind = (kind: string): PlanningCandidateGroup['kind'] => {
+    const allowed = ['requirement', 'design', 'implementation', 'test', 'delivery'] as const;
+    return (allowed as readonly string[]).includes(kind) ? (kind as (typeof allowed)[number]) : 'implementation';
+  };
+  return {
+    summary: '',
+    groups: graph.groups.map((group) => ({ id: group.id, label: group.label, kind: groupKind(group.kind), refined: group.refined })),
+    nodes: graph.nodes.map((node) => ({
+      key: node.key,
+      title: node.title,
+      kind: node.kind,
+      groupId: node.groupId,
+      summary: node.summary,
+      inputs: node.inputs.map((input) => ({
+        name: input.name,
+        source: input.source,
+        ...(input.sourceNodeId === undefined || keyById.get(input.sourceNodeId) === undefined ? {} : { fromKey: keyById.get(input.sourceNodeId)! }),
+      })),
+      outputs: node.outputs.map((output) => ({ name: output.name, kind: output.kind })),
+      acceptance: node.acceptance,
+      resources: {
+        read: node.resources.read.map((resource) => ({ kind: resource.kind, label: resource.label })),
+        write: node.resources.write.map((resource) => ({ kind: resource.kind, label: resource.label })),
+      },
+      ...(node.roleId === undefined ? {} : { roleId: node.roleId }),
+      ...(node.qualityReview === undefined ? {} : { qualityReview: structuredClone(node.qualityReview) }),
+    })),
+    edges: graph.edges.map((edge) => ({
+      fromKey: keyById.get(edge.from) ?? edge.from,
+      toKey: keyById.get(edge.to) ?? edge.to,
+      kind: edge.kind,
+      ...(edge.label === undefined ? {} : { label: edge.label }),
+    })),
+    humanDecisions: [],
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -428,8 +494,7 @@ export function groupLeafNodes(graph: PlanGraph, groupRef: string): readonly Pla
   return graph.nodes.filter((node) => node.groupId === groupRef && !isPlaceholderNode(node));
 }
 
-/** Groups whose placeholder/unrefined state still blocks confirm (design S5). */
-export function unresolvedPlanScopes(graph: PlanGraph): readonly { readonly groupRef: string; readonly title: string }[] {
+/** Groups whose placeholder/unrefined state still blocks confirm (design S5). */export function unresolvedPlanScopes(graph: PlanGraph): readonly { readonly groupRef: string; readonly title: string }[] {
   return graph.groups
     .filter((group) => {
       const placeholders = graph.nodes.filter((node) => node.groupId === group.id && isPlaceholderNode(node));

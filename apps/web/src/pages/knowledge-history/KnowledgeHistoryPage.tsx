@@ -3,21 +3,23 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
+  KNOWLEDGE_RUN_STATUS_LABEL,
   ROUTES,
   type KnowledgeCitation,
   type KnowledgeHistoryEntry,
   type KnowledgeConversation,
   type KnowledgeHistoryResponse,
+  type KnowledgeRunStatusValue,
   type ProjectSummary,
 } from '@agent-workflow/shared';
 import { apiGet } from '../../api/client.ts';
 import { useBootstrap } from '../../api/hooks.ts';
-import { formatAbsoluteTime, formatDateTime, formatRelativeTime } from '../../app/format.ts';
-import { Badge } from '../../components/Badge.tsx';
+import { formatAbsoluteTime } from '../../app/format.ts';
+import { Badge, type BadgeTone } from '../../components/Badge.tsx';
 import { Button, LinkButton } from '../../components/Button.tsx';
 import { PageHeader } from '../../components/Card.tsx';
 import { EmptyState, Skeleton } from '../../components/EmptyState.tsx';
-import { Icon } from '../../components/Icon.tsx';
+import { Icon, type IconName } from '../../components/Icon.tsx';
 import { SegmentedControl, type SegmentOption } from '../../components/SegmentedControl.tsx';
 import { ServiceNotice } from '../../components/ServiceNotice.tsx';
 import './knowledge-history.css';
@@ -59,12 +61,13 @@ function dayGroup(iso: string): DayGroup {
 }
 
 function formatEntryTime(iso: string, group: DayGroup): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
   if (group === '今天' || group === '昨天') {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return '—';
     return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
   }
-  return formatDateTime(iso);
+  // Design: older entries show the date only (no time).
+  return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(date);
 }
 
 /** 摘要只截取服务返回的回答文本，不补写任何内容。 */
@@ -118,19 +121,49 @@ function CitationList({ row, term }: { readonly row: HistoryRow; readonly term: 
   );
 }
 
+/** Shared status labels (P03-08) with the design's history wording for needs_answer. */
+const STATUS_VIEW: Readonly<Record<KnowledgeRunStatusValue, { readonly label: string; readonly tone: BadgeTone; readonly icon: IconName }>> = {
+  needs_answer: { label: '需要你回答', tone: 'wait', icon: 'help' },
+  researching: { label: KNOWLEDGE_RUN_STATUS_LABEL.researching, tone: 'run', icon: 'search' },
+  answering: { label: KNOWLEDGE_RUN_STATUS_LABEL.answering, tone: 'run', icon: 'sparkle' },
+  stopping: { label: KNOWLEDGE_RUN_STATUS_LABEL.stopping, tone: 'wait', icon: 'pause' },
+  stopped: { label: KNOWLEDGE_RUN_STATUS_LABEL.stopped, tone: 'idle', icon: 'stop' },
+  completed: { label: KNOWLEDGE_RUN_STATUS_LABEL.completed, tone: 'ok', icon: 'check' },
+  failed: { label: KNOWLEDGE_RUN_STATUS_LABEL.failed, tone: 'fail', icon: 'x' },
+  unknown: { label: '待核对', tone: 'unknown', icon: 'help' },
+};
+
 function HistoryRowItem({ row, expanded, term, onToggle }: { readonly row: HistoryRow; readonly expanded: boolean; readonly term: string; readonly onToggle: () => void }) {
   const { conversation, entry } = row; const status = conversation.state; const group = dayGroup(conversation.updatedAt);
-  const label = ({ needs_answer: '需要你回答', researching: '研究中', answering: '生成中', stopping: '正在停止', stopped: '已停止', completed: '已完成', failed: '失败', unknown: '待核对' } as const)[status];
+  const view = STATUS_VIEW[status];
+  const need = status === 'needs_answer';
   const href = `/knowledge?project=${encodeURIComponent(row.projectId)}&conversation=${encodeURIComponent(conversation.id)}${entry?.requestKey === undefined ? '' : `&requestKey=${encodeURIComponent(entry.requestKey)}`}`;
-  return <div className="kh-item" data-cited={(entry?.citations.length ?? 0) > 0} data-expanded={expanded}>
+  // P04-01: running/needs_answer rows show the real pending question or current
+  // service progress instead of an empty answer summary.
+  const summary = entry?.readability === 'forbidden'
+    ? entry.unavailableReason ?? '原回答不可读'
+    : need
+      ? entry?.pendingQuestion ?? '待回答的问题需去待处理中心查看'
+      : ['researching', 'answering', 'stopping'].includes(status)
+        ? entry?.progressSummary ?? '进行中；服务尚未返回当前步骤'
+        : entry === undefined
+          ? '记录内容未保留'
+          : entry.answer.trim() === ''
+            ? '尚无已保存回答'
+            : answerSummary(entry.answer);
+  return <div className="kh-item" data-need={need} data-expanded={expanded}>
     <Link className="kh-row" to={href}>
-      <span className="kh-ico"><Icon name={status === 'needs_answer' ? 'help' : status === 'unknown' || status === 'failed' ? 'alert' : 'book'} size="sm" /></span>
-      <span className="grow kh-main"><span className="kh-q">{highlight(conversation.title, term)}</span><span className="kh-a">{highlight(entry?.readability === 'forbidden' ? entry.unavailableReason ?? '原回答不可读' : entry === undefined ? '记录内容未保留' : answerSummary(entry.answer), term)}</span>
-        <span className="kh-meta"><Badge tone={status === 'completed' ? 'ok' : status === 'unknown' ? 'unknown' : status === 'needs_answer' ? 'wait' : 'idle'} icon={status === 'completed' ? 'check' : status === 'needs_answer' ? 'help' : 'clock'}>{label}</Badge>{conversation.archivedAt ? <Badge tone="idle" icon="archive">已归档</Badge> : null}<span>{row.projectName}</span><span>·</span><span className="mono">{entry?.model ?? '模型未标注'}</span><span>· 已保留 {conversation.messageCount} 条问答</span><span>· {entry?.citations.length ?? 0} 处引用</span></span>
-      </span><span className="kh-side"><span className="hint num" title={formatAbsoluteTime(conversation.updatedAt)}>{formatEntryTime(conversation.updatedAt, group)}</span><span className="hint">查看对话</span><Icon name="chevRight" size="sm" /></span>
+      <span className="kh-ico"><Icon name={view.icon} size="sm" /></span>
+      <span className="grow kh-main"><span className="kh-q">{highlight(conversation.title, term)}</span><span className="kh-a">{highlight(summary, term)}</span>
+        <span className="kh-meta"><Badge tone={view.tone} icon={view.icon}>{view.label}</Badge>{conversation.archivedAt ? <Badge tone="idle" icon="archive">已归档</Badge> : null}<span>{row.projectName}</span><span>·</span><span className="mono">{entry?.model ?? '模型未标注'}</span><span>· 已保留 {conversation.messageCount} 条问答</span>{(entry?.citations.length ?? 0) > 0 ? <span>· {entry?.citations.length} 处引用</span> : null}</span>
+      </span><span className="kh-side"><span className="hint num" title={formatAbsoluteTime(conversation.updatedAt)}>{formatEntryTime(conversation.updatedAt, group)}</span>{need ? null : <span className="hint">查看对话</span>}<Icon name="chevRight" size="sm" /></span>
     </Link>
-    <div className="row wrap" style={{ gap: 8 }}><Button variant="ghost" size="sm" onClick={onToggle}>{expanded ? '收起详情' : '展开详情'}</Button>{status === 'needs_answer' ? <LinkButton variant="primary" size="sm" to="/inbox">去回答</LinkButton> : status === 'unknown' && entry?.requestKey ? <LinkButton variant="secondary" size="sm" to={href}>核对原问答</LinkButton> : null}</div>
-    <ConversationActions conversation={conversation} />
+    {need ? <LinkButton className="kh-need-action" variant="primary" size="sm" to="/inbox">去回答</LinkButton> : null}
+    <div className="kh-actions row wrap" style={{ gap: 8 }}>
+      <Button variant="ghost" size="sm" onClick={onToggle}>{expanded ? '收起详情' : '展开详情'}</Button>
+      {status === 'unknown' && entry?.requestKey ? <LinkButton variant="secondary" size="sm" to={href}>核对原问答</LinkButton> : null}
+      <ConversationActions conversation={conversation} />
+    </div>
     {expanded ? <div className="kh-detail"><div><div className="eyebrow">最近一问</div><p className="kh-question">{entry?.question ?? '原问题未保留'}</p></div><div><div className="eyebrow">回答</div><p className="kh-answer">{entry?.readability === 'forbidden' ? entry.unavailableReason : entry?.answer || '尚无已保存回答'}</p></div><CitationList row={row} term={term} /><div className="row wrap">{conversation.actions.followUp.allowed ? <LinkButton variant="secondary" size="sm" to={href}>继续追问</LinkButton> : <Button variant="secondary" size="sm" disabled disabledReason={conversation.actions.followUp.reason}>继续追问</Button>}<span className="hint">回到原对话，保留模型、项目和已保存问答；未完成操作只核对原请求。</span></div></div> : null}
   </div>;
 }
@@ -314,12 +347,21 @@ export function KnowledgeHistoryPage() {
             </Button>
           </div>
 
-          {failedSlices.map((slice) => (
+          {failedSlices.length > 0 && slices.length > 0 && failedSlices.length === slices.length ? (
+            <div className="banner danger" role="alert" style={{ marginBottom: 8 }}>
+              <Icon name="alert" size="sm" />
+              <div className="grow">
+                <b>记录加载失败</b>
+                <div className="hint">网络或服务暂时不可用，已有对话不受影响；页面不会用缓存或示例数据补齐。</div>
+              </div>
+              <Button variant="secondary" size="sm" icon="refresh" onClick={refresh}>重试</Button>
+            </div>
+          ) : failedSlices.map((slice) => (
             <div key={slice.project.id} style={{ marginBottom: 8 }}>
               <ServiceNotice error={slice.error} title={`读取「${slice.project.name}」的对话记录失败`} onRetry={refresh} compact />
             </div>
           ))}
-          {failedSlices.length > 0 ? (
+          {failedSlices.length > 0 && slices.length !== failedSlices.length ? (
             <p className="hint" style={{ marginBottom: 8 }}>
               记录读取失败的项目按事实显示为空，不会用缓存或示例数据补齐。
             </p>
@@ -327,7 +369,7 @@ export function KnowledgeHistoryPage() {
 
           {loading ? (
             <div className="col" style={{ gap: 8, marginTop: 12 }} aria-busy="true">
-              {[0, 1, 2].map((index) => (
+              {[0, 1, 2, 3].map((index) => (
                 <div className="kh-item kh-skeleton" key={index}>
                   <span className="kh-ico">
                     <Skeleton width={16} height={16} />

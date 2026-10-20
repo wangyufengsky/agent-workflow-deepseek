@@ -96,7 +96,6 @@
 | POST | `/api/tasks/:id/delivery/apply` | 非 Git 应用到原目录（冻结预览 + 逐项） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/tasks/:id/delivery/apply/preview` | 非 Git 应用预览（只读） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/tasks/:id/delivery/commit` | 提交（CAS changesRevision / branch head） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
-| POST | `/api/tasks/:id/delivery/merge` | 合并到目标分支（临时 worktree + CAS） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/tasks/:id/delivery/merge-request` | 创建 MR | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/tasks/:id/delivery/push` | 推送（create-only，无 force） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/tasks/:id/delivery/select` | 选择交付目标 / 文件 | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
@@ -249,8 +248,10 @@
 | GET | `/api/catalog/role-images` | （待补说明：catalogRoleImages） | 读口；无写回执 |
 | GET | `/api/catalog/roles/:id/insights` | （待补说明：catalogRoleInsights） | 读口；无写回执 |
 | GET | `/api/catalog/roles/:id/permission-preview` | （待补说明：catalogRolePermissionPreview） | 读口；无写回执 |
+| GET | `/api/catalog/roles/:id/published` | （待补说明：catalogRolePublished） | 读口；无写回执 |
 | POST | `/api/catalog/roles/package/publish` | （待补说明：catalogRolePackagePublish） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/catalog/roles/package/validate` | （待补说明：catalogRolePackageValidate） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| GET | `/api/git/repos/:projectId/reviews/:reviewRunId/suggestions` | （待补说明：reviewSuggestions） | 读口；无写回执 |
 | GET | `/api/knowledge/conversations/:id` | （待补说明：knowledgeConversation） | 读口；无写回执 |
 | POST | `/api/knowledge/conversations/:id/archive` | （待补说明：knowledgeConversationArchive） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/knowledge/conversations/:id/rename` | （待补说明：knowledgeConversationRename） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
@@ -287,8 +288,12 @@
 | POST | `/api/tasks/:id/archive` | （待补说明：taskArchive） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/tasks/:id/attempts/:attemptId/artifacts/:artifactId` | （待补说明：taskArtifact） | 读口；无写回执 |
 | GET | `/api/tasks/:id/audit` | （待补说明：taskAudit） | 读口；无写回执 |
+| GET | `/api/tasks/:id/delivery/merge-request-fact` | （待补说明：deliveryMergeRequestFact） | 读口；无写回执 |
+| POST | `/api/tasks/:id/delivery/merge-request/verify` | （待补说明：deliveryMergeRequestVerify） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
+| POST | `/api/tasks/:id/delivery/push/verify` | （待补说明：deliveryPushVerify） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/tasks/:id/nodes/:nodeId/attempts/:attemptId/tools/:callId` | （待补说明：nodeTool） | 读口；无写回执 |
 | GET | `/api/tasks/:id/nodes/:nodeId/sources/:planId/:entryId` | （待补说明：nodeSource） | 读口；无写回执 |
+| POST | `/api/tasks/:id/plan/edit-draft` | （待补说明：planEditDraft） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | POST | `/api/tasks/:id/plan/freeze` | （待补说明：taskPlanFreeze） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/tasks/:id/plan/freezes` | （待补说明：taskPlanFreezes） | 读口；无写回执 |
 | GET | `/api/tasks/:id/planning/proposal` | （待补说明：planningProposal） | 读口；无写回执 |
@@ -298,6 +303,7 @@
 | GET | `/api/tasks/:id/snapshot-review` | （待补说明：taskSnapshotReview） | 读口；无写回执 |
 | GET | `/api/tasks/:id/snapshot-review/report` | （待补说明：taskSnapshotReport） | 读口；无写回执 |
 | GET | `/api/tasks/:id/snapshot-review/report/:reportId/download` | （待补说明：taskSnapshotReportDownload） | 读口；无写回执 |
+| POST | `/api/tasks/:id/workspace/prepare-preview` | （待补说明：workspacePreparePreview） | 写命令：`requestKey` + 回执（accepted→succeeded/failed/unknown；UNKNOWN 按 by-key 核对） |
 | GET | `/api/templates/archive` | （待补说明：templateArchive） | 读口；无写回执 |
 | GET | `/api/templates/archive/export` | （待补说明：templateArchiveExport） | 读口；无写回执 |
 | GET | `/api/templates/archive/runs/:id/verify` | （待补说明：templateArchiveRun） | 读口；无写回执 |

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import type { GitBranch, GitCommitSummary, GitMergeRequest } from '@agent-workflow/shared';
+import { ErrorCode, type GitBranch, type GitCommitSummary, type GitMergeRequest } from '@agent-workflow/shared';
+import { isApiClientError } from '../../api/client.ts';
 import {
   classifyGitFailure,
   fetchGitBranches,
@@ -41,6 +42,10 @@ type RailTab = 'commits' | 'branches' | 'mergeRequests';
 
 function shouldRetry(failureCount: number, error: unknown): boolean {
   return classifyGitFailure(error) === 'failed' && failureCount < 2;
+}
+
+function fetchFailureCode(error: unknown): string | null {
+  return isApiClientError(error) ? error.code : null;
 }
 
 function BranchDetail({
@@ -339,8 +344,12 @@ export function RepoWorkbench({ projectId }: { readonly projectId: string }) {
               <h2 className="title" style={{ fontSize: 22 }}>{repo.projectName}</h2>
               <Badge tone={repoStateTone(repo.gitState)} icon="alert">{REPO_GIT_STATE_LABEL[repo.gitState]}</Badge>
             </div>
+            {repo.displayRoot === undefined ? null : (
+              <p className="muted-note">项目路径 <span className="mono-sm">{repo.displayRoot}</span></p>
+            )}
             <UnavailablePanel
               error={new Error(repo.gitStateDetail ?? '服务没有说明不可用原因')}
+              kindOverride={repo.gitState === 'capability_unavailable' ? 'capability_unavailable' : undefined}
               title={repo.gitState === 'not_git' ? '这个项目不受 Git 管理' : repo.gitState === 'path_unavailable' ? '本机路径不可用' : 'Git 能力尚未接入'}
               description={
                 repo.gitState === 'not_git'
@@ -387,9 +396,15 @@ export function RepoWorkbench({ projectId }: { readonly projectId: string }) {
           {headLabel}
         </span>
         <span className="git-wb-meta">
-          <span>{status?.upstream === undefined ? '与远端差异未知' : aheadBehind(status.upstream.ahead, status.upstream.behind)}</span>
+          <span>
+            {status?.upstream === undefined ? '与远端差异未知' : aheadBehind(status.upstream.ahead, status.upstream.behind)}
+            {fetchMutation.isError ? '（获取失败 · 显示上次已知值）' : ''}
+          </span>
           <span>·</span>
           <span>上次获取 {status?.lastFetchAt === undefined ? '未知' : formatRelativeTime(status.lastFetchAt)}</span>
+          {status?.workingTree.uncommitted === undefined ? null : (
+            <Badge tone="wait" icon="edit">{String(status.workingTree.uncommitted)} 个未提交改动（只读）</Badge>
+          )}
           {status?.shallow === undefined ? null : <Badge tone="wait" icon="archive">浅克隆</Badge>}
           {status?.userOperationInProgress === undefined ? null : <Badge tone="fail" icon="alert">进行中：{status.userOperationInProgress}</Badge>}
         </span>
@@ -398,20 +413,26 @@ export function RepoWorkbench({ projectId }: { readonly projectId: string }) {
             variant="secondary"
             size="sm"
             icon="refresh"
-            disabled={fetchMutation.isPending || repo.remote === undefined}
-            disabledReason={repo.remote === undefined ? '服务没有返回远端（origin），无法获取远端更新。' : undefined}
+            disabled={fetchMutation.isPending || repo.remote === undefined || !gitlabConfigured}
+            disabledReason={
+              repo.remote === undefined
+                ? '服务没有返回远端（origin），无法获取远端更新。'
+                : !gitlabConfigured
+                  ? 'GitLab 未配置：获取远端更新不可用。到 设置 → GitLab 配置连接后重试；本地提交仍可浏览。'
+                  : undefined
+            }
             onClick={() => { fetchMutation.mutate(); }}
           >
             {fetchMutation.isPending ? '获取中…' : '获取远端更新'}
           </Button>
           {repo.remote?.webUrl === undefined ? (
             <Button variant="ghost" size="sm" icon="external" disabled disabledReason={gitlabConfigured ? '服务没有返回仓库的网页地址。' : 'GitLab 未配置，没有可打开的网页地址。'}>
-              在浏览器打开
+              在 GitLab 打开
             </Button>
           ) : (
             <a className="btn ghost sm" href={repo.remote.webUrl} target="_blank" rel="noreferrer noopener">
               <Icon name="external" size="sm" />
-              在浏览器打开
+              在 GitLab 打开
             </a>
           )}
           <Button variant="ghost" size="sm" icon="refresh" onClick={refreshAll}>
@@ -436,7 +457,29 @@ export function RepoWorkbench({ projectId }: { readonly projectId: string }) {
         ) : lookupQuery.data === undefined ? null : (
           <OperationLookupResult operation={lookupQuery.data.operation} stillUnknown={lookupQuery.data.stillUnknown} />
         )}
-        {fetchMutation.isError ? <FailureNotice error={fetchMutation.error} compact /> : null}
+        {fetchMutation.isError ? (
+          fetchFailureCode(fetchMutation.error) === ErrorCode.GITLAB_AUTH_FAILED || fetchFailureCode(fetchMutation.error) === ErrorCode.GITLAB_NOT_CONFIGURED ? (
+            <div className="banner danger" role="alert">
+              <Icon name="alert" />
+              <div className="grow">
+                <b>远端认证失败，获取远端更新没有完成</b>
+                <br />
+                到「设置 → GitLab」验证连接后回来重试；已加载的提交与分支保留。领先 / 落后显示上次已知值，不伪造实时数据。
+              </div>
+              <div className="actions">
+                <Link className="btn ghost sm" to="/settings">
+                  <Icon name="settings" size="sm" />
+                  去设置验证连接
+                </Link>
+                <Button variant="secondary" size="sm" icon="refresh" disabled={fetchMutation.isPending} onClick={() => { fetchMutation.mutate(); }}>
+                  重新获取
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <FailureNotice error={fetchMutation.error} onRetry={() => { fetchMutation.mutate(); }} compact />
+          )
+        ) : null}
         {status?.head.kind === 'detached' ? (
           <div className="banner warn" style={{ marginBottom: 8 }}>
             <Icon name="alert" />
@@ -446,7 +489,12 @@ export function RepoWorkbench({ projectId }: { readonly projectId: string }) {
         {status?.isEmpty === true ? (
           <div className="banner info" style={{ marginBottom: 8 }}>
             <Icon name="info" />
-            <div className="grow">空仓库：当前分支还没有提交；不会显示占位图谱或伪造详情。工作区里的未提交文件可以只读查看（{String(status.workingTree.uncommitted)} 个未提交）。</div>
+            <div className="grow">
+              空仓库：当前分支还没有提交；不会显示占位图谱或伪造详情。工作区里的未提交文件可以只读查看（{String(status.workingTree.uncommitted)} 个未提交）。
+              {gitlabConfigured
+                ? ' GitLab 已连接：完成首次提交后即可读取远端与合并请求。'
+                : ' GitLab 未配置：完成首次提交后仍需到「设置 → GitLab」配置连接，才能读取远端与合并请求。'}
+            </div>
           </div>
         ) : null}
       </div>

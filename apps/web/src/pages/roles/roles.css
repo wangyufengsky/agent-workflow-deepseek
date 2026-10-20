@@ -432,3 +432,125 @@
   max-height: 70vh;
   overflow: auto;
 }
+
+/* B-02 已发布版本核对（port of roles.html .rv-* design styles） */
+.rv-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.rv-bar .seg button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.rv-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px 20px;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.rv-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+
+.rv-body {
+  padding: 18px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rv-doc {
+  position: relative;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rv-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rv-chips .chip {
+  color: var(--ink-2);
+}
+
+.rv-chips .chip .i {
+  color: var(--ok);
+}
+
+.rv-dig > summary .mono {
+  color: var(--sub);
+}
+
+.rv-dig .rv-hash {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 14px;
+  font: 12px/1.6 var(--font-mono);
+  color: var(--sub);
+  overflow-wrap: anywhere;
+}
+
+.rv-dig .rv-hash span {
+  flex: 1;
+  min-width: 0;
+}
+
+.rv-foot {
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.55;
+  padding: 12px 20px;
+}
+
+.rv-empty {
+  padding: 44px 24px;
+}
+
+.rv-empty .tile {
+  border: 1px dashed var(--line-3);
+  background: transparent;
+  color: var(--muted);
+}
+
+.rv-lockrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.role-json {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  overflow: auto;
+  max-height: 56vh;
+}

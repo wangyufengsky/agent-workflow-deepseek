@@ -273,7 +273,35 @@ test('a timed-out merge request settles UNKNOWN without marking the task deliver
     assert.equal(afterUnknown.steps.find((step) => step.step === 'mergeRequest')?.state, 'unknown');
     assert.equal(app.store.tasks.get(taskId)?.lifecycle, 'active', 'UNKNOWN must not mark the task delivered');
 
-    // A definite remote rejection stays failed.
+    // DEL-14: retrying while the original receipt is still UNKNOWN must NOT POST again.
+    // The read-only lookup finding nothing is not proof that the MR was never created.
+    let duplicatePostAttempts = 0;
+    const restoreRetry = patchCreateMergeRequest(app, async () => {
+      duplicatePostAttempts += 1;
+      throw new AppError(ErrorCode.MR_ALREADY_EXISTS, '同名合并请求已存在');
+    });
+    let retried: Awaited<ReturnType<RunningApplication['app']['inject']>>;
+    try {
+      retried = await app.app.inject({
+        method: 'POST',
+        url: `/api/tasks/${taskId}/delivery/merge-request`,
+        payload: { requestKey: createRequestKey(), sourceRef: 'task/remote-unknown', pushedSha: 'a'.repeat(40), targetBranch: 'main', expectedTargetTip: 'b'.repeat(40), title: 'Task delivery', description: 'Deliver', confirmMergeRequest: true },
+      });
+    } finally {
+      restoreRetry();
+    }
+    assert.equal(retried.statusCode, 409, retried.body);
+    assert.equal((retried.json() as PushReceiptBody).error.code, 'RECEIPT_UNKNOWN');
+    assert.equal(duplicatePostAttempts, 0, 'must not re-POST while the original result is unknown');
+    assert.equal(app.store.operations.get(timeoutKey)?.status, 'unknown', 'the original UNKNOWN stays reconcilable');
+
+    // A definite remote rejection stays failed. Reset the unknown MR step first: this
+    // exercises a fresh create attempt (no prior UNKNOWN) which is a distinct path.
+    const unknownDelivery = app.store.deliveries.get(delivery.id)!;
+    app.store.deliveries.update(delivery.id, {
+      projection: 'awaiting_confirmation',
+      steps: unknownDelivery.steps.filter((step) => step.step !== 'mergeRequest'),
+    });
     const rejectKey = createRequestKey();
     const restoreReject = patchCreateMergeRequest(app, async () => {
       throw new AppError(ErrorCode.MR_ALREADY_EXISTS, '同名合并请求已存在');

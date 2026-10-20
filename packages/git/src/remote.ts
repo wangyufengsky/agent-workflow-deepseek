@@ -151,6 +151,36 @@ function duplicateMergeRequest(status: number, parsed: unknown, text: string): A
   return undefined;
 }
 
+/**
+ * 创建 MR 前先核对同一 source → target 的打开 MR：命中时**不发送 POST**，
+ * 直接返回带 iid / webUrl 的错误详情，界面据此链接到已有 MR（g61 / DEL-14 口径）。
+ * 核对本身失败时不阻塞创建，让 POST 暴露真实的认证/网络错误。
+ */
+async function existingOpenMergeRequest(
+  list: () => Promise<readonly GitMergeRequest[]>,
+  input: { readonly sourceBranch: string; readonly targetBranch: string },
+): Promise<GitMergeRequest | undefined> {
+  try {
+    const mergeRequests = await list();
+    return mergeRequests.find(
+      (mergeRequest) =>
+        mergeRequest.state === 'opened'
+        && mergeRequest.sourceBranch === input.sourceBranch
+        && mergeRequest.targetBranch === input.targetBranch,
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+function alreadyExistsError(existing: GitMergeRequest, input: { readonly sourceBranch: string; readonly targetBranch: string }): AppError {
+  return new AppError(
+    ErrorCode.MR_ALREADY_EXISTS,
+    `已有打开的合并请求 !${String(existing.iid)}（${input.sourceBranch} → ${input.targetBranch}）：不重复创建，推送已经更新了它`,
+    { details: { iid: existing.iid, webUrl: existing.webUrl, sourceBranch: input.sourceBranch, targetBranch: input.targetBranch } },
+  );
+}
+
 function requireMapped(value: GitMergeRequest | undefined): GitMergeRequest {
   if (value === undefined) {
     throw new AppError(ErrorCode.UNSUPPORTED_FORMAT, '合并请求响应缺少必要字段');
@@ -258,6 +288,11 @@ export class GitHubAdapter implements RemoteProvider {
 
   async createMergeRequest(input: CreateMergeRequestInput): Promise<GitMergeRequest> {
     const normalized = normalizeCreateInput(input);
+    const existing = await existingOpenMergeRequest(
+      () => this.listMergeRequests({ state: 'opened', limit: MAX_LIST_LIMIT }),
+      normalized,
+    );
+    if (existing !== undefined) throw alreadyExistsError(existing, normalized);
     const raw = await this.#client.requestJson({
       method: 'POST',
       path: this.#reposPath('/pulls'),
@@ -411,6 +446,11 @@ export class GitLabAdapter implements RemoteProvider {
 
   async createMergeRequest(input: CreateMergeRequestInput): Promise<GitMergeRequest> {
     const normalized = normalizeCreateInput(input);
+    const existing = await existingOpenMergeRequest(
+      () => this.listMergeRequests({ state: 'opened', limit: MAX_LIST_LIMIT }),
+      normalized,
+    );
+    if (existing !== undefined) throw alreadyExistsError(existing, normalized);
     const raw = await this.#client.requestJson({
       method: 'POST',
       path: this.#projectPath('/merge_requests'),

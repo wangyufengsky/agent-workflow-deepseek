@@ -2,6 +2,8 @@
 
 > **历史审查基线，保留原始发现。** 后续已修复内容与当前证据以 `docs/design-coverage.md`、`docs/review/design-parity-acceptance-2026-10-20.md` 和 `docs/task-assignment.md` 第9节为准。下文“缺失/无路由”不是当前实现状态。
 
+> 2026-10-20 全站审计更正（`docs/review/design-audit-2026-10-20.md` §3.8）：§0 整页缺失 6 个与 §1.1 第 3–7 项“无路由/整页缺失”已被当前代码超越（均已有路由或内联视图）；§2.6/§2.9/§2.10 节点宽阅读/工具详情/产物/引用等已实现；**§2.7“Git 工作台基本对齐、未发现结构性缺口”属过度声称**（实际 GIT-01..20 有 20 条偏差，以审计报告为准）；§2.11/§2.13 角色四页签/设置分区脏保存条已实现。本文保留原始发现用于追溯。
+>
 > 审查对象：`opencode-workflow-design-showcase/`（只读权威） vs `apps/web`（React 实现）。
 > 审查方式：读设计页 HTML/JS 的静态结构、状态列表与 `sources/` 验收文档，逐页对照实现的 TSX 结构与真实状态分支；不做逐像素对比。全程只读，未修改设计稿与产品代码。
 > 基线：`originals/main/index.html:85-152` 的 GROUPS（22 个正式产品页）+ `index.html:171` 的 BITEMS（B-01…B-15，补出 recovery / requirements / roles-legacy 三页），合计 25 个正式页；另核对 delivery / planning / git / node 补充稿。

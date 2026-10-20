@@ -27,6 +27,8 @@ import {
   type RoleImageInput,
   type RolePublishCheck,
   type RolePublishRequest,
+  type RolePublishedReceipt,
+  type RolePublishedReceiptResponse,
   type RoleResourcePermissions,
   type RoleResourcePermissionsInput,
   type RoleRevisionSnapshot,
@@ -79,6 +81,8 @@ interface StoredRoleRecord extends StoredRoleFields {
   readonly revision: string;
   readonly status: 'draft' | 'published';
   readonly draft?: StoredRoleDraft;
+  /** Monotonic draft version used to detect concurrent draft edits (absent = 0). */
+  readonly draftVersion?: number;
   readonly publishedAt?: string;
   readonly updatedAt: string;
 }
@@ -278,6 +282,12 @@ export class RoleCatalogService {
     const id = roleId ?? createId('role_custom');
     const fallback = this.#draftFallback(id);
     const extended = normalizeExtendedFields(input, fallback);
+    // Concurrency guard: a draft version that no longer matches means someone
+    // else saved (or published) after this client loaded the draft. Reject
+    // before starting the command so nothing is applied and no operation record
+    // is created for a write that must not happen.
+    const currentRecord = this.#records().find((entry) => entry.id === id);
+    assertDraftVersion(input.expectedDraftVersion, currentRecord, '保存草稿');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'catalog.role.save',
@@ -303,9 +313,10 @@ export class RoleCatalogService {
             revision: builtin?.revision ?? 'r0',
             status: builtin === undefined ? 'draft' : 'published',
             draft,
+            draftVersion: 1,
             updatedAt: now,
           }
-        : { ...previous, ...(baseId === undefined ? {} : { baseId }), draft, updatedAt: now };
+        : { ...previous, ...(baseId === undefined ? {} : { baseId }), draft, draftVersion: (previous.draftVersion ?? 0) + 1, updatedAt: now };
       if (existing >= 0) records[existing] = next;
       else records.push(next);
       this.#saveRecords(records);
@@ -358,6 +369,8 @@ export class RoleCatalogService {
     if (index < 0) throw new AppError(ErrorCode.NOT_FOUND, '没有可发布的职业草稿', { details: { roleId: id } });
     const current = records[index]!;
     if (current.draft === undefined) throw new AppError(ErrorCode.VALIDATION_FAILED, '这个职业没有待发布的草稿');
+    // Publish exactly the draft the reviewer checked; a newer draft is a conflict.
+    assertDraftVersion(input.expectedDraftVersion, current, '发布');
     const { record, replayed } = this.#commands.begin({
       requestKey: input.requestKey,
       operation: 'catalog.role.publish',
@@ -420,7 +433,43 @@ export class RoleCatalogService {
     if (!BUILT_IN_ROLES.some((role) => role.id === id) && !this.#records().some((record) => record.id === id)) {
       throw new AppError(ErrorCode.NOT_FOUND, '职业不存在', { details: { roleId: id } });
     }
-    return { roleId: id, history: this.#history(id) };
+    // contentSha256 is derived on read so old snapshots (no hash stored) and
+    // fresh snapshots expose the same verifiable digest.
+    return { roleId: id, history: this.#history(id).map((entry) => ({ ...entry, contentSha256: roleContentSha256(entry) })) };
+  }
+
+  /**
+   * B-02「已发布版本核对」: read-only receipt for the exact published revision.
+   * It never publishes, never touches the draft and never changes frozen tasks;
+   * the caller can re-read it to verify the current publish reference.
+   */
+  publishedReceipt(roleId: string): RolePublishedReceiptResponse {
+    const id = normalizeId(roleId);
+    const entry = this.list().roles.find((item) => item.id === id);
+    if (entry === undefined) throw new AppError(ErrorCode.NOT_FOUND, '职业不存在', { details: { roleId: id } });
+    if (entry.status !== 'published') {
+      return { roleId: id, dependency: '这个职业还没有发布过' };
+    }
+    const historyEntry = this.#history(id).find((item) => item.revision === entry.revision);
+    const capabilities = (entry.capabilityGroups ?? [])
+      .flatMap((group) => group.items)
+      .filter((item) => item.enabled)
+      .map((item) => ({ id: item.id, label: item.label }));
+    const permissions = entry.resourcePermissions ?? emptyResourcePermissions();
+    const published: RolePublishedReceipt = {
+      roleId: id,
+      roleName: entry.name,
+      revision: entry.revision,
+      ...(historyEntry === undefined ? {} : { publishedAt: historyEntry.publishedAt }),
+      instructions: entry.instructions ?? defaultInstructions(entry),
+      responsibilities: entry.responsibilities,
+      capabilities,
+      allowedSlots: entry.allowedSlots ?? Object.values(RoleResponsibilitySlot),
+      resourceCount: resourceCount(permissions),
+      contentSha256: roleContentSha256(entry),
+      readAt: nowIso(),
+    };
+    return { roleId: id, published };
   }
 
   restore(roleId: string, revision: string, input: { requestKey: string; confirmRestore: true }): CommandResponse<RoleCatalogResponse> {
@@ -524,6 +573,8 @@ export class RoleCatalogService {
       status: record?.status ?? 'published',
       ...(record?.baseId === undefined ? {} : { baseId: record.baseId }),
       hasDraft,
+      ...(record?.draftVersion === undefined ? {} : { draftVersion: record.draftVersion }),
+      ...(draft === undefined ? {} : { draftRevision: draft.revision }),
       ...(record === undefined ? {} : { updatedAt: record.updatedAt }),
       ...(draft === undefined ? {} : { draft }),
       imageHistory: this.#imageHistory(resolved.id),
@@ -538,6 +589,8 @@ export class RoleCatalogService {
       status: 'draft',
       ...(record.baseId === undefined ? {} : { baseId: record.baseId }),
       hasDraft: true,
+      ...(record.draftVersion === undefined ? {} : { draftVersion: record.draftVersion }),
+      draftRevision: resolved.revision,
       updatedAt: record.updatedAt,
       draft: resolved,
       imageHistory: this.#imageHistory(record.id),
@@ -1089,6 +1142,58 @@ function normalizeId(value: unknown): string {
 }
 
 function hashPackage(value: string): string { return createHash('sha256').update(value).digest('hex'); }
+
+/**
+ * Deterministic content digest for a frozen role revision (B-02 内容摘要).
+ * Revision timestamps are excluded: two reads of the same published revision
+ * must produce the same digest, and publishing a new revision must change it.
+ */
+function roleContentSha256(role: RoleContentHashInput): string {
+  const payload = JSON.stringify({
+    name: role.name,
+    purpose: role.purpose,
+    responsibilities: role.responsibilities,
+    allowedSlots: role.allowedSlots ?? [],
+    instructions: role.instructions ?? '',
+    model: role.model ?? null,
+    maxRuntimeMinutes: role.maxRuntimeMinutes ?? null,
+    capabilityGroups: (role.capabilityGroups ?? []).map((group) => ({
+      id: group.id,
+      items: group.items.map((item) => ({ id: item.id, enabled: item.enabled })),
+    })),
+    resourcePermissions: role.resourcePermissions ?? emptyResourcePermissions(),
+    image: role.image ?? null,
+  });
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+interface RoleContentHashInput {
+  readonly name: string;
+  readonly purpose: string;
+  readonly responsibilities: readonly string[];
+  readonly allowedSlots?: readonly string[];
+  readonly instructions?: string;
+  readonly model?: string;
+  readonly maxRuntimeMinutes?: number;
+  readonly capabilityGroups?: readonly RoleCapabilityGroupView[];
+  readonly resourcePermissions?: RoleResourcePermissions;
+  readonly image?: RoleImageBinding;
+}
+
+/**
+ * 409 conflict guard for concurrent role draft edits. Only applied when the
+ * client sends a draft version (all current clients do); older clients keep the
+ * historical last-write-wins behaviour so their requests do not suddenly fail.
+ */
+function assertDraftVersion(expected: number | undefined, record: StoredRoleRecord | undefined, action: string): void {
+  if (expected === undefined) return;
+  if (!Number.isInteger(expected) || expected < 0) throw new AppError(ErrorCode.VALIDATION_FAILED, '草稿版本号不合法');
+  const current = record?.draftVersion ?? 0;
+  if (current === expected) return;
+  throw new AppError(ErrorCode.STALE_TARGET, `服务器上的草稿已更新（草稿版本 ${String(current)}），你的${action}没有执行；本地修改和服务器草稿都保留`, {
+    details: { action, expectedDraftVersion: expected, currentDraftVersion: current, currentRevision: record?.revision ?? null },
+  });
+}
 function normalizeAllowedSlots(values: readonly string[]): readonly string[] {
   if (!Array.isArray(values) || !values.length || values.some((value)=>!Object.values(RoleResponsibilitySlot).includes(value as never))) throw new AppError(ErrorCode.VALIDATION_FAILED,'角色职责位置不合法');
   return [...new Set(values)];
